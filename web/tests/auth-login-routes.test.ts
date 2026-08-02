@@ -43,5 +43,8 @@ test("WeCom start route converts startup failures into login errors", () => {
   assert.match(source, /try\s*{/);
   assert.match(source, /catch \(error\)/);
   assert.match(source, /authErrorCode\(error\)/);
-  assert.match(source, /NextResponse\.redirect\(`\/login\?error=\$\{authErrorCode\(error\)\}`\)/);
+  assert.match(source, /request\.nextUrl\.clone\(\)/);
+  assert.match(source, /loginUrl\.pathname = "\/login"/);
+  assert.match(source, /loginUrl\.search = `\?error=\$\{authErrorCode\(error\)\}`/);
+  assert.match(source, /NextResponse\.redirect\(loginUrl\)/);
 });

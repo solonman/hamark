@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (error) {
     console.error("WeCom login start failed", { error });
-    return NextResponse.redirect(`/login?error=${authErrorCode(error)}`);
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = `?error=${authErrorCode(error)}`;
+    return NextResponse.redirect(loginUrl);
   }
 }
