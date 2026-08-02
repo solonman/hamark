@@ -309,6 +309,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function mapWeComError(kind: WeComEndpointKind, errcode: number): AuthError {
+  if (errcode === 60020) {
+    return new AuthError("wecom_untrusted_ip", "WeCom rejected an untrusted server IP.");
+  }
+
   if (kind === "token") {
     return new AuthError("auth_misconfigured", "Unable to obtain WeCom application token.");
   }

@@ -16,6 +16,7 @@ const errorCodes = new Set([
   "wecom_department_unavailable",
   "wecom_member_unavailable",
   "wecom_token_unavailable",
+  "wecom_untrusted_ip",
   "wecom_userinfo_unavailable",
 ]);
 

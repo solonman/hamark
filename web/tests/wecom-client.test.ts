@@ -132,6 +132,10 @@ test("getMemberByCode maps WeCom auth and profile errors to AuthError codes with
   await assertWeComFailure([jsonResponse({ errcode: 42003 })], "auth_expired");
   await assertWeComFailure([jsonResponse({ errcode: 42022 })], "auth_expired");
   await assertWeComFailure(
+    [jsonResponse({ errcode: 60020, errmsg: "not allow to access from your ip" })],
+    "wecom_untrusted_ip",
+  );
+  await assertWeComFailure(
     [jsonResponse({ errcode: 50001, errmsg: "not allowed access-token" })],
     "member_not_allowed",
   );

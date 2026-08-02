@@ -20,6 +20,7 @@ const errorMessages: Record<string, string> = {
   database_schema_missing: "数据库表尚未初始化。",
   database_unreachable: "暂时无法连接数据库。",
   wecom_token_unavailable: "无法获取企业微信应用凭证，请检查应用 Secret。",
+  wecom_untrusted_ip: "企业微信拒绝了服务器 IP，请配置企业可信 IP。",
   wecom_userinfo_unavailable: "企业微信未能确认扫码成员身份。",
   wecom_member_unavailable: "暂时无法读取企业微信成员资料。",
   wecom_department_unavailable: "暂时无法读取企业微信部门信息。",

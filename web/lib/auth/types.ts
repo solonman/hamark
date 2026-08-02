@@ -25,7 +25,8 @@ export class AuthError extends Error {
       | "member_not_allowed"
       | "profile_unavailable"
       | "service_unavailable"
-      | "auth_misconfigured",
+      | "auth_misconfigured"
+      | "wecom_untrusted_ip",
     message: string,
   ) {
     super(message);
