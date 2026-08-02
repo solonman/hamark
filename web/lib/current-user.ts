@@ -1,32 +1,58 @@
-export type CurrentUser = {
-  email: string;
-  name: string;
-};
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { getAuthServices } from "@/lib/auth/server";
+import { getUserForToken, SESSION_COOKIE } from "@/lib/auth/session";
+import { safeReturnTo } from "@/lib/auth/security";
+import type { CurrentUser } from "@/lib/auth/types";
 
-const EMAIL_HEADER = "oai-authenticated-user-email";
-const NAME_HEADER = "oai-authenticated-user-full-name";
-const NAME_ENCODING_HEADER = "oai-authenticated-user-full-name-encoding";
+export type { CurrentUser } from "@/lib/auth/types";
 
-export function currentUserFromRequest(request: Request): CurrentUser {
-  const email = request.headers.get(EMAIL_HEADER)?.trim();
-  const encodedName = request.headers.get(NAME_HEADER);
-  const encoding = request.headers.get(NAME_ENCODING_HEADER);
+export async function getCurrentUserFromRequest(request: Request): Promise<CurrentUser | null> {
+  const cookieHeader = request.headers.get("cookie");
+  const token = readCookie(cookieHeader, SESSION_COOKIE);
+  return getUserForToken(getAuthServices().store, token);
+}
 
-  let name: string | null = null;
-  if (encodedName && encoding === "percent-encoded-utf-8") {
-    try {
-      name = decodeURIComponent(encodedName);
-    } catch {
-      name = null;
-    }
+export async function requireApiUser(request: Request): Promise<CurrentUser | Response> {
+  const user = await getCurrentUserFromRequest(request);
+  if (user) {
+    return user;
   }
 
-  return {
-    email: email || "demo@reverse.local",
-    name: name || (email ? email.split("@")[0] : "演示用户"),
-  };
+  const url = new URL(request.url);
+  const returnTo = safeReturnTo(`${url.pathname}${url.search}`);
+  return Response.json(
+    { error: "请先登录", loginUrl: `/login?return_to=${encodeURIComponent(returnTo)}` },
+    { status: 401 },
+  );
+}
+
+export async function requirePageUser(returnTo: string): Promise<CurrentUser> {
+  const cookieStore = await cookies();
+  const user = await getUserForToken(
+    getAuthServices().store,
+    cookieStore.get(SESSION_COOKIE)?.value ?? null,
+  );
+  if (user) {
+    return user;
+  }
+  redirect(`/login?return_to=${encodeURIComponent(safeReturnTo(returnTo))}`);
 }
 
 export function newId(prefix: string) {
   return `${prefix}_${crypto.randomUUID()}`;
+}
+
+function readCookie(header: string | null, name: string) {
+  if (!header) {
+    return null;
+  }
+
+  for (const part of header.split(";")) {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (rawKey === name) {
+      return decodeURIComponent(rawValue.join("="));
+    }
+  }
+  return null;
 }

@@ -1,7 +1,7 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
 import { loadAnnotation, validateAnnotation } from "@/lib/annotation-server";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser } from "@/lib/current-user";
 
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -15,10 +15,11 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { id: videoId } = await context.params;
-  const user = currentUserFromRequest(request);
-  const annotation = await loadAnnotation(videoId, user.email, user.name);
+  const annotation = await loadAnnotation(videoId, user.identityKey, user.displayName);
 
   if (!annotation.id) {
     return Response.json({ error: "请先保存作业。" }, { status: 400 });
@@ -68,8 +69,8 @@ export async function POST(
         snapshotId,
         annotation.id,
         videoId,
-        user.email,
-        user.name,
+        user.identityKey,
+        user.displayName,
         annotation.taxonomyVersion,
         annotation.revision,
         canonicalPayload,
@@ -91,7 +92,7 @@ export async function POST(
       )
       .bind(
         newId("audit"),
-        user.email,
+        user.identityKey,
         annotation.id,
         JSON.stringify({
           videoId,

@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser } from "@/lib/current-user";
 
 type ReplacementRow = {
   id: string;
@@ -24,8 +24,9 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
-  const user = currentUserFromRequest(request);
   const { id } = await context.params;
   const db = getDbClient();
   const video = await db
@@ -41,7 +42,7 @@ export async function PUT(
   if (!video) {
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
-  if (video.created_by_email !== user.email) {
+  if (video.created_by_email !== user.identityKey) {
     return Response.json(
       { error: "当前版本只有原上传者可以替换原视频。" },
       { status: 403 },
@@ -78,7 +79,7 @@ export async function PUT(
       httpMetadata: { contentType },
       customMetadata: {
         videoId: id,
-        uploader: user.email,
+        uploader: user.identityKey,
         replacement: "true",
       },
     });
@@ -98,7 +99,7 @@ export async function PUT(
           contentType,
           fileSize,
           id,
-          user.email,
+          user.identityKey,
         ),
       db
         .prepare(
@@ -108,7 +109,7 @@ export async function PUT(
         )
         .bind(
           newId("audit"),
-          user.email,
+          user.identityKey,
           id,
           JSON.stringify({
             previousObjectKey: video.object_key,

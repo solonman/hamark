@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser } from "@/lib/current-user";
 
 type VideoDetailRow = {
   id: string;
@@ -31,9 +31,10 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { id } = await context.params;
-  const user = currentUserFromRequest(request);
   const db = getDbClient();
   const video = await db
     .prepare(
@@ -99,7 +100,7 @@ export async function GET(
       contentHash: snapshot.content_hash,
       payload: JSON.parse(snapshot.payload_json),
     })),
-    canReplaceOriginal: video.created_by_email === user.email,
+    canReplaceOriginal: video.created_by_email === user.identityKey,
   });
 }
 
@@ -107,8 +108,9 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
-  const user = currentUserFromRequest(request);
   const { id } = await context.params;
   const db = getDbClient();
 
@@ -133,7 +135,7 @@ export async function DELETE(
           id, actor_email, action, object_type, object_id, detail_json
         ) VALUES (?, ?, 'VIDEO_MOVED_TO_TRASH', 'VIDEO', ?, '{}')`,
       )
-      .bind(newId("audit"), user.email, id),
+      .bind(newId("audit"), user.identityKey, id),
   ]);
 
   return Response.json({ ok: true });

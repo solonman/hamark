@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser } from "@/lib/current-user";
 
 type VideoRow = {
   id: string;
@@ -26,7 +26,9 @@ function tagsFromJson(value: string) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const result = await getDbClient()
     .prepare(
@@ -60,8 +62,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
-  const user = currentUserFromRequest(request);
   const body = (await request.json()) as {
     title?: string;
     brand?: string;
@@ -109,8 +112,8 @@ export async function POST(request: Request) {
         originalName,
         body.contentType || "application/octet-stream",
         Math.max(0, Number(body.fileSize) || 0),
-        user.email,
-        user.name,
+        user.identityKey,
+        user.displayName,
       ),
     db
       .prepare(
@@ -120,7 +123,7 @@ export async function POST(request: Request) {
       )
       .bind(
         newId("audit"),
-        user.email,
+        user.identityKey,
         id,
         JSON.stringify({ title, originalName }),
       ),

@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser } from "@/lib/current-user";
 import {
   REVIEW_RUBRIC_VERSION,
   calculateReviewTotal,
@@ -62,9 +62,10 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ snapshotId: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { snapshotId } = await context.params;
-  const user = currentUserFromRequest(request);
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {
     return Response.json({ error: "作业修订不存在。" }, { status: 404 });
@@ -80,7 +81,7 @@ export async function GET(
         FROM assignment_reviews
         WHERE submission_id = ? AND grader_email = ? AND deleted_at IS NULL`,
       )
-      .bind(snapshotId, user.email)
+      .bind(snapshotId, user.identityKey)
       .first<ReviewRow>(),
     db
       .prepare(
@@ -93,7 +94,7 @@ export async function GET(
       .first<{ valid_review_count: number; average_score: number | null }>(),
   ]);
 
-  const isSelf = snapshot.author_email === user.email;
+  const isSelf = snapshot.author_email === user.identityKey;
   return Response.json({
     review: review
       ? {
@@ -135,9 +136,10 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ snapshotId: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { snapshotId } = await context.params;
-  const user = currentUserFromRequest(request);
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {
     return Response.json({ error: "作业修订不存在。" }, { status: 404 });
@@ -160,7 +162,7 @@ export async function PUT(
       `SELECT id, revision FROM assignment_reviews
       WHERE submission_id = ? AND grader_email = ? AND deleted_at IS NULL`,
     )
-    .bind(snapshotId, user.email)
+    .bind(snapshotId, user.identityKey)
     .first<{ id: string; revision: number }>();
 
   if (existing && existing.revision !== Number(payload.revision ?? 0)) {
@@ -176,7 +178,7 @@ export async function PUT(
 
   const reviewId = existing?.id ?? newId("review");
   const nextRevision = (existing?.revision ?? 0) + 1;
-  const isValidForAggregate = snapshot.author_email === user.email ? 0 : 1;
+  const isValidForAggregate = snapshot.author_email === user.identityKey ? 0 : 1;
   if (existing) {
     await db
       .prepare(
@@ -187,7 +189,7 @@ export async function PUT(
         WHERE id = ? AND grader_email = ?`,
       )
       .bind(
-        user.name,
+        user.displayName,
         REVIEW_RUBRIC_VERSION,
         nextRevision,
         JSON.stringify(scores),
@@ -196,7 +198,7 @@ export async function PUT(
         discussionNomination ? 1 : 0,
         isValidForAggregate,
         reviewId,
-        user.email,
+        user.identityKey,
       )
       .run();
   } else {
@@ -214,8 +216,8 @@ export async function PUT(
         snapshotId,
         snapshot.video_id,
         snapshot.revision,
-        user.email,
-        user.name,
+        user.identityKey,
+        user.displayName,
         REVIEW_RUBRIC_VERSION,
         nextRevision,
         JSON.stringify(scores),
@@ -242,9 +244,10 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ snapshotId: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { snapshotId } = await context.params;
-  const user = currentUserFromRequest(request);
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {
     return Response.json({ error: "作业修订不存在。" }, { status: 404 });
@@ -259,7 +262,7 @@ export async function POST(
       FROM assignment_reviews
       WHERE submission_id = ? AND grader_email = ? AND deleted_at IS NULL`,
     )
-    .bind(snapshotId, user.email)
+    .bind(snapshotId, user.identityKey)
     .first<ReviewRow>();
   if (!review) {
     return Response.json({ error: "请先保存评分。" }, { status: 400 });
@@ -315,7 +318,7 @@ export async function POST(
         reviewSnapshotId,
         review.id,
         snapshotId,
-        user.email,
+        user.identityKey,
         REVIEW_RUBRIC_VERSION,
         review.revision,
         canonicalPayload,
@@ -336,7 +339,7 @@ export async function POST(
       )
       .bind(
         newId("audit"),
-        user.email,
+        user.identityKey,
         review.id,
         JSON.stringify({
           submissionId: snapshotId,
