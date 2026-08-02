@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   authFlowForUserAgent,
@@ -31,4 +32,16 @@ test("callback errors redirect with stable codes and never include OAuth code", 
   assert.equal(callbackErrorLocation(config, "auth_expired", "secret-code"), "/login?error=auth_expired");
   assert.equal(callbackErrorLocation(config, "unknown", "secret-code"), "/login?error=service_unavailable");
   assert.equal(callbackErrorLocation(config, "auth_cancelled", null), "/login?error=auth_cancelled");
+});
+
+test("WeCom start route converts startup failures into login errors", () => {
+  const source = readFileSync(
+    new URL("../app/api/auth/wecom/start/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /try\s*{/);
+  assert.match(source, /catch \(error\)/);
+  assert.match(source, /authErrorCode\(error\)/);
+  assert.match(source, /NextResponse\.redirect\(`\/login\?error=\$\{authErrorCode\(error\)\}`\)/);
 });

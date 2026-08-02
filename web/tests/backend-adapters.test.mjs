@@ -75,6 +75,13 @@ test("readCosConfig uses env-only Tencent COS settings", () => {
   }
 });
 
+test("Postgres pool fails fast when hosted database is unreachable", () => {
+  const source = readRepoFile("../db/index.ts");
+
+  assert.match(source, /connectionTimeoutMillis/);
+  assert.match(source, /POSTGRES_CONNECTION_TIMEOUT_MS/);
+});
+
 test("environment example documents only the expected auth variables with safe placeholders", () => {
   const envExample = readRepoFile("../.env.example");
   const entries = new Map(

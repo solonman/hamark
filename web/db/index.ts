@@ -43,6 +43,7 @@ function getPool() {
           ? false
           : { rejectUnauthorized: false },
       max: Number(process.env.DATABASE_POOL_MAX || 5),
+      connectionTimeoutMillis: Number(process.env.POSTGRES_CONNECTION_TIMEOUT_MS || 8000),
     });
   }
   return pool;
