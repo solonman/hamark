@@ -27,7 +27,23 @@ npm run dev
 
 访问：`http://localhost:3000/`
 
-运行前需要在 `.env.local` 中配置 Supabase Postgres 和腾讯云COS。没有工作区身份头时，写入身份显示为“演示用户”。
+运行前需要在 `.env.local` 中配置 Supabase Postgres、腾讯云COS和企业微信登录变量。
+
+企业微信登录相关变量：
+
+```env
+APP_URL=https://hamark.boga.plus
+AUTH_SECRET=replace-with-at-least-32-random-bytes-base64url
+WECOM_CORP_ID=wwxxxxxxxxxxxxxxxx
+WECOM_AGENT_ID=1000002
+WECOM_SECRET=replace-with-wecom-app-secret
+```
+
+生成 `AUTH_SECRET`：
+
+```bash
+openssl rand -base64 48 | tr -d '\n'
+```
 
 ## Vercel部署
 
@@ -38,6 +54,15 @@ Vercel项目的 Root Directory 必须设置为 `web`。
 - Output：使用Vercel自动识别的Next.js输出
 
 不要把默认构建命令改成 `npm run build:vinext`；那是Cloudflare Worker兼容构建，Vercel不能直接作为Next.js站点托管。
+
+Vercel 环境变量必须配置在 Production 环境。Preview 只有在其精确回调域名也登记到企业微信时，才需要单独配置对应的 Preview 值。企业微信后台需配置：
+
+- 回调 URL：`https://hamark.boga.plus/api/auth/wecom/callback`
+- 可信域名：`hamark.boga.plus`
+
+企业微信应用的可见范围控制哪些成员有登录资格。部署认证代码前，先在 Supabase 执行新增 SQL 迁移；当前认证路径不再保留 demo-user fallback。
+
+生产验收还需要在密钥配置完成后执行两项登录检查：一次桌面浏览器企业微信二维码扫码登录，一次企业微信客户端内登录。
 
 ## 检查命令
 

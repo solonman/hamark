@@ -13,7 +13,7 @@
 → 自动保存 → 提交不可变快照 → 公开阅读 → 原位百分制评分
 ```
 
-当前源码已改为通过环境变量连接 Supabase Postgres 和腾讯云 COS。但它还不是可以直接向全公司开放的生产版本：正式上线前必须接入企业微信、取消演示身份兜底、建立正式权限，并完成生产级上传、备份和权限验收。
+当前源码已改为通过环境变量连接 Supabase Postgres 和腾讯云 COS，并以企业微信作为生产身份入口。它还不是可以直接向全公司开放的生产版本：正式上线前必须确认企业微信应用可见范围、建立正式权限，并完成生产级上传、备份和权限验收。认证路径不再保留 demo-user fallback。
 
 ## 目录入口
 
@@ -41,6 +41,30 @@ npm run dev
 
 如部署到Vercel，项目 Root Directory 必须设为 `web`，并使用默认的 `npm run build`。`npm run build:vinext` 仅用于Cloudflare Worker兼容构建，不适合作为Vercel站点输出。
 
+## 企业微信认证上线前检查
+
+Supabase SQL 新增迁移必须在认证代码部署前执行。部署认证代码前，必须先在 Supabase SQL 编辑器执行新增迁移，确保企业微信身份字段和会话表结构已存在。
+
+Vercel Production 环境变量必须配置完整：
+
+```env
+APP_URL=https://hamark.boga.plus
+AUTH_SECRET=replace-with-at-least-32-random-bytes-base64url
+WECOM_CORP_ID=wwxxxxxxxxxxxxxxxx
+WECOM_AGENT_ID=1000002
+WECOM_SECRET=replace-with-wecom-app-secret
+```
+
+生成 `AUTH_SECRET`：
+
+```bash
+openssl rand -base64 48 | tr -d '\n'
+```
+
+Preview 只有在其精确回调域名也登记到企业微信时，才需要单独配置对应的 Preview 值。企业微信后台需配置回调 URL `https://hamark.boga.plus/api/auth/wecom/callback`，可信域名 `hamark.boga.plus`。
+
+企业微信应用的可见范围控制成员登录资格；不在可见范围内的成员不应能完成登录。密钥配置后，剩余生产验证至少包括一次桌面浏览器企业微信二维码扫码登录，以及一次企业微信客户端内登录检查。
+
 完整验收：
 
 ```bash
@@ -63,11 +87,10 @@ npm test
 
 ## 严禁直接照搬到生产的部分
 
-1. `web/lib/current-user.ts` 在缺少真实身份头时会退回 `demo@reverse.local`；生产环境必须改为拒绝访问。
-2. 企业微信OAuth、部门同步和正式角色权限尚未实施。
-3. 当前数据库和视频存储已切到 Supabase Postgres 与私有 COS，但仍需完成生产级备份、容量、权限和迁移验收。
-4. 当前上传适合演示；生产大文件应采用分块直传、暂停恢复和失败清理。
-5. 本地演示视频与分析仅限公司内部学习，不得发布为匿名公开资源。
+1. 企业微信部门同步和正式角色权限仍需完成业务验收。
+2. 当前数据库和视频存储已切到 Supabase Postgres 与私有 COS，但仍需完成生产级备份、容量、权限和迁移验收。
+3. 当前上传适合演示；生产大文件应采用分块直传、暂停恢复和失败清理。
+4. 本地演示视频与分析仅限公司内部学习，不得发布为匿名公开资源。
 
 ## 正式方案基线
 
