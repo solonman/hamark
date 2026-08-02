@@ -1,0 +1,34 @@
+.DS_Store
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Build and runtime output
+.next/
+.vinext/
+dist/
+out/
+coverage/
+outputs/
+work/
+
+# Cloudflare local development state
+.wrangler/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+
+# Editor and OS metadata
+.idea/
+.vscode/

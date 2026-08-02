@@ -1,0 +1,91 @@
+import type { AnnotationFieldCode } from "./annotation-fields";
+
+export type VideoStatus = "UPLOADING" | "READY" | "FAILED";
+
+export type VideoItem = {
+  id: string;
+  title: string;
+  brand: string;
+  description: string;
+  tags: string[];
+  originalName: string;
+  contentType: string;
+  fileSize: number;
+  status: VideoStatus;
+  createdByName: string;
+  createdAt: string;
+  annotationCount: number;
+};
+
+export type ShotDraft = {
+  id: string;
+  orderIndex: number;
+  groupName: string;
+  shotNumber: string;
+  startTime: string;
+  endTime: string;
+  shotSize: string;
+  cameraAngle: string;
+  cameraMovement: string;
+  visualContent: string;
+  dialogue: string;
+  voiceover: string;
+  screenText: string;
+  soundEffect: string;
+  music: string;
+  creativeComment: string;
+};
+
+export type FieldAnswerDraft = {
+  code: AnnotationFieldCode;
+  answer: string;
+  evidence: string;
+};
+
+export type AnnotationDraft = {
+  id: string | null;
+  videoId: string;
+  authorName: string;
+  taxonomyVersion: "V0.2";
+  status: "DRAFT" | "SUBMITTED";
+  revision: number;
+  analysisTitle: string;
+  commercialIntent: string;
+  creativeTheme: string;
+  synopsis: string;
+  thinkingChain: string;
+  shotCommentary: string;
+  summary: string;
+  shots: ShotDraft[];
+  fields: FieldAnswerDraft[];
+  updatedAt: string | null;
+};
+
+export type SubmittedAnalysis = {
+  id: string;
+  authorName: string;
+  taxonomyVersion: string;
+  revision: number;
+  createdAt: string;
+  contentHash: string;
+  payload: AnnotationDraft;
+};
+
+export type AssignmentReviewDraft = {
+  id: string | null;
+  submissionId: string;
+  rubricVersion: "RUBRIC-V0.4";
+  status: "DRAFT" | "SUBMITTED";
+  revision: number;
+  scores: Record<string, number | null>;
+  totalScore: number;
+  generalComment: string;
+  discussionNomination: boolean;
+  isValidForAggregate: boolean;
+  updatedAt: string | null;
+};
+
+export type AssignmentReviewAggregate = {
+  validReviewCount: number;
+  averageScore: number | null;
+};
