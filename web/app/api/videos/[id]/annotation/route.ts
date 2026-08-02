@@ -2,7 +2,7 @@ import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, type DbPreparedStatement } from "@/db";
 import { loadAnnotation } from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
-import { newId, requireApiUser } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import type { AnnotationDraft } from "@/lib/types";
 
 export async function GET(
@@ -43,6 +43,8 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   await ensureSchema();

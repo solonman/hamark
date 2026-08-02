@@ -87,7 +87,7 @@ test("environment example documents only the expected auth variables with safe p
 
   const expectedAuthEntries = new Map([
     ["APP_URL", "https://hamark.boga.plus"],
-    ["AUTH_SECRET", "replace-with-at-least-32-random-bytes-base64url"],
+    ["AUTH_SECRET", "replace-with-at-least-32-random-bytes-base64"],
     ["WECOM_CORP_ID", "wwxxxxxxxxxxxxxxxx"],
     ["WECOM_AGENT_ID", "1000002"],
     ["WECOM_SECRET", "replace-with-wecom-app-secret"],
@@ -134,7 +134,7 @@ test("documentation and tests do not contain real-looking secrets", () => {
     "wwxxxxxxxxxxxxxxxx",
     "AKIDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-    "replace-with-at-least-32-random-bytes-base64url",
+    "replace-with-at-least-32-random-bytes-base64",
     "replace-with-wecom-app-secret",
   ];
 

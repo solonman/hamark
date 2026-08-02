@@ -33,7 +33,7 @@ npm run dev
 
 ```env
 APP_URL=https://hamark.boga.plus
-AUTH_SECRET=replace-with-at-least-32-random-bytes-base64url
+AUTH_SECRET=replace-with-at-least-32-random-bytes-base64
 WECOM_CORP_ID=wwxxxxxxxxxxxxxxxx
 WECOM_AGENT_ID=1000002
 WECOM_SECRET=replace-with-wecom-app-secret
@@ -62,6 +62,8 @@ Vercel 环境变量必须配置在 Production 环境。Preview 只有在其精�
 
 企业微信应用的可见范围控制哪些成员有登录资格。部署认证代码前，先在 Supabase 执行新增 SQL 迁移；当前认证路径不再保留 demo-user fallback。
 
+`DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接。认证相关表开启了 RLS，但没有面向浏览器或 anon 角色的策略；运行时数据库访问应只发生在 Next.js 服务端。
+
 生产验收还需要在密钥配置完成后执行两项登录检查：一次桌面浏览器企业微信二维码扫码登录，一次企业微信客户端内登录。
 
 ## 检查命令
@@ -82,4 +84,4 @@ npm test
 
 ## 当前边界
 
-这是用来验证“一支视频完整走通上传、观看、逆向标注、提交、公开回看和原位批改”的可运行纵向切片，不等同于完整MVP。企业微信、正式互评分配、评选活动、管理员精修与Excel导出、视频转码和AI拆解尚未进入本版。
+这是用来验证“一支视频完整走通上传、观看、逆向标注、提交、公开回看和原位批改”的可运行纵向切片，不等同于完整MVP。企业微信登录已作为生产身份入口接入；正式互评分配、评选活动、管理员精修与Excel导出、视频转码和AI拆解尚未进入本版。

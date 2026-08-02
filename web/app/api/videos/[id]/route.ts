@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
-import { newId, requireApiUser } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type VideoDetailRow = {
   id: string;
@@ -108,6 +108,8 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   await ensureSchema();
@@ -115,28 +117,34 @@ export async function DELETE(
   const db = getDbClient();
 
   const existing = await db
-    .prepare(`SELECT id FROM videos WHERE id = ? AND deleted_at IS NULL`)
+    .prepare(`SELECT id, created_by_email FROM videos WHERE id = ? AND deleted_at IS NULL`)
     .bind(id)
-    .first();
+    .first<{ id: string; created_by_email: string }>();
   if (!existing) {
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
+  if (existing.created_by_email !== user.identityKey) {
+    return Response.json({ error: "只有原上传者可以删除视频。" }, { status: 403 });
+  }
 
-  await db.batch([
-    db
-      .prepare(
-        `UPDATE videos SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?`,
-      )
-      .bind(id),
-    db
-      .prepare(
-        `INSERT INTO audit_logs (
-          id, actor_email, action, object_type, object_id, detail_json
-        ) VALUES (?, ?, 'VIDEO_MOVED_TO_TRASH', 'VIDEO', ?, '{}')`,
-      )
-      .bind(newId("audit"), user.identityKey, id),
-  ]);
+  const deleteResult = await db
+    .prepare(
+      `UPDATE videos SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND created_by_email = ? AND deleted_at IS NULL`,
+    )
+    .bind(id, user.identityKey)
+    .run();
+  if (deleteResult.meta.rows_written !== 1) {
+    return Response.json({ error: "视频状态已变化，请刷新后重试。" }, { status: 409 });
+  }
+  await db
+    .prepare(
+      `INSERT INTO audit_logs (
+        id, actor_email, action, object_type, object_id, detail_json
+      ) VALUES (?, ?, 'VIDEO_MOVED_TO_TRASH', 'VIDEO', ?, '{}')`,
+    )
+    .bind(newId("audit"), user.identityKey, id)
+    .run();
 
   return Response.json({ ok: true });
 }

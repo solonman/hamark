@@ -1,15 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth/session";
 
-const publicPrefixes = [
+const publicExact = new Set([
   "/login",
   "/api/auth/logout",
   "/api/auth/wecom/start",
   "/api/auth/wecom/callback",
-  "/_next/",
-];
+  "/favicon.svg",
+  "/og.png",
+]);
 
-const publicExact = new Set(["/favicon.svg", "/og.png"]);
+const publicPrefixes = ["/_next/"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

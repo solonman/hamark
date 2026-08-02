@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
-import { newId, requireApiUser } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type ReplacementRow = {
   id: string;
@@ -24,6 +24,8 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   await ensureSchema();
@@ -125,8 +127,9 @@ export async function PUT(
     ]);
   } catch (error) {
     await bucket.delete(replacementKey).catch(() => undefined);
-    const message = error instanceof Error ? error.message : "替换失败";
-    return Response.json({ error: message }, { status: 500 });
+    const requestId = newId("replace_error");
+    console.error("Video replacement failed", { requestId, videoId: id, error });
+    return Response.json({ error: "替换失败，请稍后重试。", requestId }, { status: 500 });
   }
 
   return Response.json({

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { isTrustedOrigin } from "@/lib/auth/routes";
 import { getAuthServices } from "@/lib/auth/server";
 import { getUserForToken, SESSION_COOKIE } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/security";
@@ -25,6 +26,14 @@ export async function requireApiUser(request: Request): Promise<CurrentUser | Re
     { error: "请先登录", loginUrl: `/login?return_to=${encodeURIComponent(returnTo)}` },
     { status: 401 },
   );
+}
+
+export function requireSameOriginMutation(request: Request): Response | null {
+  if (isTrustedOrigin(request.headers.get("origin"), getAuthServices().config)) {
+    return null;
+  }
+
+  return Response.json({ error: "请求来源不被允许。" }, { status: 403 });
 }
 
 export async function requirePageUser(returnTo: string): Promise<CurrentUser> {

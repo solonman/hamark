@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
-import { newId, requireApiUser } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import {
   REVIEW_RUBRIC_VERSION,
   calculateReviewTotal,
@@ -136,6 +136,8 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ snapshotId: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   await ensureSchema();
@@ -244,6 +246,8 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ snapshotId: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   await ensureSchema();

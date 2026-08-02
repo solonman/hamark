@@ -20,7 +20,7 @@
 - `README.md`：产品总览和本地启动方法；
 - `web/`：完整网站源码；
 - `web/package-lock.json`：锁定依赖，使用 `npm ci` 安装；
-- `web/.env.example`：Supabase Postgres 和腾讯云 COS 配置模板；
+- `web/.env.example`：Supabase Postgres、腾讯云 COS、企业微信认证配置模板；
 - `web/db/supabase.sql`：Supabase Postgres 初始化 SQL；
 - `web/.wrangler/state/`：历史本地演示数据快照，仅限内部开发演示，不再作为运行时数据源；
 - `docs/`：产品、数据模型、交互、技术选型和验收资料；
@@ -49,7 +49,7 @@ Vercel Production 环境变量必须配置完整：
 
 ```env
 APP_URL=https://hamark.boga.plus
-AUTH_SECRET=replace-with-at-least-32-random-bytes-base64url
+  AUTH_SECRET=replace-with-at-least-32-random-bytes-base64
 WECOM_CORP_ID=wwxxxxxxxxxxxxxxxx
 WECOM_AGENT_ID=1000002
 WECOM_SECRET=replace-with-wecom-app-secret
@@ -62,6 +62,8 @@ openssl rand -base64 48 | tr -d '\n'
 ```
 
 Preview 只有在其精确回调域名也登记到企业微信时，才需要单独配置对应的 Preview 值。企业微信后台需配置回调 URL `https://hamark.boga.plus/api/auth/wecom/callback`，可信域名 `hamark.boga.plus`。
+
+`DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接，不是 Supabase anon key。认证相关表开启了 RLS，但不提供浏览器侧策略；运行时数据库访问只应发生在 Next.js 服务端。
 
 企业微信应用的可见范围控制成员登录资格；不在可见范围内的成员不应能完成登录。密钥配置后，剩余生产验证至少包括一次桌面浏览器企业微信二维码扫码登录，以及一次企业微信客户端内登录检查。
 

@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
-import { newId, requireApiUser } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type UploadRow = {
   id: string;
@@ -15,6 +15,8 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   await ensureSchema();
@@ -85,8 +87,9 @@ export async function PUT(
       )
       .bind(id)
       .run();
-    const message = error instanceof Error ? error.message : "上传失败";
-    return Response.json({ error: message }, { status: 500 });
+    const requestId = newId("upload_error");
+    console.error("Video upload failed", { requestId, videoId: id, error });
+    return Response.json({ error: "上传失败，请稍后重试。", requestId }, { status: 500 });
   }
 
   return Response.json({ ok: true, videoId: id });
