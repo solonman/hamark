@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSession, getUserForToken, revokeToken } from "../lib/auth/session.ts";
+import { hashToken } from "../lib/auth/security.ts";
 import { PostgresAuthStore } from "../lib/auth/store.ts";
 import type {
   AuthStore,
@@ -167,6 +169,30 @@ test("Session lookup returns valid users and rejects expired or revoked sessions
 
   await store.revokeSession("valid-token", "2026-08-02T11:40:00.000Z");
   assert.equal(await store.getSession("valid-token", "2026-08-02T11:41:00.000Z"), null);
+});
+
+test("createSession stores only the token hash", async () => {
+  const store = new InMemoryAuthStore();
+  const user = await store.syncUser(
+    "corp-a",
+    member({
+      departments: [{ id: "1", name: "Brand", isPrimary: true }],
+    }),
+    "identity-alice",
+    "2026-08-02T00:00:00.000Z",
+  );
+
+  const result = await createSession(store, user, new Date("2026-08-02T00:00:00.000Z"));
+  const persisted = store.peekSessionByUserId(user.id);
+
+  assert.ok(persisted);
+  assert.equal(persisted.tokenHash, await hashToken(result.token));
+  assert.notEqual(persisted.tokenHash, result.token);
+  assert.equal(result.expiresAt.toISOString(), "2026-08-03T00:00:00.000Z");
+  assert.deepEqual(await getUserForToken(store, result.token, new Date("2026-08-02T01:00:00.000Z")), user);
+
+  await revokeToken(store, result.token, new Date("2026-08-02T02:00:00.000Z"));
+  assert.equal(await getUserForToken(store, result.token, new Date("2026-08-02T02:01:00.000Z")), null);
 });
 
 test("App token read rejects expired tokens", async () => {
@@ -392,6 +418,15 @@ class InMemoryAuthStore implements AuthStore {
 
   async createSession(input: NewSession): Promise<void> {
     this.sessions.set(input.tokenHash, { ...input, revokedAt: null });
+  }
+
+  peekSessionByUserId(userId: string): (NewSession & { revokedAt: string | null }) | null {
+    for (const session of this.sessions.values()) {
+      if (session.userId === userId) {
+        return session;
+      }
+    }
+    return null;
   }
 
   async getSession(tokenHash: string, now: string): Promise<CurrentUser | null> {
