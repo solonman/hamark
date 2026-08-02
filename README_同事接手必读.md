@@ -13,15 +13,16 @@
 → 自动保存 → 提交不可变快照 → 公开阅读 → 原位百分制评分
 ```
 
-当前源码可直接在本地运行，也保留了Cloudflare D1＋R2的演示托管配置。但它还不是可以直接向全公司开放的生产版本：正式上线前必须接入企业微信、取消演示身份兜底、建立正式权限，并完成生产数据库和视频存储方案。
+当前源码已改为通过环境变量连接 Supabase Postgres 和腾讯云 COS。但它还不是可以直接向全公司开放的生产版本：正式上线前必须接入企业微信、取消演示身份兜底、建立正式权限，并完成生产级上传、备份和权限验收。
 
 ## 目录入口
 
 - `README.md`：产品总览和本地启动方法；
 - `web/`：完整网站源码；
 - `web/package-lock.json`：锁定依赖，使用 `npm ci` 安装；
-- `web/.openai/hosting.json`：当前演示托管的逻辑数据库和视频存储绑定；
-- `web/.wrangler/state/`：本地演示数据快照，仅限内部开发演示；
+- `web/.env.example`：Supabase Postgres 和腾讯云 COS 配置模板；
+- `web/db/supabase.sql`：Supabase Postgres 初始化 SQL；
+- `web/.wrangler/state/`：历史本地演示数据快照，仅限内部开发演示，不再作为运行时数据源；
 - `docs/`：产品、数据模型、交互、技术选型和验收资料；
 - `参考资料/`：V0.2权威标准表和三菱汽车完成版样例。
 
@@ -32,6 +33,7 @@
 ```bash
 cd web
 npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
@@ -61,7 +63,7 @@ npm test
 
 1. `web/lib/current-user.ts` 在缺少真实身份头时会退回 `demo@reverse.local`；生产环境必须改为拒绝访问。
 2. 企业微信OAuth、部门同步和正式角色权限尚未实施。
-3. 当前演示数据使用D1和R2；正式腾讯云方案应按技术基线迁移至PostgreSQL和私有COS。
+3. 当前数据库和视频存储已切到 Supabase Postgres 与私有 COS，但仍需完成生产级备份、容量、权限和迁移验收。
 4. 当前上传适合演示；生产大文件应采用分块直传、暂停恢复和失败清理。
 5. 本地演示视频与分析仅限公司内部学习，不得发布为匿名公开资源。
 
@@ -79,4 +81,3 @@ npm test
 - 首版不使用Kubernetes，不默认启用CDN。
 
 接手人应先完整阅读详细部署清单，再申请域名、云资源或修改身份模块。
-

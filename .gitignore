@@ -8,6 +8,7 @@ node_modules/
 # Build and runtime output
 .next/
 .vinext/
+*.tsbuildinfo
 dist/
 out/
 coverage/
@@ -27,6 +28,7 @@ yarn-error.log*
 # Local environment and secrets
 .env
 .env.*
+!.env.example
 *.pem
 
 # Editor and OS metadata

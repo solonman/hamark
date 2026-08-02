@@ -1,4 +1,4 @@
-import { getD1 } from "./index";
+import { getDbClient } from "./index";
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS videos (
@@ -139,9 +139,9 @@ let ready: Promise<void> | null = null;
 
 export function ensureSchema() {
   if (!ready) {
-    const d1 = getD1();
-    ready = d1
-      .batch(statements.map((statement) => d1.prepare(statement)))
+    const db = getDbClient();
+    ready = db
+      .batch(statements.map((statement) => db.prepare(statement)))
       .then(() => undefined)
       .catch((error: unknown) => {
         ready = null;

@@ -1,36 +1,137 @@
-import { env } from "cloudflare:workers";
-import { drizzle } from "drizzle-orm/d1";
-import * as schema from "./schema";
+import pg from "pg";
+import { getRequiredEnv } from "@/lib/env";
+import { CosVideoBucket } from "@/storage/cos";
+import { translateSqlPlaceholders } from "./sql";
 
-type AppBindings = {
-  DB: D1Database;
-  VIDEOS: R2Bucket;
+type QueryValue = string | number | boolean | null;
+type QueryClient = pg.Pool | pg.PoolClient;
+
+export type QueryResultRow = Record<string, unknown>;
+
+export type DbAllResult<T> = {
+  results: T[];
 };
 
-function getBindings() {
-  return env as unknown as AppBindings;
+export type DbRunResult = {
+  success: boolean;
+  meta: {
+    rows_read: number;
+    rows_written: number;
+  };
+};
+
+const { Pool } = pg;
+
+let pool: pg.Pool | null = null;
+
+function normalizeSql(sql: string) {
+  return sql.replace(/\bCURRENT_TIMESTAMP\b/g, "(CURRENT_TIMESTAMP::text)");
 }
 
-export function getD1() {
-  const binding = getBindings().DB;
-  if (!binding) {
-    throw new Error(
-      "Cloudflare D1 binding `DB` is unavailable. Set the `d1` field in .openai/hosting.json to `DB`.",
-    );
+export { translateSqlPlaceholders };
+
+function getPool() {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: getRequiredEnv("DATABASE_URL"),
+      ssl:
+        process.env.SUPABASE_DB_SSL === "false"
+          ? false
+          : { rejectUnauthorized: false },
+      max: Number(process.env.DATABASE_POOL_MAX || 5),
+    });
   }
-  return binding;
+  return pool;
 }
 
-export function getDb() {
-  return drizzle(getD1(), { schema });
+export class DbPreparedStatement {
+  private values: QueryValue[] = [];
+  private readonly client: QueryClient;
+  private readonly sql: string;
+
+  constructor(client: QueryClient, sql: string) {
+    this.client = client;
+    this.sql = sql;
+  }
+
+  bind(...values: QueryValue[]) {
+    this.values = values;
+    return this;
+  }
+
+  private queryText() {
+    return translateSqlPlaceholders(normalizeSql(this.sql));
+  }
+
+  withClient(client: QueryClient) {
+    return new DbPreparedStatement(client, this.sql).bind(...this.values);
+  }
+
+  async all<T extends QueryResultRow = QueryResultRow>(): Promise<DbAllResult<T>> {
+    const result = await this.client.query<T>(this.queryText(), this.values);
+    return { results: result.rows };
+  }
+
+  async first<T extends QueryResultRow = QueryResultRow>(): Promise<T | null> {
+    const result = await this.client.query<T>(this.queryText(), this.values);
+    return result.rows[0] ?? null;
+  }
+
+  async run(): Promise<DbRunResult> {
+    const result = await this.client.query(this.queryText(), this.values);
+    return {
+      success: true,
+      meta: {
+        rows_read: 0,
+        rows_written: result.rowCount ?? 0,
+      },
+    };
+  }
+}
+
+export class DbClient {
+  private readonly client: pg.Pool;
+
+  constructor(client: pg.Pool) {
+    this.client = client;
+  }
+
+  prepare(sql: string) {
+    return new DbPreparedStatement(this.client, sql);
+  }
+
+  async batch(statements: DbPreparedStatement[]) {
+    const client = await this.client.connect();
+    try {
+      await client.query("BEGIN");
+      const results = [];
+      for (const statement of statements) {
+        results.push(await statement.withClient(client).run());
+      }
+      await client.query("COMMIT");
+      return results;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+let db: DbClient | null = null;
+let videoBucket: CosVideoBucket | null = null;
+
+export function getDbClient() {
+  if (!db) {
+    db = new DbClient(getPool());
+  }
+  return db;
 }
 
 export function getVideoBucket() {
-  const binding = getBindings().VIDEOS;
-  if (!binding) {
-    throw new Error(
-      "Cloudflare R2 binding `VIDEOS` is unavailable. Set the `r2` field in .openai/hosting.json to `VIDEOS`.",
-    );
+  if (!videoBucket) {
+    videoBucket = new CosVideoBucket();
   }
-  return binding;
+  return videoBucket;
 }

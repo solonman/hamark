@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1, getVideoBucket } from "@/db";
+import { getDbClient, getVideoBucket } from "@/db";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
 
 type ReplacementRow = {
@@ -27,8 +27,8 @@ export async function PUT(
   await ensureSchema();
   const user = currentUserFromRequest(request);
   const { id } = await context.params;
-  const d1 = getD1();
-  const video = await d1
+  const db = getDbClient();
+  const video = await db
     .prepare(
       `SELECT id, object_key, original_name, content_type, file_size,
         created_by_email
@@ -83,8 +83,8 @@ export async function PUT(
       },
     });
 
-    await d1.batch([
-      d1
+    await db.batch([
+      db
         .prepare(
           `UPDATE videos
           SET object_key = ?, original_name = ?, content_type = ?, file_size = ?,
@@ -100,7 +100,7 @@ export async function PUT(
           id,
           user.email,
         ),
-      d1
+      db
         .prepare(
           `INSERT INTO audit_logs (
             id, actor_email, action, object_type, object_id, detail_json

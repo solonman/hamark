@@ -5,7 +5,7 @@
 ## 已实现
 
 - 统一视频展台与片名／品牌／标签／作者搜索；
-- 本地视频上传、R2对象存储和网页播放；普通成员不提供原片下载；
+- 视频上传、腾讯云COS对象存储和网页播放；普通成员不提供原片下载；
 - 个人作业约1秒自动保存，通过单一入口发布新修订；
 - 单页纵向完成核心判断、逐镜脚本、创意构成A1–A9和故事组织B1–B10；
 - 所有作业固定绑定标注体系`V0.2`；
@@ -21,12 +21,13 @@
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
 访问：`http://localhost:3000/`
 
-本地开发使用D1和R2模拟环境；没有工作区身份头时，写入身份显示为“演示用户”。
+运行前需要在 `.env.local` 中配置 Supabase Postgres 和腾讯云COS。没有工作区身份头时，写入身份显示为“演示用户”。
 
 ## 检查命令
 
@@ -36,17 +37,11 @@ npx tsc --noEmit
 npm test
 ```
 
-数据库结构修改后：
-
-```bash
-npm run db:generate
-```
-
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；
-- `db/`：关系数据结构及本地初始化；
-- `drizzle/`：可发布的数据库迁移；
+- `db/`：Supabase Postgres 初始化SQL和运行时访问层；
+- `storage/`：腾讯云COS对象存储适配层；
 - `lib/annotation-fields.ts`：V0.2的A1–A9、B1–B10字段入口；
 - `public/og.png`：网站分享预览图。
 

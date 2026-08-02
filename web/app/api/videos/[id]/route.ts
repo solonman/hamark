@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1 } from "@/db";
+import { getDbClient } from "@/db";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
 
 type VideoDetailRow = {
@@ -34,8 +34,8 @@ export async function GET(
   await ensureSchema();
   const { id } = await context.params;
   const user = currentUserFromRequest(request);
-  const d1 = getD1();
-  const video = await d1
+  const db = getDbClient();
+  const video = await db
     .prepare(
       `SELECT id, title, brand, description, tags_json, original_name,
         content_type, file_size, status, created_by_email, created_by_name, created_at
@@ -49,7 +49,7 @@ export async function GET(
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
 
-  const snapshots = await d1
+  const snapshots = await db
     .prepare(
       `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
         s.payload_json, s.content_hash, s.created_at
@@ -110,9 +110,9 @@ export async function DELETE(
   await ensureSchema();
   const user = currentUserFromRequest(request);
   const { id } = await context.params;
-  const d1 = getD1();
+  const db = getDbClient();
 
-  const existing = await d1
+  const existing = await db
     .prepare(`SELECT id FROM videos WHERE id = ? AND deleted_at IS NULL`)
     .bind(id)
     .first();
@@ -120,14 +120,14 @@ export async function DELETE(
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
 
-  await d1.batch([
-    d1
+  await db.batch([
+    db
       .prepare(
         `UPDATE videos SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
       )
       .bind(id),
-    d1
+    db
       .prepare(
         `INSERT INTO audit_logs (
           id, actor_email, action, object_type, object_id, detail_json

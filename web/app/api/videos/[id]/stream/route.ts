@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1, getVideoBucket } from "@/db";
+import { getDbClient, getVideoBucket } from "@/db";
 
 type StreamRow = {
   object_key: string;
@@ -13,7 +13,7 @@ export async function GET(
 ) {
   await ensureSchema();
   const { id } = await context.params;
-  const video = await getD1()
+  const video = await getDbClient()
     .prepare(
       `SELECT object_key, content_type, status
       FROM videos WHERE id = ? AND deleted_at IS NULL`,

@@ -1,4 +1,4 @@
-import { getD1 } from "@/db";
+import { getDbClient } from "@/db";
 import { annotationFields } from "./annotation-fields";
 import type { AnnotationDraft, FieldAnswerDraft, ShotDraft } from "./types";
 
@@ -77,8 +77,8 @@ export async function loadAnnotation(
   authorEmail: string,
   authorName: string,
 ) {
-  const d1 = getD1();
-  const row = await d1
+  const db = getDbClient();
+  const row = await db
     .prepare(
       `SELECT id, video_id, author_name, taxonomy_version, status, revision,
         analysis_title, commercial_intent, creative_theme, synopsis,
@@ -94,7 +94,7 @@ export async function loadAnnotation(
   }
 
   const [shotResult, fieldResult] = await Promise.all([
-    d1
+    db
       .prepare(
         `SELECT id, order_index, group_name, shot_number, start_time, end_time,
           shot_size, camera_angle, camera_movement, visual_content, dialogue,
@@ -103,7 +103,7 @@ export async function loadAnnotation(
       )
       .bind(row.id)
       .all<ShotRow>(),
-    d1
+    db
       .prepare(
         `SELECT field_code, answer, evidence
         FROM field_answers WHERE annotation_id = ?`,

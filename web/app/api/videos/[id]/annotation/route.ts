@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1 } from "@/db";
+import { getDbClient, type DbPreparedStatement } from "@/db";
 import { loadAnnotation } from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
@@ -12,7 +12,7 @@ export async function GET(
   await ensureSchema();
   const { id } = await context.params;
   const user = currentUserFromRequest(request);
-  const video = await getD1()
+  const video = await getDbClient()
     .prepare(`SELECT id, title, status FROM videos WHERE id = ? AND deleted_at IS NULL`)
     .bind(id)
     .first<{ id: string; title: string; status: string }>();
@@ -23,7 +23,7 @@ export async function GET(
 
   const annotation = await loadAnnotation(id, user.email, user.name);
   const published = annotation.id
-    ? await getD1()
+    ? await getDbClient()
         .prepare(
           `SELECT id FROM annotation_snapshots
           WHERE annotation_id = ? LIMIT 1`,
@@ -46,9 +46,9 @@ export async function PUT(
   const { id: videoId } = await context.params;
   const user = currentUserFromRequest(request);
   const payload = (await request.json()) as AnnotationDraft;
-  const d1 = getD1();
+  const db = getDbClient();
 
-  const video = await d1
+  const video = await db
     .prepare(`SELECT id FROM videos WHERE id = ? AND deleted_at IS NULL`)
     .bind(videoId)
     .first();
@@ -56,7 +56,7 @@ export async function PUT(
     return Response.json({ error: "视频不存在或作业对象不一致。" }, { status: 404 });
   }
 
-  const existing = await d1
+  const existing = await db
     .prepare(
       `SELECT id, revision FROM annotations
       WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL`,
@@ -81,10 +81,10 @@ export async function PUT(
   const fields = payload.fields.filter((field) => validCodes.has(field.code));
   const shots = payload.shots.slice(0, 500);
 
-  const statements: D1PreparedStatement[] = [];
+  const statements: DbPreparedStatement[] = [];
   if (existing) {
     statements.push(
-      d1
+      db
         .prepare(
           `UPDATE annotations SET
             author_name = ?, status = 'DRAFT', revision = ?,
@@ -109,7 +109,7 @@ export async function PUT(
     );
   } else {
     statements.push(
-      d1
+      db
         .prepare(
           `INSERT INTO annotations (
             id, video_id, author_email, author_name, taxonomy_version,
@@ -135,15 +135,15 @@ export async function PUT(
   }
 
   statements.push(
-    d1.prepare(`DELETE FROM shots WHERE annotation_id = ?`).bind(annotationId),
-    d1
+    db.prepare(`DELETE FROM shots WHERE annotation_id = ?`).bind(annotationId),
+    db
       .prepare(`DELETE FROM field_answers WHERE annotation_id = ?`)
       .bind(annotationId),
   );
 
   shots.forEach((shot, index) => {
     statements.push(
-      d1
+      db
         .prepare(
           `INSERT INTO shots (
             id, annotation_id, order_index, group_name, shot_number,
@@ -176,7 +176,7 @@ export async function PUT(
 
   fields.forEach((field) => {
     statements.push(
-      d1
+      db
         .prepare(
           `INSERT INTO field_answers (
             id, annotation_id, field_code, answer, evidence
@@ -192,7 +192,7 @@ export async function PUT(
     );
   });
 
-  await d1.batch(statements);
+  await db.batch(statements);
   return Response.json({
     ok: true,
     annotationId,

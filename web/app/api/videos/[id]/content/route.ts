@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1, getVideoBucket } from "@/db";
+import { getDbClient, getVideoBucket } from "@/db";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
 
 type UploadRow = {
@@ -18,8 +18,8 @@ export async function PUT(
   await ensureSchema();
   const user = currentUserFromRequest(request);
   const { id } = await context.params;
-  const d1 = getD1();
-  const video = await d1
+  const db = getDbClient();
+  const video = await db
     .prepare(
       `SELECT id, object_key, content_type, file_size, status, created_by_email
       FROM videos WHERE id = ? AND deleted_at IS NULL`,
@@ -55,8 +55,8 @@ export async function PUT(
       },
     });
 
-    await d1.batch([
-      d1
+    await db.batch([
+      db
         .prepare(
           `UPDATE videos
           SET status = 'READY', content_type = ?, file_size = ?,
@@ -64,7 +64,7 @@ export async function PUT(
           WHERE id = ?`,
         )
         .bind(contentType, contentLength, id),
-      d1
+      db
         .prepare(
           `INSERT INTO audit_logs (
             id, actor_email, action, object_type, object_id, detail_json
@@ -78,7 +78,7 @@ export async function PUT(
         ),
     ]);
   } catch (error) {
-    await d1
+    await db
       .prepare(
         `UPDATE videos SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       )

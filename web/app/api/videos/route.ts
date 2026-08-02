@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1 } from "@/db";
+import { getDbClient } from "@/db";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
 
 type VideoRow = {
@@ -28,7 +28,7 @@ function tagsFromJson(value: string) {
 
 export async function GET() {
   await ensureSchema();
-  const result = await getD1()
+  const result = await getDbClient()
     .prepare(
       `SELECT
         v.id, v.title, v.brand, v.description, v.tags_json,
@@ -88,10 +88,10 @@ export async function POST(request: Request) {
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 12);
-  const d1 = getD1();
+  const db = getDbClient();
 
-  await d1.batch([
-    d1
+  await db.batch([
+    db
       .prepare(
         `INSERT INTO videos (
           id, title, brand, description, tags_json, object_key,
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
         user.email,
         user.name,
       ),
-    d1
+    db
       .prepare(
         `INSERT INTO audit_logs (
           id, actor_email, action, object_type, object_id, detail_json

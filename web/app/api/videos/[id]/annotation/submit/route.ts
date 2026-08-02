@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1 } from "@/db";
+import { getDbClient } from "@/db";
 import { loadAnnotation, validateAnnotation } from "@/lib/annotation-server";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
 
@@ -35,8 +35,8 @@ export async function POST(
     );
   }
 
-  const d1 = getD1();
-  const existing = await d1
+  const db = getDbClient();
+  const existing = await db
     .prepare(
       `SELECT id FROM annotation_snapshots
       WHERE annotation_id = ? AND revision = ?`,
@@ -56,8 +56,8 @@ export async function POST(
   const hash = await sha256(canonicalPayload);
   const snapshotId = newId("snapshot");
 
-  await d1.batch([
-    d1
+  await db.batch([
+    db
       .prepare(
         `INSERT INTO annotation_snapshots (
           id, annotation_id, video_id, author_email, author_name,
@@ -75,7 +75,7 @@ export async function POST(
         canonicalPayload,
         hash,
       ),
-    d1
+    db
       .prepare(
         `UPDATE annotations
         SET status = 'SUBMITTED', submitted_at = CURRENT_TIMESTAMP,
@@ -83,7 +83,7 @@ export async function POST(
         WHERE id = ?`,
       )
       .bind(annotation.id),
-    d1
+    db
       .prepare(
         `INSERT INTO audit_logs (
           id, actor_email, action, object_type, object_id, detail_json

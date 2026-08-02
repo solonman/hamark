@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getD1 } from "@/db";
+import { getDbClient } from "@/db";
 import { currentUserFromRequest, newId } from "@/lib/current-user";
 import {
   REVIEW_RUBRIC_VERSION,
@@ -41,7 +41,7 @@ function normalizeScores(value: unknown) {
 }
 
 async function loadSnapshot(snapshotId: string) {
-  return getD1()
+  return getDbClient()
     .prepare(
       `SELECT id, video_id, author_email, revision
       FROM annotation_snapshots WHERE id = ?`,
@@ -70,9 +70,9 @@ export async function GET(
     return Response.json({ error: "作业修订不存在。" }, { status: 404 });
   }
 
-  const d1 = getD1();
+  const db = getDbClient();
   const [review, aggregate] = await Promise.all([
-    d1
+    db
       .prepare(
         `SELECT id, status, revision, scores_json, total_score,
           general_comment, discussion_nomination, is_valid_for_aggregate,
@@ -82,7 +82,7 @@ export async function GET(
       )
       .bind(snapshotId, user.email)
       .first<ReviewRow>(),
-    d1
+    db
       .prepare(
         `SELECT COUNT(*) AS valid_review_count, AVG(total_score) AS average_score
         FROM assignment_reviews
@@ -154,8 +154,8 @@ export async function PUT(
   const generalComment =
     typeof payload.generalComment === "string" ? payload.generalComment.trim() : "";
   const discussionNomination = Boolean(payload.discussionNomination);
-  const d1 = getD1();
-  const existing = await d1
+  const db = getDbClient();
+  const existing = await db
     .prepare(
       `SELECT id, revision FROM assignment_reviews
       WHERE submission_id = ? AND grader_email = ? AND deleted_at IS NULL`,
@@ -178,7 +178,7 @@ export async function PUT(
   const nextRevision = (existing?.revision ?? 0) + 1;
   const isValidForAggregate = snapshot.author_email === user.email ? 0 : 1;
   if (existing) {
-    await d1
+    await db
       .prepare(
         `UPDATE assignment_reviews SET
           grader_name = ?, rubric_version = ?, status = 'DRAFT', revision = ?, scores_json = ?,
@@ -200,7 +200,7 @@ export async function PUT(
       )
       .run();
   } else {
-    await d1
+    await db
       .prepare(
         `INSERT INTO assignment_reviews (
           id, submission_id, video_id, submission_revision,
@@ -250,8 +250,8 @@ export async function POST(
     return Response.json({ error: "作业修订不存在。" }, { status: 404 });
   }
 
-  const d1 = getD1();
-  const review = await d1
+  const db = getDbClient();
+  const review = await db
     .prepare(
       `SELECT id, status, revision, scores_json, total_score,
         general_comment, discussion_nomination, is_valid_for_aggregate,
@@ -274,7 +274,7 @@ export async function POST(
     );
   }
 
-  const existingSnapshot = await d1
+  const existingSnapshot = await db
     .prepare(
       `SELECT id FROM assignment_review_snapshots
       WHERE review_id = ? AND revision = ?`,
@@ -303,8 +303,8 @@ export async function POST(
   });
   const contentHash = await sha256(canonicalPayload);
   const reviewSnapshotId = newId("review_snapshot");
-  await d1.batch([
-    d1
+  await db.batch([
+    db
       .prepare(
         `INSERT INTO assignment_review_snapshots (
           id, review_id, submission_id, grader_email, rubric_version,
@@ -321,14 +321,14 @@ export async function POST(
         canonicalPayload,
         contentHash,
       ),
-    d1
+    db
       .prepare(
         `UPDATE assignment_reviews SET status = 'SUBMITTED',
           submitted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
       )
       .bind(review.id),
-    d1
+    db
       .prepare(
         `INSERT INTO audit_logs (
           id, actor_email, action, object_type, object_id, detail_json
