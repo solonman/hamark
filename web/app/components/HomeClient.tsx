@@ -98,7 +98,6 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
           <span>RE:VERSE</span>
           <small>反写</small>
         </Link>
-        <UserMenu user={user} />
         <nav className="header-actions" aria-label="主导航">
           <label className="search-field">
             <span className="sr-only">搜索片名、标签或作者</span>
@@ -113,6 +112,7 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
             <span aria-hidden="true">＋</span>
             上传作品
           </button>
+          <UserMenu user={user} />
         </nav>
       </header>
 

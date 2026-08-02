@@ -81,6 +81,10 @@ test("home renders authenticated user controls and handles logout securely", asy
 
   assert.match(page, /displayName: user\.displayName/);
   assert.match(home, /<UserMenu user=\{user\}/);
+  assert.match(
+    home,
+    /<nav className="header-actions"[\s\S]*上传作品[\s\S]*<UserMenu user=\{user\} \/>[\s\S]*<\/nav>/,
+  );
   assert.ok(userMenu.includes('fetch("/api/auth/logout", { method: "POST" })'));
   assert.doesNotMatch(userMenu, /href=["']\/api\/auth\/logout/);
 });
