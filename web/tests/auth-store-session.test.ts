@@ -216,6 +216,91 @@ test("withAppTokenRefreshLock serializes operations in memory", async () => {
   assert.deepEqual(events, ["first:start:1", "first:end:1", "second:start:1", "second:end:1"]);
 });
 
+test("PostgresAuthStore syncUser uses the injected transactional DbClient and locks login keys", async () => {
+  const fakeDb = new FakeDbClient({
+    currentUserRows: [
+      {
+        id: "user-1",
+        identity_key: "identity-alice",
+        display_name: "Alice",
+        avatar_url: null,
+        email: "alice@example.com",
+        department_id: "1",
+        department_name: "Brand",
+        is_primary: 1,
+      },
+    ],
+  });
+  const store = new PostgresAuthStore(fakeDb.asDbClient());
+
+  const user = await store.syncUser(
+    "corp-a",
+    member({ userId: "alice" }),
+    "identity-alice",
+    "2026-08-02T11:00:00.000Z",
+  );
+
+  assert.equal(fakeDb.transactionCount, 1);
+  assert.equal(user.id, "user-1");
+  assert.match(fakeDb.sqlLog().join("\n"), /pg_advisory_xact_lock\(hashtextextended\(/);
+});
+
+test("PostgresAuthStore syncUser rejects conflicting corp/user and identity rows", async () => {
+  const fakeDb = new FakeDbClient({
+    existingUserRows: [{ id: "user-by-corp" }, { id: "user-by-identity" }],
+  });
+  const store = new PostgresAuthStore(fakeDb.asDbClient());
+
+  await assert.rejects(
+    () =>
+      store.syncUser(
+        "corp-a",
+        member({ userId: "alice" }),
+        "identity-alice",
+        "2026-08-02T11:00:00.000Z",
+      ),
+    /identity conflict/i,
+  );
+  assert.equal(fakeDb.sqlLog().some((sql) => /INSERT INTO users|UPDATE users/.test(sql)), false);
+});
+
+test("PostgresAuthStore getSession atomically touches and reads a valid session", async () => {
+  const fakeDb = new FakeDbClient({
+    legacySessionRows: [
+      {
+        id: "user-1",
+        identity_key: "identity-alice",
+        display_name: "Alice",
+        avatar_url: null,
+        email: "alice@example.com",
+        department_id: "1",
+        department_name: "Brand",
+        is_primary: 1,
+      },
+    ],
+    sessionRows: [],
+    runRowsWritten: 0,
+  });
+  const store = new PostgresAuthStore(fakeDb.asDbClient());
+
+  assert.equal(await store.getSession("token-hash", "2026-08-02T11:00:00.000Z"), null);
+  assert.equal(fakeDb.sqlLog().length, 1);
+  assert.match(fakeDb.sqlLog()[0], /UPDATE auth_sessions/);
+  assert.match(fakeDb.sqlLog()[0], /RETURNING/);
+  assert.match(fakeDb.sqlLog()[0], /expires_at > \?/);
+});
+
+test("PostgresAuthStore withAppTokenRefreshLock uses injected transaction and 64-bit advisory lock", async () => {
+  const fakeDb = new FakeDbClient();
+  const store = new PostgresAuthStore(fakeDb.asDbClient());
+
+  const result = await store.withAppTokenRefreshLock("corp-a", "agent-1", async () => "locked");
+
+  assert.equal(result, "locked");
+  assert.equal(fakeDb.transactionCount, 1);
+  assert.match(fakeDb.sqlLog().join("\n"), /pg_advisory_xact_lock\(hashtextextended\(/);
+});
+
 function member(overrides: Partial<WeComMember> = {}): WeComMember {
   return {
     userId: "alice",
@@ -374,6 +459,113 @@ class InMemoryAuthStore implements AuthStore {
       avatarUrl: user.avatarUrl,
       email: user.email,
       departments: user.departments.map((department) => ({ ...department })),
+    };
+  }
+}
+
+type FakeRow = Record<string, unknown>;
+
+class FakeDbClient {
+  transactionCount = 0;
+  readonly prepared: FakePreparedStatement[] = [];
+  private readonly existingUserRows: FakeRow[];
+  private readonly currentUserRows: FakeRow[];
+  private readonly sessionRows: FakeRow[];
+  private readonly legacySessionRows: FakeRow[];
+  private readonly runRowsWritten: number;
+
+  constructor(
+    options: {
+      existingUserRows?: FakeRow[];
+      currentUserRows?: FakeRow[];
+      sessionRows?: FakeRow[];
+      legacySessionRows?: FakeRow[];
+      runRowsWritten?: number;
+    } = {},
+  ) {
+    this.existingUserRows = options.existingUserRows ?? [];
+    this.currentUserRows = options.currentUserRows ?? [];
+    this.sessionRows = options.sessionRows ?? [];
+    this.legacySessionRows = options.legacySessionRows ?? [];
+    this.runRowsWritten = options.runRowsWritten ?? 1;
+  }
+
+  asDbClient() {
+    return this as unknown as ConstructorParameters<typeof PostgresAuthStore>[0];
+  }
+
+  prepare(sql: string) {
+    const statement = new FakePreparedStatement(this, sql);
+    this.prepared.push(statement);
+    return statement;
+  }
+
+  async batch(statements: FakePreparedStatement[]) {
+    const results = [];
+    for (const statement of statements) {
+      results.push(await statement.run());
+    }
+    return results;
+  }
+
+  async withTransaction<T>(operation: (db: ConstructorParameters<typeof PostgresAuthStore>[0]) => Promise<T>) {
+    this.transactionCount += 1;
+    return operation(this.asDbClient());
+  }
+
+  sqlLog() {
+    return this.prepared.map((statement) => statement.sql);
+  }
+
+  rowsFor(sql: string) {
+    if (/UPDATE auth_sessions/i.test(sql) && /RETURNING/i.test(sql)) {
+      return this.sessionRows;
+    }
+    if (/FROM auth_sessions/i.test(sql)) {
+      return this.legacySessionRows;
+    }
+    if (/FROM users/i.test(sql) && /FOR UPDATE/i.test(sql)) {
+      return this.existingUserRows;
+    }
+    if (/LEFT JOIN user_departments/i.test(sql)) {
+      return this.currentUserRows;
+    }
+    return [];
+  }
+
+  rowsWrittenFor() {
+    return this.runRowsWritten;
+  }
+}
+
+class FakePreparedStatement {
+  readonly values: unknown[] = [];
+
+  constructor(
+    private readonly db: FakeDbClient,
+    readonly sql: string,
+  ) {}
+
+  bind(...values: unknown[]) {
+    this.values.push(...values);
+    return this;
+  }
+
+  async all<T extends FakeRow = FakeRow>() {
+    return { results: this.db.rowsFor(this.sql) as T[] };
+  }
+
+  async first<T extends FakeRow = FakeRow>() {
+    return (this.db.rowsFor(this.sql)[0] as T | undefined) ?? null;
+  }
+
+  async run() {
+    return {
+      success: true,
+      meta: {
+        rows_read: 0,
+        rows_written: this.db.rowsWrittenFor(),
+      },
     };
   }
 }

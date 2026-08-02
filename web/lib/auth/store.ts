@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getDbClient, withDbTransaction, type DbClient, type QueryResultRow } from "@/db";
+import { getDbClient, type DbClient, type QueryResultRow } from "@/db";
 import type { EncryptedSecret } from "./security.ts";
 import type { AuthFlow, CurrentUser, WeComMember } from "./types.ts";
 
@@ -131,21 +131,30 @@ export class PostgresAuthStore implements AuthStore {
     identityKey: string,
     now: string,
   ): Promise<CurrentUser> {
-    return withDbTransaction(async (db) => {
-      const existing = await db
-        .prepare(
-          `SELECT id
-          FROM users
-          WHERE (wecom_corp_id = ? AND wecom_user_id = ?) OR identity_key = ?
-          ORDER BY CASE WHEN wecom_corp_id = ? AND wecom_user_id = ? THEN 0 ELSE 1 END
-          LIMIT 1
-          FOR UPDATE`,
-        )
-        .bind(corpId, member.userId, identityKey, corpId, member.userId)
-        .first<{ id: string } & QueryResultRow>();
-      const userId = existing?.id ?? randomUUID();
+    return this.db.withTransaction(async (db) => {
+      await acquireAdvisoryLock(db, `wecom-user:${corpId}:${member.userId}`);
+      await acquireAdvisoryLock(db, `identity:${identityKey}`);
 
-      if (existing) {
+      const existingRows = (
+        await db
+          .prepare(
+            `SELECT id
+            FROM users
+            WHERE (wecom_corp_id = ? AND wecom_user_id = ?) OR identity_key = ?
+            FOR UPDATE`,
+          )
+          .bind(corpId, member.userId, identityKey)
+          .all<{ id: string } & QueryResultRow>()
+      ).results;
+      const existingIds = Array.from(new Set(existingRows.map((row) => row.id)));
+      if (existingIds.length > 1) {
+        throw new Error(
+          `Auth identity conflict for corp/user ${corpId}/${member.userId} and ${identityKey}`,
+        );
+      }
+      const userId = existingIds[0] ?? randomUUID();
+
+      if (existingIds.length > 0) {
         await db
           .prepare(
             `UPDATE users
@@ -234,7 +243,15 @@ export class PostgresAuthStore implements AuthStore {
     const rows = (
       await this.db
         .prepare(
-          `SELECT
+          `WITH touched_session AS (
+            UPDATE auth_sessions
+            SET last_seen_at = ?
+            WHERE token_hash = ?
+              AND revoked_at IS NULL
+              AND expires_at > ?
+            RETURNING user_id
+          )
+          SELECT
             u.id,
             u.identity_key,
             u.display_name,
@@ -243,16 +260,13 @@ export class PostgresAuthStore implements AuthStore {
             ud.wecom_department_id AS department_id,
             ud.department_name,
             ud.is_primary
-          FROM auth_sessions s
+          FROM touched_session s
           JOIN users u ON u.id = s.user_id
           LEFT JOIN user_departments ud ON ud.user_id = u.id
-          WHERE s.token_hash = ?
-            AND s.revoked_at IS NULL
-            AND s.expires_at > ?
-            AND u.status = 'ACTIVE'
+          WHERE u.status = 'ACTIVE'
           ORDER BY ud.is_primary DESC, ud.department_name, ud.wecom_department_id`,
         )
-        .bind(tokenHash, now)
+        .bind(now, tokenHash, now)
         .all<UserWithDepartmentRow>()
     ).results;
 
@@ -260,10 +274,6 @@ export class PostgresAuthStore implements AuthStore {
       return null;
     }
 
-    await this.db
-      .prepare(`UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ? AND revoked_at IS NULL`)
-      .bind(now, tokenHash)
-      .run();
     return rowsToCurrentUser(rows);
   }
 
@@ -315,14 +325,15 @@ export class PostgresAuthStore implements AuthStore {
     agentId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    return withDbTransaction(async (db) => {
-      await db
-        .prepare(`SELECT pg_advisory_xact_lock(hashtext(? || ':' || ?))`)
-        .bind(corpId, agentId)
-        .run();
+    return this.db.withTransaction(async (db) => {
+      await acquireAdvisoryLock(db, `wecom-app-token:${corpId}:${agentId}`);
       return operation();
     });
   }
+}
+
+async function acquireAdvisoryLock(db: DbClient, key: string): Promise<void> {
+  await db.prepare(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`).bind(key).run();
 }
 
 async function readCurrentUser(db: DbClient, userId: string): Promise<CurrentUser | null> {

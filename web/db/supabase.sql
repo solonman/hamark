@@ -151,8 +151,6 @@ CREATE TABLE IF NOT EXISTS users (
   CHECK (status IN ('ACTIVE', 'DISABLED'))
 );
 
-CREATE INDEX IF NOT EXISTS users_identity_key_idx ON users(identity_key);
-
 CREATE TABLE IF NOT EXISTS user_departments (
   user_id TEXT NOT NULL REFERENCES users(id),
   wecom_department_id TEXT NOT NULL,
@@ -172,7 +170,6 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   revoked_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS auth_sessions_token_hash_idx ON auth_sessions(token_hash);
 CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS oauth_states (
@@ -187,7 +184,6 @@ CREATE TABLE IF NOT EXISTS oauth_states (
   CHECK (flow_type IN ('QR', 'IN_APP'))
 );
 
-CREATE INDEX IF NOT EXISTS oauth_states_state_hash_idx ON oauth_states(state_hash);
 CREATE INDEX IF NOT EXISTS oauth_states_expires_at_idx ON oauth_states(expires_at);
 
 CREATE TABLE IF NOT EXISTS wecom_app_tokens (
