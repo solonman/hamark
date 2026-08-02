@@ -9,12 +9,14 @@ const errorCodes = new Set([
   "service_unavailable",
   "auth_misconfigured",
   "database_credentials_invalid",
+  "database_password_invalid",
+  "database_pooler_identity_invalid",
   "database_schema_missing",
   "database_unreachable",
 ]);
 
 const databaseErrorCodes = new Map([
-  ["28P01", "database_credentials_invalid"],
+  ["28P01", "database_password_invalid"],
   ["42P01", "database_schema_missing"],
   ["ECONNREFUSED", "database_unreachable"],
   ["ECONNRESET", "database_unreachable"],
@@ -64,8 +66,11 @@ export function authErrorCode(error: unknown) {
   if (/Missing required environment variable: DATABASE_URL/i.test(message)) {
     return "auth_misconfigured";
   }
-  if (/password authentication failed|tenant or user not found|invalid (?:database )?(?:user|password)/i.test(message)) {
-    return "database_credentials_invalid";
+  if (/tenant or user not found|invalid (?:database )?user/i.test(message)) {
+    return "database_pooler_identity_invalid";
+  }
+  if (/password authentication failed|invalid (?:database )?password/i.test(message)) {
+    return "database_password_invalid";
   }
   if (/relation .+ does not exist/i.test(message)) {
     return "database_schema_missing";

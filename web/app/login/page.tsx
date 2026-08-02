@@ -15,6 +15,8 @@ const errorMessages: Record<string, string> = {
   service_unavailable: "登录服务暂时不可用。",
   auth_misconfigured: "登录配置尚未完成。",
   database_credentials_invalid: "数据库账号或密码不正确。",
+  database_password_invalid: "数据库密码不正确。",
+  database_pooler_identity_invalid: "数据库连接串的项目账号不正确。",
   database_schema_missing: "数据库表尚未初始化。",
   database_unreachable: "暂时无法连接数据库。",
 };

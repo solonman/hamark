@@ -37,8 +37,8 @@ test("callback errors redirect with stable codes and never include OAuth code", 
 
 test("database startup errors are classified without exposing sensitive details", () => {
   assert.equal(authErrorCode({ code: "42P01", message: 'relation "oauth_states" does not exist' }), "database_schema_missing");
-  assert.equal(authErrorCode({ code: "28P01", message: "password authentication failed" }), "database_credentials_invalid");
-  assert.equal(authErrorCode(new Error("Tenant or user not found")), "database_credentials_invalid");
+  assert.equal(authErrorCode({ code: "28P01", message: "password authentication failed" }), "database_password_invalid");
+  assert.equal(authErrorCode(new Error("Tenant or user not found")), "database_pooler_identity_invalid");
   assert.equal(authErrorCode(Object.assign(new Error("connect timeout"), { code: "ETIMEDOUT" })), "database_unreachable");
   assert.equal(authErrorCode(new Error("Missing required environment variable: DATABASE_URL")), "auth_misconfigured");
   assert.equal(authErrorCode(new Error("unexpected database failure")), "service_unavailable");
