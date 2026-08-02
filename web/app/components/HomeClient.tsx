@@ -4,6 +4,15 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { VideoItem } from "@/lib/types";
 import UploadDialog from "./UploadDialog";
+import UserMenu, { type UserMenuUser } from "./UserMenu";
+
+function redirectOnUnauthorized(response: Response) {
+  if (response.status === 401) {
+    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    return true;
+  }
+  return false;
+}
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -26,7 +35,7 @@ function formatDate(value: string) {
   }).format(new Date(normalized));
 }
 
-export default function HomeClient() {
+export default function HomeClient({ user }: { user: UserMenuUser }) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,6 +47,7 @@ export default function HomeClient() {
     let active = true;
     fetch("/api/videos", { cache: "no-store" })
       .then(async (response) => {
+        if (redirectOnUnauthorized(response)) return;
         const data = (await response.json()) as {
           videos?: VideoItem[];
           error?: string;
@@ -88,6 +98,7 @@ export default function HomeClient() {
           <span>RE:VERSE</span>
           <small>反写</small>
         </Link>
+        <UserMenu user={user} />
         <nav className="header-actions" aria-label="主导航">
           <label className="search-field">
             <span className="sr-only">搜索片名、标签或作者</span>

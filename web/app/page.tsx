@@ -8,6 +8,17 @@ export const metadata: Metadata = {
 };
 
 export default async function Home() {
-  await requirePageUser("/");
-  return <HomeClient />;
+  const user = await requirePageUser("/");
+  return (
+    <HomeClient
+      user={{
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        departmentName:
+          user.departments.find((item) => item.isPrimary)?.name ??
+          user.departments[0]?.name ??
+          null,
+      }}
+    />
+  );
 }

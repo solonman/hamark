@@ -34,6 +34,14 @@ type ReviewContextValue = {
 
 const ReviewContext = createContext<ReviewContextValue | null>(null);
 
+function redirectOnUnauthorized(response: Response) {
+  if (response.status === 401) {
+    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    return true;
+  }
+  return false;
+}
+
 function ScoreGuide({ label, guide }: { label: string; guide: string }) {
   return (
     <span
@@ -146,6 +154,7 @@ export default function ReviewPanel({
     let active = true;
     fetch(`/api/analyses/${snapshotId}/score`, { cache: "no-store" })
       .then(async (response) => {
+        if (redirectOnUnauthorized(response)) return;
         const data = (await response.json()) as ReviewResponse;
         if (!response.ok || !data.review || !data.aggregate) {
           throw new Error(data.error || "评分读取失败");
@@ -206,6 +215,7 @@ export default function ReviewPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(current),
       });
+      if (redirectOnUnauthorized(response)) return null;
       const data = (await response.json()) as {
         error?: string;
         reviewId?: string;
@@ -281,6 +291,7 @@ export default function ReviewPanel({
       const response = await fetch(`/api/analyses/${snapshotId}/score`, {
         method: "POST",
       });
+      if (redirectOnUnauthorized(response)) return;
       const data = (await response.json()) as {
         error?: string;
         missing?: string[];

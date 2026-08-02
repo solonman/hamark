@@ -68,6 +68,14 @@ const coreFields = [
   },
 ] as const;
 
+function redirectOnUnauthorized(response: Response) {
+  if (response.status === 401) {
+    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    return true;
+  }
+  return false;
+}
+
 export default function PracticeClient({ videoId }: { videoId: string }) {
   const [videoTitle, setVideoTitle] = useState("");
   const [videoStatus, setVideoStatus] = useState("");
@@ -91,6 +99,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     let active = true;
     fetch(`/api/videos/${videoId}/annotation`, { cache: "no-store" })
       .then(async (response) => {
+        if (redirectOnUnauthorized(response)) return;
         const data = (await response.json()) as AnnotationResponse;
         if (!response.ok || !data.video || !data.annotation) {
           throw new Error(data.error || "作业读取失败");
@@ -142,6 +151,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(current),
       });
+      if (redirectOnUnauthorized(response)) return null;
       const data = (await response.json()) as {
         error?: string;
         annotationId?: string;
@@ -214,6 +224,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
       const response = await fetch(`/api/videos/${videoId}/annotation/submit`, {
         method: "POST",
       });
+      if (redirectOnUnauthorized(response)) return;
       const data = (await response.json()) as {
         error?: string;
         missing?: string[];

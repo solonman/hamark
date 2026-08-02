@@ -7,6 +7,14 @@ type UploadDialogProps = {
   onUploaded: (videoId: string) => Promise<void>;
 };
 
+function redirectOnUnauthorized(response: Response | XMLHttpRequest) {
+  if (response.status === 401) {
+    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    return true;
+  }
+  return false;
+}
+
 function uploadFile(url: string, file: File, onProgress: (value: number) => void) {
   return new Promise<void>((resolve, reject) => {
     const request = new XMLHttpRequest();
@@ -18,6 +26,7 @@ function uploadFile(url: string, file: File, onProgress: (value: number) => void
       }
     });
     request.addEventListener("load", () => {
+      if (redirectOnUnauthorized(request)) return;
       if (request.status >= 200 && request.status < 300) resolve();
       else reject(new Error("视频文件上传失败，请重试。"));
     });
@@ -67,6 +76,7 @@ export default function UploadDialog({
           rightsConfirmed,
         }),
       });
+      if (redirectOnUnauthorized(response)) return;
       const data = (await response.json()) as {
         videoId?: string;
         uploadUrl?: string;

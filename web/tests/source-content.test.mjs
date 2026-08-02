@@ -72,6 +72,33 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.doesNotMatch(home, /react-loading-skeleton/);
 });
 
+test("home renders authenticated user controls and handles logout securely", async () => {
+  const [page, home, userMenu] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/UserMenu.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /displayName: user\.displayName/);
+  assert.match(home, /<UserMenu user=\{user\}/);
+  assert.ok(userMenu.includes('fetch("/api/auth/logout", { method: "POST" })'));
+  assert.doesNotMatch(userMenu, /href=["']\/api\/auth\/logout/);
+});
+
+test("client fetches redirect to login on unauthorized business API responses", async () => {
+  const [home, upload, detail, practice, review] = await Promise.all([
+    readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/UploadDialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/ReviewPanel.tsx", import.meta.url), "utf8"),
+  ]);
+
+  for (const source of [home, upload, detail, practice, review]) {
+    assert.match(source, /redirectOnUnauthorized\(/);
+  }
+});
+
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
   const taxonomy = JSON.parse(
     await readFile(new URL("../lib/taxonomy-v0.2.json", import.meta.url), "utf8"),
