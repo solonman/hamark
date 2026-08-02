@@ -3,6 +3,7 @@ import { SESSION_COOKIE } from "@/lib/auth/session";
 
 const publicPrefixes = [
   "/login",
+  "/api/auth/logout",
   "/api/auth/wecom/start",
   "/api/auth/wecom/callback",
   "/_next/",
