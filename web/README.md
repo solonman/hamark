@@ -29,6 +29,16 @@ npm run dev
 
 运行前需要在 `.env.local` 中配置 Supabase Postgres 和腾讯云COS。没有工作区身份头时，写入身份显示为“演示用户”。
 
+## Vercel部署
+
+Vercel项目的 Root Directory 必须设置为 `web`。
+
+- Install Command：`npm ci`
+- Build Command：`npm run build`
+- Output：使用Vercel自动识别的Next.js输出
+
+不要把默认构建命令改成 `npm run build:vinext`；那是Cloudflare Worker兼容构建，Vercel不能直接作为Next.js站点托管。
+
 ## 检查命令
 
 ```bash

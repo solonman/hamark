@@ -39,6 +39,8 @@ npm run dev
 
 浏览器访问终端显示的本地地址，默认通常为 `http://localhost:3000/`。
 
+如部署到Vercel，项目 Root Directory 必须设为 `web`，并使用默认的 `npm run build`。`npm run build:vinext` 仅用于Cloudflare Worker兼容构建，不适合作为Vercel站点输出。
+
 完整验收：
 
 ```bash
