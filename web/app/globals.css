@@ -3258,3 +3258,59 @@ body.is-resizing-shot-column * {
     transition-duration: 0.01ms !important;
   }
 }
+
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 28px;
+  background: var(--paper);
+}
+
+.login-panel {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 22px;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 20px 60px rgba(17, 18, 15, 0.08);
+}
+
+.login-panel h1 {
+  margin: 4px 0 0;
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.login-error {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 91, 53, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 91, 53, 0.08);
+  color: #8f2c17;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-action {
+  width: 100%;
+  border-radius: 8px;
+}
+
+@media (max-width: 420px) {
+  .login-page {
+    padding: 18px;
+  }
+
+  .login-panel {
+    padding: 24px;
+  }
+
+  .login-panel h1 {
+    font-size: 24px;
+  }
+}
