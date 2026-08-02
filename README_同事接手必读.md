@@ -49,10 +49,11 @@ Vercel Production 环境变量必须配置完整：
 
 ```env
 APP_URL=https://hamark.boga.plus
-  AUTH_SECRET=replace-with-at-least-32-random-bytes-base64
+AUTH_SECRET=replace-with-at-least-32-random-bytes-base64
 WECOM_CORP_ID=wwxxxxxxxxxxxxxxxx
 WECOM_AGENT_ID=1000002
-WECOM_SECRET=replace-with-wecom-app-secret
+WECOM_PROXY_URL=https://hamark-wecom.boga.plus
+WECOM_PROXY_SECRET=replace-with-at-least-32-random-bytes-base64
 ```
 
 生成 `AUTH_SECRET`：
@@ -61,7 +62,9 @@ WECOM_SECRET=replace-with-wecom-app-secret
 openssl rand -base64 48 | tr -d '\n'
 ```
 
-Preview 只有在其精确回调域名也登记到企业微信时，才需要单独配置对应的 Preview 值。企业微信后台需配置回调 URL `https://hamark.boga.plus/api/auth/wecom/callback`，可信域名 `hamark.boga.plus`。
+Preview 只有在其精确回调域名也登记到企业微信时，才需要单独配置对应的 Preview 值。企业微信后台需配置回调 URL `https://hamark.boga.plus/api/auth/wecom/callback`、可信域名 `hamark.boga.plus`，并把固定出口 `111.229.151.122` 加入企业可信 IP。
+
+生产环境的 `WECOM_SECRET` 只保存在固定 IP 服务器 `/etc/hamark-wecom-proxy.env`，不要配置到 Vercel。Vercel 通过 `WECOM_PROXY_URL` 和 `WECOM_PROXY_SECRET` 调用 `hamark-wecom.boga.plus`；具体部署顺序见 `web/README.md`。
 
 `DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接，不是 Supabase anon key。认证相关表开启了 RLS，但不提供浏览器侧策略；运行时数据库访问只应发生在 Next.js 服务端。
 

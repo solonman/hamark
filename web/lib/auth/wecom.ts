@@ -2,6 +2,7 @@ import type { WeComAuthConfig } from "./config.ts";
 import { decryptSecret, encryptSecret } from "./security.ts";
 import type { AuthStore, EncryptedAppToken } from "./store.ts";
 import { AuthError, type AuthFlow, type WeComMember } from "./types.ts";
+import { fetchMemberFromProxy } from "./wecom-proxy.ts";
 
 const WECOM_API_BASE = "https://qyapi.weixin.qq.com/cgi-bin";
 const QR_AUTH_URL = "https://open.work.weixin.qq.com/wwopen/sso/qrConnect";
@@ -75,6 +76,18 @@ export class WeComClient {
   }
 
   async getMemberByCode(code: string): Promise<WeComMember> {
+    if (this.config.proxy) {
+      return fetchMemberFromProxy({
+        code,
+        proxy: this.config.proxy,
+        fetchImpl: this.fetchImpl,
+        now: this.now,
+      });
+    }
+    if (!this.config.secret) {
+      throw new AuthError("auth_misconfigured", "WeCom application secret is not configured.");
+    }
+
     const accessToken = await this.getAppToken();
     const userInfo = await this.fetchJson("userinfo", buildUserInfoUrl(accessToken, code));
     const userId = readString(userInfo.UserId);
@@ -199,6 +212,9 @@ export class WeComClient {
 type WeComEndpointKind = "token" | "userinfo" | "member" | "department";
 
 function buildTokenUrl(config: WeComAuthConfig): URL {
+  if (!config.secret) {
+    throw new AuthError("auth_misconfigured", "WeCom application secret is not configured.");
+  }
   const url = new URL(`${WECOM_API_BASE}/gettoken`);
   url.searchParams.set("corpid", config.corpId);
   url.searchParams.set("corpsecret", config.secret);

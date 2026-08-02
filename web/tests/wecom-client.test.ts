@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import type { WeComAuthConfig } from "../lib/auth/config.ts";
 import { encryptSecret } from "../lib/auth/security.ts";
@@ -20,6 +21,15 @@ const CONFIG: WeComAuthConfig = {
   corpId: "wwcorp",
   agentId: "1000002",
   secret: "super-secret-value",
+  proxy: null,
+};
+const PROXY_CONFIG: WeComAuthConfig = {
+  ...CONFIG,
+  secret: "direct-secret-must-not-be-used",
+  proxy: {
+    url: "https://hamark-wecom.boga.plus",
+    secret: "proxy-secret-value".padEnd(32, "p"),
+  },
 };
 
 test("buildWeComAuthorizationUrl creates the exact QR authorization URL", () => {
@@ -82,6 +92,25 @@ test("getMemberByCode uses cached app token and avoids gettoken", async () => {
   assert.equal(member.userId, "alice");
   assert.equal(member.displayName, "Alice");
   assert.deepEqual(member.departments, [{ id: "7", name: "Brand", isPrimary: true }]);
+});
+
+test("getMemberByCode rejects a missing direct secret before using a fresh cached token", async () => {
+  const config: WeComAuthConfig = { ...CONFIG, secret: null, proxy: null };
+  const store = new FakeAuthStore();
+  await store.seedToken(config, "cached-token", new Date(NOW.getTime() + 3_600_000));
+  const fetcher = new QueuedFetch([]);
+
+  await assert.rejects(
+    () =>
+      new WeComClient({ config, store, fetchImpl: fetcher.fetch, now: () => NOW }).getMemberByCode(
+        "login-code",
+      ),
+    (error) => {
+      assertAuthError(error, "auth_misconfigured");
+      return true;
+    },
+  );
+  assert.equal(fetcher.calls.length, 0);
 });
 
 test("getMemberByCode refreshes stale tokens but rechecks cache inside the refresh lock first", async () => {
@@ -220,6 +249,136 @@ test("every WeCom fetch receives an 8000ms timeout signal", async () => {
   assert.equal(fetcher.calls.every((call) => call.init?.signal instanceof AbortSignal), true);
 });
 
+test("getMemberByCode signs the exact proxy request and never calls qyapi", async () => {
+  const originalTimeout = AbortSignal.timeout;
+  const timeouts: number[] = [];
+  AbortSignal.timeout = ((milliseconds: number) => {
+    timeouts.push(milliseconds);
+    return new AbortController().signal;
+  }) as typeof AbortSignal.timeout;
+  const fetcher = new QueuedFetch([
+    jsonResponse({
+      ok: true,
+      member: {
+        userId: "alice",
+        displayName: "Alice",
+        avatarUrl: null,
+        email: "alice@example.com",
+        departments: [{ id: "7", name: "Brand", isPrimary: true }],
+      },
+    }),
+  ]);
+
+  let member: WeComMember;
+  try {
+    member = await new WeComClient({
+      config: PROXY_CONFIG,
+      store: new FakeAuthStore(),
+      fetchImpl: fetcher.fetch,
+      now: () => NOW,
+    }).getMemberByCode("login-code");
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+
+  const call = fetcher.calls[0];
+  assert.equal(fetcher.calls.length, 1);
+  assert.equal(call?.url, "https://hamark-wecom.boga.plus/v1/member-by-code");
+  assert.equal(call?.init?.method, "POST");
+  assert.equal(call?.init?.redirect, "error");
+  assert.equal(call?.init?.body, JSON.stringify({ code: "login-code" }));
+  assert.equal(fetcher.urls.some((url) => url.includes("qyapi.weixin.qq.com")), false);
+  const headers = new Headers(call?.init?.headers);
+  const timestamp = String(Math.floor(NOW.getTime() / 1000));
+  const expectedSignature = createHmac("sha256", PROXY_CONFIG.proxy!.secret)
+    .update(`${timestamp}.${JSON.stringify({ code: "login-code" })}`)
+    .digest("hex");
+  assert.equal(headers.get("content-type"), "application/json");
+  assert.equal(headers.get("x-hamark-timestamp"), timestamp);
+  assert.equal(headers.get("x-hamark-signature"), expectedSignature);
+  assert.deepEqual(timeouts, [8000]);
+  assert.deepEqual(member, {
+    userId: "alice",
+    displayName: "Alice",
+    avatarUrl: null,
+    email: "alice@example.com",
+    departments: [{ id: "7", name: "Brand", isPrimary: true }],
+  });
+});
+
+test("getMemberByCode strictly validates successful proxy member responses", async () => {
+  const invalidMembers: unknown[] = [
+    null,
+    {},
+    { userId: "", displayName: "Alice", avatarUrl: null, email: null, departments: [] },
+    { userId: "alice", displayName: "Alice", avatarUrl: 1, email: null, departments: [] },
+    { userId: "alice", displayName: "Alice", avatarUrl: null, email: null, departments: {} },
+    {
+      userId: "alice",
+      displayName: "Alice",
+      avatarUrl: null,
+      email: null,
+      departments: [{ id: "7", name: "Brand", isPrimary: "yes" }],
+    },
+  ];
+
+  for (const member of invalidMembers) {
+    await assertProxyFailure(jsonResponse({ ok: true, member }), "service_unavailable");
+  }
+});
+
+test("getMemberByCode maps stable proxy errors without exposing sensitive data", async () => {
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "AUTH_EXPIRED", detail: "login-code proxy-response-secret" }, 400),
+    "auth_expired",
+  );
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "MEMBER_NOT_ALLOWED", detail: "login-code proxy-response-secret" }, 403),
+    "member_not_allowed",
+  );
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "PROFILE_UNAVAILABLE", detail: "login-code proxy-response-secret" }, 422),
+    "profile_unavailable",
+  );
+  await assertProxyFailure(
+    jsonResponse(
+      { ok: false, error: "PROFILE_UNAVAILABLE", detail: "login-code proxy-response-secret" },
+      502,
+    ),
+    "profile_unavailable",
+  );
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "AUTH_EXPIRED", detail: "proxy-response-secret" }, 401),
+    "auth_expired",
+  );
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "WECOM_UNAVAILABLE", detail: "proxy-response-secret" }, 503),
+    "service_unavailable",
+  );
+  await assertProxyFailure(
+    new Response("proxy-response-secret login-code", { status: 200 }),
+    "service_unavailable",
+  );
+  await assertProxyFailure(
+    new Response("proxy-response-secret login-code", { status: 502 }),
+    "service_unavailable",
+  );
+});
+
+test("getMemberByCode keeps invalid 401 proxy responses service_unavailable", async () => {
+  await assertProxyFailure(
+    jsonResponse(
+      { ok: false, error: "INVALID_SIGNATURE", detail: "login-code proxy-response-secret" },
+      401,
+    ),
+    "service_unavailable",
+  );
+  await assertProxyFailure(
+    new Response("login-code proxy-response-secret", { status: 401 }),
+    "service_unavailable",
+  );
+});
+
 function newClient(store: FakeAuthStore, fetcher: QueuedFetch) {
   return new WeComClient({ config: CONFIG, store, fetchImpl: fetcher.fetch, now: () => NOW });
 }
@@ -241,11 +400,33 @@ async function assertWeComFailure(
   );
 }
 
+async function assertProxyFailure(response: Response, expectedCode: AuthError["code"]): Promise<void> {
+  const fetcher = new QueuedFetch([response]);
+
+  await assert.rejects(
+    () =>
+      new WeComClient({
+        config: PROXY_CONFIG,
+        store: new FakeAuthStore(),
+        fetchImpl: fetcher.fetch,
+        now: () => NOW,
+      }).getMemberByCode("login-code"),
+    (error) => {
+      assertAuthError(error, expectedCode);
+      const message = (error as Error).message;
+      assert.equal(message.includes(PROXY_CONFIG.proxy!.secret), false);
+      assert.equal(message.includes(PROXY_CONFIG.secret!), false);
+      assert.equal(message.includes("proxy-response-secret"), false);
+      return true;
+    },
+  );
+}
+
 function assertAuthError(error: unknown, expectedCode: AuthError["code"]): void {
   assert.equal(error instanceof AuthError, true);
   const authError = error as AuthError;
   assert.equal(authError.code, expectedCode);
-  assert.equal(authError.message.includes(CONFIG.secret), false);
+  assert.equal(authError.message.includes(CONFIG.secret ?? ""), false);
   assert.equal(authError.message.includes("login-code"), false);
   assert.equal(authError.message.includes("access-token"), false);
   assert.equal(authError.message.includes("{"), false);
