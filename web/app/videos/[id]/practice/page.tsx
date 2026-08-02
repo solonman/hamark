@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requirePageUser } from "@/lib/current-user";
 import PracticeClient from "./PracticeClient";
 
 export const metadata: Metadata = {
@@ -11,5 +12,6 @@ export default async function PracticePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  await requirePageUser(`/videos/${encodeURIComponent(id)}/practice`);
   return <PracticeClient videoId={id} />;
 }

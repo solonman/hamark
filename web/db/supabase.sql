@@ -134,6 +134,74 @@ CREATE TABLE IF NOT EXISTS assignment_review_snapshots (
 CREATE UNIQUE INDEX IF NOT EXISTS assignment_review_snapshots_revision_idx ON assignment_review_snapshots(review_id, revision);
 CREATE INDEX IF NOT EXISTS assignment_review_snapshots_submission_idx ON assignment_review_snapshots(submission_id);
 
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  wecom_corp_id TEXT NOT NULL,
+  wecom_user_id TEXT NOT NULL,
+  identity_key TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  avatar_url TEXT,
+  email TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  last_login_at TEXT NOT NULL,
+  last_synced_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (wecom_corp_id, wecom_user_id),
+  CHECK (status IN ('ACTIVE', 'DISABLED'))
+);
+
+CREATE TABLE IF NOT EXISTS user_departments (
+  user_id TEXT NOT NULL REFERENCES users(id),
+  wecom_department_id TEXT NOT NULL,
+  department_name TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  synced_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, wecom_department_id)
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx ON auth_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+  id TEXT PRIMARY KEY,
+  state_hash TEXT NOT NULL UNIQUE,
+  browser_nonce_hash TEXT NOT NULL,
+  return_to TEXT NOT NULL DEFAULT '/',
+  flow_type TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL,
+  CHECK (flow_type IN ('QR', 'IN_APP'))
+);
+
+CREATE INDEX IF NOT EXISTS oauth_states_expires_at_idx ON oauth_states(expires_at);
+
+CREATE TABLE IF NOT EXISTS wecom_app_tokens (
+  corp_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  token_ciphertext TEXT NOT NULL,
+  token_iv TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (corp_id, agent_id)
+);
+
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_departments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE oauth_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE wecom_app_tokens ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   actor_email TEXT NOT NULL,

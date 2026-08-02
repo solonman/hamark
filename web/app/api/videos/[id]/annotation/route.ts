@@ -2,16 +2,17 @@ import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, type DbPreparedStatement } from "@/db";
 import { loadAnnotation } from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import type { AnnotationDraft } from "@/lib/types";
 
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { id } = await context.params;
-  const user = currentUserFromRequest(request);
   const video = await getDbClient()
     .prepare(`SELECT id, title, status FROM videos WHERE id = ? AND deleted_at IS NULL`)
     .bind(id)
@@ -21,7 +22,7 @@ export async function GET(
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
 
-  const annotation = await loadAnnotation(id, user.email, user.name);
+  const annotation = await loadAnnotation(id, user.identityKey, user.displayName);
   const published = annotation.id
     ? await getDbClient()
         .prepare(
@@ -42,9 +43,12 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
   const { id: videoId } = await context.params;
-  const user = currentUserFromRequest(request);
   const payload = (await request.json()) as AnnotationDraft;
   const db = getDbClient();
 
@@ -61,7 +65,7 @@ export async function PUT(
       `SELECT id, revision FROM annotations
       WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL`,
     )
-    .bind(videoId, user.email)
+    .bind(videoId, user.identityKey)
     .first<{ id: string; revision: number }>();
 
   if (existing && existing.revision !== payload.revision) {
@@ -94,7 +98,7 @@ export async function PUT(
           WHERE id = ? AND author_email = ?`,
         )
         .bind(
-          user.name,
+          user.displayName,
           nextRevision,
           payload.analysisTitle.trim(),
           payload.commercialIntent.trim(),
@@ -104,7 +108,7 @@ export async function PUT(
           payload.shotCommentary.trim(),
           payload.summary.trim(),
           annotationId,
-          user.email,
+          user.identityKey,
         ),
     );
   } else {
@@ -120,8 +124,8 @@ export async function PUT(
         .bind(
           annotationId,
           videoId,
-          user.email,
-          user.name,
+          user.identityKey,
+          user.displayName,
           nextRevision,
           payload.analysisTitle.trim(),
           payload.commercialIntent.trim(),

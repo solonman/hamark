@@ -30,6 +30,10 @@ function normalizeSql(sql: string) {
 
 export { translateSqlPlaceholders };
 
+function isPool(client: QueryClient): client is pg.Pool {
+  return client instanceof Pool;
+}
+
 function getPool() {
   if (!pool) {
     pool = new Pool({
@@ -90,9 +94,12 @@ export class DbPreparedStatement {
 }
 
 export class DbClient {
-  private readonly client: pg.Pool;
+  private readonly client: QueryClient;
 
-  constructor(client: pg.Pool) {
+  constructor(
+    client: QueryClient,
+    private readonly transactionScoped = false,
+  ) {
     this.client = client;
   }
 
@@ -101,7 +108,15 @@ export class DbClient {
   }
 
   async batch(statements: DbPreparedStatement[]) {
-    const client = await this.client.connect();
+    if (!isPool(this.client)) {
+      const results = [];
+      for (const statement of statements) {
+        results.push(await statement.withClient(this.client).run());
+      }
+      return results;
+    }
+
+    const client = (await this.client.connect()) as pg.PoolClient;
     try {
       await client.query("BEGIN");
       const results = [];
@@ -110,6 +125,37 @@ export class DbClient {
       }
       await client.query("COMMIT");
       return results;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async withTransaction<T>(operation: (db: DbClient) => Promise<T>): Promise<T> {
+    if (!isPool(this.client)) {
+      if (this.transactionScoped) {
+        return operation(this);
+      }
+
+      try {
+        await this.client.query("BEGIN");
+        const result = await operation(new DbClient(this.client, true));
+        await this.client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await this.client.query("ROLLBACK");
+        throw error;
+      }
+    }
+
+    const client = (await this.client.connect()) as pg.PoolClient;
+    try {
+      await client.query("BEGIN");
+      const result = await operation(new DbClient(client, true));
+      await client.query("COMMIT");
+      return result;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -127,6 +173,10 @@ export function getDbClient() {
     db = new DbClient(getPool());
   }
   return db;
+}
+
+export async function withDbTransaction<T>(operation: (db: DbClient) => Promise<T>): Promise<T> {
+  return getDbClient().withTransaction(operation);
 }
 
 export function getVideoBucket() {

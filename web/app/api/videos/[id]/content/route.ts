@@ -1,6 +1,6 @@
 import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
-import { currentUserFromRequest, newId } from "@/lib/current-user";
+import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type UploadRow = {
   id: string;
@@ -15,8 +15,11 @@ export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
   await ensureSchema();
-  const user = currentUserFromRequest(request);
   const { id } = await context.params;
   const db = getDbClient();
   const video = await db
@@ -30,7 +33,7 @@ export async function PUT(
   if (!video) {
     return Response.json({ error: "上传会话不存在。" }, { status: 404 });
   }
-  if (video.created_by_email !== user.email) {
+  if (video.created_by_email !== user.identityKey) {
     return Response.json({ error: "只有原上传者可以写入视频文件。" }, { status: 403 });
   }
   if (!request.body) {
@@ -51,7 +54,7 @@ export async function PUT(
       httpMetadata: { contentType },
       customMetadata: {
         videoId: id,
-        uploader: user.email,
+        uploader: user.identityKey,
       },
     });
 
@@ -72,7 +75,7 @@ export async function PUT(
         )
         .bind(
           newId("audit"),
-          user.email,
+          user.identityKey,
           id,
           JSON.stringify({ contentType, fileSize: contentLength }),
         ),
@@ -84,8 +87,9 @@ export async function PUT(
       )
       .bind(id)
       .run();
-    const message = error instanceof Error ? error.message : "上传失败";
-    return Response.json({ error: message }, { status: 500 });
+    const requestId = newId("upload_error");
+    console.error("Video upload failed", { requestId, videoId: id, error });
+    return Response.json({ error: "上传失败，请稍后重试。", requestId }, { status: 500 });
   }
 
   return Response.json({ ok: true, videoId: id });

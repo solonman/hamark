@@ -33,6 +33,14 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
 }
 
+function redirectOnUnauthorized(response: Response) {
+  if (response.status === 401) {
+    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    return true;
+  }
+  return false;
+}
+
 export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
@@ -50,6 +58,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     let active = true;
     fetch(`/api/videos/${videoId}`, { cache: "no-store" })
       .then(async (response) => {
+        if (redirectOnUnauthorized(response)) return;
         const data = (await response.json()) as {
           video?: VideoItem;
           analyses?: SubmittedAnalysis[];
