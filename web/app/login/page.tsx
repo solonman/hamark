@@ -14,6 +14,9 @@ const errorMessages: Record<string, string> = {
   profile_unavailable: "暂时无法读取成员资料。",
   service_unavailable: "登录服务暂时不可用。",
   auth_misconfigured: "登录配置尚未完成。",
+  database_credentials_invalid: "数据库账号或密码不正确。",
+  database_schema_missing: "数据库表尚未初始化。",
+  database_unreachable: "暂时无法连接数据库。",
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {

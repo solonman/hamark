@@ -8,6 +8,19 @@ const errorCodes = new Set([
   "profile_unavailable",
   "service_unavailable",
   "auth_misconfigured",
+  "database_credentials_invalid",
+  "database_schema_missing",
+  "database_unreachable",
+]);
+
+const databaseErrorCodes = new Map([
+  ["28P01", "database_credentials_invalid"],
+  ["42P01", "database_schema_missing"],
+  ["ECONNREFUSED", "database_unreachable"],
+  ["ECONNRESET", "database_unreachable"],
+  ["EAI_AGAIN", "database_unreachable"],
+  ["ENETUNREACH", "database_unreachable"],
+  ["ETIMEDOUT", "database_unreachable"],
 ]);
 
 export function authFlowForUserAgent(userAgent: string | null) {
@@ -37,8 +50,28 @@ export function callbackErrorLocation(
 
 export function authErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
-    const code = (error as AuthError).code;
-    return errorCodes.has(code) ? code : "service_unavailable";
+    const code = String((error as AuthError).code);
+    if (errorCodes.has(code)) {
+      return code;
+    }
+    const databaseCode = databaseErrorCodes.get(code);
+    if (databaseCode) {
+      return databaseCode;
+    }
+  }
+
+  const message = error instanceof Error ? error.message : "";
+  if (/Missing required environment variable: DATABASE_URL/i.test(message)) {
+    return "auth_misconfigured";
+  }
+  if (/password authentication failed|tenant or user not found|invalid (?:database )?(?:user|password)/i.test(message)) {
+    return "database_credentials_invalid";
+  }
+  if (/relation .+ does not exist/i.test(message)) {
+    return "database_schema_missing";
+  }
+  if (/connect(?:ion)? (?:terminated|timeout)|connection refused|ENETUNREACH|ECONNREFUSED|EAI_AGAIN|ETIMEDOUT/i.test(message)) {
+    return "database_unreachable";
   }
   return "service_unavailable";
 }
