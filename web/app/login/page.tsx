@@ -19,6 +19,10 @@ const errorMessages: Record<string, string> = {
   database_pooler_identity_invalid: "数据库连接串的项目账号不正确。",
   database_schema_missing: "数据库表尚未初始化。",
   database_unreachable: "暂时无法连接数据库。",
+  wecom_token_unavailable: "无法获取企业微信应用凭证，请检查应用 Secret。",
+  wecom_userinfo_unavailable: "企业微信未能确认扫码成员身份。",
+  wecom_member_unavailable: "暂时无法读取企业微信成员资料。",
+  wecom_department_unavailable: "暂时无法读取企业微信部门信息。",
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {

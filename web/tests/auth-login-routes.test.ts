@@ -7,6 +7,7 @@ import {
   callbackErrorLocation,
   isTrustedOrigin,
 } from "../lib/auth/routes.ts";
+import { AuthError } from "../lib/auth/types.ts";
 
 const config = {
   appUrl: "https://hamark.boga.plus",
@@ -42,6 +43,13 @@ test("database startup errors are classified without exposing sensitive details"
   assert.equal(authErrorCode(Object.assign(new Error("connect timeout"), { code: "ETIMEDOUT" })), "database_unreachable");
   assert.equal(authErrorCode(new Error("Missing required environment variable: DATABASE_URL")), "auth_misconfigured");
   assert.equal(authErrorCode(new Error("unexpected database failure")), "service_unavailable");
+});
+
+test("WeCom service failures identify the failed callback stage", () => {
+  assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom token request failed.")), "wecom_token_unavailable");
+  assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom userinfo request failed.")), "wecom_userinfo_unavailable");
+  assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom member response was invalid.")), "wecom_member_unavailable");
+  assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom department request was rejected.")), "wecom_department_unavailable");
 });
 
 test("WeCom start route converts startup failures into login errors", () => {

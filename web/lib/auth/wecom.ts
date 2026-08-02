@@ -168,22 +168,22 @@ export class WeComClient {
         signal: createTimeoutSignal(),
       });
     } catch {
-      throw new AuthError("service_unavailable", "WeCom service is unavailable.");
+      throw new AuthError("service_unavailable", `WeCom ${kind} request failed.`);
     }
 
     if (!response.ok) {
-      throw new AuthError("service_unavailable", "WeCom service is unavailable.");
+      throw new AuthError("service_unavailable", `WeCom ${kind} request failed.`);
     }
 
     let body: unknown;
     try {
       body = await response.json();
     } catch {
-      throw new AuthError("service_unavailable", "WeCom service returned an invalid response.");
+      throw new AuthError("service_unavailable", `WeCom ${kind} response was invalid.`);
     }
 
     if (!isRecord(body)) {
-      throw new AuthError("service_unavailable", "WeCom service returned an invalid response.");
+      throw new AuthError("service_unavailable", `WeCom ${kind} response was invalid.`);
     }
 
     const json = body as WeComJson;
@@ -325,7 +325,7 @@ function mapWeComError(kind: WeComEndpointKind, errcode: number): AuthError {
     return new AuthError("profile_unavailable", "WeCom member profile is unavailable.");
   }
 
-  return new AuthError("service_unavailable", "WeCom service is unavailable.");
+  return new AuthError("service_unavailable", `WeCom ${kind} request was rejected.`);
 }
 
 function isExpiredAuthErrcode(errcode: number): boolean {

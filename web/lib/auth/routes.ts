@@ -13,6 +13,10 @@ const errorCodes = new Set([
   "database_pooler_identity_invalid",
   "database_schema_missing",
   "database_unreachable",
+  "wecom_department_unavailable",
+  "wecom_member_unavailable",
+  "wecom_token_unavailable",
+  "wecom_userinfo_unavailable",
 ]);
 
 const databaseErrorCodes = new Map([
@@ -53,7 +57,7 @@ export function callbackErrorLocation(
 export function authErrorCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
     const code = String((error as AuthError).code);
-    if (errorCodes.has(code)) {
+    if (errorCodes.has(code) && code !== "service_unavailable") {
       return code;
     }
     const databaseCode = databaseErrorCodes.get(code);
@@ -63,6 +67,10 @@ export function authErrorCode(error: unknown) {
   }
 
   const message = error instanceof Error ? error.message : "";
+  const wecomStage = message.match(/WeCom (token|userinfo|member|department)\b/i)?.[1]?.toLowerCase();
+  if (wecomStage) {
+    return `wecom_${wecomStage}_unavailable`;
+  }
   if (/Missing required environment variable: DATABASE_URL/i.test(message)) {
     return "auth_misconfigured";
   }
