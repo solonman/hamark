@@ -66,6 +66,46 @@ Vercel 环境变量必须配置在 Production 环境。Preview 只有在其精�
 
 代理源码和部署模板位于 `services/wecom-proxy/`。服务只监听 `127.0.0.1:3201`，由独立 Nginx HTTPS 虚拟主机转发。不要复用服务器上 Advault 的公开 HTTP `/cgi-bin/` 转发，也不要把代理端口暴露到公网。
 
+代理使用隔离安装的 Node.js 22.23.2，不替换服务器 `/usr/bin/node`，避免影响 BOGACLAW。先从 Node.js 官方发布目录下载 `node-v22.23.2-linux-x64.tar.xz` 和 `SHASUMS256.txt`，校验 SHA-256 后安装：
+
+```bash
+grep ' node-v22.23.2-linux-x64.tar.xz$' SHASUMS256.txt | sha256sum --check
+sudo tar -xJf node-v22.23.2-linux-x64.tar.xz -C /opt
+/opt/node-v22.23.2-linux-x64/bin/node --version
+sudo ln -sfn /opt/node-v22.23.2-linux-x64 /opt/node-v22.23.2
+```
+
+固定 IP 服务器首次部署顺序：
+
+```bash
+sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin hamark-wecom
+sudo install -d -o root -g root -m 0755 /opt/hamark-wecom-proxy
+sudo install -o root -g root -m 0644 services/wecom-proxy/protocol.mjs services/wecom-proxy/wecom.mjs services/wecom-proxy/server.mjs /opt/hamark-wecom-proxy/
+sudo install -o root -g root -m 0600 /dev/null /etc/hamark-wecom-proxy.env
+sudoedit /etc/hamark-wecom-proxy.env
+sudo chmod 600 /etc/hamark-wecom-proxy.env
+sudo install -o root -g root -m 0644 services/wecom-proxy/deploy/hamark-wecom-proxy.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hamark-wecom-proxy
+```
+
+`/etc/hamark-wecom-proxy.env` 只保存服务器变量：`WECOM_CORP_ID`、`WECOM_SECRET`、`WECOM_PROXY_SECRET`、`HOST=127.0.0.1` 和 `PORT=3201`。其中代理密钥必须与 Vercel Production 的 `WECOM_PROXY_SECRET` 完全一致。
+
+DNS 添加 `hamark-wecom.boga.plus A 111.229.151.122` 后，先安装无证书引导配置，再签发证书，最后切换正式配置：
+
+```bash
+sudo install -o root -g root -m 0644 services/wecom-proxy/deploy/nginx-bootstrap.conf /etc/nginx/sites-available/hamark-wecom.conf
+sudo ln -s /etc/nginx/sites-available/hamark-wecom.conf /etc/nginx/sites-enabled/hamark-wecom.conf
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot certonly --nginx -d hamark-wecom.boga.plus
+sudo install -o root -g root -m 0644 services/wecom-proxy/deploy/nginx.conf /etc/nginx/sites-available/hamark-wecom.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+若符号链接已存在，不要重复创建；直接核对它指向 `/etc/nginx/sites-available/hamark-wecom.conf`。上线前执行 `curl -fsS http://127.0.0.1:3201/health` 和 `curl -fsS https://hamark-wecom.boga.plus/health`。
+
 企业微信应用的可见范围控制哪些成员有登录资格。部署认证代码前，先在 Supabase 执行新增 SQL 迁移；当前认证路径不再保留 demo-user fallback。
 
 `DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接。认证相关表开启了 RLS，但没有面向浏览器或 anon 角色的策略；运行时数据库访问应只发生在 Next.js 服务端。

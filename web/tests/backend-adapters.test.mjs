@@ -128,7 +128,12 @@ test("WeCom proxy deployment files isolate the service and expose only its HTTPS
   assert.match(systemd, /^Group=hamark-wecom$/m);
   assert.match(systemd, /^EnvironmentFile=\/etc\/hamark-wecom-proxy\.env$/m);
   assert.match(systemd, /^WorkingDirectory=\/opt\/hamark-wecom-proxy$/m);
-  assert.match(systemd, /^ExecStart=\/usr\/bin\/node \/opt\/hamark-wecom-proxy\/server\.mjs$/m);
+  assert.match(
+    systemd,
+    /^ExecStart=\/opt\/node-v22\.23\.2\/bin\/node \/opt\/hamark-wecom-proxy\/server\.mjs$/m,
+  );
+  assert.match(systemd, /\[Unit\][\s\S]*StartLimitIntervalSec=300[\s\S]*StartLimitBurst=5[\s\S]*\[Service\]/);
+  assert.doesNotMatch(systemd, /\[Service\][\s\S]*StartLimitIntervalSec/);
   assert.match(systemd, /^NoNewPrivileges=true$/m);
   assert.match(systemd, /^ProtectSystem=strict$/m);
   assert.match(systemd, /^ProtectHome=true$/m);
@@ -140,6 +145,10 @@ test("WeCom proxy deployment files isolate the service and expose only its HTTPS
   assert.match(nginx, /location = \/v1\/member-by-code/);
   assert.match(nginx, /limit_req zone=hamark_wecom_proxy/);
   assert.match(nginx, /location \/\s*\{\s*return 404;/s);
+  assert.match(nginx, /listen 80;[\s\S]*access_log off;[\s\S]*return 301/s);
+
+  const bootstrap = readRepoFile("../services/wecom-proxy/deploy/nginx-bootstrap.conf");
+  assert.match(bootstrap, /access_log off;/);
 });
 
 test("handoff README documents WeCom auth deployment prerequisites and verification", () => {
@@ -152,6 +161,21 @@ test("handoff README documents WeCom auth deployment prerequisites and verificat
   assert.match(handoff, /桌面.*扫码|desktop.*QR/i);
   assert.match(handoff, /企业微信客户端|in-WeCom-client|WeCom client/i);
   assert.match(handoff, /demo-user fallback|演示身份兜底|演示用户兜底/i);
+  assert.match(handoff, /WECOM_PROXY_URL/);
+  assert.match(handoff, /WECOM_PROXY_SECRET/);
+  assert.match(handoff, /111\.229\.151\.122/);
+  const vercelEnvBlock = handoff.match(/Vercel Production[^`]*```env([\s\S]*?)```/i)?.[1] ?? "";
+  assert.doesNotMatch(vercelEnvBlock, /^WECOM_SECRET=/m);
+});
+
+test("web README documents the certificate-safe fixed IP proxy rollout order", () => {
+  const readme = readRepoFile("../README.md");
+
+  assert.match(readme, /useradd[^\n]*hamark-wecom/);
+  assert.match(readme, /\/opt\/hamark-wecom-proxy/);
+  assert.match(readme, /chmod 600 \/etc\/hamark-wecom-proxy\.env/);
+  assert.match(readme, /nginx-bootstrap\.conf[\s\S]*certbot[\s\S]*nginx\.conf/);
+  assert.match(readme, /systemctl enable --now hamark-wecom-proxy/);
 });
 
 test("documentation and tests do not contain real-looking secrets", () => {

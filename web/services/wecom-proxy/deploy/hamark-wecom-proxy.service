@@ -2,6 +2,8 @@
 Description=Hamark enterprise WeChat fixed IP proxy
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,11 +12,9 @@ Group=hamark-wecom
 WorkingDirectory=/opt/hamark-wecom-proxy
 EnvironmentFile=/etc/hamark-wecom-proxy.env
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/node /opt/hamark-wecom-proxy/server.mjs
+ExecStart=/opt/node-v22.23.2/bin/node /opt/hamark-wecom-proxy/server.mjs
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=300
-StartLimitBurst=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
