@@ -97,7 +97,8 @@ test("environment example documents only the expected auth variables with safe p
     ["AUTH_SECRET", "replace-with-at-least-32-random-bytes-base64"],
     ["WECOM_CORP_ID", "wwxxxxxxxxxxxxxxxx"],
     ["WECOM_AGENT_ID", "1000002"],
-    ["WECOM_SECRET", "replace-with-wecom-app-secret"],
+    ["WECOM_PROXY_URL", "https://hamark-wecom.boga.plus"],
+    ["WECOM_PROXY_SECRET", "replace-with-at-least-32-random-bytes-base64"],
   ]);
 
   const authVariableNames = [...entries.keys()].filter(
@@ -115,6 +116,30 @@ test("web README documents WeCom callback and trusted domain", () => {
 
   assert.match(readme, /https:\/\/hamark\.boga\.plus\/api\/auth\/wecom\/callback/);
   assert.match(readme, /hamark\.boga\.plus/);
+  assert.match(readme, /hamark-wecom\.boga\.plus/);
+  assert.match(readme, /111\.229\.151\.122/);
+});
+
+test("WeCom proxy deployment files isolate the service and expose only its HTTPS host", () => {
+  const systemd = readRepoFile("../services/wecom-proxy/deploy/hamark-wecom-proxy.service");
+  const nginx = readRepoFile("../services/wecom-proxy/deploy/nginx.conf");
+
+  assert.match(systemd, /^User=hamark-wecom$/m);
+  assert.match(systemd, /^Group=hamark-wecom$/m);
+  assert.match(systemd, /^EnvironmentFile=\/etc\/hamark-wecom-proxy\.env$/m);
+  assert.match(systemd, /^WorkingDirectory=\/opt\/hamark-wecom-proxy$/m);
+  assert.match(systemd, /^ExecStart=\/usr\/bin\/node \/opt\/hamark-wecom-proxy\/server\.mjs$/m);
+  assert.match(systemd, /^NoNewPrivileges=true$/m);
+  assert.match(systemd, /^ProtectSystem=strict$/m);
+  assert.match(systemd, /^ProtectHome=true$/m);
+
+  assert.match(nginx, /server_name hamark-wecom\.boga\.plus;/);
+  assert.match(nginx, /proxy_pass http:\/\/127\.0\.0\.1:3201;/);
+  assert.match(nginx, /client_max_body_size 4k;/);
+  assert.match(nginx, /location = \/health/);
+  assert.match(nginx, /location = \/v1\/member-by-code/);
+  assert.match(nginx, /limit_req zone=hamark_wecom_proxy/);
+  assert.match(nginx, /location \/\s*\{\s*return 404;/s);
 });
 
 test("handoff README documents WeCom auth deployment prerequisites and verification", () => {

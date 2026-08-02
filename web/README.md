@@ -36,7 +36,8 @@ APP_URL=https://hamark.boga.plus
 AUTH_SECRET=replace-with-at-least-32-random-bytes-base64
 WECOM_CORP_ID=wwxxxxxxxxxxxxxxxx
 WECOM_AGENT_ID=1000002
-WECOM_SECRET=replace-with-wecom-app-secret
+WECOM_PROXY_URL=https://hamark-wecom.boga.plus
+WECOM_PROXY_SECRET=replace-with-at-least-32-random-bytes-base64
 ```
 
 生成 `AUTH_SECRET`：
@@ -59,6 +60,11 @@ Vercel 环境变量必须配置在 Production 环境。Preview 只有在其精�
 
 - 回调 URL：`https://hamark.boga.plus/api/auth/wecom/callback`
 - 可信域名：`hamark.boga.plus`
+- 企业可信 IP：`111.229.151.122`
+
+生产环境通过 `https://hamark-wecom.boga.plus` 的独立代理访问企业微信服务端 API，避免 Vercel 动态出口 IP 被企业微信拒绝。Vercel 只保存 `WECOM_PROXY_SECRET`，不保存企业微信应用 Secret；`WECOM_SECRET` 仅配置在固定 IP 服务器的 `/etc/hamark-wecom-proxy.env`。
+
+代理源码和部署模板位于 `services/wecom-proxy/`。服务只监听 `127.0.0.1:3201`，由独立 Nginx HTTPS 虚拟主机转发。不要复用服务器上 Advault 的公开 HTTP `/cgi-bin/` 转发，也不要把代理端口暴露到公网。
 
 企业微信应用的可见范围控制哪些成员有登录资格。部署认证代码前，先在 Supabase 执行新增 SQL 迁移；当前认证路径不再保留 demo-user fallback。
 
