@@ -90,9 +90,9 @@ export class DbPreparedStatement {
 }
 
 export class DbClient {
-  private readonly client: pg.Pool;
+  private readonly client: QueryClient;
 
-  constructor(client: pg.Pool) {
+  constructor(client: QueryClient) {
     this.client = client;
   }
 
@@ -101,6 +101,14 @@ export class DbClient {
   }
 
   async batch(statements: DbPreparedStatement[]) {
+    if (!("connect" in this.client)) {
+      const results = [];
+      for (const statement of statements) {
+        results.push(await statement.withClient(this.client).run());
+      }
+      return results;
+    }
+
     const client = await this.client.connect();
     try {
       await client.query("BEGIN");
@@ -127,6 +135,21 @@ export function getDbClient() {
     db = new DbClient(getPool());
   }
   return db;
+}
+
+export async function withDbTransaction<T>(operation: (db: DbClient) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await operation(new DbClient(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export function getVideoBucket() {
