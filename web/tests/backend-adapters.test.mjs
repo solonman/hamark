@@ -115,6 +115,12 @@ test("database schema setup is an explicit migration command, not request-time w
   assert.match(migration, /applySchema\(\)/);
 });
 
+test("Vercel functions run near the Supabase database", () => {
+  const vercelConfig = JSON.parse(readRepoFile("../vercel.json"));
+
+  assert.deepEqual(vercelConfig.regions, ["syd1"]);
+});
+
 test("environment example documents only the expected auth variables with safe placeholders", () => {
   const envExample = readRepoFile("../.env.example");
   const entries = new Map(
