@@ -1,4 +1,4 @@
-import { getDbClient } from "@/db";
+import { getDbClient, getVideoBucket } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type VideoDetailRow = {
@@ -7,6 +7,7 @@ type VideoDetailRow = {
   brand: string;
   description: string;
   tags_json: string;
+  object_key: string;
   original_name: string;
   content_type: string;
   file_size: number;
@@ -36,7 +37,7 @@ export async function GET(
   const db = getDbClient();
   const video = await db
     .prepare(
-      `SELECT id, title, brand, description, tags_json, original_name,
+      `SELECT id, title, brand, description, tags_json, object_key, original_name,
         content_type, file_size, status, created_by_email, created_by_name, created_at
       FROM videos
       WHERE id = ? AND deleted_at IS NULL`,
@@ -48,24 +49,31 @@ export async function GET(
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
 
-  const snapshots = await db
-    .prepare(
-      `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
-        s.payload_json, s.content_hash, s.created_at
-      FROM annotation_snapshots s
-      INNER JOIN (
-        SELECT author_email, MAX(revision) AS latest_revision
-        FROM annotation_snapshots
-        WHERE video_id = ?
-        GROUP BY author_email
-      ) latest
-      ON latest.author_email = s.author_email
-      AND latest.latest_revision = s.revision
-      WHERE s.video_id = ?
-      ORDER BY s.created_at DESC`,
-    )
-    .bind(id, id)
-    .all<SnapshotRow>();
+  const [snapshots, playbackUrl] = await Promise.all([
+    db
+      .prepare(
+        `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
+          s.payload_json, s.content_hash, s.created_at
+        FROM annotation_snapshots s
+        INNER JOIN (
+          SELECT author_email, MAX(revision) AS latest_revision
+          FROM annotation_snapshots
+          WHERE video_id = ?
+          GROUP BY author_email
+        ) latest
+        ON latest.author_email = s.author_email
+        AND latest.latest_revision = s.revision
+        WHERE s.video_id = ?
+        ORDER BY s.created_at DESC`,
+      )
+      .bind(id, id)
+      .all<SnapshotRow>(),
+    video.status === "READY"
+      ? getVideoBucket().createPresignedGetUrl(video.object_key, {
+          expiresInSeconds: 3 * 60 * 60,
+        })
+      : Promise.resolve(null),
+  ]);
 
   let tags: string[] = [];
   try {
@@ -82,6 +90,7 @@ export async function GET(
       description: video.description,
       tags,
       originalName: video.original_name,
+      playbackUrl,
       contentType: video.content_type,
       fileSize: video.file_size,
       status: video.status,

@@ -74,6 +74,15 @@ test("video deletion is restricted to the original uploader", async () => {
   assert.match(source, /deleteResult\.meta\.rows_written !== 1/);
 });
 
+test("READY video details expose a scoped COS playback URL only after authentication", async () => {
+  const source = await readProjectFile("app/api/videos/[id]/route.ts");
+
+  assert.match(source, /requireApiUser\(request\)/);
+  assert.match(source, /object_key/);
+  assert.match(source, /getVideoBucket\(\)\.createPresignedGetUrl\(video\.object_key, \{\s*expiresInSeconds: 3 \* 60 \* 60,?\s*\}\)/s);
+  assert.match(source, /playbackUrl/);
+});
+
 test("proxy public routes are exact unless explicitly prefix-based", async () => {
   const source = await readProjectFile("proxy.ts");
 
