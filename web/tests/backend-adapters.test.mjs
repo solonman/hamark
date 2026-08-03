@@ -142,6 +142,20 @@ test("database schema setup is an explicit migration command, not request-time w
   assert.match(schema, /ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_key TEXT/);
 });
 
+test("thumbnail backfill is an explicit operator script", () => {
+  const packageJson = JSON.parse(readRepoFile("../package.json"));
+  const script = readRepoFile("../scripts/backfill-thumbnails.ts");
+
+  assert.equal(packageJson.scripts["thumbnails:backfill"], "tsx scripts/backfill-thumbnails.ts");
+  assert.match(script, /applySchema\(\)/);
+  assert.match(script, /WHERE status = 'READY'/);
+  assert.match(script, /thumbnail_key IS NULL OR thumbnail_key = ''/);
+  assert.match(script, /ffmpeg/);
+  assert.match(script, /scale='min\(1600,iw\)':-2/);
+  assert.match(script, /image\/jpeg/);
+  assert.match(script, /UPDATE videos\s+SET thumbnail_key = \?/s);
+});
+
 test("Vercel functions run near the Supabase database", () => {
   const vercelConfig = JSON.parse(readRepoFile("../vercel.json"));
 
