@@ -162,6 +162,17 @@ test("shot autosave serializes requests and retains newer draft content", async 
   assert.match(practice, /if \(editSequence\.current === sequenceAtStart\)/);
 });
 
+test("shot group names stay local while typing before updating the full table", async () => {
+  const editor = await readFile(
+    new URL("../app/videos/[id]/practice/ShotGroupEditor.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(editor, /function DeferredGroupNameInput/);
+  assert.match(editor, /window\.setTimeout\(\(\) => onCommit\(value\), 600\)/);
+  assert.match(editor, /onBlur=\{\(\) => onCommit\(value\)\}/);
+});
+
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
   const taxonomy = JSON.parse(
     await readFile(new URL("../lib/taxonomy-v0.2.json", import.meta.url), "utf8"),
