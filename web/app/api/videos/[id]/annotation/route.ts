@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, type DbPreparedStatement } from "@/db";
 import { loadAnnotation } from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
@@ -11,7 +10,6 @@ export async function GET(
 ) {
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { id } = await context.params;
   const video = await getDbClient()
     .prepare(`SELECT id, title, status FROM videos WHERE id = ? AND deleted_at IS NULL`)
@@ -47,7 +45,6 @@ export async function PUT(
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { id: videoId } = await context.params;
   const payload = (await request.json()) as AnnotationDraft;
   const db = getDbClient();

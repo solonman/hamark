@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
@@ -28,7 +27,6 @@ export async function PUT(
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { id } = await context.params;
   const db = getDbClient();
   const video = await db

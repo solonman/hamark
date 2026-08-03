@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import {
@@ -64,7 +63,6 @@ export async function GET(
 ) {
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { snapshotId } = await context.params;
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {
@@ -140,7 +138,6 @@ export async function PUT(
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { snapshotId } = await context.params;
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {
@@ -250,7 +247,6 @@ export async function POST(
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { snapshotId } = await context.params;
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {

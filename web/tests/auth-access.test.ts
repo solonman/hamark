@@ -40,6 +40,14 @@ test("every business API route enforces a database-backed authenticated user", a
   }
 });
 
+test("business API routes do not run database schema setup during requests", async () => {
+  for (const route of businessApiRoutes) {
+    const source = await readProjectFile(route);
+    assert.doesNotMatch(source, /@\/db\/bootstrap/);
+    assert.doesNotMatch(source, /ensureSchema\(/);
+  }
+});
+
 test("protected pages require page sessions", async () => {
   for (const page of protectedPages) {
     const source = await readProjectFile(page);

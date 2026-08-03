@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
 import { requireApiUser } from "@/lib/current-user";
 
@@ -14,7 +13,6 @@ export async function GET(
 ) {
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { id } = await context.params;
   const video = await getDbClient()
     .prepare(

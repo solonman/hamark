@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient } from "@/db";
 import { loadAnnotation, validateAnnotation } from "@/lib/annotation-server";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
@@ -19,7 +18,6 @@ export async function POST(
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const { id: videoId } = await context.params;
   const annotation = await loadAnnotation(videoId, user.identityKey, user.displayName);
 

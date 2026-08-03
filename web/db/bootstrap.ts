@@ -195,18 +195,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS audit_logs_object_idx ON audit_logs(object_type, object_id)`,
 ];
 
-let ready: Promise<void> | null = null;
-
-export function ensureSchema() {
-  if (!ready) {
-    const db = getDbClient();
-    ready = db
-      .batch(statements.map((statement) => db.prepare(statement)))
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        ready = null;
-        throw error;
-      });
-  }
-  return ready;
+export async function applySchema() {
+  const db = getDbClient();
+  await db.batch(statements.map((statement) => db.prepare(statement)));
 }

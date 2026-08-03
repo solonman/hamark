@@ -107,6 +107,14 @@ test("Postgres pool fails fast when hosted database is unreachable", () => {
   assert.match(source, /POSTGRES_CONNECTION_TIMEOUT_MS/);
 });
 
+test("database schema setup is an explicit migration command, not request-time work", () => {
+  const packageJson = JSON.parse(readRepoFile("../package.json"));
+  const migration = readRepoFile("../scripts/migrate-db.ts");
+
+  assert.equal(packageJson.scripts["db:migrate"], "tsx scripts/migrate-db.ts");
+  assert.match(migration, /applySchema\(\)/);
+});
+
 test("environment example documents only the expected auth variables with safe placeholders", () => {
   const envExample = readRepoFile("../.env.example");
   const entries = new Map(

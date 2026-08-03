@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/db/bootstrap";
 import { getDbClient, getVideoBucket } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
@@ -29,7 +28,6 @@ function tagsFromJson(value: string) {
 export async function GET(request: Request) {
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const result = await getDbClient()
     .prepare(
       `SELECT
@@ -66,7 +64,6 @@ export async function POST(request: Request) {
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
-  await ensureSchema();
   const body = (await request.json()) as {
     title?: string;
     brand?: string;
