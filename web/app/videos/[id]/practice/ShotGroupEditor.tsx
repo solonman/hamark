@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import type { ShotDraft } from "@/lib/types";
 import {
   ResizableShotTableHeader,
@@ -14,6 +16,33 @@ type ShotGroup = {
   rawName: string;
   indexes: number[];
 };
+
+function DeferredGroupNameInput({
+  value: committedValue,
+  onCommit,
+  ariaLabel,
+}: {
+  value: string;
+  onCommit: (value: string) => void;
+  ariaLabel: string;
+}) {
+  const [value, setValue] = useState(committedValue);
+
+  useEffect(() => {
+    if (value === committedValue) return;
+    const timer = window.setTimeout(() => onCommit(value), 600);
+    return () => window.clearTimeout(timer);
+  }, [committedValue, onCommit, value]);
+
+  return (
+    <input
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => onCommit(value)}
+      aria-label={ariaLabel}
+    />
+  );
+}
 
 function createShot(orderIndex: number, groupName: string): ShotDraft {
   return {
@@ -161,10 +190,10 @@ export default function ShotGroupEditor({
               </div>
               <label className="shot-group-name">
                 <span>这一组镜头在叙事中承担什么段落？</span>
-                <input
+                <DeferredGroupNameInput
                   value={group.name}
-                  onChange={(event) => renameGroup(group, event.target.value)}
-                  aria-label={`镜头组 ${groupIndex + 1} 名称`}
+                  onCommit={(name) => renameGroup(group, name)}
+                  ariaLabel={`镜头组 ${groupIndex + 1} 名称`}
                 />
               </label>
               <div className="shot-group-actions">
