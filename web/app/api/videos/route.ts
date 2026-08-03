@@ -49,6 +49,7 @@ export async function GET(request: Request) {
       description: row.description,
       tags: tagsFromJson(row.tags_json),
       originalName: row.original_name,
+      playbackUrl: null,
       contentType: row.content_type,
       fileSize: row.file_size,
       status: row.status,

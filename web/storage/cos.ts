@@ -247,6 +247,39 @@ export class CosVideoBucket {
     return url.toString();
   }
 
+  async createPresignedGetUrl(
+    key: string,
+    {
+      expiresInSeconds = 3 * 60 * 60,
+      now = new Date(),
+    }: { expiresInSeconds?: number; now?: Date } = {},
+  ) {
+    if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 3 * 60 * 60) {
+      throw new Error("COS playback URL expiry must be between 1 and 10800 seconds.");
+    }
+
+    const url = new URL(virtualHostObjectUrl(this.config.bucket, this.config.region, key));
+    const startTime = Math.floor(now.getTime() / 1000);
+    const keyTime = `${startTime};${startTime + expiresInSeconds}`;
+    const headerList = "host";
+    const httpHeaders = `host=${encodePathSegment(url.host)}`;
+    const httpString = `get\n${url.pathname}\n\n${httpHeaders}\n`;
+    const stringToSign = `sha1\n${keyTime}\n${await sha1(httpString)}\n`;
+    const signKey = await hmacSha1(this.config.secretKey, keyTime);
+    const signature = await hmacSha1(signKey, stringToSign);
+    const parameters = new URLSearchParams({
+      "q-sign-algorithm": "sha1",
+      "q-ak": this.config.secretId,
+      "q-sign-time": keyTime,
+      "q-key-time": keyTime,
+      "q-header-list": headerList,
+      "q-url-param-list": "",
+      "q-signature": signature,
+    });
+    url.search = parameters.toString();
+    return url.toString();
+  }
+
   async put(
     key: string,
     body: ObjectBody,

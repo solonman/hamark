@@ -9,6 +9,7 @@ export type VideoItem = {
   description: string;
   tags: string[];
   originalName: string;
+  playbackUrl: string | null;
   contentType: string;
   fileSize: number;
   status: VideoStatus;
