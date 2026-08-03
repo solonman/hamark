@@ -14,6 +14,7 @@
     "start:vinext": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --import tsx --test tests/*.test.mjs tests/*.test.ts",
     "db:migrate": "tsx scripts/migrate-db.ts",
+    "thumbnails:backfill": "tsx scripts/backfill-thumbnails.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {

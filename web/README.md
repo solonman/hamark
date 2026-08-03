@@ -29,6 +29,13 @@ npm run dev
 
 运行前需要在 `.env.local` 中配置 Supabase Postgres、腾讯云COS和企业微信登录变量。
 
+历史视频缩略图回填需要在有生产环境变量和 `ffmpeg` 的机器上执行。脚本会先确保 `thumbnail_key` 字段存在，再为 `READY` 且缺少封面的历史视频生成 `1600px` 宽度上限的 JPEG 封面并上传到 COS：
+
+```bash
+npm run thumbnails:backfill
+THUMBNAIL_BACKFILL_LIMIT=5 npm run thumbnails:backfill
+```
+
 企业微信登录相关变量：
 
 ```env
