@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { formatShortDate } from "@/lib/date-format";
 import type { VideoItem } from "@/lib/types";
 import UploadDialog from "./UploadDialog";
 import UserMenu, { type UserMenuUser } from "./UserMenu";
@@ -14,17 +15,6 @@ function formatBytes(value: number) {
     Math.floor(Math.log(value) / Math.log(1024)),
   );
   return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
-}
-
-function formatDate(value: string) {
-  const normalized =
-    value.includes("T") || value.endsWith("Z")
-      ? value
-      : `${value.replace(" ", "T")}Z`;
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(normalized));
 }
 
 export default function HomeClient({ user }: { user: UserMenuUser }) {
@@ -229,7 +219,7 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
                         <Link href={`/videos/${video.id}`}>{video.title}</Link>
                       </h3>
                     </div>
-                    <span className="date-badge">{formatDate(video.createdAt)}</span>
+                    <span className="date-badge">{formatShortDate(video.createdAt)}</span>
                   </div>
                   <div className="tag-list">
                     {video.tags.slice(0, 4).map((tag) => (
