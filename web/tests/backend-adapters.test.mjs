@@ -100,6 +100,30 @@ test("COS creates a short-lived signed PUT URL for a single video object", async
   assert.equal(parsed.searchParams.has("x-amz-meta-uploader"), false);
 });
 
+test("COS creates a three-hour signed GET URL for a single video object", async () => {
+  const bucket = new CosVideoBucket({
+    region: "ap-shanghai",
+    bucket: "hamark-videos-1250000000",
+    secretId: "secret-id",
+    secretKey: "secret-key",
+    endpoint: "https://cos.ap-shanghai.myqcloud.com",
+  });
+
+  const playbackUrl = await bucket.createPresignedGetUrl("videos/video_123/original", {
+    expiresInSeconds: 3 * 60 * 60,
+    now: new Date("2026-08-03T00:00:00Z"),
+  });
+  const parsed = new URL(playbackUrl);
+
+  assert.equal(parsed.host, "hamark-videos-1250000000.cos.ap-shanghai.myqcloud.com");
+  assert.equal(parsed.pathname, "/videos/video_123/original");
+  assert.equal(parsed.searchParams.get("q-sign-algorithm"), "sha1");
+  assert.equal(parsed.searchParams.get("q-sign-time"), "1785715200;1785726000");
+  assert.equal(parsed.searchParams.get("q-header-list"), "host");
+  assert.match(parsed.searchParams.get("q-signature") ?? "", /^[a-f0-9]{40}$/);
+  assert.equal(parsed.searchParams.has("response-content-disposition"), false);
+});
+
 test("Postgres pool fails fast when hosted database is unreachable", () => {
   const source = readRepoFile("../db/index.ts");
 
