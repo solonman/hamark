@@ -11,6 +11,12 @@ export type CosConfig = {
 type ObjectBody = ReadableStream<Uint8Array> | Blob | Uint8Array;
 type FetchInitWithDuplex = RequestInit & { duplex?: "half" };
 
+export type PresignedPutOptions = {
+  contentType: string;
+  expiresInSeconds?: number;
+  now?: Date;
+};
+
 export type ObjectRange = {
   offset: number;
   length: number;
@@ -97,6 +103,16 @@ function canonicalHeaders(headers: Headers) {
     .sort(([a], [b]) => a.localeCompare(b));
 }
 
+function canonicalQuery(parameters: URLSearchParams) {
+  return Array.from(parameters.entries())
+    .sort(([leftName, leftValue], [rightName, rightValue]) => {
+      const nameOrder = leftName.localeCompare(rightName);
+      return nameOrder || leftValue.localeCompare(rightValue);
+    })
+    .map(([name, value]) => `${encodePathSegment(name)}=${encodePathSegment(value)}`)
+    .join("&");
+}
+
 async function signRequest(
   request: Request,
   config: CosConfig,
@@ -176,6 +192,58 @@ export class CosVideoBucket {
       throw new Error(`COS ${method} ${key} failed with ${response.status}`);
     }
     return response;
+  }
+
+  async createPresignedPutUrl(
+    key: string,
+    {
+      contentType,
+      expiresInSeconds = 600,
+      now = new Date(),
+    }: PresignedPutOptions,
+  ) {
+    if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 900) {
+      throw new Error("COS upload URL expiry must be between 1 and 900 seconds.");
+    }
+
+    const url = new URL(this.url(key));
+    const dateTime = amzDate(now);
+    const date = shortDate(dateTime);
+    const scope = `${date}/${this.config.region}/${service}/aws4_request`;
+    const headers = new Headers({
+      "content-type": contentType,
+      host: url.host,
+    });
+    const headerEntries = canonicalHeaders(headers);
+    const signedHeaders = headerEntries.map(([name]) => name).join(";");
+    const canonicalHeaderText = headerEntries
+      .map(([name, value]) => `${name}:${value}\n`)
+      .join("");
+    const parameters = new URLSearchParams({
+      "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+      "X-Amz-Credential": `${this.config.secretId}/${scope}`,
+      "X-Amz-Date": dateTime,
+      "X-Amz-Expires": String(expiresInSeconds),
+      "X-Amz-SignedHeaders": signedHeaders,
+    });
+    const canonicalRequest = [
+      "PUT",
+      url.pathname,
+      canonicalQuery(parameters),
+      canonicalHeaderText,
+      signedHeaders,
+      unsignedPayload,
+    ].join("\n");
+    const stringToSign = [
+      "AWS4-HMAC-SHA256",
+      dateTime,
+      scope,
+      await sha256(canonicalRequest),
+    ].join("\n");
+    const keyMaterial = await signingKey(this.config.secretKey, date, this.config.region);
+    parameters.set("X-Amz-Signature", hex(await hmac(keyMaterial, stringToSign)));
+    url.search = canonicalQuery(parameters);
+    return url.toString();
   }
 
   async put(
