@@ -9,6 +9,7 @@ const statements = [
     description TEXT NOT NULL DEFAULT '',
     tags_json TEXT NOT NULL DEFAULT '[]',
     object_key TEXT NOT NULL,
+    thumbnail_key TEXT,
     original_name TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
     file_size INTEGER NOT NULL DEFAULT 0,
@@ -20,6 +21,7 @@ const statements = [
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TEXT
   )`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_key TEXT`,
   `CREATE INDEX IF NOT EXISTS videos_status_idx ON videos(status)`,
   `CREATE INDEX IF NOT EXISTS videos_created_at_idx ON videos(created_at)`,
   `CREATE TABLE IF NOT EXISTS annotations (

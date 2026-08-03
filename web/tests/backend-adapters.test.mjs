@@ -134,9 +134,12 @@ test("Postgres pool fails fast when hosted database is unreachable", () => {
 test("database schema setup is an explicit migration command, not request-time work", () => {
   const packageJson = JSON.parse(readRepoFile("../package.json"));
   const migration = readRepoFile("../scripts/migrate-db.ts");
+  const schema = readRepoFile("../db/bootstrap.ts");
 
   assert.equal(packageJson.scripts["db:migrate"], "tsx scripts/migrate-db.ts");
   assert.match(migration, /applySchema\(\)/);
+  assert.match(schema, /thumbnail_key TEXT/);
+  assert.match(schema, /ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_key TEXT/);
 });
 
 test("Vercel functions run near the Supabase database", () => {

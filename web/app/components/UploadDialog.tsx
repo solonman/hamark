@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { createThumbnailFromVideoFile } from "./video-thumbnail";
 
 type UploadDialogProps = {
   onClose: () => void;
@@ -15,7 +16,12 @@ function redirectOnUnauthorized(response: Response | XMLHttpRequest) {
   return false;
 }
 
-function uploadFile(url: string, file: File, onProgress: (value: number) => void) {
+function uploadFile(
+  url: string,
+  file: Blob,
+  onProgress: (value: number) => void,
+  failureMessage = "视频文件上传失败，请重试。",
+) {
   return new Promise<void>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("PUT", url);
@@ -27,10 +33,10 @@ function uploadFile(url: string, file: File, onProgress: (value: number) => void
     });
     request.addEventListener("load", () => {
       if (request.status >= 200 && request.status < 300) resolve();
-      else reject(new Error("视频文件上传失败，请重试。"));
+      else reject(new Error(failureMessage));
     });
     request.addEventListener("error", () =>
-      reject(new Error("视频文件未能直传到存储服务，请检查网络后重试。")),
+      reject(new Error(`${failureMessage} 请检查网络后重试。`)),
     );
     request.send(file);
   });
@@ -61,6 +67,7 @@ export default function UploadDialog({
     setBusy(true);
     setError("");
     try {
+      const thumbnail = await createThumbnailFromVideoFile(file);
       const response = await fetch("/api/videos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,12 +86,21 @@ export default function UploadDialog({
       const data = (await response.json()) as {
         videoId?: string;
         uploadUrl?: string;
+        thumbnailUploadUrl?: string;
         error?: string;
       };
-      if (!response.ok || !data.videoId || !data.uploadUrl) {
+      if (!response.ok || !data.videoId || !data.uploadUrl || !data.thumbnailUploadUrl) {
         throw new Error(data.error || "无法创建视频条目。");
       }
-      await uploadFile(data.uploadUrl, file, setProgress);
+      await Promise.all([
+        uploadFile(data.uploadUrl, file, setProgress),
+        uploadFile(
+          data.thumbnailUploadUrl,
+          thumbnail,
+          () => undefined,
+          "视频封面上传失败，请重试。",
+        ),
+      ]);
       const completeResponse = await fetch(`/api/videos/${data.videoId}/complete`, {
         method: "POST",
       });
@@ -210,7 +226,7 @@ export default function UploadDialog({
           {busy ? (
             <div className="upload-progress">
               <div>
-                <span>正在上传原始文件</span>
+                <span>正在生成封面并上传原始文件</span>
                 <strong>{progress}%</strong>
               </div>
               <div className="meter-track">

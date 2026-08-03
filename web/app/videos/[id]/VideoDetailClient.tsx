@@ -173,6 +173,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               controls
               playsInline
               preload="metadata"
+              poster={video.thumbnailUrl ?? undefined}
               src={video.playbackUrl}
             />
           ) : (
