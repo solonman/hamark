@@ -161,6 +161,29 @@ test("WeCom service retrieves a token once and reuses it until five minutes befo
   assert.equal(fetcher.urls.some((url) => url.includes("access_token=fresh-token")), true);
 });
 
+test("WeCom service caches department names for five minutes across logins", async () => {
+  const fetcher = new QueuedFetch([
+    jsonResponse({ errcode: 0, access_token: "access-token", expires_in: 7200 }),
+    jsonResponse({ errcode: 0, UserId: "alice" }),
+    jsonResponse({ errcode: 0, userid: "alice", name: "Alice", department: [1] }),
+    jsonResponse({ errcode: 0, department_id: [{ id: 1, name: "Engineering" }] }),
+    jsonResponse({ errcode: 0, UserId: "bob" }),
+    jsonResponse({ errcode: 0, userid: "bob", name: "Bob", department: [1] }),
+  ]);
+  const service = createService(fetcher);
+
+  await service.getMemberByCode("code-alice");
+  const member = await service.getMemberByCode("code-bob");
+
+  assert.deepEqual(member.departments, [
+    { id: "1", name: "Engineering", isPrimary: true },
+  ]);
+  assert.equal(
+    fetcher.urls.filter((url) => url.includes("/department/simplelist")).length,
+    1,
+  );
+});
+
 test("WeCom service single-flights concurrent token acquisition", async () => {
   let tokenRequests = 0;
   const fetchImpl = async (input) => {

@@ -1,6 +1,7 @@
 const WECOM_API_BASE = "https://qyapi.weixin.qq.com/cgi-bin";
 const FETCH_TIMEOUT_MS = 8000;
 const TOKEN_REFRESH_SKEW_MS = 300_000;
+const DEPARTMENT_CACHE_TTL_MS = 300_000;
 export const MAX_UPSTREAM_BODY_BYTES = 1024 * 1024;
 
 const ACCESS_TOKEN_INVALID_CODES = new Set([40014, 42001]);
@@ -37,6 +38,7 @@ export function createWeComService({
 
   let tokenCache = null;
   let tokenRefresh = null;
+  let departmentCache = null;
 
   async function getMemberByCode(code, { signal } = {}) {
     const accessToken = await getAccessToken(signal);
@@ -74,8 +76,22 @@ export function createWeComService({
 
     const profile = await fetchJson("member", buildMemberUrl(accessToken, userId), signal);
     assertUsableProfile(profile);
-    const departments = await fetchJson("department", buildDepartmentUrl(accessToken), signal);
+    const departments = await getDepartments(accessToken, signal);
     return mapMember(profile, departments);
+  }
+
+  async function getDepartments(accessToken, signal) {
+    const nowMs = readNow(now);
+    if (departmentCache && departmentCache.expiresAtMs > nowMs) {
+      return departmentCache.value;
+    }
+
+    const value = await fetchJson("department", buildDepartmentUrl(accessToken), signal);
+    departmentCache = {
+      value,
+      expiresAtMs: nowMs + DEPARTMENT_CACHE_TTL_MS,
+    };
+    return value;
   }
 
   async function getAccessToken(signal) {
