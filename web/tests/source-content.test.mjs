@@ -103,6 +103,22 @@ test("client fetches redirect to login on unauthorized business API responses", 
   }
 });
 
+test("video uploads go directly to COS and are completed through a small API request", async () => {
+  const [upload, createRoute, completeRoute] = await Promise.all([
+    readFile(new URL("../app/components/UploadDialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/[id]/complete/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(createRoute, /createPresignedPutUrl/);
+  assert.match(upload, /data\.uploadUrl/);
+  assert.match(upload, /\/api\/videos\/\$\{data\.videoId\}\/complete/);
+  assert.doesNotMatch(upload, /\/api\/videos\/\$\{data\.videoId\}\/content/);
+  assert.match(completeRoute, /getVideoBucket\(\)\.head/);
+  assert.match(completeRoute, /created_by_email !== user\.identityKey/);
+  assert.match(completeRoute, /status = 'READY'/);
+});
+
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
   const taxonomy = JSON.parse(
     await readFile(new URL("../lib/taxonomy-v0.2.json", import.meta.url), "utf8"),

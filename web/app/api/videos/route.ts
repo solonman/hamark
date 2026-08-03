@@ -1,5 +1,5 @@
 import { ensureSchema } from "@/db/bootstrap";
-import { getDbClient } from "@/db";
+import { getDbClient, getVideoBucket } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type VideoRow = {
@@ -89,11 +89,13 @@ export async function POST(request: Request) {
 
   const id = newId("video");
   const objectKey = `videos/${id}/original`;
+  const contentType = body.contentType || "application/octet-stream";
   const tags = (body.tags ?? [])
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 12);
   const db = getDbClient();
+  const uploadUrl = await getVideoBucket().createPresignedPutUrl(objectKey, { contentType });
 
   await db.batch([
     db
@@ -112,7 +114,7 @@ export async function POST(request: Request) {
         JSON.stringify(tags),
         objectKey,
         originalName,
-        body.contentType || "application/octet-stream",
+        contentType,
         Math.max(0, Number(body.fileSize) || 0),
         user.identityKey,
         user.displayName,
@@ -132,7 +134,7 @@ export async function POST(request: Request) {
   ]);
 
   return Response.json(
-    { videoId: id, uploadUrl: `/api/videos/${id}/content` },
+    { videoId: id, uploadUrl },
     { status: 201 },
   );
 }

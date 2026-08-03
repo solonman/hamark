@@ -11,6 +11,12 @@ export type CosConfig = {
 type ObjectBody = ReadableStream<Uint8Array> | Blob | Uint8Array;
 type FetchInitWithDuplex = RequestInit & { duplex?: "half" };
 
+export type PresignedPutOptions = {
+  contentType: string;
+  expiresInSeconds?: number;
+  now?: Date;
+};
+
 export type ObjectRange = {
   offset: number;
   length: number;
@@ -42,6 +48,13 @@ function encodePathSegment(value: string) {
 
 function objectPath(bucket: string, key: string) {
   return `/${encodePathSegment(bucket)}/${key.split("/").map(encodePathSegment).join("/")}`;
+}
+
+function virtualHostObjectUrl(bucket: string, region: string, key: string) {
+  const url = new URL(buildCosEndpoint(region));
+  url.hostname = `${bucket}.${url.hostname}`;
+  url.pathname = `/${key.split("/").map(encodePathSegment).join("/")}`;
+  return url.toString();
 }
 
 function amzDate(now = new Date()) {
@@ -80,8 +93,23 @@ async function hmac(key: ArrayBuffer, value: string) {
   return crypto.subtle.sign("HMAC", cryptoKey, utf8(value));
 }
 
+async function hmacSha1(key: string, value: string) {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    utf8(key),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"],
+  );
+  return hex(await crypto.subtle.sign("HMAC", cryptoKey, utf8(value)));
+}
+
 async function sha256(value: string) {
   return hex(await crypto.subtle.digest("SHA-256", utf8(value)));
+}
+
+async function sha1(value: string) {
+  return hex(await crypto.subtle.digest("SHA-1", utf8(value)));
 }
 
 async function signingKey(secretKey: string, date: string, region: string) {
@@ -155,6 +183,9 @@ export class CosVideoBucket {
   }
 
   private url(key: string) {
+    if (this.config.endpoint === buildCosEndpoint(this.config.region)) {
+      return virtualHostObjectUrl(this.config.bucket, this.config.region, key);
+    }
     const endpoint = this.config.endpoint.replace(/\/$/, "");
     return `${endpoint}${objectPath(this.config.bucket, key)}`;
   }
@@ -176,6 +207,44 @@ export class CosVideoBucket {
       throw new Error(`COS ${method} ${key} failed with ${response.status}`);
     }
     return response;
+  }
+
+  async createPresignedPutUrl(
+    key: string,
+    {
+      contentType,
+      expiresInSeconds = 600,
+      now = new Date(),
+    }: PresignedPutOptions,
+  ) {
+    if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 900) {
+      throw new Error("COS upload URL expiry must be between 1 and 900 seconds.");
+    }
+
+    // COS allows server-side path-style requests but requires virtual-hosted URLs for browser uploads.
+    const url = new URL(virtualHostObjectUrl(this.config.bucket, this.config.region, key));
+    const startTime = Math.floor(now.getTime() / 1000);
+    const keyTime = `${startTime};${startTime + expiresInSeconds}`;
+    const headerList = "content-type;host";
+    const httpHeaders = [
+      `content-type=${encodePathSegment(contentType)}`,
+      `host=${encodePathSegment(url.host)}`,
+    ].join("&");
+    const httpString = `put\n${url.pathname}\n\n${httpHeaders}\n`;
+    const stringToSign = `sha1\n${keyTime}\n${await sha1(httpString)}\n`;
+    const signKey = await hmacSha1(this.config.secretKey, keyTime);
+    const signature = await hmacSha1(signKey, stringToSign);
+    const parameters = new URLSearchParams({
+      "q-sign-algorithm": "sha1",
+      "q-ak": this.config.secretId,
+      "q-sign-time": keyTime,
+      "q-key-time": keyTime,
+      "q-header-list": headerList,
+      "q-url-param-list": "",
+      "q-signature": signature,
+    });
+    url.search = parameters.toString();
+    return url.toString();
   }
 
   async put(
