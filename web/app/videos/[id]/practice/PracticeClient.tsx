@@ -88,8 +88,10 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   >("idle");
   const [notice, setNotice] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
+  const [editVersion, setEditVersion] = useState(0);
   const editSequence = useRef(0);
   const draftRef = useRef<AnnotationDraft | null>(null);
+  const saveInFlight = useRef<Promise<AnnotationDraft | null> | null>(null);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -131,21 +133,24 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
 
   const markChanged = useCallback((next: AnnotationDraft) => {
     editSequence.current += 1;
+    setEditVersion(editSequence.current);
     draftRef.current = next;
     setDraft(next);
     setDirty(true);
-    setSaveState("idle");
+    if (!saveInFlight.current) setSaveState("idle");
     setNotice("");
     setMissing([]);
   }, []);
 
-  const saveDraft = useCallback(async () => {
+  const saveDraft = useCallback(() => {
+    if (saveInFlight.current) return saveInFlight.current;
     const current = draftRef.current;
-    if (!current) return null;
+    if (!current) return Promise.resolve(null);
     const sequenceAtStart = editSequence.current;
-    setSaveState("saving");
-    setNotice("");
-    try {
+    const operation = (async () => {
+      setSaveState("saving");
+      setNotice("");
+      try {
       const response = await fetch(`/api/videos/${videoId}/annotation`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -168,38 +173,44 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         status: "DRAFT" as const,
         updatedAt: data.updatedAt ?? new Date().toISOString(),
       };
-      setDraft((latest) =>
-        latest
-          ? {
-              ...latest,
-              id: saved.id,
-              revision: saved.revision,
-              status: saved.status,
-              updatedAt: saved.updatedAt,
-            }
-          : saved,
-      );
+      const latest = draftRef.current;
+      const merged = latest
+        ? {
+            ...latest,
+            id: saved.id,
+            revision: saved.revision,
+            status: saved.status,
+            updatedAt: saved.updatedAt,
+          }
+        : saved;
+      draftRef.current = merged;
+      setDraft(merged);
       if (editSequence.current === sequenceAtStart) {
         setDirty(false);
         setSaveState("saved");
       } else {
         setSaveState("idle");
       }
-      return saved;
-    } catch (reason) {
-      setSaveState("error");
-      setNotice(reason instanceof Error ? reason.message : "保存失败");
-      return null;
-    }
+      return merged;
+      } catch (reason) {
+        setSaveState("error");
+        setNotice(reason instanceof Error ? reason.message : "保存失败");
+        return null;
+      } finally {
+        saveInFlight.current = null;
+      }
+    })();
+    saveInFlight.current = operation;
+    return operation;
   }, [videoId]);
 
   useEffect(() => {
     if (!dirty || saveState === "saving") return;
     const timer = window.setTimeout(() => {
       void saveDraft();
-    }, 900);
+    }, 2500);
     return () => window.clearTimeout(timer);
-  }, [dirty, saveDraft, saveState]);
+  }, [dirty, editVersion, saveDraft, saveState]);
 
   const completion = useMemo(() => {
     if (!draft) return { done: 0, total: 24 };
@@ -292,7 +303,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
           <div className="completion-pill">
             <span>{completion.done}</span> / {completion.total}
           </div>
-          <span className="publish-state-copy">修改约1秒自动保存</span>
+          <span className="publish-state-copy">修改约3秒自动保存</span>
           <button
             className="button button-accent compact"
             onClick={() => void submitAssignment()}

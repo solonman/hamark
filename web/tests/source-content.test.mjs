@@ -57,7 +57,7 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(practice, /故事组织 10 项/);
   assert.match(taxonomyEditor, /V0\.2 预设选项/);
   assert.match(taxonomyEditor, /其他（自主输入）/);
-  assert.match(practice, /修改约1秒自动保存/);
+  assert.match(practice, /修改约3秒自动保存/);
   assert.match(practice, /发布本次修订/);
   assert.match(practice, /对照视频 · 始终悬浮/);
   assert.match(shotTable, /拖动表头边界调整列宽/);
@@ -134,6 +134,32 @@ test("video playback uses a signed COS URL and the library does not preload stre
   assert.match(detail, /src=\{video\.playbackUrl\}/);
   assert.doesNotMatch(home, /\/api\/videos\/\$\{video\.id\}\/stream/);
   assert.doesNotMatch(home, /preload="metadata"/);
+});
+
+test("shot autosave resets its debounce window for every edit", async () => {
+  const practice = await readFile(
+    new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(practice, /const \[editVersion, setEditVersion\] = useState\(0\)/);
+  assert.match(practice, /setEditVersion\(editSequence\.current\)/);
+  assert.match(practice, /window\.setTimeout\(\(\) => \{\s*void saveDraft\(\);\s*\}, 2500\)/s);
+  assert.match(practice, /\[dirty, editVersion, saveDraft, saveState\]/);
+  assert.match(practice, /修改约3秒自动保存/);
+});
+
+test("shot autosave serializes requests and retains newer draft content", async () => {
+  const practice = await readFile(
+    new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(practice, /const saveInFlight = useRef<Promise<AnnotationDraft \| null> \| null>\(null\)/);
+  assert.match(practice, /if \(saveInFlight\.current\) return saveInFlight\.current;/);
+  assert.match(practice, /const latest = draftRef\.current/);
+  assert.match(practice, /draftRef\.current = merged;/);
+  assert.match(practice, /if \(editSequence\.current === sequenceAtStart\)/);
 });
 
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
