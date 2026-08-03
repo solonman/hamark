@@ -6,14 +6,6 @@ import type { VideoItem } from "@/lib/types";
 import UploadDialog from "./UploadDialog";
 import UserMenu, { type UserMenuUser } from "./UserMenu";
 
-function redirectOnUnauthorized(response: Response) {
-  if (response.status === 401) {
-    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
-    return true;
-  }
-  return false;
-}
-
 function formatBytes(value: number) {
   if (!value) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -39,6 +31,7 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loginRequired, setLoginRequired] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [query, setQuery] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -47,7 +40,13 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
     let active = true;
     fetch("/api/videos", { cache: "no-store" })
       .then(async (response) => {
-        if (redirectOnUnauthorized(response)) return;
+        if (response.status === 401) {
+          if (active) {
+            setLoginRequired(true);
+            setError("登录状态已失效，请重新登录。");
+          }
+          return;
+        }
         const data = (await response.json()) as {
           videos?: VideoItem[];
           error?: string;
@@ -56,6 +55,7 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
         if (active) {
           setVideos(data.videos ?? []);
           setError("");
+          setLoginRequired(false);
         }
       })
       .catch((reason) => {
@@ -163,15 +163,21 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
         ) : error ? (
           <div className="state-panel state-error">
             <p>{error}</p>
-            <button
-              className="text-button"
-              onClick={() => {
-                setLoading(true);
-                setRefreshKey((value) => value + 1);
-              }}
-            >
-              重新读取
-            </button>
+            {loginRequired ? (
+              <Link className="text-button" href="/login?return_to=/">
+                重新登录
+              </Link>
+            ) : (
+              <button
+                className="text-button"
+                onClick={() => {
+                  setLoading(true);
+                  setRefreshKey((value) => value + 1);
+                }}
+              >
+                重新读取
+              </button>
+            )}
           </div>
         ) : filteredVideos.length === 0 && videos.length > 0 ? (
           <div className="state-panel">

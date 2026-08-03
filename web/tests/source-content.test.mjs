@@ -89,18 +89,24 @@ test("home renders authenticated user controls and handles logout securely", asy
   assert.doesNotMatch(userMenu, /href=["']\/api\/auth\/logout/);
 });
 
-test("client fetches redirect to login on unauthorized business API responses", async () => {
-  const [home, upload, detail, practice, review] = await Promise.all([
-    readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
+test("client mutations redirect to login on unauthorized business API responses", async () => {
+  const [upload, detail, practice, review] = await Promise.all([
     readFile(new URL("../app/components/UploadDialog.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/ReviewPanel.tsx", import.meta.url), "utf8"),
   ]);
 
-  for (const source of [home, upload, detail, practice, review]) {
+  for (const source of [upload, detail, practice, review]) {
     assert.match(source, /redirectOnUnauthorized\(/);
   }
+});
+
+test("home keeps the current screen when its background library request is unauthorized", async () => {
+  const home = await readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(home, /if \(redirectOnUnauthorized\(response\)\) return;/);
+  assert.match(home, /登录状态已失效/);
 });
 
 test("video uploads go directly to COS and are completed through a small API request", async () => {
