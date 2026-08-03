@@ -6,7 +6,7 @@ import test from "node:test";
 const businessApiRoutes = [
   "app/api/videos/route.ts",
   "app/api/videos/[id]/route.ts",
-  "app/api/videos/[id]/complete/route.ts",
+  "app/api/videos/[id]/content/route.ts",
   "app/api/videos/[id]/replace/route.ts",
   "app/api/videos/[id]/stream/route.ts",
   "app/api/videos/[id]/annotation/route.ts",
@@ -17,7 +17,7 @@ const businessApiRoutes = [
 const mutationApiRoutes = [
   "app/api/videos/route.ts",
   "app/api/videos/[id]/route.ts",
-  "app/api/videos/[id]/complete/route.ts",
+  "app/api/videos/[id]/content/route.ts",
   "app/api/videos/[id]/replace/route.ts",
   "app/api/videos/[id]/annotation/route.ts",
   "app/api/videos/[id]/annotation/submit/route.ts",

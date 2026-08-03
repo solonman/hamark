@@ -26,11 +26,12 @@ function uploadFile(url: string, file: File, onProgress: (value: number) => void
       }
     });
     request.addEventListener("load", () => {
+      if (redirectOnUnauthorized(request)) return;
       if (request.status >= 200 && request.status < 300) resolve();
       else reject(new Error("视频文件上传失败，请重试。"));
     });
     request.addEventListener("error", () =>
-      reject(new Error("视频文件未能直传到存储服务，请检查网络后重试。")),
+      reject(new Error("网络中断，视频文件未上传完成。")),
     );
     request.send(file);
   });
@@ -85,14 +86,6 @@ export default function UploadDialog({
         throw new Error(data.error || "无法创建视频条目。");
       }
       await uploadFile(data.uploadUrl, file, setProgress);
-      const completeResponse = await fetch(`/api/videos/${data.videoId}/complete`, {
-        method: "POST",
-      });
-      if (redirectOnUnauthorized(completeResponse)) return;
-      const completeData = (await completeResponse.json()) as { error?: string };
-      if (!completeResponse.ok) {
-        throw new Error(completeData.error || "视频上传完成确认失败，请重试。");
-      }
       await onUploaded(data.videoId);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "上传失败，请重试。");

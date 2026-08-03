@@ -4,7 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { getRequiredEnv } from "../lib/env.ts";
-import { CosVideoBucket, buildCosEndpoint, readCosConfig } from "../storage/cos.ts";
+import { buildCosEndpoint, readCosConfig } from "../storage/cos.ts";
 import { translateSqlPlaceholders } from "../db/sql.ts";
 
 const readRepoFile = (pathFromTestFile) =>
@@ -73,30 +73,6 @@ test("readCosConfig uses env-only Tencent COS settings", () => {
       process.env[key] = value;
     }
   }
-});
-
-test("COS creates a short-lived signed PUT URL for a single video object", async () => {
-  const bucket = new CosVideoBucket({
-    region: "ap-guangzhou",
-    bucket: "hamark-videos-1250000000",
-    secretId: "secret-id",
-    secretKey: "secret-key",
-    endpoint: "https://cos.ap-guangzhou.myqcloud.com",
-  });
-
-  const uploadUrl = await bucket.createPresignedPutUrl("videos/video_123/original", {
-    contentType: "video/mp4",
-    expiresInSeconds: 600,
-    now: new Date("2026-08-03T00:00:00Z"),
-  });
-  const parsed = new URL(uploadUrl);
-
-  assert.equal(parsed.pathname, "/hamark-videos-1250000000/videos/video_123/original");
-  assert.equal(parsed.searchParams.get("X-Amz-Algorithm"), "AWS4-HMAC-SHA256");
-  assert.equal(parsed.searchParams.get("X-Amz-Expires"), "600");
-  assert.equal(parsed.searchParams.get("X-Amz-SignedHeaders"), "content-type;host");
-  assert.match(parsed.searchParams.get("X-Amz-Signature") ?? "", /^[a-f0-9]{64}$/);
-  assert.equal(parsed.searchParams.has("x-amz-meta-uploader"), false);
 });
 
 test("Postgres pool fails fast when hosted database is unreachable", () => {
