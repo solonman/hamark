@@ -167,18 +167,28 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           }`}
         >
           <span className="player-float-label">对照视频 · 随页面悬浮</span>
-          {video.status === "READY" ? (
+          {video.status === "READY" && video.playbackUrl ? (
             <video
               key={playerRevision}
               controls
               playsInline
               preload="metadata"
-              src={`/api/videos/${video.id}/stream?v=${playerRevision}`}
+              src={video.playbackUrl}
             />
           ) : (
             <div className="player-unavailable">
-              <strong>{video.status === "UPLOADING" ? "视频正在入库" : "视频上传失败"}</strong>
-              <p>原始条目已保留，可以返回片库后重新上传。</p>
+              <strong>
+                {video.status === "UPLOADING"
+                  ? "视频正在入库"
+                  : video.status === "READY"
+                    ? "播放链接暂不可用"
+                    : "视频上传失败"}
+              </strong>
+              <p>
+                {video.status === "READY"
+                  ? "请刷新页面后重新获取播放链接。"
+                  : "原始条目已保留，可以返回片库后重新上传。"}
+              </p>
             </div>
           )}
         </section>

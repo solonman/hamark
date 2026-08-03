@@ -192,18 +192,13 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
             {filteredVideos.map((video, index) => (
               <article className="video-card" key={video.id}>
                 <Link className="video-poster" href={`/videos/${video.id}`}>
-                  {video.status === "READY" ? (
-                    <video
-                      src={`/api/videos/${video.id}/stream`}
-                      muted
-                      preload="metadata"
-                      playsInline
-                    />
-                  ) : (
-                    <div className="poster-placeholder">
-                      {video.status === "UPLOADING" ? "正在入库" : "上传失败"}
-                    </div>
-                  )}
+                  <div className="poster-placeholder">
+                    {video.status === "READY"
+                      ? "点击播放"
+                      : video.status === "UPLOADING"
+                        ? "正在入库"
+                        : "上传失败"}
+                  </div>
                   <span className="poster-index">
                     {(index + 1).toString().padStart(2, "0")}
                   </span>

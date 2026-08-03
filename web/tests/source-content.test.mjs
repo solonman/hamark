@@ -125,6 +125,17 @@ test("video uploads go directly to COS and are completed through a small API req
   assert.match(completeRoute, /status = 'READY'/);
 });
 
+test("video playback uses a signed COS URL and the library does not preload streams", async () => {
+  const [home, detail] = await Promise.all([
+    readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(detail, /src=\{video\.playbackUrl\}/);
+  assert.doesNotMatch(home, /\/api\/videos\/\$\{video\.id\}\/stream/);
+  assert.doesNotMatch(home, /preload="metadata"/);
+});
+
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
   const taxonomy = JSON.parse(
     await readFile(new URL("../lib/taxonomy-v0.2.json", import.meta.url), "utf8"),
