@@ -7,6 +7,7 @@ type VideoRow = {
   brand: string;
   description: string;
   tags_json: string;
+  thumbnail_key: string | null;
   original_name: string;
   content_type: string;
   file_size: number;
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
     .prepare(
       `SELECT
         v.id, v.title, v.brand, v.description, v.tags_json,
+        to_jsonb(v)->>'thumbnail_key' AS thumbnail_key,
         v.original_name, v.content_type, v.file_size, v.status,
         v.created_by_name, v.created_at,
         (SELECT COUNT(*) FROM annotation_snapshots s WHERE s.video_id = v.id) AS annotation_count
@@ -41,8 +43,9 @@ export async function GET(request: Request) {
     )
     .all<VideoRow>();
 
-  return Response.json({
-    videos: result.results.map((row: VideoRow) => ({
+  const bucket = getVideoBucket();
+  const videos = await Promise.all(
+    result.results.map(async (row: VideoRow) => ({
       id: row.id,
       title: row.title,
       brand: row.brand,
@@ -50,6 +53,12 @@ export async function GET(request: Request) {
       tags: tagsFromJson(row.tags_json),
       originalName: row.original_name,
       playbackUrl: null,
+      thumbnailUrl:
+        row.status === "READY" && row.thumbnail_key
+          ? await bucket.createPresignedGetUrl(row.thumbnail_key, {
+              expiresInSeconds: 3 * 60 * 60,
+            })
+          : null,
       contentType: row.content_type,
       fileSize: row.file_size,
       status: row.status,
@@ -57,7 +66,9 @@ export async function GET(request: Request) {
       createdAt: row.created_at,
       annotationCount: Number(row.annotation_count || 0),
     })),
-  });
+  );
+
+  return Response.json({ videos });
 }
 
 export async function POST(request: Request) {
@@ -87,22 +98,27 @@ export async function POST(request: Request) {
 
   const id = newId("video");
   const objectKey = `videos/${id}/original`;
+  const thumbnailKey = `videos/${id}/thumbnail.jpg`;
   const contentType = body.contentType || "application/octet-stream";
   const tags = (body.tags ?? [])
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 12);
   const db = getDbClient();
-  const uploadUrl = await getVideoBucket().createPresignedPutUrl(objectKey, { contentType });
+  const bucket = getVideoBucket();
+  const [uploadUrl, thumbnailUploadUrl] = await Promise.all([
+    bucket.createPresignedPutUrl(objectKey, { contentType }),
+    bucket.createPresignedPutUrl(thumbnailKey, { contentType: "image/jpeg" }),
+  ]);
 
   await db.batch([
     db
       .prepare(
         `INSERT INTO videos (
-          id, title, brand, description, tags_json, object_key,
+          id, title, brand, description, tags_json, object_key, thumbnail_key,
           original_name, content_type, file_size, status, rights_confirmed,
           created_by_email, created_by_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPLOADING', 1, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPLOADING', 1, ?, ?)`,
       )
       .bind(
         id,
@@ -111,6 +127,7 @@ export async function POST(request: Request) {
         body.description?.trim() ?? "",
         JSON.stringify(tags),
         objectKey,
+        thumbnailKey,
         originalName,
         contentType,
         Math.max(0, Number(body.fileSize) || 0),
@@ -132,7 +149,7 @@ export async function POST(request: Request) {
   ]);
 
   return Response.json(
-    { videoId: id, uploadUrl },
+    { videoId: id, uploadUrl, thumbnailUploadUrl },
     { status: 201 },
   );
 }

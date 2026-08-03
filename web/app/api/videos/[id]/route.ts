@@ -8,6 +8,7 @@ type VideoDetailRow = {
   description: string;
   tags_json: string;
   object_key: string;
+  thumbnail_key: string | null;
   original_name: string;
   content_type: string;
   file_size: number;
@@ -37,10 +38,12 @@ export async function GET(
   const db = getDbClient();
   const video = await db
     .prepare(
-      `SELECT id, title, brand, description, tags_json, object_key, original_name,
-        content_type, file_size, status, created_by_email, created_by_name, created_at
-      FROM videos
-      WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT v.id, v.title, v.brand, v.description, v.tags_json, v.object_key,
+        to_jsonb(v)->>'thumbnail_key' AS thumbnail_key, v.original_name,
+        v.content_type, v.file_size, v.status, v.created_by_email,
+        v.created_by_name, v.created_at
+      FROM videos v
+      WHERE v.id = ? AND v.deleted_at IS NULL`,
     )
     .bind(id)
     .first<VideoDetailRow>();
@@ -49,7 +52,7 @@ export async function GET(
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
 
-  const [snapshots, playbackUrl] = await Promise.all([
+  const [snapshots, playbackUrl, thumbnailUrl] = await Promise.all([
     db
       .prepare(
         `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
@@ -73,6 +76,11 @@ export async function GET(
           expiresInSeconds: 3 * 60 * 60,
         })
       : Promise.resolve(null),
+    video.status === "READY" && video.thumbnail_key
+      ? getVideoBucket().createPresignedGetUrl(video.thumbnail_key, {
+          expiresInSeconds: 3 * 60 * 60,
+        })
+      : Promise.resolve(null),
   ]);
 
   let tags: string[] = [];
@@ -91,6 +99,7 @@ export async function GET(
       tags,
       originalName: video.original_name,
       playbackUrl,
+      thumbnailUrl,
       contentType: video.content_type,
       fileSize: video.file_size,
       status: video.status,

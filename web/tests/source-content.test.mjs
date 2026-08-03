@@ -118,21 +118,36 @@ test("video uploads go directly to COS and are completed through a small API req
 
   assert.match(createRoute, /createPresignedPutUrl/);
   assert.match(upload, /data\.uploadUrl/);
+  assert.match(createRoute, /thumbnail_key/);
+  assert.match(createRoute, /thumbnailUploadUrl/);
+  assert.match(createRoute, /image\/jpeg/);
+  assert.match(upload, /createThumbnailFromVideoFile/);
+  assert.match(upload, /data\.thumbnailUploadUrl/);
+  assert.match(upload, /Promise\.all/);
   assert.match(upload, /\/api\/videos\/\$\{data\.videoId\}\/complete/);
   assert.doesNotMatch(upload, /\/api\/videos\/\$\{data\.videoId\}\/content/);
-  assert.match(completeRoute, /getVideoBucket\(\)\.head/);
+  assert.match(completeRoute, /const bucket = getVideoBucket\(\)/);
+  assert.match(completeRoute, /bucket\.head\(video\.object_key\)/);
+  assert.match(completeRoute, /thumbnail_key/);
+  assert.match(completeRoute, /thumbnailObject/);
   assert.match(completeRoute, /created_by_email !== user\.identityKey/);
   assert.match(completeRoute, /status = 'READY'/);
 });
 
-test("video playback uses a signed COS URL and the library does not preload streams", async () => {
-  const [home, detail] = await Promise.all([
+test("video playback uses signed COS URLs while the library renders only thumbnails", async () => {
+  const [home, detail, listRoute] = await Promise.all([
     readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/route.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(detail, /src=\{video\.playbackUrl\}/);
+  assert.match(listRoute, /thumbnailUrl/);
+  assert.match(listRoute, /createPresignedGetUrl\(row\.thumbnail_key/);
+  assert.match(home, /src=\{video\.thumbnailUrl\}/);
+  assert.match(home, /loading="lazy"/);
   assert.doesNotMatch(home, /\/api\/videos\/\$\{video\.id\}\/stream/);
+  assert.doesNotMatch(home, /<video/);
   assert.doesNotMatch(home, /preload="metadata"/);
 });
 

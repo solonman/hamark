@@ -192,13 +192,22 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
             {filteredVideos.map((video, index) => (
               <article className="video-card" key={video.id}>
                 <Link className="video-poster" href={`/videos/${video.id}`}>
-                  <div className="poster-placeholder">
-                    {video.status === "READY"
-                      ? "点击播放"
-                      : video.status === "UPLOADING"
-                        ? "正在入库"
-                        : "上传失败"}
-                  </div>
+                  {video.status === "READY" && video.thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- Signed COS thumbnails should stay a direct browser request.
+                    <img
+                      src={video.thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="poster-placeholder">
+                      {video.status === "READY"
+                        ? "封面生成中"
+                        : video.status === "UPLOADING"
+                          ? "正在入库"
+                          : "上传失败"}
+                    </div>
+                  )}
                   <span className="poster-index">
                     {(index + 1).toString().padStart(2, "0")}
                   </span>
