@@ -2,26 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { formatLongDate } from "@/lib/date-format";
 import type { SubmittedAnalysis, VideoItem } from "@/lib/types";
 import ReviewPanel from "./ReviewPanel";
 import ReplaceVideoDialog, {
   type ReplacedVideoFile,
 } from "./ReplaceVideoDialog";
 import SubmittedAnalysisContent from "./SubmittedAnalysisContent";
-
-function formatDate(value: string) {
-  const normalized =
-    value.includes("T") || value.endsWith("Z")
-      ? value
-      : `${value.replace(" ", "T")}Z`;
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(normalized));
-}
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -155,7 +142,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         <div className="film-facts">
           <span>上传者 {video.createdByName}</span>
           <span>{formatBytes(video.fileSize)}</span>
-          <span>{formatDate(video.createdAt)}</span>
+          <span>{formatLongDate(video.createdAt)}</span>
           {canReplaceOriginal ? (
             <button
               type="button"
@@ -260,7 +247,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                       <h3>{analysis.payload.analysisTitle}</h3>
                     </div>
                     <div className="analysis-card-actions">
-                      <time>{formatDate(analysis.createdAt)}</time>
+                      <time>{formatLongDate(analysis.createdAt)}</time>
                       <button
                         type="button"
                         className="button button-accent compact"
