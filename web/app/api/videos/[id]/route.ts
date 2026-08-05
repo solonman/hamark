@@ -28,6 +28,13 @@ type SnapshotRow = {
   created_at: string;
 };
 
+type MyAnnotationRow = {
+  id: string;
+  status: "DRAFT" | "SUBMITTED";
+  revision: number;
+  updated_at: string;
+};
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -52,7 +59,7 @@ export async function GET(
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
 
-  const [snapshots, playbackUrl, thumbnailUrl] = await Promise.all([
+  const [snapshots, myAnnotation, playbackUrl, thumbnailUrl] = await Promise.all([
     db
       .prepare(
         `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
@@ -71,6 +78,14 @@ export async function GET(
       )
       .bind(id, id)
       .all<SnapshotRow>(),
+    db
+      .prepare(
+        `SELECT id, status, revision, updated_at
+        FROM annotations
+        WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL`,
+      )
+      .bind(id, user.identityKey)
+      .first<MyAnnotationRow>(),
     video.status === "READY"
       ? getVideoBucket().createPresignedGetUrl(video.object_key, {
           expiresInSeconds: 3 * 60 * 60,
@@ -116,6 +131,14 @@ export async function GET(
       contentHash: snapshot.content_hash,
       payload: JSON.parse(snapshot.payload_json),
     })),
+    myAnalysis: myAnnotation
+      ? {
+          id: myAnnotation.id,
+          status: myAnnotation.status,
+          revision: myAnnotation.revision,
+          updatedAt: myAnnotation.updated_at,
+        }
+      : null,
     canReplaceOriginal: video.created_by_email === user.identityKey,
   });
 }

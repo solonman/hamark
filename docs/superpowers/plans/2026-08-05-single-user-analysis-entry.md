@@ -16,7 +16,7 @@
 - Modify: `web/tests/source-content.test.mjs`
 - Modify: `web/app/api/videos/[id]/route.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add source-level assertions that the video detail route selects the current user's annotation status and returns `myAnalysis` in the JSON payload:
 
@@ -33,13 +33,13 @@ test("video detail API returns current user's analysis status", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- source-content`
 
 Expected: FAIL because `route.ts` does not return `myAnalysis` yet.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `web/app/api/videos/[id]/route.ts`, add an `AnnotationRow` type, query the current user's `annotations` row inside the existing `Promise.all`, and return:
 
@@ -54,7 +54,7 @@ myAnalysis: myAnnotation
   : null,
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- source-content`
 
@@ -67,7 +67,7 @@ Expected: PASS.
 - Modify: `web/lib/types.ts`
 - Modify: `web/app/videos/[id]/VideoDetailClient.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add source-level assertions that the detail client handles all three labels:
 
@@ -85,13 +85,13 @@ test("video detail client labels my analysis CTA by status", async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- source-content`
 
 Expected: FAIL because the client only renders the static `写下我的分析 ↗` label.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `web/lib/types.ts`, add:
 
@@ -123,7 +123,7 @@ const myAnalysisLabel =
 
 Use `{myAnalysisLabel}` in the section CTA.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- source-content`
 
@@ -137,19 +137,19 @@ Expected: PASS.
 - Verify: `web/lib/types.ts`
 - Verify: `web/tests/source-content.test.mjs`
 
-- [ ] **Step 1: Run focused tests**
+- [x] **Step 1: Run focused tests**
 
 Run: `npm test -- source-content`
 
 Expected: PASS.
 
-- [ ] **Step 2: Run lint**
+- [x] **Step 2: Run lint**
 
 Run: `npm run lint`
 
 Expected: PASS with no new lint errors.
 
-- [ ] **Step 3: Review diff**
+- [x] **Step 3: Review diff**
 
 Run: `git diff -- web/app/api/videos/[id]/route.ts web/app/videos/[id]/VideoDetailClient.tsx web/lib/types.ts web/tests/source-content.test.mjs`
 
