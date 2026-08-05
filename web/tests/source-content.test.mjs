@@ -151,6 +151,32 @@ test("video playback uses signed COS URLs while the library renders only thumbna
   assert.doesNotMatch(home, /preload="metadata"/);
 });
 
+test("video detail API returns current user's analysis status", async () => {
+  const source = await readFile(
+    new URL("../app/api/videos/[id]/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /WHERE video_id = \? AND author_email = \? AND deleted_at IS NULL/,
+  );
+  assert.match(source, /\.bind\(id, user\.identityKey\)/);
+  assert.match(source, /myAnalysis:/);
+});
+
+test("video detail client labels my analysis CTA by status", async () => {
+  const source = await readFile(
+    new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /myAnalysis/);
+  assert.match(source, /继续编辑我的分析 ↗/);
+  assert.match(source, /查看并编辑我的分析 ↗/);
+  assert.match(source, /写下我的分析 ↗/);
+});
+
 test("shot autosave resets its debounce window for every edit", async () => {
   const practice = await readFile(
     new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url),

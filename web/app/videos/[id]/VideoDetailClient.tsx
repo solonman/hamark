@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatLongDate } from "@/lib/date-format";
-import type { SubmittedAnalysis, VideoItem } from "@/lib/types";
+import type {
+  MyAnalysisStatus,
+  SubmittedAnalysis,
+  VideoItem,
+} from "@/lib/types";
 import ReviewPanel from "./ReviewPanel";
 import ReplaceVideoDialog, {
   type ReplacedVideoFile,
@@ -31,6 +35,7 @@ function redirectOnUnauthorized(response: Response) {
 export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
+  const [myAnalysis, setMyAnalysis] = useState<MyAnalysisStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
@@ -49,6 +54,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         const data = (await response.json()) as {
           video?: VideoItem;
           analyses?: SubmittedAnalysis[];
+          myAnalysis?: MyAnalysisStatus | null;
           canReplaceOriginal?: boolean;
           error?: string;
         };
@@ -56,6 +62,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         if (active) {
           setVideo(data.video ?? null);
           setAnalyses(data.analyses ?? []);
+          setMyAnalysis(data.myAnalysis ?? null);
           setCanReplaceOriginal(Boolean(data.canReplaceOriginal));
         }
       })
@@ -99,6 +106,13 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     setReplaceNotice("原视频已经替换；逐镜脚本、作业和评分均保持不变。");
     setReplaceOpen(false);
   }
+
+  const myAnalysisLabel =
+    myAnalysis?.status === "SUBMITTED"
+      ? "查看并编辑我的分析 ↗"
+      : myAnalysis?.status === "DRAFT"
+        ? "继续编辑我的分析 ↗"
+        : "写下我的分析 ↗";
 
   if (loading) return <main className="detail-state">正在打开作品…</main>;
 
@@ -222,7 +236,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             <h2 id="analysis-title">脚本及创意分析</h2>
           </div>
           <Link className="text-button" href={`/videos/${videoId}/practice`}>
-            写下我的分析 ↗
+            {myAnalysisLabel}
           </Link>
         </div>
 

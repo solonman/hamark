@@ -73,6 +73,13 @@ export type SubmittedAnalysis = {
   payload: AnnotationDraft;
 };
 
+export type MyAnalysisStatus = {
+  id: string;
+  status: "DRAFT" | "SUBMITTED";
+  revision: number;
+  updatedAt: string;
+};
+
 export type AssignmentReviewDraft = {
   id: string | null;
   submissionId: string;
