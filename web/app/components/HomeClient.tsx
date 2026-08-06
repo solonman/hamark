@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatShortDate } from "@/lib/date-format";
+import type { ScoreRankingItem } from "@/lib/score-ranking";
 import type { VideoItem } from "@/lib/types";
+import ScoreRankingDialog from "./ScoreRankingDialog";
 import UploadDialog from "./UploadDialog";
 import UserMenu, { type UserMenuUser } from "./UserMenu";
 
@@ -17,7 +19,7 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
 }
 
-export default function HomeClient({ user }: { user: UserMenuUser }) {
+export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAdmin: boolean }) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -25,6 +27,13 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
   const [showUpload, setShowUpload] = useState(false);
   const [query, setQuery] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [rankingStartDate, setRankingStartDate] = useState("");
+  const [rankingEndDate, setRankingEndDate] = useState("");
+  const [rankingItems, setRankingItems] = useState<ScoreRankingItem[]>([]);
+  const [rankingError, setRankingError] = useState("");
+  const [rankingLoading, setRankingLoading] = useState(false);
+  const [showRanking, setShowRanking] = useState(false);
+  const rankingRequestId = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -80,6 +89,39 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
 
   const readyCount = videos.filter((video) => video.status === "READY").length;
 
+  const openScoreRanking = async () => {
+    if (!rankingStartDate || !rankingEndDate) {
+      setRankingError("请选择起止日期。");
+      return;
+    }
+    if (rankingStartDate > rankingEndDate) {
+      setRankingError("起始日期不能晚于结束日期。");
+      return;
+    }
+    const requestId = rankingRequestId.current + 1;
+    rankingRequestId.current = requestId;
+    setRankingLoading(true);
+    setRankingError("");
+    try {
+      const response = await fetch(
+        `/api/admin/video-score-ranking?${new URLSearchParams({ startDate: rankingStartDate, endDate: rankingEndDate })}`,
+        { cache: "no-store" },
+      );
+      const data = (await response.json()) as { items?: ScoreRankingItem[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "评分排行读取失败");
+      if (rankingRequestId.current === requestId) {
+        setRankingItems(data.items ?? []);
+        setShowRanking(true);
+      }
+    } catch (reason) {
+      if (rankingRequestId.current === requestId) {
+        setRankingError(reason instanceof Error ? reason.message : "评分排行读取失败");
+      }
+    } finally {
+      if (rankingRequestId.current === requestId) setRankingLoading(false);
+    }
+  };
+
   return (
     <main className="site-shell">
       <header className="site-header">
@@ -89,6 +131,23 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
           <small>反写</small>
         </Link>
         <nav className="header-actions" aria-label="主导航">
+          {isAdmin ? (
+            <div className="score-ranking-controls">
+              <label>
+                <span className="sr-only">评分排行起始日期</span>
+                <input type="date" value={rankingStartDate} onChange={(event) => setRankingStartDate(event.target.value)} disabled={rankingLoading} />
+              </label>
+              <span aria-hidden="true">—</span>
+              <label>
+                <span className="sr-only">评分排行结束日期</span>
+                <input type="date" value={rankingEndDate} onChange={(event) => setRankingEndDate(event.target.value)} disabled={rankingLoading} />
+              </label>
+              <button type="button" className="ranking-button" onClick={openScoreRanking} disabled={rankingLoading}>
+                {rankingLoading ? "读取中…" : "查看评分"}
+              </button>
+              {rankingError ? <span className="score-ranking-error" role="alert">{rankingError}</span> : null}
+            </div>
+          ) : null}
           <label className="search-field">
             <span className="sr-only">搜索片名、标签或作者</span>
             <input
@@ -264,6 +323,15 @@ export default function HomeClient({ user }: { user: UserMenuUser }) {
             setShowUpload(false);
             window.location.href = `/videos/${videoId}`;
           }}
+        />
+      ) : null}
+
+      {showRanking ? (
+        <ScoreRankingDialog
+          startDate={rankingStartDate}
+          endDate={rankingEndDate}
+          items={rankingItems}
+          onClose={() => setShowRanking(false)}
         />
       ) : null}
     </main>

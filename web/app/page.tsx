@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { isAppAdmin } from "@/lib/admin";
 import { requirePageUser } from "@/lib/current-user";
 import HomeClient from "./components/HomeClient";
 
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
 
 export default async function Home() {
   const user = await requirePageUser("/");
+  const isAdmin = await isAppAdmin(user);
   return (
     <HomeClient
       user={{
@@ -19,6 +21,7 @@ export default async function Home() {
           user.departments[0]?.name ??
           null,
       }}
+      isAdmin={isAdmin}
     />
   );
 }

@@ -1,3 +1,14 @@
+CREATE TABLE IF NOT EXISTS app_admins (
+  display_name TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text)
+);
+
+INSERT INTO app_admins (display_name) VALUES
+  ('老孙'),
+  ('李丽萍'),
+  ('晏恩华')
+ON CONFLICT (display_name) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS videos (
   id TEXT PRIMARY KEY,
   domain_key TEXT NOT NULL DEFAULT 'AD_VIDEO',
