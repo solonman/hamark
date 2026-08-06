@@ -134,6 +134,21 @@ test("video uploads go directly to COS and are completed through a small API req
   assert.match(completeRoute, /status = 'READY'/);
 });
 
+test("video thumbnail generation skips black frames with simple multi-point sampling", async () => {
+  const thumbnail = await readFile(
+    new URL("../app/components/video-thumbnail.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(thumbnail, /function thumbnailCandidateTimes/);
+  assert.match(thumbnail, /function isLikelyBlackFrame/);
+  assert.match(thumbnail, /brightnessTotal/);
+  assert.match(thumbnail, /brightPixels/);
+  assert.match(thumbnail, /captureCanvasAtTime/);
+  assert.match(thumbnail, /for \(const captureTime of thumbnailCandidateTimes\(duration\)\)/);
+  assert.match(thumbnail, /fallbackCanvas/);
+});
+
 test("video playback uses signed COS URLs while the library renders only thumbnails", async () => {
   const [home, detail, listRoute] = await Promise.all([
     readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
