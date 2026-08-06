@@ -135,12 +135,12 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
             <div className="score-ranking-controls">
               <label>
                 <span className="sr-only">评分排行起始日期</span>
-                <input type="date" value={rankingStartDate} onChange={(event) => setRankingStartDate(event.target.value)} disabled={rankingLoading} />
+                <input type="date" value={rankingStartDate} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => setRankingStartDate(event.target.value)} disabled={rankingLoading} />
               </label>
               <span aria-hidden="true">—</span>
               <label>
                 <span className="sr-only">评分排行结束日期</span>
-                <input type="date" value={rankingEndDate} onChange={(event) => setRankingEndDate(event.target.value)} disabled={rankingLoading} />
+                <input type="date" value={rankingEndDate} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => setRankingEndDate(event.target.value)} disabled={rankingLoading} />
               </label>
               <button type="button" className="ranking-button" onClick={openScoreRanking} disabled={rankingLoading}>
                 {rankingLoading ? "读取中…" : "查看评分"}

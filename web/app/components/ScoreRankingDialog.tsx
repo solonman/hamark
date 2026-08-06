@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
 import type { ScoreRankingItem } from "@/lib/score-ranking";
 
 type ScoreRankingDialogProps = {
@@ -12,18 +11,8 @@ type ScoreRankingDialogProps = {
 };
 
 export default function ScoreRankingDialog({ startDate, endDate, items, onClose }: ScoreRankingDialogProps) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
   return (
-    <div className="dialog-backdrop score-ranking-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
+    <div className="dialog-backdrop score-ranking-backdrop">
       <section className="score-ranking-dialog" role="dialog" aria-modal="true" aria-labelledby="score-ranking-title">
         <div className="score-ranking-dialog-head">
           <div>

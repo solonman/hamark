@@ -54,6 +54,18 @@ test("ranking dialog opens video details in a safe new tab", () => {
   assert.match(source, /href=\{`\/videos\/\$\{item\.videoId\}`\}/);
 });
 
+test("ranking dialog closes only through its explicit close button", () => {
+  const source = readRepoFile("../app/components/ScoreRankingDialog.tsx");
+  assert.match(source, /aria-label="关闭评分排行"/);
+  assert.doesNotMatch(source, /onMouseDown=/);
+  assert.doesNotMatch(source, /Escape/);
+});
+
+test("ranking date inputs open their native picker when the field is clicked", () => {
+  const source = readRepoFile("../app/components/HomeClient.tsx");
+  assert.match(source, /onClick=\{\(event\) => event\.currentTarget\.showPicker\?\.\(\)\}/);
+});
+
 test("home receives server-computed admin access before rendering ranking controls", () => {
   const page = readRepoFile("../app/page.tsx");
   const home = readRepoFile("../app/components/HomeClient.tsx");
