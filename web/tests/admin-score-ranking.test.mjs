@@ -60,3 +60,11 @@ test("home receives server-computed admin access before rendering ranking contro
   assert.match(page, /isAppAdmin\(user\)/);
   assert.match(home, /isAdmin \? \(/);
 });
+
+test("ranking styles provide a modal overlay and narrow-screen layout", () => {
+  const css = readRepoFile("../app/globals.css");
+  assert.match(css, /\.score-ranking-backdrop/);
+  assert.match(css, /\.score-ranking-dialog/);
+  assert.match(css, /\.score-ranking-row/);
+  assert.match(css, /@media \(max-width: 760px\)/);
+});
