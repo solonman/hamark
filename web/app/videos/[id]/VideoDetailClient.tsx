@@ -10,6 +10,8 @@ import type {
   VideoItem,
 } from "@/lib/types";
 import ReviewPanel from "./ReviewPanel";
+import DeleteVideoDialog from "./DeleteVideoDialog";
+import EditVideoDialog, { type EditableVideoInfo } from "./EditVideoDialog";
 import ReplaceVideoDialog, {
   type ReplacedVideoFile,
 } from "./ReplaceVideoDialog";
@@ -41,8 +43,11 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [error, setError] = useState("");
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [playerDocked, setPlayerDocked] = useState(false);
-  const [canReplaceOriginal, setCanReplaceOriginal] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  const [canDeletePermanently, setCanDeletePermanently] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [replaceNotice, setReplaceNotice] = useState("");
   const [playerRevision, setPlayerRevision] = useState(0);
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
@@ -56,7 +61,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           video?: VideoItem;
           analyses?: SubmittedAnalysis[];
           myAnalysis?: MyAnalysisStatus | null;
-          canReplaceOriginal?: boolean;
+          canManage?: boolean;
+          canDeletePermanently?: boolean;
           error?: string;
         };
         if (!response.ok) throw new Error(data.error || "作品读取失败");
@@ -64,7 +70,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           setVideo(data.video ?? null);
           setAnalyses(data.analyses ?? []);
           setMyAnalysis(data.myAnalysis ?? null);
-          setCanReplaceOriginal(Boolean(data.canReplaceOriginal));
+          setCanManage(Boolean(data.canManage));
+          setCanDeletePermanently(Boolean(data.canDeletePermanently));
         }
       })
       .catch((reason) => {
@@ -106,6 +113,11 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     setPlayerRevision(Date.now());
     setReplaceNotice("原视频已经替换；逐镜脚本、作业和评分均保持不变。");
     setReplaceOpen(false);
+  }
+
+  function handleVideoSaved(updated: EditableVideoInfo) {
+    setVideo((current) => (current ? { ...current, ...updated } : current));
+    setEditOpen(false);
   }
 
   const myAnalysisLabel =
@@ -158,17 +170,36 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           <span>上传者 {video.createdByName}</span>
           <span>{formatBytes(video.fileSize)}</span>
           <span>{formatLongDate(video.createdAt)}</span>
-          {canReplaceOriginal ? (
-            <button
-              type="button"
-              className="replace-video-button"
-              onClick={() => {
-                setReplaceNotice("");
-                setReplaceOpen(true);
-              }}
-            >
-              替换原视频
-            </button>
+          {canManage ? (
+            <div className="video-management-actions">
+              <span>管理作品</span>
+              <button
+                type="button"
+                className="replace-video-button"
+                onClick={() => setEditOpen(true)}
+              >
+                编辑信息
+              </button>
+              <button
+                type="button"
+                className="replace-video-button"
+                onClick={() => {
+                  setReplaceNotice("");
+                  setReplaceOpen(true);
+                }}
+              >
+                替换原视频
+              </button>
+              {canDeletePermanently ? (
+                <button
+                  type="button"
+                  className="replace-video-button delete-video-button"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  永久删除
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </section>
@@ -313,6 +344,21 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           currentName={video.originalName}
           onClose={() => setReplaceOpen(false)}
           onReplaced={handleVideoReplaced}
+        />
+      ) : null}
+      {editOpen ? (
+        <EditVideoDialog
+          videoId={video.id}
+          video={video}
+          onClose={() => setEditOpen(false)}
+          onSaved={handleVideoSaved}
+        />
+      ) : null}
+      {deleteOpen ? (
+        <DeleteVideoDialog
+          videoId={video.id}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => window.location.assign("/")}
         />
       ) : null}
     </main>
