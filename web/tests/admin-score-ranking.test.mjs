@@ -46,3 +46,17 @@ test("score ranking rejects reversed and invalid dates", () => {
   assert.throws(() => parseScoreRankingDateRange("2026-08-01", "2026-07-31"), /起始日期/);
   assert.throws(() => parseScoreRankingDateRange("2026-02-31", "2026-03-01"), /有效/);
 });
+
+test("ranking dialog opens video details in a safe new tab", () => {
+  const source = readRepoFile("../app/components/ScoreRankingDialog.tsx");
+  assert.match(source, /target="_blank"/);
+  assert.match(source, /rel="noopener noreferrer"/);
+  assert.match(source, /href=\{`\/videos\/\$\{item\.videoId\}`\}/);
+});
+
+test("home receives server-computed admin access before rendering ranking controls", () => {
+  const page = readRepoFile("../app/page.tsx");
+  const home = readRepoFile("../app/components/HomeClient.tsx");
+  assert.match(page, /isAppAdmin\(user\)/);
+  assert.match(home, /isAdmin \? \(/);
+});
