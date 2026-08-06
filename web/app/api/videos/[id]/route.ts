@@ -59,7 +59,7 @@ export async function GET(
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
 
-  const [snapshots, myAnnotation, playbackUrl, thumbnailUrl] = await Promise.all([
+  const [snapshots, myAnnotation, submittedAnalysis, playbackUrl, thumbnailUrl] = await Promise.all([
     db
       .prepare(
         `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
@@ -83,9 +83,15 @@ export async function GET(
         `SELECT id, status, revision, updated_at
         FROM annotations
         WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL`,
-      )
+    )
       .bind(id, user.identityKey)
       .first<MyAnnotationRow>(),
+    db
+      .prepare(
+        `SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`,
+      )
+      .bind(id)
+      .first(),
     video.status === "READY"
       ? getVideoBucket().createPresignedGetUrl(video.object_key, {
           expiresInSeconds: 3 * 60 * 60,
@@ -104,6 +110,9 @@ export async function GET(
   } catch {
     tags = [];
   }
+
+  const canManage = video.created_by_email === user.identityKey;
+  const hasSubmittedAnalysis = Boolean(submittedAnalysis);
 
   return Response.json({
     video: {
@@ -139,7 +148,9 @@ export async function GET(
           updatedAt: myAnnotation.updated_at,
         }
       : null,
-    canReplaceOriginal: video.created_by_email === user.identityKey,
+    canManage,
+    canDeletePermanently: canManage && !hasSubmittedAnalysis,
+    canReplaceOriginal: canManage,
   });
 }
 

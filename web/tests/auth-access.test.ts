@@ -74,6 +74,14 @@ test("video deletion is restricted to the original uploader", async () => {
   assert.match(source, /deleteResult\.meta\.rows_written !== 1/);
 });
 
+test("video management exposes uploader permission and blocks deletion after a submission", async () => {
+  const source = await readProjectFile("app/api/videos/[id]/route.ts");
+
+  assert.match(source, /const canManage = video\.created_by_email === user\.identityKey/);
+  assert.match(source, /SELECT 1 FROM annotation_snapshots WHERE video_id = \? LIMIT 1/);
+  assert.match(source, /canDeletePermanently: canManage && !hasSubmittedAnalysis/);
+});
+
 test("READY video details expose a scoped COS playback URL only after authentication", async () => {
   const source = await readProjectFile("app/api/videos/[id]/route.ts");
 
