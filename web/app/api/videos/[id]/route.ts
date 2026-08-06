@@ -154,6 +154,62 @@ export async function GET(
   });
 }
 
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
+  const { id } = await context.params;
+  const body = (await request.json()) as {
+    title?: string;
+    brand?: string;
+    description?: string;
+    tags?: string[];
+  };
+  const title = body.title?.trim();
+  if (!title) {
+    return Response.json({ error: "请填写片名。" }, { status: 400 });
+  }
+
+  const tags = (body.tags ?? [])
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+  const db = getDbClient();
+  const video = await db
+    .prepare(
+      `SELECT id, created_by_email FROM videos WHERE id = ? AND deleted_at IS NULL`,
+    )
+    .bind(id)
+    .first<{ id: string; created_by_email: string }>();
+  if (!video) {
+    return Response.json({ error: "视频不存在。" }, { status: 404 });
+  }
+  if (video.created_by_email !== user.identityKey) {
+    return Response.json({ error: "只有原上传者可以编辑视频信息。" }, { status: 403 });
+  }
+
+  const brand = body.brand?.trim() ?? "";
+  const description = body.description?.trim() ?? "";
+  const updateResult = await db
+    .prepare(
+      `UPDATE videos
+      SET title = ?, brand = ?, description = ?, tags_json = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND created_by_email = ? AND deleted_at IS NULL`,
+    )
+    .bind(title, brand, description, JSON.stringify(tags), id, user.identityKey)
+    .run();
+  if (updateResult.meta.rows_written !== 1) {
+    return Response.json({ error: "视频状态已变化，请刷新后重试。" }, { status: 409 });
+  }
+
+  return Response.json({ video: { title, brand, description, tags } });
+}
+
 export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },

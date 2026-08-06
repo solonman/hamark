@@ -82,6 +82,15 @@ test("video management exposes uploader permission and blocks deletion after a s
   assert.match(source, /canDeletePermanently: canManage && !hasSubmittedAnalysis/);
 });
 
+test("video metadata updates require the original uploader and normalize tags", async () => {
+  const source = await readProjectFile("app/api/videos/[id]/route.ts");
+
+  assert.match(source, /export async function PATCH/);
+  assert.match(source, /只有原上传者可以编辑视频信息/);
+  assert.match(source, /\.map\(\(tag\) => tag\.trim\(\)\)\s*\.filter\(Boolean\)\s*\.slice\(0, 12\)/s);
+  assert.match(source, /UPDATE videos\s+SET title = \?, brand = \?, description = \?, tags_json = \?,\s+updated_at = CURRENT_TIMESTAMP/s);
+});
+
 test("READY video details expose a scoped COS playback URL only after authentication", async () => {
   const source = await readProjectFile("app/api/videos/[id]/route.ts");
 
