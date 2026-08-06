@@ -192,6 +192,33 @@ test("video detail client labels my analysis CTA by status", async () => {
   assert.match(source, /写下我的分析 ↗/);
 });
 
+test("video management dialogs use protected edit and delete mutations", async () => {
+  const [editDialog, deleteDialog] = await Promise.all([
+    readFile(new URL("../app/videos/[id]/EditVideoDialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/DeleteVideoDialog.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(editDialog, /method: "PATCH"/);
+  assert.match(editDialog, /编辑作品信息/);
+  assert.match(deleteDialog, /method: "DELETE"/);
+  assert.match(deleteDialog, /永久删除后无法恢复/);
+});
+
+test("video detail exposes management controls only from server-provided permissions", async () => {
+  const detail = await readFile(
+    new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(detail, /canManage/);
+  assert.match(detail, /canDeletePermanently/);
+  assert.match(detail, /编辑信息/);
+  assert.match(detail, /永久删除/);
+  assert.match(detail, /<EditVideoDialog/);
+  assert.match(detail, /<DeleteVideoDialog/);
+  assert.match(detail, /window\.location\.assign\("\/"\)/);
+});
+
 test("shot autosave resets its debounce window for every edit", async () => {
   const practice = await readFile(
     new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url),
