@@ -66,12 +66,18 @@ test("every business mutation route rejects cross-origin requests", async () => 
   }
 });
 
-test("video deletion is restricted to the original uploader", async () => {
+test("permanent video deletion is restricted to the original uploader and blocked after submission", async () => {
   const source = await readProjectFile("app/api/videos/[id]/route.ts");
 
   assert.match(source, /created_by_email !== user\.identityKey/);
-  assert.match(source, /WHERE id = \? AND created_by_email = \? AND deleted_at IS NULL/);
-  assert.match(source, /deleteResult\.meta\.rows_written !== 1/);
+  assert.match(source, /SELECT 1 FROM annotation_snapshots WHERE video_id = \? LIMIT 1/);
+  assert.match(source, /已有作业提交，无法删除视频/);
+  assert.match(source, /await bucket\.delete\(video\.object_key\)/);
+  assert.match(source, /video\.thumbnail_key \? bucket\.delete\(video\.thumbnail_key\)/);
+  assert.match(source, /DELETE FROM field_answers WHERE annotation_id IN \(SELECT id FROM annotations WHERE video_id = \?\)/);
+  assert.match(source, /DELETE FROM shots WHERE annotation_id IN \(SELECT id FROM annotations WHERE video_id = \?\)/);
+  assert.match(source, /DELETE FROM annotations WHERE video_id = \?/);
+  assert.match(source, /DELETE FROM videos WHERE id = \? AND created_by_email = \?/);
 });
 
 test("video management exposes uploader permission and blocks deletion after a submission", async () => {

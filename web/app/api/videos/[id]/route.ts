@@ -1,4 +1,4 @@
-import { getDbClient, getVideoBucket } from "@/db";
+import { getDbClient, getVideoBucket, withDbTransaction } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type VideoDetailRow = {
@@ -221,35 +221,91 @@ export async function DELETE(
   const { id } = await context.params;
   const db = getDbClient();
 
-  const existing = await db
-    .prepare(`SELECT id, created_by_email FROM videos WHERE id = ? AND deleted_at IS NULL`)
+  const video = await db
+    .prepare(
+      `SELECT id, created_by_email, object_key,
+        to_jsonb(videos)->>'thumbnail_key' AS thumbnail_key
+      FROM videos WHERE id = ? AND deleted_at IS NULL`,
+    )
     .bind(id)
-    .first<{ id: string; created_by_email: string }>();
-  if (!existing) {
+    .first<{
+      id: string;
+      created_by_email: string;
+      object_key: string;
+      thumbnail_key: string | null;
+    }>();
+  if (!video) {
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
-  if (existing.created_by_email !== user.identityKey) {
+  if (video.created_by_email !== user.identityKey) {
     return Response.json({ error: "只有原上传者可以删除视频。" }, { status: 403 });
   }
 
-  const deleteResult = await db
-    .prepare(
-      `UPDATE videos SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND created_by_email = ? AND deleted_at IS NULL`,
-    )
-    .bind(id, user.identityKey)
-    .run();
-  if (deleteResult.meta.rows_written !== 1) {
+  const submittedAnalysis = await db
+    .prepare(`SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`)
+    .bind(id)
+    .first();
+  if (submittedAnalysis) {
+    return Response.json({ error: "已有作业提交，无法删除视频。" }, { status: 409 });
+  }
+
+  const bucket = getVideoBucket();
+  try {
+    await bucket.delete(video.object_key);
+    await (video.thumbnail_key ? bucket.delete(video.thumbnail_key) : Promise.resolve());
+  } catch (error) {
+    const requestId = newId("delete_error");
+    console.error("Video asset deletion failed", { requestId, videoId: id, error });
+    return Response.json({ error: "视频文件删除失败，请稍后重试。", requestId }, { status: 500 });
+  }
+
+  const result = await withDbTransaction(async (transaction) => {
+    const current = await transaction
+      .prepare(
+        `SELECT id, created_by_email FROM videos WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .bind(id)
+      .first<{ id: string; created_by_email: string }>();
+    if (!current || current.created_by_email !== user.identityKey) return "changed";
+
+    const latestSubmission = await transaction
+      .prepare(`SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`)
+      .bind(id)
+      .first();
+    if (latestSubmission) return "submitted";
+
+    await transaction.batch([
+      transaction
+        .prepare(
+          `DELETE FROM field_answers WHERE annotation_id IN (SELECT id FROM annotations WHERE video_id = ?)`,
+        )
+        .bind(id),
+      transaction
+        .prepare(
+          `DELETE FROM shots WHERE annotation_id IN (SELECT id FROM annotations WHERE video_id = ?)`,
+        )
+        .bind(id),
+      transaction.prepare(`DELETE FROM annotations WHERE video_id = ?`).bind(id),
+      transaction
+        .prepare(`DELETE FROM videos WHERE id = ? AND created_by_email = ?`)
+        .bind(id, user.identityKey),
+      transaction
+        .prepare(
+          `INSERT INTO audit_logs (
+            id, actor_email, action, object_type, object_id, detail_json
+          ) VALUES (?, ?, 'VIDEO_PERMANENTLY_DELETED', 'VIDEO', ?, '{}')`,
+        )
+        .bind(newId("audit"), user.identityKey, id),
+    ]);
+    return "deleted";
+  });
+
+  if (result === "submitted") {
+    return Response.json({ error: "已有作业提交，无法删除视频。" }, { status: 409 });
+  }
+  if (result === "changed") {
     return Response.json({ error: "视频状态已变化，请刷新后重试。" }, { status: 409 });
   }
-  await db
-    .prepare(
-      `INSERT INTO audit_logs (
-        id, actor_email, action, object_type, object_id, detail_json
-      ) VALUES (?, ?, 'VIDEO_MOVED_TO_TRASH', 'VIDEO', ?, '{}')`,
-    )
-    .bind(newId("audit"), user.identityKey, id)
-    .run();
 
   return Response.json({ ok: true });
 }
