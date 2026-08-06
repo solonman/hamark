@@ -986,6 +986,18 @@ a {
   display: none;
 }
 
+.draggable-video-player.is-draggable > .practice-aside,
+.draggable-video-player.is-draggable > .player-stage.is-docked {
+  cursor: grab;
+  touch-action: none;
+}
+
+.draggable-video-player.is-dragging > .practice-aside,
+.draggable-video-player.is-dragging > .player-stage.is-docked {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .player-stage.is-docked {
   position: fixed;
   z-index: 60;

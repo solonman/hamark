@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import DraggableVideoPlayer from "@/app/components/DraggableVideoPlayer";
 import { formatLongDate } from "@/lib/date-format";
 import type {
   MyAnalysisStatus,
@@ -175,38 +176,40 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
       {replaceNotice ? <p className="replace-video-notice">{replaceNotice}</p> : null}
 
       <div className="player-stage-slot" ref={playerSlotRef}>
-        <section
-          className={`player-stage ${
-            playerDocked || activeReviewId ? "is-docked" : ""
-          }`}
-        >
-          <span className="player-float-label">对照视频 · 随页面悬浮</span>
-          {video.status === "READY" && video.playbackUrl ? (
-            <video
-              key={playerRevision}
-              controls
-              playsInline
-              preload="metadata"
-              poster={video.thumbnailUrl ?? undefined}
-              src={video.playbackUrl}
-            />
-          ) : (
-            <div className="player-unavailable">
-              <strong>
-                {video.status === "UPLOADING"
-                  ? "视频正在入库"
-                  : video.status === "READY"
-                    ? "播放链接暂不可用"
-                    : "视频上传失败"}
-              </strong>
-              <p>
-                {video.status === "READY"
-                  ? "请刷新页面后重新获取播放链接。"
-                  : "原始条目已保留，可以返回片库后重新上传。"}
-              </p>
-            </div>
-          )}
-        </section>
+        <DraggableVideoPlayer enabled={Boolean(playerDocked || activeReviewId)}>
+          <section
+            className={`player-stage ${
+              playerDocked || activeReviewId ? "is-docked" : ""
+            }`}
+          >
+            <span className="player-float-label">对照视频 · 随页面悬浮</span>
+            {video.status === "READY" && video.playbackUrl ? (
+              <video
+                key={playerRevision}
+                controls
+                playsInline
+                preload="metadata"
+                poster={video.thumbnailUrl ?? undefined}
+                src={video.playbackUrl}
+              />
+            ) : (
+              <div className="player-unavailable">
+                <strong>
+                  {video.status === "UPLOADING"
+                    ? "视频正在入库"
+                    : video.status === "READY"
+                      ? "播放链接暂不可用"
+                      : "视频上传失败"}
+                </strong>
+                <p>
+                  {video.status === "READY"
+                    ? "请刷新页面后重新获取播放链接。"
+                    : "原始条目已保留，可以返回片库后重新上传。"}
+                </p>
+              </div>
+            )}
+          </section>
+        </DraggableVideoPlayer>
       </div>
 
       <section className="film-info">

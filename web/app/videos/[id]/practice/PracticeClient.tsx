@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import DraggableVideoPlayer from "@/app/components/DraggableVideoPlayer";
 import { annotationFields } from "@/lib/annotation-fields";
 import type { AnnotationDraft, ShotDraft } from "@/lib/types";
 import ShotGroupEditor from "./ShotGroupEditor";
@@ -317,32 +318,34 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
       </header>
 
       <div className="practice-layout">
-        <aside className="practice-aside">
-          <div className="practice-video">
-            <span className="practice-video-label">对照视频 · 始终悬浮</span>
-            {videoStatus === "READY" ? (
-              <video
-                controls
-                playsInline
-                preload="metadata"
-                src={`/api/videos/${videoId}/stream`}
-              />
-            ) : (
-              <div>视频暂不可播放</div>
-            )}
-          </div>
-          <div className="practice-nav">
-            <p className="eyebrow">WORKSHEET</p>
-            <a href="#shots">01 逐镜脚本还原</a>
-            <a href="#core">02 整体判断与总结</a>
-            <a href="#creative">03 创意构成 9 项</a>
-            <a href="#story">04 故事组织 10 项</a>
-          </div>
-          <div className="practice-note">
-            <strong>反写，不是仿写</strong>
-            <p>先忠实还原成片，再判断创意为何成立。所有内容都绑定 V0.2。</p>
-          </div>
-        </aside>
+        <DraggableVideoPlayer enabled>
+          <aside className="practice-aside">
+            <div className="practice-video">
+              <span className="practice-video-label">对照视频 · 始终悬浮</span>
+              {videoStatus === "READY" ? (
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src={`/api/videos/${videoId}/stream`}
+                />
+              ) : (
+                <div>视频暂不可播放</div>
+              )}
+            </div>
+            <div className="practice-nav">
+              <p className="eyebrow">WORKSHEET</p>
+              <a href="#shots">01 逐镜脚本还原</a>
+              <a href="#core">02 整体判断与总结</a>
+              <a href="#creative">03 创意构成 9 项</a>
+              <a href="#story">04 故事组织 10 项</a>
+            </div>
+            <div className="practice-note">
+              <strong>反写，不是仿写</strong>
+              <p>先忠实还原成片，再判断创意为何成立。所有内容都绑定 V0.2。</p>
+            </div>
+          </aside>
+        </DraggableVideoPlayer>
 
         <div className="worksheet">
           <div className="worksheet-title">
