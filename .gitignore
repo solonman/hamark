@@ -21,6 +21,7 @@ work/
 
 # Cloudflare local development state
 .wrangler/
+.local-demo/
 
 # Logs
 *.log

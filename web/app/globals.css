@@ -4184,6 +4184,24 @@ body.is-resizing-shot-column * {
   border-radius: 8px;
 }
 
+.login-demo-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.login-demo-actions form,
+.login-demo-actions .login-action {
+  width: 100%;
+}
+
+.login-demo-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .score-ranking-controls {
   display: flex;
   align-items: center;

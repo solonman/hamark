@@ -1,6 +1,9 @@
 import pg from "pg";
 import { getRequiredEnv } from "@/lib/env";
+import { isLocalDemoMode } from "@/lib/local-demo";
 import { CosVideoBucket } from "@/storage/cos";
+import { LocalVideoBucket } from "@/storage/local";
+import type { VideoBucket } from "@/storage/types";
 import { translateSqlPlaceholders } from "./sql";
 
 type QueryValue = string | number | boolean | null;
@@ -167,7 +170,7 @@ export class DbClient {
 }
 
 let db: DbClient | null = null;
-let videoBucket: CosVideoBucket | null = null;
+let videoBucket: VideoBucket | null = null;
 
 export function getDbClient() {
   if (!db) {
@@ -182,7 +185,7 @@ export async function withDbTransaction<T>(operation: (db: DbClient) => Promise<
 
 export function getVideoBucket() {
   if (!videoBucket) {
-    videoBucket = new CosVideoBucket();
+    videoBucket = isLocalDemoMode() ? new LocalVideoBucket() : new CosVideoBucket();
   }
   return videoBucket;
 }

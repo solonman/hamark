@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { authFlowForUserAgent } from "@/lib/auth/routes";
 import { safeReturnTo } from "@/lib/auth/security";
+import { isLocalDemoMode } from "@/lib/local-demo";
 
 type LoginPageProps = {
   searchParams: Promise<{ return_to?: string; error?: string }>;
@@ -31,8 +32,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const returnTo = safeReturnTo(params.return_to);
   const error = params.error ? errorMessages[params.error] : null;
   const requestHeaders = await headers();
+  const localDemo = isLocalDemoMode();
 
-  if (!error && authFlowForUserAgent(requestHeaders.get("user-agent")) === "IN_APP") {
+  if (!localDemo && !error && authFlowForUserAgent(requestHeaders.get("user-agent")) === "IN_APP") {
     redirect(`/api/auth/wecom/start?return_to=${encodeURIComponent(returnTo)}`);
   }
 
@@ -46,11 +48,31 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <small>HAMARK</small>
           </span>
         </div>
-        <h1>企业微信登录</h1>
+        <h1>{localDemo ? "本机演示登录" : "企业微信登录"}</h1>
         {error ? <p className="login-error">{error}</p> : null}
-        <a className="button button-dark login-action" href={`/api/auth/wecom/start?return_to=${encodeURIComponent(returnTo)}`}>
-          企业微信扫码登录
-        </a>
+        {localDemo ? (
+          <div className="login-demo-actions">
+            <form action="/api/auth/local-demo" method="post">
+              <input type="hidden" name="profile" value="owner" />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <button className="button button-dark login-action" type="submit">
+                以案例作者进入
+              </button>
+            </form>
+            <form action="/api/auth/local-demo" method="post">
+              <input type="hidden" name="profile" value="reviewer" />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <button className="button button-ghost login-action" type="submit">
+                以评审同事进入
+              </button>
+            </form>
+            <p className="login-demo-note">仅用于这台电脑的演示与验收，生产环境不会显示此入口。</p>
+          </div>
+        ) : (
+          <a className="button button-dark login-action" href={`/api/auth/wecom/start?return_to=${encodeURIComponent(returnTo)}`}>
+            企业微信扫码登录
+          </a>
+        )}
       </section>
     </main>
   );

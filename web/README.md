@@ -29,6 +29,36 @@ npm run dev
 
 运行前需要在 `.env.local` 中配置 Supabase Postgres、腾讯云COS和企业微信登录变量。
 
+如果只需在本机演示并验收，可以启用与生产完全隔离的本机演示模式。它使用本机
+Postgres、`.local-demo/` 视频存储和两个临时演示身份；只有 `NODE_ENV=development`
+时才能开启，正式构建和线上环境不会暴露该入口。
+
+```bash
+docker run --name hamark-local-demo-postgres \
+  -e POSTGRES_PASSWORD=hamark-local-demo \
+  -e POSTGRES_DB=hamark \
+  -p 127.0.0.1:55432:5432 \
+  -d postgres:16-alpine
+```
+
+`.env.local` 只需写入：
+
+```env
+LOCAL_DEMO_MODE=1
+APP_URL=http://localhost:3000
+DATABASE_URL=postgresql://postgres:hamark-local-demo@127.0.0.1:55432/hamark
+SUPABASE_DB_SSL=false
+```
+
+保留旧演示包中的 `.wrangler/state/v3` 数据后，执行：
+
+```bash
+npm run local:setup
+npm run local:dev
+```
+
+登录页可以选择“案例作者”或“评审同事”，用于演示作业修订、多人批注、评分和管理员优秀标记。
+
 历史视频缩略图回填需要在有生产环境变量和 `ffmpeg` 的机器上执行。脚本会先确保 `thumbnail_key` 字段存在，再为 `READY` 且缺少封面的历史视频生成 `1600px` 宽度上限的 JPEG 封面并上传到 COS：
 
 ```bash

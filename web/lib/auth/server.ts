@@ -1,12 +1,12 @@
 import "server-only";
 
-import { getWeComAuthConfig } from "./config.ts";
+import { getAuthConfig } from "./config.ts";
 import { PostgresAuthStore, type AuthStore } from "./store.ts";
 import { WeComClient } from "./wecom.ts";
 
 let services:
   | {
-      config: ReturnType<typeof getWeComAuthConfig>;
+      config: ReturnType<typeof getAuthConfig>;
       store: AuthStore;
       wecom: WeComClient;
     }
@@ -14,7 +14,7 @@ let services:
 
 export function getAuthServices() {
   if (!services) {
-    const config = getWeComAuthConfig();
+    const config = getAuthConfig();
     const store = new PostgresAuthStore();
     services = {
       config,

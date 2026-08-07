@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "@/lib/auth/session";
 const publicExact = new Set([
   "/login",
   "/api/auth/logout",
+  "/api/auth/local-demo",
   "/api/auth/wecom/start",
   "/api/auth/wecom/callback",
   "/favicon.svg",

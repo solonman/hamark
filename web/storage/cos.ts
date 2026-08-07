@@ -1,4 +1,10 @@
 import { getOptionalEnv, getRequiredEnv } from "../lib/env.ts";
+import type {
+  ObjectBody,
+  ObjectRange,
+  PresignedPutOptions,
+  VideoBucket,
+} from "./types.ts";
 
 export type CosConfig = {
   region: string;
@@ -8,19 +14,7 @@ export type CosConfig = {
   endpoint: string;
 };
 
-type ObjectBody = ReadableStream<Uint8Array> | Blob | Uint8Array;
 type FetchInitWithDuplex = RequestInit & { duplex?: "half" };
-
-export type PresignedPutOptions = {
-  contentType: string;
-  expiresInSeconds?: number;
-  now?: Date;
-};
-
-export type ObjectRange = {
-  offset: number;
-  length: number;
-};
 
 const unsignedPayload = "UNSIGNED-PAYLOAD";
 const service = "s3";
@@ -175,7 +169,7 @@ function metadataHeaders(metadata?: Record<string, string>) {
   return headers;
 }
 
-export class CosVideoBucket {
+export class CosVideoBucket implements VideoBucket {
   private readonly config: CosConfig;
 
   constructor(config = readCosConfig()) {

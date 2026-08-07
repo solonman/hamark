@@ -3,8 +3,12 @@ import { completeWeComLogin } from "@/lib/auth/login";
 import { OAUTH_NONCE_COOKIE, SESSION_COOKIE } from "@/lib/auth/session";
 import { authErrorCode, callbackErrorLocation, isProductionAppUrl } from "@/lib/auth/routes";
 import { getAuthServices } from "@/lib/auth/server";
+import { isLocalDemoMode } from "@/lib/local-demo";
 
 export async function GET(request: NextRequest) {
+  if (isLocalDemoMode()) {
+    return Response.json({ error: "本机演示模式不接收企业微信回调。" }, { status: 404 });
+  }
   const services = getAuthServices();
   const code = request.nextUrl.searchParams.get("code");
   const state = request.nextUrl.searchParams.get("state");

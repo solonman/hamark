@@ -4,8 +4,12 @@ import { OAUTH_NONCE_COOKIE } from "@/lib/auth/session";
 import { getAuthServices } from "@/lib/auth/server";
 import { authErrorCode, authFlowForUserAgent, isProductionAppUrl } from "@/lib/auth/routes";
 import { safeReturnTo } from "@/lib/auth/security";
+import { isLocalDemoMode } from "@/lib/local-demo";
 
 export async function GET(request: NextRequest) {
+  if (isLocalDemoMode()) {
+    return Response.json({ error: "本机演示模式不启用企业微信登录。" }, { status: 404 });
+  }
   try {
     const services = getAuthServices();
     const result = await beginWeComLogin(

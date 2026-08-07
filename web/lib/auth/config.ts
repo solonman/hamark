@@ -1,4 +1,5 @@
 import { getOptionalEnv, getRequiredEnv } from "../env";
+import { isLocalDemoMode, localDemoAppUrl } from "../local-demo";
 
 const MIN_AUTH_SECRET_BYTES = 32;
 
@@ -10,6 +11,20 @@ export type WeComAuthConfig = {
   secret: string | null;
   proxy: { url: string; secret: string } | null;
 };
+
+export function getAuthConfig(): WeComAuthConfig {
+  if (isLocalDemoMode()) {
+    return {
+      appUrl: localDemoAppUrl(),
+      authSecret: "local-demo-only-auth-secret-not-for-production",
+      corpId: "local-demo",
+      agentId: "local-demo",
+      secret: "local-demo",
+      proxy: null,
+    };
+  }
+  return getWeComAuthConfig();
+}
 
 export function getWeComAuthConfig(): WeComAuthConfig {
   const appUrl = getRequiredEnv("APP_URL");
