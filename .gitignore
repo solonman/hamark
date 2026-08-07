@@ -16,6 +16,9 @@ outputs/
 work/
 .worktrees/
 
+# Local handoff archives may contain internal demo videos and database snapshots
+交付包/
+
 # Cloudflare local development state
 .wrangler/
 
