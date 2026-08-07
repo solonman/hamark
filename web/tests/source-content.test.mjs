@@ -150,20 +150,77 @@ test("video thumbnail generation skips black frames with simple multi-point samp
 });
 
 test("video playback uses signed COS URLs while the library renders only thumbnails", async () => {
-  const [home, detail, listRoute] = await Promise.all([
+  const [home, detail, listRoute, replaceCompleteRoute] = await Promise.all([
     readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/videos/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/[id]/replace/complete/route.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(detail, /src=\{video\.playbackUrl\}/);
   assert.match(listRoute, /thumbnailUrl/);
   assert.match(listRoute, /createPresignedGetUrl\(row\.thumbnail_key/);
+  assert.match(replaceCompleteRoute, /createPresignedGetUrl\(replacementKey/);
   assert.match(home, /src=\{video\.thumbnailUrl\}/);
   assert.match(home, /loading="lazy"/);
   assert.doesNotMatch(home, /\/api\/videos\/\$\{video\.id\}\/stream/);
   assert.doesNotMatch(home, /<video/);
   assert.doesNotMatch(home, /preload="metadata"/);
+});
+
+test("replacing an original video never streams the file through a serverless function", async () => {
+  const [startRoute, completeRoute, dialog] = await Promise.all([
+    readFile(new URL("../app/api/videos/[id]/replace/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/[id]/replace/complete/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/ReplaceVideoDialog.tsx", import.meta.url), "utf8"),
+  ]);
+
+  // The old flow PUT the whole file at the API route and died on the platform body limit.
+  assert.doesNotMatch(startRoute, /export async function PUT/);
+  assert.doesNotMatch(startRoute, /request\.body/);
+  assert.doesNotMatch(completeRoute, /request\.body/);
+  assert.doesNotMatch(startRoute, /bucket\.put\(/);
+  assert.doesNotMatch(completeRoute, /bucket\.put\(/);
+
+  // Both the file and its cover go straight to COS with presigned URLs.
+  assert.match(startRoute, /createPresignedPutUrl\(replacementObjectKey\(id, assetId\)/);
+  assert.match(startRoute, /createPresignedPutUrl\(replacementThumbnailKey\(id, assetId\)/);
+  assert.match(dialog, /uploadToStorage\(started\.uploadUrl, file/);
+  assert.match(dialog, /uploadToStorage\(\s*started\.thumbnailUploadUrl/s);
+  assert.match(dialog, /createThumbnailFromVideoFile\(file\)/);
+  assert.match(dialog, /`\/api\/videos\/\$\{videoId\}\/replace\/complete`/);
+
+  // The swap is confirmed server-side against the objects that actually landed.
+  assert.match(completeRoute, /bucket\.head\(replacementKey\)/);
+  assert.match(completeRoute, /bucket\.head\(replacementThumbnail\)/);
+  assert.match(completeRoute, /VIDEO_ORIGINAL_REPLACED/);
+  assert.match(completeRoute, /SET object_key = \?, thumbnail_key = \?/);
+});
+
+test("replacement object keys are rebuilt from an opaque asset id", async () => {
+  const {
+    isReplacementAssetId,
+    replacementObjectKey,
+    replacementThumbnailKey,
+  } = await import("../lib/video-replacement.ts");
+
+  const assetId = "asset_11111111-2222-4333-8444-555555555555";
+  assert.equal(isReplacementAssetId(assetId), true);
+  assert.equal(
+    replacementObjectKey("video_abc", assetId),
+    `videos/video_abc/replacements/${assetId}`,
+  );
+  assert.equal(
+    replacementThumbnailKey("video_abc", assetId),
+    `videos/video_abc/replacements/${assetId}-thumbnail.jpg`,
+  );
+
+  // A client must not be able to steer the swap at an unrelated object.
+  assert.equal(isReplacementAssetId("../../original"), false);
+  assert.equal(isReplacementAssetId("asset_../../../original"), false);
+  assert.equal(isReplacementAssetId("videos/other/original"), false);
+  assert.equal(isReplacementAssetId(""), false);
+  assert.equal(isReplacementAssetId(undefined), false);
 });
 
 test("video detail API returns current user's analysis status", async () => {

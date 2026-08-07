@@ -1,11 +1,14 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
 
 export type ReplacedVideoFile = {
   originalName: string;
   contentType: string;
   fileSize: number;
+  playbackUrl: string;
+  thumbnailUrl: string;
   status: "READY";
 };
 
@@ -16,44 +19,102 @@ type Props = {
   onReplaced: (video: ReplacedVideoFile) => void;
 };
 
-function replaceVideoFile(
-  videoId: string,
-  file: File,
+function redirectOnUnauthorized(response: Response) {
+  if (response.status === 401) {
+    window.location.assign(
+      `/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`,
+    );
+    return true;
+  }
+  return false;
+}
+
+// The replacement file is uploaded straight to COS with a presigned URL. Sending it
+// through the API route instead would exceed the serverless request body limit.
+function uploadToStorage(
+  url: string,
+  file: Blob,
   onProgress: (value: number) => void,
+  failureMessage: string,
 ) {
-  return new Promise<ReplacedVideoFile>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("PUT", `/api/videos/${videoId}/replace`);
+    request.open("PUT", url);
     request.setRequestHeader(
       "Content-Type",
       file.type || "application/octet-stream",
     );
-    request.setRequestHeader("X-Original-File-Name", encodeURIComponent(file.name));
-    request.setRequestHeader("X-Original-File-Size", String(file.size));
-    request.setRequestHeader("X-Rights-Confirmed", "1");
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
         onProgress(Math.round((event.loaded / event.total) * 100));
       }
     });
     request.addEventListener("load", () => {
-      let response: { video?: ReplacedVideoFile; error?: string } = {};
-      try {
-        response = JSON.parse(request.responseText);
-      } catch {
-        response = {};
-      }
-      if (request.status >= 200 && request.status < 300 && response.video) {
-        resolve(response.video);
-      } else {
-        reject(new Error(response.error || "原视频替换失败，请重试。"));
-      }
+      if (request.status >= 200 && request.status < 300) resolve();
+      else reject(new Error(failureMessage));
     });
     request.addEventListener("error", () =>
       reject(new Error("网络中断，新视频没有上传完成。")),
     );
     request.send(file);
   });
+}
+
+async function replaceVideoFile(
+  videoId: string,
+  file: File,
+  onProgress: (value: number) => void,
+) {
+  const thumbnail = await createThumbnailFromVideoFile(file);
+  const startResponse = await fetch(`/api/videos/${videoId}/replace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      originalName: file.name,
+      contentType: file.type,
+      rightsConfirmed: true,
+    }),
+  });
+  if (redirectOnUnauthorized(startResponse)) return null;
+  const started = (await startResponse.json().catch(() => ({}))) as {
+    assetId?: string;
+    uploadUrl?: string;
+    thumbnailUploadUrl?: string;
+    error?: string;
+  };
+  if (!startResponse.ok || !started.assetId || !started.uploadUrl || !started.thumbnailUploadUrl) {
+    throw new Error(started.error || "原视频替换失败，请重试。");
+  }
+
+  await Promise.all([
+    uploadToStorage(started.uploadUrl, file, onProgress, "新视频文件上传失败，请重试。"),
+    uploadToStorage(
+      started.thumbnailUploadUrl,
+      thumbnail,
+      () => undefined,
+      "新视频封面上传失败，请重试。",
+    ),
+  ]);
+
+  const completeResponse = await fetch(`/api/videos/${videoId}/replace/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      assetId: started.assetId,
+      originalName: file.name,
+      contentType: file.type,
+      fileSize: file.size,
+    }),
+  });
+  if (redirectOnUnauthorized(completeResponse)) return null;
+  const completed = (await completeResponse.json().catch(() => ({}))) as {
+    video?: ReplacedVideoFile;
+    error?: string;
+  };
+  if (!completeResponse.ok || !completed.video) {
+    throw new Error(completed.error || "原视频替换失败，请重试。");
+  }
+  return completed.video;
 }
 
 export default function ReplaceVideoDialog({
@@ -84,7 +145,7 @@ export default function ReplaceVideoDialog({
     setError("");
     try {
       const replacement = await replaceVideoFile(videoId, file, setProgress);
-      onReplaced(replacement);
+      if (replacement) onReplaced(replacement);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "替换失败，请重试。");
       setBusy(false);

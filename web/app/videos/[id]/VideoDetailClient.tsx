@@ -106,6 +106,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             originalName: replacement.originalName,
             contentType: replacement.contentType,
             fileSize: replacement.fileSize,
+            playbackUrl: replacement.playbackUrl,
+            thumbnailUrl: replacement.thumbnailUrl,
             status: replacement.status,
           }
         : current,
