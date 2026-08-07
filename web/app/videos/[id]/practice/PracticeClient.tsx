@@ -8,6 +8,11 @@ import {
   type HomeNavigationEventDetail,
 } from "@/app/components/GlobalHomeButton";
 import { annotationFields } from "@/lib/annotation-fields";
+import {
+  interpretSaveResponse,
+  rebaseOntoServerRevision,
+  type SaveResponseBody,
+} from "@/lib/annotation-sync";
 import { validateAnnotation } from "@/lib/annotation-validation";
 import type { AnnotationDraft, ShotDraft } from "@/lib/types";
 import ShotGroupEditor from "./ShotGroupEditor";
@@ -95,6 +100,9 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [notice, setNotice] = useState("");
+  const [conflict, setConflict] = useState<{ serverRevision: number } | null>(
+    null,
+  );
   const [missing, setMissing] = useState<string[]>([]);
   const [editVersion, setEditVersion] = useState(0);
   const editSequence = useRef(0);
@@ -182,21 +190,27 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         body: JSON.stringify(current),
       });
       if (redirectOnUnauthorized(response)) return null;
-      const data = (await response.json()) as {
-        error?: string;
-        annotationId?: string;
-        revision?: number;
-        updatedAt?: string;
-      };
-      if (!response.ok || !data.annotationId || data.revision === undefined) {
-        throw new Error(data.error || "保存失败");
+      const data = (await response
+        .json()
+        .catch(() => ({}))) as SaveResponseBody;
+      const outcome = interpretSaveResponse(response.status, data);
+      if (outcome.kind === "conflict") {
+        // Stop autosaving into a rejection loop and let the user decide which side wins.
+        setConflict({ serverRevision: outcome.serverRevision });
+        setSaveState("error");
+        setNotice(outcome.message);
+        return null;
       }
+      if (outcome.kind === "failed") {
+        throw new Error(outcome.message);
+      }
+      setConflict(null);
       const saved = {
         ...current,
-        id: data.annotationId,
-        revision: data.revision,
+        id: outcome.annotationId,
+        revision: outcome.revision,
         status: "DRAFT" as const,
-        updatedAt: data.updatedAt ?? new Date().toISOString(),
+        updatedAt: outcome.updatedAt ?? new Date().toISOString(),
       };
       const latest = draftRef.current;
       const merged = latest
@@ -240,9 +254,20 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         while (dirtyRef.current && attempts < 3) {
           attempts += 1;
           const saved = await saveDraft();
-          if (!saved) return;
+          // Staying put is right — leaving would drop the unsaved work — but the
+          // click must never look like it did nothing.
+          if (!saved) {
+            setNotice(
+              "内容还没有保存成功，已经留在当前页面。请先处理上面的提示，再离开。",
+            );
+            return;
+          }
         }
-        if (!dirtyRef.current) event.detail.continueNavigation();
+        if (dirtyRef.current) {
+          setNotice("内容还在保存中，已经留在当前页面。稍等一下再点一次。");
+          return;
+        }
+        event.detail.continueNavigation();
       })();
     }
     window.addEventListener(HOME_NAVIGATION_EVENT, handleHomeNavigation);
@@ -251,12 +276,14 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   }, [saveDraft]);
 
   useEffect(() => {
-    if (!dirty || saveState === "saving") return;
+    // While a conflict is unresolved every save would be rejected again, so wait for
+    // the user's choice instead of retrying every 2.5s forever.
+    if (!dirty || saveState === "saving" || conflict) return;
     const timer = window.setTimeout(() => {
       void saveDraft();
     }, 2500);
     return () => window.clearTimeout(timer);
-  }, [dirty, editVersion, saveDraft, saveState]);
+  }, [conflict, dirty, editVersion, saveDraft, saveState]);
 
   const completion = useMemo(() => {
     if (!draft) return { done: 0, total: 24 };
@@ -277,6 +304,20 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     () => (draft ? validateAnnotation(draft) : []),
     [draft],
   );
+
+  function keepThisPageContent() {
+    const current = draftRef.current;
+    if (!conflict || !current) return;
+    const rebased = rebaseOntoServerRevision(current, conflict.serverRevision);
+    draftRef.current = rebased;
+    setDraft(rebased);
+    setConflict(null);
+    setNotice("");
+    setSaveState("idle");
+    setDirty(true);
+    dirtyRef.current = true;
+    void saveDraft();
+  }
 
   function revealSubmitFeedback() {
     submitPanelRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -454,7 +495,33 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
             </p>
           </div>
 
-          {notice ? (
+          {conflict ? (
+            <div className="conflict-panel" role="alert">
+              <strong>这份作业在另一个页面被保存过</strong>
+              <p>
+                本页还没有写入的修改都还在。选择保留哪一份；
+                如果你在两个页面分别写了内容，请先复制需要的部分再决定。
+              </p>
+              <div className="conflict-actions">
+                <button
+                  className="button button-accent"
+                  type="button"
+                  onClick={keepThisPageContent}
+                >
+                  保留本页内容并继续保存
+                </button>
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  onClick={() => window.location.reload()}
+                >
+                  放弃本页修改，载入另一份
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {notice && !conflict ? (
             <div className={`notice ${saveState === "error" ? "error" : ""}`}>
               {notice}
             </div>

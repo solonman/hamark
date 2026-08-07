@@ -298,7 +298,7 @@ test("shot autosave resets its debounce window for every edit", async () => {
   assert.match(practice, /const \[editVersion, setEditVersion\] = useState\(0\)/);
   assert.match(practice, /setEditVersion\(editSequence\.current\)/);
   assert.match(practice, /window\.setTimeout\(\(\) => \{\s*void saveDraft\(\);\s*\}, 2500\)/s);
-  assert.match(practice, /\[dirty, editVersion, saveDraft, saveState\]/);
+  assert.match(practice, /\[conflict, dirty, editVersion, saveDraft, saveState\]/);
   assert.match(practice, /修改约3秒自动保存/);
 });
 

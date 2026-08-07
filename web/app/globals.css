@@ -2956,6 +2956,27 @@ body.is-resizing-shot-column * {
   color: var(--white);
 }
 
+.conflict-panel {
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(184, 52, 31, 0.4);
+  border-radius: 10px;
+  background: rgba(255, 91, 53, 0.1);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.conflict-panel p {
+  margin: 7px 0 0;
+}
+
+.conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .submit-blockers,
 .submit-feedback {
   margin-top: 16px;
