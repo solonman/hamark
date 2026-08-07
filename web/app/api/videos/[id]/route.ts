@@ -20,10 +20,20 @@ type VideoDetailRow = {
 
 type SnapshotRow = {
   id: string;
+  annotation_id: string;
+  author_email: string;
   author_name: string;
   taxonomy_version: string;
   revision: number;
   payload_json: string;
+  content_hash: string;
+  created_at: string;
+};
+
+type SnapshotVersionRow = {
+  id: string;
+  annotation_id: string;
+  revision: number;
   content_hash: string;
   created_at: string;
 };
@@ -59,10 +69,18 @@ export async function GET(
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
 
-  const [snapshots, myAnnotation, submittedAnalysis, playbackUrl, thumbnailUrl] = await Promise.all([
+  const [
+    snapshots,
+    snapshotVersions,
+    myAnnotation,
+    submittedAnalysis,
+    playbackUrl,
+    thumbnailUrl,
+  ] = await Promise.all([
     db
       .prepare(
-        `SELECT s.id, s.author_name, s.taxonomy_version, s.revision,
+        `SELECT s.id, s.annotation_id, s.author_email, s.author_name,
+          s.taxonomy_version, s.revision,
           s.payload_json, s.content_hash, s.created_at
         FROM annotation_snapshots s
         INNER JOIN (
@@ -78,6 +96,15 @@ export async function GET(
       )
       .bind(id, id)
       .all<SnapshotRow>(),
+    db
+      .prepare(
+        `SELECT id, annotation_id, revision, content_hash, created_at
+        FROM annotation_snapshots
+        WHERE video_id = ?
+        ORDER BY annotation_id ASC, created_at ASC, revision ASC`,
+      )
+      .bind(id)
+      .all<SnapshotVersionRow>(),
     db
       .prepare(
         `SELECT id, status, revision, updated_at
@@ -131,15 +158,29 @@ export async function GET(
       createdAt: video.created_at,
       annotationCount: snapshots.results.length,
     },
-    analyses: snapshots.results.map((snapshot: SnapshotRow) => ({
-      id: snapshot.id,
-      authorName: snapshot.author_name,
-      taxonomyVersion: snapshot.taxonomy_version,
-      revision: snapshot.revision,
-      createdAt: snapshot.created_at,
-      contentHash: snapshot.content_hash,
-      payload: JSON.parse(snapshot.payload_json),
-    })),
+    analyses: snapshots.results.map((snapshot: SnapshotRow) => {
+      const versions = snapshotVersions.results
+        .filter((version) => version.annotation_id === snapshot.annotation_id)
+        .map((version, index) => ({
+          id: version.id,
+          revision: version.revision,
+          versionNumber: index + 1,
+          createdAt: version.created_at,
+          contentHash: version.content_hash,
+        }));
+      return {
+        id: snapshot.id,
+        authorName: snapshot.author_name,
+        taxonomyVersion: snapshot.taxonomy_version,
+        revision: snapshot.revision,
+        versionNumber:
+          versions.find((version) => version.id === snapshot.id)?.versionNumber ?? 1,
+        createdAt: snapshot.created_at,
+        contentHash: snapshot.content_hash,
+        payload: JSON.parse(snapshot.payload_json),
+        versions,
+      };
+    }),
     myAnalysis: myAnnotation
       ? {
           id: myAnnotation.id,

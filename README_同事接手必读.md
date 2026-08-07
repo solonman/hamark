@@ -45,6 +45,10 @@ npm run dev
 
 Supabase SQL 新增迁移必须在认证代码部署前执行。部署认证代码前，必须先在 Supabase SQL 编辑器执行新增迁移，确保企业微信身份字段和会话表结构已存在。
 
+本轮“原位批注／优秀标记”上线前，需要先执行
+`web/db/migrations/2026-08-07-analysis-comments.sql`。该迁移只新增批注表和索引，
+不会覆盖已有视频、作业快照或评分数据；应用代码部署必须排在迁移之后。
+
 Vercel Production 环境变量必须配置完整：
 
 ```env

@@ -80,6 +80,8 @@ export default function SubmittedAnalysisContent({
               <section
                 className="submitted-shot-group"
                 key={`${group.name}-${groupIndex}`}
+                data-annotation-target={`shot-group:${groupIndex}`}
+                data-annotation-label={`镜头组 ${String(groupIndex + 1).padStart(2, "0")} · ${group.name}`}
               >
                 <header>
                   <span>镜头组 {String(groupIndex + 1).padStart(2, "0")}</span>
@@ -103,31 +105,41 @@ export default function SubmittedAnalysisContent({
                             <td
                               className="submitted-group-table-cell"
                               rowSpan={group.shots.length}
+                              data-annotation-target={`shot-group:${groupIndex}:identity`}
+                              data-annotation-label={`镜头组 ${String(groupIndex + 1).padStart(2, "0")} 分段与名称`}
                             >
                               <strong>{String(groupIndex + 1).padStart(2, "0")}</strong>
                               <small>{group.name}</small>
                             </td>
                           ) : null}
-                          <td>
+                          <td
+                            data-annotation-target={`shot:${shot.id || shotIndex}:number`}
+                            data-annotation-label={`${group.name} · 镜头序号`}
+                          >
                             <strong>{shot.shotNumber}</strong>
                           </td>
-                          <td>
+                          <td
+                            data-annotation-target={`shot:${shot.id || shotIndex}:time`}
+                            data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 时间段`}
+                          >
                             {shot.startTime || "—"}
                             <br />→ {shot.endTime || "—"}
                           </td>
-                          <td>{shot.shotSize || "—"}</td>
-                          <td>{shot.cameraAngle || "—"}</td>
-                          <td>{shot.cameraMovement || "—"}</td>
-                          <td>{shot.visualContent || "—"}</td>
-                          <td>{shot.dialogue || "—"}</td>
-                          <td>{shot.voiceover || "—"}</td>
-                          <td>{shot.screenText || "—"}</td>
-                          <td>{shot.soundEffect || "—"}</td>
-                          <td>{shot.music || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:shot-size`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 景别`}>{shot.shotSize || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:camera-angle`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 机位／角度`}>{shot.cameraAngle || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:camera-movement`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 镜头运动`}>{shot.cameraMovement || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:visual-content`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 画面内容`}>{shot.visualContent || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:dialogue`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 对白`}>{shot.dialogue || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:voiceover`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 旁白`}>{shot.voiceover || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:screen-text`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 字幕／文案`}>{shot.screenText || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:sound-effect`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 声效`}>{shot.soundEffect || "—"}</td>
+                          <td data-annotation-target={`shot:${shot.id || shotIndex}:music`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 音乐`}>{shot.music || "—"}</td>
                           {shotIndex === 0 ? (
                             <td
                               className="submitted-group-comment-cell"
                               rowSpan={group.shots.length}
+                              data-annotation-target={`shot-group:${groupIndex}:creative-comment`}
+                              data-annotation-label={`${group.name} · 镜头创意点评`}
                             >
                               {creativeComment || "—"}
                             </td>
@@ -154,35 +166,35 @@ export default function SubmittedAnalysisContent({
       </details>
 
       <div className="analysis-core-grid" id={`analysis-${analysis.id}-core`}>
-        <div className="inline-scored-content">
+        <div className="inline-scored-content" data-annotation-target="core:commercial-intent" data-annotation-label="商业意图">
           <div className="inline-scored-content-head">
             <span>商业意图</span>
             <InlineReviewScore code="commercial_intent" hideLabel />
           </div>
           <p>{payload.commercialIntent || "—"}</p>
         </div>
-        <div className="inline-scored-content">
+        <div className="inline-scored-content" data-annotation-target="core:creative-theme" data-annotation-label="创意母题">
           <div className="inline-scored-content-head">
             <span>创意母题</span>
             <InlineReviewScore code="creative_theme" hideLabel />
           </div>
           <p>{payload.creativeTheme || "—"}</p>
         </div>
-        <div className="wide inline-scored-content">
+        <div className="wide inline-scored-content" data-annotation-target="core:story-synopsis" data-annotation-label="故事梗概">
           <div className="inline-scored-content-head">
             <span>故事梗概</span>
             <InlineReviewScore code="story_synopsis" hideLabel />
           </div>
           <p>{payload.synopsis || "—"}</p>
         </div>
-        <div className="wide inline-scored-content">
+        <div className="wide inline-scored-content" data-annotation-target="core:thinking-chain" data-annotation-label="创意思维链">
           <div className="inline-scored-content-head">
             <span>创意思维链</span>
             <InlineReviewScore code="thinking_chain" hideLabel />
           </div>
           <p>{payload.thinkingChain || "—"}</p>
         </div>
-        <div className="wide inline-scored-content">
+        <div className="wide inline-scored-content" data-annotation-target="core:full-summary" data-annotation-label="全篇创意总结">
           <div className="inline-scored-content-head">
             <span>全篇创意总结</span>
             <InlineReviewScore code="full_summary" hideLabel />
@@ -201,7 +213,7 @@ export default function SubmittedAnalysisContent({
           {annotationFields.slice(0, 9).map((field) => {
             const answer = payload.fields.find((item) => item.code === field.code);
             return (
-              <div className="inline-scored-content" key={field.code}>
+              <div className="inline-scored-content" key={field.code} data-annotation-target={`field:${field.code}`} data-annotation-label={`${field.code} ${field.name}`}>
                 <span>{field.code}</span>
                 <strong>{field.name}</strong>
                 <p>{answer?.answer || "—"}</p>
@@ -216,7 +228,7 @@ export default function SubmittedAnalysisContent({
           {annotationFields.slice(9).map((field) => {
             const answer = payload.fields.find((item) => item.code === field.code);
             return (
-              <div className="inline-scored-content" key={field.code}>
+              <div className="inline-scored-content" key={field.code} data-annotation-target={`field:${field.code}`} data-annotation-label={`${field.code} ${field.name}`}>
                 <span>{field.code}</span>
                 <strong>{field.name}</strong>
                 <p>{answer?.answer || "—"}</p>

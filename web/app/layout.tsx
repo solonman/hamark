@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
+import GlobalHomeButton from "./components/GlobalHomeButton";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -47,7 +48,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <GlobalHomeButton />
+        {children}
+      </body>
     </html>
   );
 }

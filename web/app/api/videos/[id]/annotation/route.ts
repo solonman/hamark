@@ -24,16 +24,17 @@ export async function GET(
   const published = annotation.id
     ? await getDbClient()
         .prepare(
-          `SELECT id FROM annotation_snapshots
-          WHERE annotation_id = ? LIMIT 1`,
+          `SELECT COUNT(*) AS version_count FROM annotation_snapshots
+          WHERE annotation_id = ?`,
         )
         .bind(annotation.id)
-        .first<{ id: string }>()
+        .first<{ version_count: number }>()
     : null;
   return Response.json({
     video,
     annotation,
-    hasPublishedVersion: Boolean(published),
+    hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
+    publishedVersionCount: Number(published?.version_count ?? 0),
   });
 }
 

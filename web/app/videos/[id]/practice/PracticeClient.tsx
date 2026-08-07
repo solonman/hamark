@@ -3,6 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DraggableVideoPlayer from "@/app/components/DraggableVideoPlayer";
+import {
+  HOME_NAVIGATION_EVENT,
+  type HomeNavigationEventDetail,
+} from "@/app/components/GlobalHomeButton";
 import { annotationFields } from "@/lib/annotation-fields";
 import type { AnnotationDraft, ShotDraft } from "@/lib/types";
 import ShotGroupEditor from "./ShotGroupEditor";
@@ -12,6 +16,7 @@ type AnnotationResponse = {
   video?: { id: string; title: string; status: string };
   annotation?: AnnotationDraft;
   hasPublishedVersion?: boolean;
+  publishedVersionCount?: number;
   error?: string;
 };
 
@@ -84,6 +89,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [hasPublishedVersion, setHasPublishedVersion] = useState(false);
+  const [publishedVersionCount, setPublishedVersionCount] = useState(0);
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -92,11 +98,16 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   const [editVersion, setEditVersion] = useState(0);
   const editSequence = useRef(0);
   const draftRef = useRef<AnnotationDraft | null>(null);
+  const dirtyRef = useRef(false);
   const saveInFlight = useRef<Promise<AnnotationDraft | null> | null>(null);
 
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
 
   useEffect(() => {
     let active = true;
@@ -111,6 +122,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
           setVideoTitle(data.video.title);
           setVideoStatus(data.video.status);
           setHasPublishedVersion(Boolean(data.hasPublishedVersion));
+          setPublishedVersionCount(Number(data.publishedVersionCount ?? 0));
           setDraft(
             data.annotation.shots.length
               ? data.annotation
@@ -138,6 +150,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     draftRef.current = next;
     setDraft(next);
     setDirty(true);
+    dirtyRef.current = true;
     if (!saveInFlight.current) setSaveState("idle");
     setNotice("");
     setMissing([]);
@@ -188,6 +201,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
       setDraft(merged);
       if (editSequence.current === sequenceAtStart) {
         setDirty(false);
+        dirtyRef.current = false;
         setSaveState("saved");
       } else {
         setSaveState("idle");
@@ -204,6 +218,26 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     saveInFlight.current = operation;
     return operation;
   }, [videoId]);
+
+  useEffect(() => {
+    function handleHomeNavigation(rawEvent: Event) {
+      if (!dirtyRef.current) return;
+      const event = rawEvent as CustomEvent<HomeNavigationEventDetail>;
+      event.preventDefault();
+      void (async () => {
+        let attempts = 0;
+        while (dirtyRef.current && attempts < 3) {
+          attempts += 1;
+          const saved = await saveDraft();
+          if (!saved) return;
+        }
+        if (!dirtyRef.current) event.detail.continueNavigation();
+      })();
+    }
+    window.addEventListener(HOME_NAVIGATION_EVENT, handleHomeNavigation);
+    return () =>
+      window.removeEventListener(HOME_NAVIGATION_EVENT, handleHomeNavigation);
+  }, [saveDraft]);
 
   useEffect(() => {
     if (!dirty || saveState === "saving") return;
@@ -240,6 +274,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
       const data = (await response.json()) as {
         error?: string;
         missing?: string[];
+        versionNumber?: number;
       };
       if (!response.ok) {
         setMissing(data.missing ?? []);
@@ -249,6 +284,11 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         current ? { ...current, status: "SUBMITTED" } : current,
       );
       setHasPublishedVersion(true);
+      setPublishedVersionCount(
+        data.versionNumber ?? Math.max(1, publishedVersionCount + 1),
+      );
+      dirtyRef.current = false;
+      setDirty(false);
       setSaveState("saved");
       setNotice(
         hasPublishedVersion
@@ -280,6 +320,8 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     <main className="practice-shell">
       <header className="practice-topbar">
         <div className="practice-breadcrumb">
+          <Link href="/">全部作品</Link>
+          <span>/</span>
           <Link href={`/videos/${videoId}`}>← 返回作品</Link>
           <span>/</span>
           <strong>{videoTitle}</strong>
@@ -312,10 +354,23 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
               saveState === "saving" || (draft.status === "SUBMITTED" && !dirty)
             }
           >
-            {hasPublishedVersion ? "发布本次修订" : "发布作业"}
+            {hasPublishedVersion
+              ? `发布公开版本 V${publishedVersionCount + 1}`
+              : "发布作业"}
           </button>
         </div>
       </header>
+
+      {hasPublishedVersion ? (
+        <div className="revision-context-banner">
+          <strong>正在继续修订公开版本 V{publishedVersionCount}</strong>
+          <span>
+            当前内容已完整带入；再次发布将生成 V{publishedVersionCount + 1}，
+            原版本、原评分和原批注都会保留。
+          </span>
+          <Link href={`/videos/${videoId}`}>查看公开版本历史 ↗</Link>
+        </div>
+      ) : null}
 
       <div className="practice-layout">
         <DraggableVideoPlayer enabled>
@@ -522,7 +577,9 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
                   (draft.status === "SUBMITTED" && !dirty)
                 }
               >
-                {hasPublishedVersion ? "发布本次修订" : "发布并公开"}
+                {hasPublishedVersion
+                  ? `发布公开版本 V${publishedVersionCount + 1}`
+                  : "发布并公开"}
               </button>
             </div>
           </section>

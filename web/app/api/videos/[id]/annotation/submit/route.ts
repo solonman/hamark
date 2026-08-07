@@ -46,16 +46,31 @@ export async function POST(
     .first<{ id: string }>();
 
   if (existing) {
+    const versionCount = await db
+      .prepare(
+        `SELECT COUNT(*) AS version_count FROM annotation_snapshots
+        WHERE annotation_id = ?`,
+      )
+      .bind(annotation.id)
+      .first<{ version_count: number }>();
     return Response.json({
       ok: true,
       snapshotId: existing.id,
       revision: annotation.revision,
+      versionNumber: Number(versionCount?.version_count ?? 1),
     });
   }
 
   const canonicalPayload = JSON.stringify(annotation);
   const hash = await sha256(canonicalPayload);
   const snapshotId = newId("snapshot");
+  const previousVersionCount = await db
+    .prepare(
+      `SELECT COUNT(*) AS version_count FROM annotation_snapshots
+      WHERE annotation_id = ?`,
+    )
+    .bind(annotation.id)
+    .first<{ version_count: number }>();
 
   await db.batch([
     db
@@ -107,6 +122,7 @@ export async function POST(
     ok: true,
     snapshotId,
     revision: annotation.revision,
+    versionNumber: Number(previousVersionCount?.version_count ?? 0) + 1,
     contentHash: hash,
   });
 }

@@ -16,6 +16,7 @@ import ReplaceVideoDialog, {
   type ReplacedVideoFile,
 } from "./ReplaceVideoDialog";
 import SubmittedAnalysisContent from "./SubmittedAnalysisContent";
+import AnalysisComments from "./AnalysisComments";
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -50,6 +51,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [replaceNotice, setReplaceNotice] = useState("");
   const [playerRevision, setPlayerRevision] = useState(0);
+  const [versionLoading, setVersionLoading] = useState<string | null>(null);
+  const [versionNotice, setVersionNotice] = useState("");
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -124,10 +127,41 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
 
   const myAnalysisLabel =
     myAnalysis?.status === "SUBMITTED"
-      ? "查看并编辑我的分析 ↗"
+      ? "继续修订我的作业 ↗"
       : myAnalysis?.status === "DRAFT"
         ? "继续编辑我的分析 ↗"
         : "写下我的分析 ↗";
+
+  async function showAnalysisVersion(index: number, snapshotId: string) {
+    if (analyses[index]?.id === snapshotId) return;
+    setVersionLoading(snapshotId);
+    setVersionNotice("");
+    setActiveReviewId(null);
+    try {
+      const response = await fetch(`/api/analyses/${snapshotId}`, {
+        cache: "no-store",
+      });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as {
+        analysis?: SubmittedAnalysis;
+        error?: string;
+      };
+      if (!response.ok || !data.analysis) {
+        throw new Error(data.error || "作业版本读取失败");
+      }
+      setAnalyses((current) =>
+        current.map((analysis, currentIndex) =>
+          currentIndex === index ? data.analysis! : analysis,
+        ),
+      );
+    } catch (reason) {
+      setVersionNotice(
+        reason instanceof Error ? reason.message : "作业版本读取失败",
+      );
+    } finally {
+      setVersionLoading(null);
+    }
+  }
 
   if (loading) return <main className="detail-state">正在打开作品…</main>;
 
@@ -276,6 +310,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           </Link>
         </div>
 
+        {versionNotice ? (
+          <div className="review-notice error">{versionNotice}</div>
+        ) : null}
+
         {analyses.length === 0 ? (
           <div className="no-analysis">
             <span>还没有人交作业</span>
@@ -302,13 +340,33 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                     </span>
                     <div>
                       <p>
-                        {analysis.authorName} · {analysis.taxonomyVersion} · 修订{" "}
-                        {analysis.revision}
+                        {analysis.authorName} · {analysis.taxonomyVersion} · 公开版本 V
+                        {analysis.versionNumber}
                       </p>
                       <h3>{analysis.payload.analysisTitle}</h3>
                     </div>
                     <div className="analysis-card-actions">
                       <time>{formatLongDate(analysis.createdAt)}</time>
+                      {analysis.versions.length > 1 ? (
+                        <label className="analysis-version-select">
+                          <span>查看历史版本</span>
+                          <select
+                            value={analysis.id}
+                            disabled={Boolean(versionLoading)}
+                            onChange={(event) =>
+                              void showAnalysisVersion(index, event.target.value)
+                            }
+                          >
+                            {[...analysis.versions].reverse().map((version) => (
+                              <option value={version.id} key={version.id}>
+                                V{version.versionNumber} · {formatLongDate(version.createdAt)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <span className="analysis-version-only">公开版本 V1</span>
+                      )}
                       <button
                         type="button"
                         className="button button-accent compact"
@@ -328,10 +386,14 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                       snapshotId={analysis.id}
                       onClose={() => setActiveReviewId(null)}
                     >
-                      {content}
+                      <AnalysisComments snapshotId={analysis.id}>
+                        {content}
+                      </AnalysisComments>
                     </ReviewPanel>
                   ) : (
-                    content
+                    <AnalysisComments snapshotId={analysis.id}>
+                      {content}
+                    </AnalysisComments>
                   )}
                 </article>
               );

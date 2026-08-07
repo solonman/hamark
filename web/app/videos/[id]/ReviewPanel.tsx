@@ -10,6 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import {
+  annotationFields,
+  type AnnotationFieldDefinition,
+} from "@/lib/annotation-fields";
+import {
   REVIEW_MAX_SCORE,
   REVIEW_RUBRIC_VERSION,
   calculateReviewTotal,
@@ -30,6 +34,7 @@ type ReviewResponse = {
 type ReviewContextValue = {
   review: AssignmentReviewDraft;
   updateScore: (code: string, value: number | null) => void;
+  pinReference: (field: AnnotationFieldDefinition) => void;
 };
 
 const ReviewContext = createContext<ReviewContextValue | null>(null);
@@ -57,6 +62,66 @@ function ScoreGuide({ label, guide }: { label: string; guide: string }) {
   );
 }
 
+function TaxonomyReferenceContent({
+  field,
+}: {
+  field: AnnotationFieldDefinition;
+}) {
+  const categories = new Map<string, typeof field.options>();
+  field.options.forEach((option) => {
+    const items = categories.get(option.category) ?? [];
+    items.push(option);
+    categories.set(option.category, items);
+  });
+  return (
+    <>
+      <p className="taxonomy-reference-question">{field.question}</p>
+      <p className="taxonomy-reference-rule">选择规则：{field.rule}</p>
+      <div className="taxonomy-reference-options">
+        {[...categories.entries()].map(([category, options]) => (
+          <section key={category}>
+            <h5>{category}</h5>
+            {options.map((option) => (
+              <div key={option.value}>
+                <strong>{option.value}</strong>
+                <span>{option.description}</span>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function TaxonomyReferenceGuide({
+  field,
+}: {
+  field: AnnotationFieldDefinition;
+}) {
+  const context = useContext(ReviewContext);
+  if (!context) return null;
+  return (
+    <div className="taxonomy-reference-wrap">
+      <button
+        type="button"
+        className="taxonomy-reference-trigger"
+        onClick={() => context.pinReference(field)}
+        aria-label={`查看并固定 ${field.code} ${field.name} 的${field.options.length}个参照项`}
+      >
+        参照项 · {field.options.length}
+      </button>
+      <div className="taxonomy-reference-popover" role="tooltip">
+        <div className="taxonomy-reference-popover-head">
+          <strong>{field.code} {field.name}</strong>
+          <small>点击“参照项”可固定在右侧</small>
+        </div>
+        <TaxonomyReferenceContent field={field} />
+      </div>
+    </div>
+  );
+}
+
 export function InlineReviewScore({
   code,
   hideLabel = false,
@@ -67,6 +132,9 @@ export function InlineReviewScore({
   const context = useContext(ReviewContext);
   const item = reviewScoreItems.find((candidate) => candidate.code === code);
   if (!context || !item) return null;
+  const taxonomyField = item.code.startsWith("field_")
+    ? annotationFields.find((field) => `field_${field.code}` === item.code)
+    : undefined;
   const value = context.review.scores[item.code];
   const invalid =
     typeof value === "number" && (value < 0 || value > item.maxScore);
@@ -76,6 +144,7 @@ export function InlineReviewScore({
       <div className="inline-review-score-copy">
         {hideLabel ? null : <strong>{item.label}</strong>}
         <ScoreGuide label={item.label} guide={item.guide} />
+        {taxonomyField ? <TaxonomyReferenceGuide field={taxonomyField} /> : null}
       </div>
       <label>
         <input
@@ -143,6 +212,8 @@ export default function ReviewPanel({
   >("idle");
   const [notice, setNotice] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
+  const [pinnedReference, setPinnedReference] =
+    useState<AnnotationFieldDefinition | null>(null);
   const reviewRef = useRef<AssignmentReviewDraft | null>(null);
   const editSequence = useRef(0);
 
@@ -322,7 +393,9 @@ export default function ReviewPanel({
     }
   }
 
-  const context = review ? { review, updateScore } : null;
+  const context = review
+    ? { review, updateScore, pinReference: setPinnedReference }
+    : null;
 
   return (
     <ReviewContext.Provider value={context}>
@@ -352,6 +425,27 @@ export default function ReviewPanel({
             退出批改
           </button>
         </header>
+
+        {pinnedReference ? (
+          <aside className="taxonomy-reference-dock" aria-label="已固定的标注参照项">
+            <header>
+              <div>
+                <span>V0.2 参照项</span>
+                <strong>
+                  {pinnedReference.code} {pinnedReference.name}
+                </strong>
+              </div>
+              <button
+                type="button"
+                aria-label="关闭参照项浮窗"
+                onClick={() => setPinnedReference(null)}
+              >
+                ×
+              </button>
+            </header>
+            <TaxonomyReferenceContent field={pinnedReference} />
+          </aside>
+        ) : null}
 
         {notice ? (
           <div className={`review-notice ${saveState === "error" ? "error" : ""}`}>

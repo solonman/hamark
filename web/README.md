@@ -115,6 +115,10 @@ sudo systemctl reload nginx
 
 企业微信应用的可见范围控制哪些成员有登录资格。部署认证代码前，先在 Supabase 执行新增 SQL 迁移；当前认证路径不再保留 demo-user fallback。
 
+上线“原位批注／优秀标记”前，先执行
+`db/migrations/2026-08-07-analysis-comments.sql`。该脚本只新增表和索引，可以重复执行，
+不会改写已有作业快照或评分。
+
 `DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接。认证相关表开启了 RLS，但没有面向浏览器或 anon 角色的策略；运行时数据库访问应只发生在 Next.js 服务端。
 
 生产验收还需要在密钥配置完成后执行两项登录检查：一次桌面浏览器企业微信二维码扫码登录，一次企业微信客户端内登录。

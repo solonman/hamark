@@ -11,6 +11,8 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
     taxonomyEditor,
     reviewPanel,
     reviewRubric,
+    comments,
+    layout,
   ] =
     await Promise.all([
       readFile(
@@ -44,6 +46,11 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
         "utf8",
       ),
       readFile(new URL("../lib/review-rubric.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../app/videos/[id]/AnalysisComments.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     ]);
 
   assert.match(home, /看完一支片/);
@@ -58,7 +65,7 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(taxonomyEditor, /V0\.2 预设选项/);
   assert.match(taxonomyEditor, /其他（自主输入）/);
   assert.match(practice, /修改约3秒自动保存/);
-  assert.match(practice, /发布本次修订/);
+  assert.match(practice, /发布公开版本/);
   assert.match(practice, /对照视频 · 始终悬浮/);
   assert.match(shotTable, /拖动表头边界调整列宽/);
   assert.match(shotTable, /恢复默认列宽/);
@@ -68,6 +75,12 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(reviewPanel, /提交正式评分/);
   assert.match(reviewRubric, /RUBRIC-V0\.4/);
   assert.match(reviewRubric, /镜头组分段与顺序/);
+  assert.match(reviewPanel, /参照项/);
+  assert.match(reviewPanel, /taxonomy-reference-dock/);
+  assert.match(comments, /开启批注模式/);
+  assert.match(comments, /专家精修意见/);
+  assert.match(comments, /标记优秀片段/);
+  assert.match(layout, /GlobalHomeButton/);
   assert.doesNotMatch(home, /Your site is taking shape|Starter Project/);
   assert.doesNotMatch(home, /react-loading-skeleton/);
 });
@@ -245,7 +258,7 @@ test("video detail client labels my analysis CTA by status", async () => {
 
   assert.match(source, /myAnalysis/);
   assert.match(source, /继续编辑我的分析 ↗/);
-  assert.match(source, /查看并编辑我的分析 ↗/);
+  assert.match(source, /继续修订我的作业 ↗/);
   assert.match(source, /写下我的分析 ↗/);
 });
 
