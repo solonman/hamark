@@ -68,9 +68,48 @@ export type SubmittedAnalysis = {
   authorName: string;
   taxonomyVersion: string;
   revision: number;
+  versionNumber: number;
   createdAt: string;
   contentHash: string;
   payload: AnnotationDraft;
+  versions: SubmissionVersionSummary[];
+};
+
+export type SubmissionVersionSummary = {
+  id: string;
+  revision: number;
+  versionNumber: number;
+  createdAt: string;
+  contentHash: string;
+};
+
+export type AnalysisCommentStatus = "OPEN" | "RESOLVED";
+export type AnalysisCommentKind = "COMMENT" | "EXPERT_NOTE";
+
+export type AnalysisCommentReply = {
+  id: string;
+  authorName: string;
+  body: string;
+  kind: AnalysisCommentKind;
+  createdAt: string;
+};
+
+export type AnalysisComment = {
+  id: string;
+  submissionId: string;
+  targetKey: string;
+  targetLabel: string;
+  selectedText: string;
+  body: string;
+  authorName: string;
+  kind: AnalysisCommentKind;
+  status: AnalysisCommentStatus;
+  isExcellent: boolean;
+  markedByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  canResolve: boolean;
+  replies: AnalysisCommentReply[];
 };
 
 export type MyAnalysisStatus = {

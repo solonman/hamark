@@ -12,6 +12,9 @@ const businessApiRoutes = [
   "app/api/videos/[id]/stream/route.ts",
   "app/api/videos/[id]/annotation/route.ts",
   "app/api/videos/[id]/annotation/submit/route.ts",
+  "app/api/analyses/[snapshotId]/route.ts",
+  "app/api/analyses/[snapshotId]/comments/route.ts",
+  "app/api/analyses/[snapshotId]/comments/[commentId]/route.ts",
   "app/api/analyses/[snapshotId]/score/route.ts",
 ];
 
@@ -23,6 +26,8 @@ const mutationApiRoutes = [
   "app/api/videos/[id]/replace/complete/route.ts",
   "app/api/videos/[id]/annotation/route.ts",
   "app/api/videos/[id]/annotation/submit/route.ts",
+  "app/api/analyses/[snapshotId]/comments/route.ts",
+  "app/api/analyses/[snapshotId]/comments/[commentId]/route.ts",
   "app/api/analyses/[snapshotId]/score/route.ts",
 ];
 
