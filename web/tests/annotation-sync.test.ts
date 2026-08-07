@@ -12,18 +12,26 @@ function readProjectFile(file: string) {
 }
 
 test("a successful save reports the revision the server assigned", () => {
-  const outcome = interpretSaveResponse(200, {
-    annotationId: "annotation_1",
-    revision: 8,
-    updatedAt: "2026-08-07T10:00:00.000Z",
-  });
+  const outcome = interpretSaveResponse(
+    200,
+    { revision: 8, updatedAt: "2026-08-07T10:00:00.000Z" },
+    "annotation_1",
+  );
 
   assert.deepEqual(outcome, {
     kind: "saved",
-    annotationId: "annotation_1",
+    id: "annotation_1",
     revision: 8,
     updatedAt: "2026-08-07T10:00:00.000Z",
   });
+});
+
+test("the same rule serves the worksheet and the scoring panel", () => {
+  const review = interpretSaveResponse(200, { revision: 3 }, "review_1");
+
+  assert.equal(review.kind, "saved");
+  assert.equal(review.kind === "saved" && review.id, "review_1");
+  assert.equal(review.kind === "saved" && review.updatedAt, null);
 });
 
 test("a stale revision is reported as a conflict carrying the winning revision", () => {
@@ -55,6 +63,7 @@ test("other failures keep the server message", () => {
   assert.equal(interpretSaveResponse(500, {}).kind, "failed");
   // A 2xx that is missing the fields the client needs is a failure, not a save.
   assert.equal(interpretSaveResponse(200, { revision: 3 }).kind, "failed");
+  assert.equal(interpretSaveResponse(200, {}, "review_1").kind, "failed");
 });
 
 test("rebasing keeps every local edit and only adopts the server revision", () => {
@@ -72,7 +81,10 @@ test("a save conflict pauses autosave and asks the user which side wins", async 
     "app/videos/[id]/practice/PracticeClient.tsx",
   );
 
-  assert.match(client, /interpretSaveResponse\(response\.status, data\)/);
+  assert.match(
+    client,
+    /interpretSaveResponse\(\s*response\.status,\s*data,\s*data\.annotationId,?\s*\)/s,
+  );
   assert.match(client, /outcome\.kind === "conflict"/);
   assert.match(client, /setConflict\(\{ serverRevision: outcome\.serverRevision \}\)/);
 
@@ -83,6 +95,32 @@ test("a save conflict pauses autosave and asks the user which side wins", async 
   assert.match(client, /保留本页内容并继续保存/);
   assert.match(client, /放弃本页修改，载入另一份/);
   assert.match(client, /rebaseOntoServerRevision\(current, conflict\.serverRevision\)/);
+});
+
+test("the scoring panel recovers from a conflict the same way the worksheet does", async () => {
+  const review = await readProjectFile("app/videos/[id]/ReviewPanel.tsx");
+
+  assert.match(review, /from "@\/lib\/annotation-sync"/);
+  assert.match(review, /interpretSaveResponse\(\s*response\.status,\s*data,\s*data\.reviewId,?\s*\)/s);
+  assert.match(review, /outcome\.kind === "conflict"/);
+  assert.match(review, /if \(!dirty \|\| saveState === "saving" \|\| conflict\) return;/);
+  assert.match(review, /保留本页评分并继续保存/);
+  assert.match(review, /rebaseOntoServerRevision\(current, conflict\.serverRevision\)/);
+  // The old shape threw away the conflict and its server revision.
+  assert.doesNotMatch(review, /!data\.reviewId \|\| data\.revision === undefined/);
+});
+
+test("the autosave counter is never shown as a human revision number", async () => {
+  const [practice, review] = await Promise.all([
+    readProjectFile("app/videos/[id]/practice/PracticeClient.tsx"),
+    readProjectFile("app/videos/[id]/ReviewPanel.tsx"),
+  ]);
+
+  // `revision` counts autosaves (hundreds per session); the published version
+  // count is the only number that means anything to a person.
+  assert.doesNotMatch(practice, /修订 \{draft\.revision\}/);
+  assert.doesNotMatch(review, /修订 \$\{review\.revision\}/);
+  assert.match(practice, /已发布公开版本 V\$\{publishedVersionCount\}/);
 });
 
 test("a blocked home navigation always tells the user why it stayed", async () => {

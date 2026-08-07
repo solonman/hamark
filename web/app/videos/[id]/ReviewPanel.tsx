@@ -14,6 +14,11 @@ import {
   type AnnotationFieldDefinition,
 } from "@/lib/annotation-fields";
 import {
+  interpretSaveResponse,
+  rebaseOntoServerRevision,
+  type SaveResponseBody,
+} from "@/lib/annotation-sync";
+import {
   REVIEW_MAX_SCORE,
   REVIEW_RUBRIC_VERSION,
   calculateReviewTotal,
@@ -211,6 +216,9 @@ export default function ReviewPanel({
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [notice, setNotice] = useState("");
+  const [conflict, setConflict] = useState<{ serverRevision: number } | null>(
+    null,
+  );
   const [missing, setMissing] = useState<string[]>([]);
   const [pinnedReference, setPinnedReference] =
     useState<AnnotationFieldDefinition | null>(null);
@@ -287,21 +295,32 @@ export default function ReviewPanel({
         body: JSON.stringify(current),
       });
       if (redirectOnUnauthorized(response)) return null;
-      const data = (await response.json()) as {
-        error?: string;
+      const data = (await response.json().catch(() => ({}))) as SaveResponseBody & {
         reviewId?: string;
-        revision?: number;
         totalScore?: number;
         isValidForAggregate?: boolean;
-        updatedAt?: string;
       };
-      if (!response.ok || !data.reviewId || data.revision === undefined) {
-        throw new Error(data.error || "保存评分失败");
+      const outcome = interpretSaveResponse(
+        response.status,
+        data,
+        data.reviewId,
+      );
+      if (outcome.kind === "conflict") {
+        // Stop autosaving into a rejection loop and let the reviewer decide which
+        // side wins instead of stranding the scores typed on this page.
+        setConflict({ serverRevision: outcome.serverRevision });
+        setSaveState("error");
+        setNotice(outcome.message);
+        return null;
       }
+      if (outcome.kind === "failed") {
+        throw new Error(outcome.message || "保存评分失败");
+      }
+      setConflict(null);
       const saved: AssignmentReviewDraft = {
         ...current,
-        id: data.reviewId,
-        revision: data.revision,
+        id: outcome.id,
+        revision: outcome.revision,
         status: "DRAFT",
         totalScore: data.totalScore ?? current.totalScore,
         isValidForAggregate:
@@ -333,12 +352,14 @@ export default function ReviewPanel({
   }, [snapshotId]);
 
   useEffect(() => {
-    if (!dirty || saveState === "saving") return;
+    // While a conflict is unresolved every save would be rejected again, so wait for
+    // the reviewer's choice instead of retrying every 900ms forever.
+    if (!dirty || saveState === "saving" || conflict) return;
     const timer = window.setTimeout(() => {
       void saveReview();
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [dirty, saveReview, saveState]);
+  }, [conflict, dirty, saveReview, saveState]);
 
   const scoredCount = review
     ? reviewScoreItems.filter(
@@ -351,6 +372,19 @@ export default function ReviewPanel({
         return typeof value === "number" && (value < 0 || value > item.maxScore);
       })
     : [];
+
+  function keepThisPageReview() {
+    const current = reviewRef.current;
+    if (!conflict || !current) return;
+    const rebased = rebaseOntoServerRevision(current, conflict.serverRevision);
+    reviewRef.current = rebased;
+    setReview(rebased);
+    setConflict(null);
+    setNotice("");
+    setSaveState("idle");
+    setDirty(true);
+    void saveReview();
+  }
 
   async function submitReview() {
     setMissing([]);
@@ -447,7 +481,32 @@ export default function ReviewPanel({
           </aside>
         ) : null}
 
-        {notice ? (
+        {conflict ? (
+          <div className="review-notice error" role="alert">
+            <strong>这份评分在另一个页面被保存过</strong>
+            <p>
+              本页还没有写入的评分都还在。选择保留哪一份；
+              如果你在两个页面分别打过分，请先记下需要的部分再决定。
+            </p>
+            <div className="conflict-actions">
+              <button
+                className="button button-accent"
+                type="button"
+                onClick={keepThisPageReview}
+              >
+                保留本页评分并继续保存
+              </button>
+              <button
+                className="button button-ghost"
+                type="button"
+                onClick={() => window.location.reload()}
+              >
+                放弃本页修改，载入另一份
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {notice && !conflict ? (
           <div className={`review-notice ${saveState === "error" ? "error" : ""}`}>
             {notice}
           </div>
@@ -499,9 +558,7 @@ export default function ReviewPanel({
                 推荐进入周／双周创意讨论
               </label>
               <span>
-                {review.status === "SUBMITTED"
-                  ? `已提交评分 · 修订 ${review.revision}`
-                  : `评分自动保存 · 修订 ${review.revision}`}
+                {review.status === "SUBMITTED" ? "已提交评分" : "评分自动保存"}
               </span>
               <button
                 type="button"

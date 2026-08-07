@@ -1,7 +1,6 @@
 export type SaveResponseBody = {
   error?: string;
   code?: string;
-  annotationId?: string;
   revision?: number;
   serverRevision?: number;
   updatedAt?: string;
@@ -10,7 +9,7 @@ export type SaveResponseBody = {
 export type SaveOutcome =
   | {
       kind: "saved";
-      annotationId: string;
+      id: string;
       revision: number;
       updatedAt: string | null;
     }
@@ -20,12 +19,15 @@ export type SaveOutcome =
 const conflictMessage =
   "这份作业在另一个页面被保存过，本页的修改还没有写入。请选择保留哪一份。";
 
-// The draft PUT rejects a stale revision so a forgotten second tab cannot silently
-// overwrite newer work. The server hands back the winning revision precisely so the
-// losing page can rebase instead of stranding everything the user has typed.
+// Draft and score autosaves share this rule: both PUTs reject a stale revision so a
+// forgotten second tab cannot silently overwrite newer work, and both hand back the
+// winning revision precisely so the losing page can rebase instead of stranding
+// everything the user has typed. `savedId` is whichever id the caller's route
+// returns (`annotationId` or `reviewId`).
 export function interpretSaveResponse(
   status: number,
   body: SaveResponseBody,
+  savedId?: string,
 ): SaveOutcome {
   if (
     status === 409 &&
@@ -40,10 +42,10 @@ export function interpretSaveResponse(
   }
 
   if (status >= 200 && status < 300) {
-    if (body.annotationId && typeof body.revision === "number") {
+    if (savedId && typeof body.revision === "number") {
       return {
         kind: "saved",
-        annotationId: body.annotationId,
+        id: savedId,
         revision: body.revision,
         updatedAt: body.updatedAt ?? null,
       };

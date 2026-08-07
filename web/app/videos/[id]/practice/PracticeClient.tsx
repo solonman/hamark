@@ -190,10 +190,14 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         body: JSON.stringify(current),
       });
       if (redirectOnUnauthorized(response)) return null;
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as SaveResponseBody;
-      const outcome = interpretSaveResponse(response.status, data);
+      const data = (await response.json().catch(() => ({}))) as SaveResponseBody & {
+        annotationId?: string;
+      };
+      const outcome = interpretSaveResponse(
+        response.status,
+        data,
+        data.annotationId,
+      );
       if (outcome.kind === "conflict") {
         // Stop autosaving into a rejection loop and let the user decide which side wins.
         setConflict({ serverRevision: outcome.serverRevision });
@@ -207,7 +211,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
       setConflict(null);
       const saved = {
         ...current,
-        id: outcome.annotationId,
+        id: outcome.id,
         revision: outcome.revision,
         status: "DRAFT" as const,
         updatedAt: outcome.updatedAt ?? new Date().toISOString(),
@@ -491,7 +495,10 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
               aria-label="分析标题"
             />
             <p>
-              {draft.authorName} 的个人作业 · 修订 {draft.revision}
+              {draft.authorName} 的个人作业 ·{" "}
+              {hasPublishedVersion
+                ? `已发布公开版本 V${publishedVersionCount}`
+                : "尚未发布"}
             </p>
           </div>
 
