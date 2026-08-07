@@ -1,6 +1,6 @@
 import pg from "pg";
 import { getRequiredEnv } from "@/lib/env";
-import { isLocalDemoMode } from "@/lib/local-demo";
+import { assertLocalDemoDatabase, isLocalDemoMode } from "@/lib/local-demo";
 import { CosVideoBucket } from "@/storage/cos";
 import { LocalVideoBucket } from "@/storage/local";
 import type { VideoBucket } from "@/storage/types";
@@ -37,10 +37,19 @@ function isPool(client: QueryClient): client is pg.Pool {
   return client instanceof Pool;
 }
 
+function localDemoSafeConnectionString() {
+  const connectionString = getRequiredEnv("DATABASE_URL");
+  // Guard the pool itself so both the running app and the setup script are covered,
+  // rather than whichever entry point happened to remember to check.
+  return isLocalDemoMode()
+    ? assertLocalDemoDatabase(connectionString)
+    : connectionString;
+}
+
 function getPool() {
   if (!pool) {
     pool = new Pool({
-      connectionString: getRequiredEnv("DATABASE_URL"),
+      connectionString: localDemoSafeConnectionString(),
       ssl:
         process.env.SUPABASE_DB_SSL === "false"
           ? false
