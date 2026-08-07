@@ -8,6 +8,7 @@ import {
   type HomeNavigationEventDetail,
 } from "@/app/components/GlobalHomeButton";
 import { annotationFields } from "@/lib/annotation-fields";
+import { validateAnnotation } from "@/lib/annotation-validation";
 import type { AnnotationDraft, ShotDraft } from "@/lib/types";
 import ShotGroupEditor from "./ShotGroupEditor";
 import TaxonomyFieldEditor from "./TaxonomyFieldEditor";
@@ -99,6 +100,8 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   const editSequence = useRef(0);
   const draftRef = useRef<AnnotationDraft | null>(null);
   const dirtyRef = useRef(false);
+  const saveStateRef = useRef<"idle" | "saving" | "saved" | "error">("idle");
+  const submitPanelRef = useRef<HTMLElement | null>(null);
   const saveInFlight = useRef<Promise<AnnotationDraft | null> | null>(null);
 
   useEffect(() => {
@@ -108,6 +111,10 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
+
+  useEffect(() => {
+    saveStateRef.current = saveState;
+  }, [saveState]);
 
   useEffect(() => {
     let active = true;
@@ -151,8 +158,12 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     setDraft(next);
     setDirty(true);
     dirtyRef.current = true;
-    if (!saveInFlight.current) setSaveState("idle");
-    setNotice("");
+    // A failed save or publish must survive the next keystroke, otherwise the only
+    // trace of the failure disappears before the user can read it.
+    if (saveStateRef.current !== "error") {
+      if (!saveInFlight.current) setSaveState("idle");
+      setNotice("");
+    }
     setMissing([]);
   }, []);
 
@@ -260,11 +271,26 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     return { done: coreDone + fieldsDone, total: 24 };
   }, [draft]);
 
+  // Same rule the submit route enforces, so the worksheet can name what is blocking
+  // publication before the user clicks instead of only after the server rejects it.
+  const publishBlockers = useMemo(
+    () => (draft ? validateAnnotation(draft) : []),
+    [draft],
+  );
+
+  function revealSubmitFeedback() {
+    submitPanelRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }
+
   async function submitAssignment() {
     setMissing([]);
     const current = draftRef.current;
     const saved = dirty || !current?.id ? await saveDraft() : current;
-    if (!saved) return;
+    // saveDraft already recorded why it failed; surface it where the button is.
+    if (!saved) {
+      revealSubmitFeedback();
+      return;
+    }
     setSaveState("saving");
     try {
       const response = await fetch(`/api/videos/${videoId}/annotation/submit`, {
@@ -298,6 +324,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     } catch (reason) {
       setSaveState("error");
       setNotice(reason instanceof Error ? reason.message : "提交失败");
+      revealSubmitFeedback();
     }
   }
 
@@ -330,10 +357,10 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
           <span className={`save-indicator ${saveState}`}>
             {saveState === "saving"
               ? "正在自动保存"
-              : dirty
-                ? "等待自动保存"
-                : saveState === "error"
-                  ? "自动保存失败"
+              : saveState === "error"
+                ? "未保存，请重试"
+                : dirty
+                  ? "等待自动保存"
                   : draft.status === "SUBMITTED"
                     ? "公开版已是最新"
                     : hasPublishedVersion
@@ -350,13 +377,22 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
           <button
             className="button button-accent compact"
             onClick={() => void submitAssignment()}
+            title={
+              publishBlockers.length
+                ? `还有 ${publishBlockers.length} 项未完成`
+                : undefined
+            }
             disabled={
-              saveState === "saving" || (draft.status === "SUBMITTED" && !dirty)
+              saveState === "saving" ||
+              publishBlockers.length > 0 ||
+              (draft.status === "SUBMITTED" && !dirty)
             }
           >
-            {hasPublishedVersion
-              ? `发布公开版本 V${publishedVersionCount + 1}`
-              : "发布作业"}
+            {publishBlockers.length
+              ? `还有 ${publishBlockers.length} 项未完成`
+              : hasPublishedVersion
+                ? `发布公开版本 V${publishedVersionCount + 1}`
+                : "发布作业"}
           </button>
         </div>
       </header>
@@ -556,7 +592,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
             </section>
           ))}
 
-          <section className="submit-panel">
+          <section className="submit-panel" ref={submitPanelRef}>
             <div>
               <p className="eyebrow">READY TO SHARE?</p>
               <h2>把这份作业交给团队</h2>
@@ -564,6 +600,22 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
                 每一处修改都会自动存入个人草稿；发布时生成不可覆盖的修订快照，
                 不会改写之前的公开版本。
               </p>
+              {publishBlockers.length ? (
+                <div className="submit-blockers">
+                  <strong>
+                    还有 {publishBlockers.length} 项未完成，暂时不能发布：
+                  </strong>
+                  <p>{publishBlockers.join("、")}</p>
+                </div>
+              ) : null}
+              {notice ? (
+                <div
+                  className={`submit-feedback ${saveState === "error" ? "error" : ""}`}
+                  role="status"
+                >
+                  {notice}
+                </div>
+              ) : null}
             </div>
             <div>
               <span>
@@ -572,14 +624,22 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
               <button
                 className="button button-accent"
                 onClick={() => void submitAssignment()}
+                title={
+                  publishBlockers.length
+                    ? `还有 ${publishBlockers.length} 项未完成`
+                    : undefined
+                }
                 disabled={
                   saveState === "saving" ||
+                  publishBlockers.length > 0 ||
                   (draft.status === "SUBMITTED" && !dirty)
                 }
               >
-                {hasPublishedVersion
-                  ? `发布公开版本 V${publishedVersionCount + 1}`
-                  : "发布并公开"}
+                {publishBlockers.length
+                  ? `还有 ${publishBlockers.length} 项未完成`
+                  : hasPublishedVersion
+                    ? `发布公开版本 V${publishedVersionCount + 1}`
+                    : "发布并公开"}
               </button>
             </div>
           </section>

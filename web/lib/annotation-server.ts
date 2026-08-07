@@ -164,19 +164,4 @@ export async function loadAnnotation(
   } satisfies AnnotationDraft;
 }
 
-export function validateAnnotation(payload: AnnotationDraft) {
-  const missing: string[] = [];
-  if (!payload.analysisTitle.trim()) missing.push("分析标题");
-  if (!payload.commercialIntent.trim()) missing.push("商业意图");
-  if (!payload.creativeTheme.trim()) missing.push("创意母题");
-  if (!payload.synopsis.trim()) missing.push("故事梗概");
-  if (!payload.thinkingChain.trim()) missing.push("创意思维链");
-  if (!payload.shots.some((shot) => shot.visualContent.trim())) {
-    missing.push("至少一个有画面内容的镜头");
-  }
-  for (const field of annotationFields) {
-    const answer = payload.fields.find((item) => item.code === field.code);
-    if (!answer?.answer.trim()) missing.push(`${field.code} ${field.name}`);
-  }
-  return missing;
-}
+export { validateAnnotation } from "./annotation-validation";
