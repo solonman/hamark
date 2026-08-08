@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ShotDraft } from "@/lib/types";
 import {
@@ -21,24 +21,35 @@ function DeferredGroupNameInput({
   value: committedValue,
   onCommit,
   ariaLabel,
+  placeholder,
 }: {
   value: string;
   onCommit: (value: string) => void;
   ariaLabel: string;
+  placeholder: string;
 }) {
   const [value, setValue] = useState(committedValue);
+  // Committing through a ref keeps the debounce timer from restarting on every
+  // parent re-render, which used to postpone the commit far beyond 600ms.
+  const commitRef = useRef(onCommit);
+  useEffect(() => {
+    commitRef.current = onCommit;
+  }, [onCommit]);
 
   useEffect(() => {
     if (value === committedValue) return;
-    const timer = window.setTimeout(() => onCommit(value), 600);
+    const timer = window.setTimeout(() => commitRef.current(value), 600);
     return () => window.clearTimeout(timer);
-  }, [committedValue, onCommit, value]);
+  }, [committedValue, value]);
 
   return (
     <input
       value={value}
       onChange={(event) => setValue(event.target.value)}
-      onBlur={() => onCommit(value)}
+      onBlur={() => {
+        if (value !== committedValue) onCommit(value);
+      }}
+      placeholder={placeholder}
       aria-label={ariaLabel}
     />
   );
@@ -83,7 +94,9 @@ function buildGroups(shots: ShotDraft[]): ShotGroup[] {
       return;
     }
     groups.push({
-      key: `${index}-${rawName || "untitled"}`,
+      // The leading shot's id keeps the group's identity stable across renames
+      // and index shifts, so the name input is not remounted mid-edit.
+      key: shot.id,
       rawName,
       name: rawName || `镜头组 ${groups.length + 1}`,
       indexes: [index],
@@ -130,13 +143,20 @@ export default function ShotGroupEditor({
   function addShotToGroup(group: ShotGroup) {
     const insertionIndex = group.indexes.at(-1)! + 1;
     const next = [...shots];
-    next.splice(insertionIndex, 0, createShot(insertionIndex, group.name));
+    // Grouping is derived from consecutive equal names, so the new shot must
+    // carry the group's stored name — the display fallback would split it off
+    // into a phantom neighboring group whenever the stored name is empty.
+    next.splice(insertionIndex, 0, createShot(insertionIndex, group.rawName));
     onChange(normalizeShots(next));
   }
 
   function addGroup() {
-    const groupName = `镜头组 ${groups.length + 1}`;
-    onChange(normalizeShots([...shots, createShot(shots.length, groupName)]));
+    const usedNames = new Set(groups.map((group) => group.rawName));
+    let number = groups.length + 1;
+    while (usedNames.has(`镜头组 ${number}`)) number += 1;
+    onChange(
+      normalizeShots([...shots, createShot(shots.length, `镜头组 ${number}`)]),
+    );
   }
 
   function duplicateShot(index: number) {
@@ -191,9 +211,10 @@ export default function ShotGroupEditor({
               <label className="shot-group-name">
                 <span>这一组镜头在叙事中承担什么段落？</span>
                 <DeferredGroupNameInput
-                  value={group.name}
+                  value={group.rawName}
                   onCommit={(name) => renameGroup(group, name)}
                   ariaLabel={`镜头组 ${groupIndex + 1} 名称`}
+                  placeholder={group.name}
                 />
               </label>
               <div className="shot-group-actions">

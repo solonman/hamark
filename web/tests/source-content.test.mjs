@@ -332,8 +332,11 @@ test("shot group names stay local while typing before updating the full table", 
   );
 
   assert.match(editor, /function DeferredGroupNameInput/);
-  assert.match(editor, /window\.setTimeout\(\(\) => onCommit\(value\), 600\)/);
-  assert.match(editor, /onBlur=\{\(\) => onCommit\(value\)\}/);
+  assert.match(editor, /window\.setTimeout\(\(\) => commitRef\.current\(value\), 600\)/);
+  assert.match(editor, /if \(value !== committedValue\) onCommit\(value\);/);
+  // 新镜头必须带真实存储组名，兜底显示名会把它裂进相邻的幽灵组。
+  assert.match(editor, /createShot\(insertionIndex, group\.rawName\)/);
+  assert.match(editor, /placeholder=\{group\.name\}/);
 });
 
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
