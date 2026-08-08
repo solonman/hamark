@@ -7,6 +7,7 @@ import {
   validateCommentBody,
 } from "@/lib/analysis-comments";
 import { isAppAdmin } from "@/lib/admin";
+import { analysisTargetValue } from "@/lib/analysis-targets";
 import {
   newId,
   requireApiUser,
@@ -22,6 +23,7 @@ type SnapshotRow = {
   id: string;
   video_id: string;
   author_email: string;
+  payload_json: string;
 };
 
 type CommentRow = {
@@ -33,6 +35,8 @@ type CommentRow = {
   target_key: string;
   target_label: string;
   selected_text: string;
+  anchor_start: number;
+  anchor_end: number;
   body: string;
   kind: AnalysisCommentKind;
   status: "OPEN" | "RESOLVED";
@@ -45,7 +49,7 @@ type CommentRow = {
 async function loadSnapshot(snapshotId: string) {
   return getDbClient()
     .prepare(
-      `SELECT s.id, s.video_id, s.author_email
+      `SELECT s.id, s.video_id, s.author_email, s.payload_json
       FROM annotation_snapshots s
       INNER JOIN videos v ON v.id = s.video_id
       WHERE s.id = ? AND v.deleted_at IS NULL`,
@@ -70,7 +74,8 @@ export async function GET(
     getDbClient()
       .prepare(
         `SELECT id, submission_id, parent_id, author_email, author_name,
-          target_key, target_label, selected_text, body, kind, status,
+          target_key, target_label, selected_text, anchor_start, anchor_end,
+          body, kind, status,
           is_excellent, marked_by_name, created_at, updated_at
         FROM analysis_comments
         WHERE submission_id = ? AND deleted_at IS NULL
@@ -103,6 +108,8 @@ export async function GET(
       targetKey: row.target_key,
       targetLabel: row.target_label,
       selectedText: row.selected_text,
+      anchorStart: Number(row.anchor_start),
+      anchorEnd: Number(row.anchor_end),
       body: row.body,
       authorName: row.author_name,
       kind: row.kind,
@@ -140,6 +147,8 @@ export async function POST(
     targetKey?: unknown;
     targetLabel?: unknown;
     selectedText?: unknown;
+    anchorStart?: unknown;
+    anchorEnd?: unknown;
     body?: unknown;
     kind?: unknown;
   };
@@ -157,11 +166,17 @@ export async function POST(
     payload.selectedText,
     COMMENT_QUOTE_MAX_LENGTH,
   );
+  let anchorStart = Number.isInteger(payload.anchorStart)
+    ? Number(payload.anchorStart)
+    : -1;
+  let anchorEnd = Number.isInteger(payload.anchorEnd)
+    ? Number(payload.anchorEnd)
+    : -1;
 
   if (parentId) {
     const parent = await db
       .prepare(
-        `SELECT id, target_key, target_label, selected_text
+        `SELECT id, target_key, target_label, selected_text, anchor_start, anchor_end
         FROM analysis_comments
         WHERE id = ? AND submission_id = ? AND parent_id IS NULL
           AND deleted_at IS NULL`,
@@ -172,6 +187,8 @@ export async function POST(
         target_key: string;
         target_label: string;
         selected_text: string;
+        anchor_start: number;
+        anchor_end: number;
       }>();
     if (!parent) {
       return Response.json({ error: "原批注不存在。" }, { status: 404 });
@@ -179,8 +196,29 @@ export async function POST(
     targetKey = parent.target_key;
     targetLabel = parent.target_label;
     selectedText = parent.selected_text;
+    anchorStart = Number(parent.anchor_start);
+    anchorEnd = Number(parent.anchor_end);
   } else if (!targetKey) {
     return Response.json({ error: "请选择需要批注的内容。" }, { status: 400 });
+  } else if (selectedText) {
+    const targetValue = analysisTargetValue(
+      JSON.parse(snapshot.payload_json),
+      targetKey,
+    );
+    if (
+      targetValue == null ||
+      anchorStart < 0 ||
+      anchorEnd < anchorStart ||
+      targetValue.slice(anchorStart, anchorEnd) !== selectedText
+    ) {
+      return Response.json(
+        { error: "所选文字已变化，请重新选中后批注。" },
+        { status: 409 },
+      );
+    }
+  } else {
+    anchorStart = -1;
+    anchorEnd = -1;
   }
 
   const admin = await isAppAdmin(user);
@@ -194,8 +232,9 @@ export async function POST(
     .prepare(
       `INSERT INTO analysis_comments (
         id, submission_id, video_id, parent_id, author_email, author_name,
-        target_key, target_label, selected_text, body, kind
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        target_key, target_label, selected_text, anchor_start, anchor_end,
+        body, kind
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       commentId,
@@ -207,6 +246,8 @@ export async function POST(
       targetKey,
       targetLabel,
       selectedText,
+      anchorStart,
+      anchorEnd,
       body,
       requestedKind,
     )

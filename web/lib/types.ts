@@ -100,6 +100,8 @@ export type AnalysisComment = {
   targetKey: string;
   targetLabel: string;
   selectedText: string;
+  anchorStart: number;
+  anchorEnd: number;
   body: string;
   authorName: string;
   kind: AnalysisCommentKind;
@@ -110,6 +112,30 @@ export type AnalysisComment = {
   updatedAt: string;
   canResolve: boolean;
   replies: AnalysisCommentReply[];
+};
+
+export type AnalysisRevisionSuggestionStatus =
+  | "PENDING"
+  | "ACCEPTED"
+  | "REJECTED";
+
+export type AnalysisRevisionSuggestion = {
+  id: string;
+  submissionId: string;
+  targetKey: string;
+  targetLabel: string;
+  selectedText: string;
+  anchorStart: number;
+  anchorEnd: number;
+  replacementText: string;
+  reason: string;
+  authorName: string;
+  status: AnalysisRevisionSuggestionStatus;
+  decidedByName: string | null;
+  appliedRevision: number | null;
+  createdAt: string;
+  updatedAt: string;
+  canDecide: boolean;
 };
 
 export type MyAnalysisStatus = {

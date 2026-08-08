@@ -1,8 +1,11 @@
 "use client";
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -12,15 +15,54 @@ import { formatLongDate } from "@/lib/date-format";
 import type {
   AnalysisComment,
   AnalysisCommentKind,
+  AnalysisRevisionSuggestion,
 } from "@/lib/types";
 
-type ComposerState = {
+type TextAnchor = {
   targetKey: string;
   targetLabel: string;
+  targetValue: string;
   selectedText: string;
+  anchorStart: number;
+  anchorEnd: number;
   x: number;
   y: number;
+  placement: "above" | "below";
 };
+
+type ComposerState = TextAnchor & {
+  mode: "COMMENT" | "REVISION";
+  parentId?: string;
+};
+
+type AnnotationRecord =
+  | { type: "comment"; id: string; comment: AnalysisComment }
+  | {
+      type: "suggestion";
+      id: string;
+      suggestion: AnalysisRevisionSuggestion;
+    };
+
+type HoverCardState = {
+  records: AnnotationRecord[];
+  x: number;
+  y: number;
+  placement: "above" | "below";
+};
+
+type InlineAnnotationContextValue = {
+  recordsFor: (targetKey: string) => AnnotationRecord[];
+  openCellComposer: (
+    mode: "COMMENT" | "REVISION",
+    input: Omit<TextAnchor, "selectedText" | "anchorStart" | "anchorEnd">,
+  ) => void;
+  openSelection: (anchor: TextAnchor) => void;
+  showHoverCard: (records: AnnotationRecord[], rect: DOMRect) => void;
+  scheduleHoverCardClose: () => void;
+};
+
+const InlineAnnotationContext =
+  createContext<InlineAnnotationContextValue | null>(null);
 
 function redirectOnUnauthorized(response: Response) {
   if (response.status === 401) {
@@ -32,10 +74,227 @@ function redirectOnUnauthorized(response: Response) {
   return false;
 }
 
-function targetElementFromNode(node: Node | null) {
-  const element =
-    node instanceof Element ? node : node?.parentElement ?? null;
-  return element?.closest<HTMLElement>("[data-annotation-target]") ?? null;
+function floatingPosition(rect: DOMRect) {
+  const width = Math.min(420, window.innerWidth - 24);
+  const placement: "above" | "below" =
+    rect.bottom + 280 > window.innerHeight && rect.top > 280
+      ? "above"
+      : "below";
+  return {
+    x: Math.min(window.innerWidth - width / 2 - 12, Math.max(width / 2 + 12, rect.left + rect.width / 2)),
+    y: placement === "above" ? Math.max(12, rect.top - 10) : rect.bottom + 10,
+    placement,
+  };
+}
+
+function selectionAnchor(
+  targetKey: string,
+  targetLabel: string,
+  targetValue: string,
+  copy: HTMLElement,
+  selection: Selection,
+): TextAnchor | null {
+  if (!selection.rangeCount || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  if (!copy.contains(range.startContainer) || !copy.contains(range.endContainer)) {
+    return null;
+  }
+  const rawText = range.toString();
+  const leadingWhitespace = rawText.length - rawText.trimStart().length;
+  const selectedText = rawText.trim().slice(0, 600);
+  if (!selectedText) return null;
+  const before = range.cloneRange();
+  before.selectNodeContents(copy);
+  before.setEnd(range.startContainer, range.startOffset);
+  const anchorStart = before.toString().length + leadingWhitespace;
+  const anchorEnd = anchorStart + selectedText.length;
+  if (targetValue.slice(anchorStart, anchorEnd) !== selectedText) return null;
+  const position = floatingPosition(range.getBoundingClientRect());
+  return {
+    targetKey,
+    targetLabel,
+    targetValue,
+    selectedText,
+    anchorStart,
+    anchorEnd,
+    ...position,
+  };
+}
+
+function recordRange(record: AnnotationRecord, value: string) {
+  const item = record.type === "comment" ? record.comment : record.suggestion;
+  if (
+    !item.selectedText ||
+    item.anchorStart < 0 ||
+    item.anchorEnd <= item.anchorStart ||
+    value.slice(item.anchorStart, item.anchorEnd) !== item.selectedText
+  ) {
+    return null;
+  }
+  return { start: item.anchorStart, end: item.anchorEnd };
+}
+
+function decoratedSegments(value: string, records: AnnotationRecord[]) {
+  const ranges = records.flatMap((record) => {
+    const range = recordRange(record, value);
+    return range ? [{ record, ...range }] : [];
+  });
+  if (!ranges.length || !value) {
+    return [{ start: 0, end: value.length, records: [] as AnnotationRecord[] }];
+  }
+  const boundaries = Array.from(
+    new Set([0, value.length, ...ranges.flatMap((range) => [range.start, range.end])]),
+  ).sort((a, b) => a - b);
+  const segments = boundaries.slice(0, -1).map((start, index) => {
+    const end = boundaries[index + 1];
+    return {
+      start,
+      end,
+      records: ranges
+        .filter((range) => range.start <= start && range.end >= end)
+        .map((range) => range.record),
+    };
+  });
+  return segments.filter((segment) => segment.end > segment.start);
+}
+
+function recordIds(records: AnnotationRecord[]) {
+  return records.map((record) => record.id).sort().join(":");
+}
+
+export function InlineAnnotationText({
+  targetKey,
+  targetLabel,
+  value,
+  emptyText = "—",
+  className = "",
+}: {
+  targetKey: string;
+  targetLabel: string;
+  value: string;
+  emptyText?: string;
+  className?: string;
+}) {
+  const context = useContext(InlineAnnotationContext);
+  const copyRef = useRef<HTMLSpanElement | null>(null);
+  if (!context) {
+    return <span className={className}>{value || emptyText}</span>;
+  }
+
+  const records = context.recordsFor(targetKey);
+  const segments = decoratedSegments(value, records);
+  const rangedIds = new Set(
+    segments.flatMap((segment) => segment.records.map((record) => record.id)),
+  );
+  const cellRecords = records.filter((record) => !rangedIds.has(record.id));
+
+  function handleMouseUp() {
+    const selection = window.getSelection();
+    const copy = copyRef.current;
+    if (!selection || !copy) return;
+    const anchor = selectionAnchor(
+      targetKey,
+      targetLabel,
+      value,
+      copy,
+      selection,
+    );
+    if (anchor) context?.openSelection(anchor);
+  }
+
+  function openCell(mode: "COMMENT" | "REVISION", event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget.closest<HTMLElement>(
+      "[data-inline-annotation-target]",
+    );
+    const rect = target?.getBoundingClientRect() ??
+      event.currentTarget.getBoundingClientRect();
+    const position = floatingPosition(rect);
+    context?.openCellComposer(mode, {
+      targetKey,
+      targetLabel,
+      targetValue: value,
+      ...position,
+    });
+  }
+
+  return (
+    <span
+      className={`inline-annotation-target ${records.length ? "has-inline-annotations" : ""} ${className}`.trim()}
+      data-inline-annotation-target={targetKey}
+    >
+      <span
+        ref={copyRef}
+        className="inline-annotation-copy"
+        onMouseUp={handleMouseUp}
+      >
+        {value
+          ? segments.map((segment) => {
+              const text = value.slice(segment.start, segment.end);
+              if (!segment.records.length) return text;
+              const hasSuggestion = segment.records.some(
+                (record) => record.type === "suggestion",
+              );
+              return (
+                <mark
+                  className={`inline-text-mark ${hasSuggestion ? "is-revision" : "is-comment"}`}
+                  key={`${segment.start}-${segment.end}-${recordIds(segment.records)}`}
+                  tabIndex={0}
+                  onMouseEnter={(event) =>
+                    context.showHoverCard(
+                      segment.records,
+                      event.currentTarget.getBoundingClientRect(),
+                    )
+                  }
+                  onFocus={(event) =>
+                    context.showHoverCard(
+                      segment.records,
+                      event.currentTarget.getBoundingClientRect(),
+                    )
+                  }
+                  onBlur={context.scheduleHoverCardClose}
+                  onMouseLeave={context.scheduleHoverCardClose}
+                >
+                  {text}
+                </mark>
+              );
+            })
+          : emptyText}
+      </span>
+      <span className="inline-annotation-entry-actions" aria-label={`${targetLabel}操作`}>
+        <button type="button" onClick={(event) => openCell("COMMENT", event)}>
+          批注
+        </button>
+        <button type="button" onClick={(event) => openCell("REVISION", event)}>
+          修订
+        </button>
+        {cellRecords.length ? (
+          <button
+            type="button"
+            className="inline-annotation-count"
+            aria-label={`${cellRecords.length} 条整项批注或修订`}
+            onMouseEnter={(event) =>
+              context.showHoverCard(
+                cellRecords,
+                event.currentTarget.getBoundingClientRect(),
+              )
+            }
+            onFocus={(event) =>
+              context.showHoverCard(
+                cellRecords,
+                event.currentTarget.getBoundingClientRect(),
+              )
+            }
+            onBlur={context.scheduleHoverCardClose}
+            onMouseLeave={context.scheduleHoverCardClose}
+          >
+            {cellRecords.length}
+          </button>
+        ) : null}
+      </span>
+    </span>
+  );
 }
 
 export default function AnalysisComments({
@@ -46,96 +305,118 @@ export default function AnalysisComments({
   children: ReactNode;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const hoverCloseTimer = useRef<number | null>(null);
   const [comments, setComments] = useState<AnalysisComment[]>([]);
+  const [suggestions, setSuggestions] = useState<AnalysisRevisionSuggestion[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [annotationMode, setAnnotationMode] = useState(false);
+  const [canDecide, setCanDecide] = useState(false);
+  const [selection, setSelection] = useState<TextAnchor | null>(null);
   const [composer, setComposer] = useState<ComposerState | null>(null);
+  const [hoverCard, setHoverCard] = useState<HoverCardState | null>(null);
   const [commentBody, setCommentBody] = useState("");
   const [commentKind, setCommentKind] =
     useState<AnalysisCommentKind>("COMMENT");
+  const [replacementText, setReplacementText] = useState("");
+  const [revisionReason, setRevisionReason] = useState("");
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
-  const loadComments = useCallback(async () => {
+  const loadAnnotations = useCallback(async () => {
     try {
-      const response = await fetch(`/api/analyses/${snapshotId}/comments`, {
-        cache: "no-store",
-      });
-      if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as {
+      const [commentResponse, suggestionResponse] = await Promise.all([
+        fetch(`/api/analyses/${snapshotId}/comments`, { cache: "no-store" }),
+        fetch(`/api/analyses/${snapshotId}/suggestions`, { cache: "no-store" }),
+      ]);
+      if (
+        redirectOnUnauthorized(commentResponse) ||
+        redirectOnUnauthorized(suggestionResponse)
+      ) {
+        return;
+      }
+      const commentData = (await commentResponse.json()) as {
         comments?: AnalysisComment[];
         isAdmin?: boolean;
         error?: string;
       };
-      if (!response.ok) throw new Error(data.error || "批注读取失败");
-      setComments(data.comments ?? []);
-      setIsAdmin(Boolean(data.isAdmin));
-      setNotice("");
+      const suggestionData = (await suggestionResponse.json()) as {
+        suggestions?: AnalysisRevisionSuggestion[];
+        canDecide?: boolean;
+        error?: string;
+      };
+      if (!commentResponse.ok) {
+        throw new Error(commentData.error || "批注读取失败");
+      }
+      if (!suggestionResponse.ok) {
+        throw new Error(suggestionData.error || "修订建议读取失败");
+      }
+      setComments(commentData.comments ?? []);
+      setSuggestions(suggestionData.suggestions ?? []);
+      setIsAdmin(Boolean(commentData.isAdmin));
+      setCanDecide(Boolean(suggestionData.canDecide));
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "批注读取失败");
     }
   }, [snapshotId]);
 
   useEffect(() => {
-    let active = true;
-    fetch(`/api/analyses/${snapshotId}/comments`, { cache: "no-store" })
-      .then(async (response) => {
-        if (redirectOnUnauthorized(response)) return;
-        const data = (await response.json()) as {
-          comments?: AnalysisComment[];
-          isAdmin?: boolean;
-          error?: string;
-        };
-        if (!response.ok) throw new Error(data.error || "批注读取失败");
-        if (active) {
-          setComments(data.comments ?? []);
-          setIsAdmin(Boolean(data.isAdmin));
-          setNotice("");
-        }
-      })
-      .catch((reason) => {
-        if (active) {
-          setNotice(reason instanceof Error ? reason.message : "批注读取失败");
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [snapshotId]);
+    const timeoutId = window.setTimeout(() => void loadAnnotations(), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [loadAnnotations]);
 
-  function openComposer(target: HTMLElement, selectedText = "", rect?: DOMRect) {
-    const box = rect ?? target.getBoundingClientRect();
-    setComposer({
-      targetKey: target.dataset.annotationTarget ?? "",
-      targetLabel: target.dataset.annotationLabel ?? "所选内容",
-      selectedText: selectedText.trim().slice(0, 600),
-      x: Math.min(window.innerWidth - 24, Math.max(24, box.left + box.width / 2)),
-      y: Math.min(window.innerHeight - 24, Math.max(24, box.bottom + 8)),
-    });
+  const recordsByTarget = useMemo(() => {
+    const result = new Map<string, AnnotationRecord[]>();
+    for (const comment of comments) {
+      const current = result.get(comment.targetKey) ?? [];
+      current.push({ type: "comment", id: comment.id, comment });
+      result.set(comment.targetKey, current);
+    }
+    for (const suggestion of suggestions) {
+      const current = result.get(suggestion.targetKey) ?? [];
+      current.push({
+        type: "suggestion",
+        id: suggestion.id,
+        suggestion,
+      });
+      result.set(suggestion.targetKey, current);
+    }
+    return result;
+  }, [comments, suggestions]);
+
+  function openComposer(mode: "COMMENT" | "REVISION", anchor: TextAnchor) {
+    setSelection(null);
+    setComposer({ ...anchor, mode });
     setCommentBody("");
     setCommentKind("COMMENT");
-    setDrawerOpen(true);
+    setReplacementText(
+      mode === "REVISION" ? anchor.selectedText || anchor.targetValue : "",
+    );
+    setRevisionReason("");
   }
 
-  function handleContentMouseUp() {
-    if (!annotationMode) return;
-    const selection = window.getSelection();
-    const text = selection?.toString().trim() ?? "";
-    if (!selection || !text || selection.rangeCount === 0) return;
-    const target = targetElementFromNode(selection.anchorNode);
-    if (!target || !contentRef.current?.contains(target)) return;
-    openComposer(target, text, selection.getRangeAt(0).getBoundingClientRect());
-  }
-
-  function handleContentClick(event: MouseEvent<HTMLDivElement>) {
-    if (!annotationMode || window.getSelection()?.toString().trim()) return;
-    const clicked = event.target as HTMLElement;
-    if (clicked.closest("button, a, input, textarea, select, summary")) return;
-    const target = clicked.closest<HTMLElement>("[data-annotation-target]");
-    if (target) openComposer(target);
-  }
+  const contextValue: InlineAnnotationContextValue = {
+    recordsFor: (targetKey) => recordsByTarget.get(targetKey) ?? [],
+    openCellComposer: (mode, input) =>
+      openComposer(mode, {
+        ...input,
+        selectedText: mode === "REVISION" ? input.targetValue : "",
+        anchorStart: mode === "REVISION" ? 0 : -1,
+        anchorEnd: mode === "REVISION" ? input.targetValue.length : -1,
+      }),
+    openSelection: (anchor) => {
+      setComposer(null);
+      setSelection(anchor);
+    },
+    showHoverCard: (records, rect) => {
+      if (hoverCloseTimer.current) window.clearTimeout(hoverCloseTimer.current);
+      const position = floatingPosition(rect);
+      setHoverCard({ records, ...position });
+    },
+    scheduleHoverCardClose: () => {
+      if (hoverCloseTimer.current) window.clearTimeout(hoverCloseTimer.current);
+      hoverCloseTimer.current = window.setTimeout(() => setHoverCard(null), 220);
+    },
+  };
 
   async function createComment(parentId?: string) {
     const body = parentId ? replyDrafts[parentId] ?? "" : commentBody;
@@ -152,11 +433,13 @@ export default function AnalysisComments({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           parentId
-            ? { parentId, body, kind: isAdmin ? commentKind : "COMMENT" }
+            ? { parentId, body, kind: "COMMENT" }
             : {
                 targetKey: composer?.targetKey,
                 targetLabel: composer?.targetLabel,
                 selectedText: composer?.selectedText,
+                anchorStart: composer?.anchorStart,
+                anchorEnd: composer?.anchorEnd,
                 body,
                 kind: commentKind,
               },
@@ -172,9 +455,56 @@ export default function AnalysisComments({
         setCommentBody("");
         window.getSelection()?.removeAllRanges();
       }
-      await loadComments();
+      await loadAnnotations();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "批注保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createSuggestion() {
+    if (!composer || composer.mode !== "REVISION") return;
+    if (!revisionReason.trim()) {
+      setNotice("请填写修订理由。");
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch(`/api/analyses/${snapshotId}/suggestions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetKey: composer.targetKey,
+          targetLabel: composer.targetLabel,
+          selectedText: composer.selectedText,
+          anchorStart: composer.anchorStart,
+          anchorEnd: composer.anchorEnd,
+          replacementText,
+          reason: revisionReason,
+        }),
+      });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as {
+        suggestionId?: string;
+        canDecide?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !data.suggestionId) {
+        throw new Error(data.error || "修订建议保存失败");
+      }
+      if (data.canDecide) {
+        await decideSuggestion(data.suggestionId, "ACCEPTED", false);
+        setNotice("修订已写入个人草稿，发布作业后将生成新的公开版本。");
+      } else {
+        setNotice("修订建议已送达作业作者。");
+      }
+      setComposer(null);
+      window.getSelection()?.removeAllRanges();
+      await loadAnnotations();
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "修订建议保存失败");
     } finally {
       setBusy(false);
     }
@@ -198,7 +528,7 @@ export default function AnalysisComments({
       if (redirectOnUnauthorized(response)) return;
       const data = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(data.error || "批注更新失败");
-      await loadComments();
+      await loadAnnotations();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "批注更新失败");
     } finally {
@@ -206,12 +536,49 @@ export default function AnalysisComments({
     }
   }
 
+  async function decideSuggestion(
+    suggestionId: string,
+    status: "ACCEPTED" | "REJECTED",
+    manageBusy = true,
+  ) {
+    if (manageBusy) {
+      setBusy(true);
+      setNotice("");
+    }
+    try {
+      const response = await fetch(
+        `/api/analyses/${snapshotId}/suggestions/${suggestionId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        },
+      );
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "修订建议处理失败");
+      if (manageBusy) {
+        setNotice(
+          status === "ACCEPTED"
+            ? "修订已写入个人草稿，待作者发布新版本。"
+            : "已保留原文并驳回该修订建议。",
+        );
+        setHoverCard(null);
+        await loadAnnotations();
+      }
+    } catch (reason) {
+      if (!manageBusy) throw reason;
+      setNotice(
+        reason instanceof Error ? reason.message : "修订建议处理失败",
+      );
+    } finally {
+      if (manageBusy) setBusy(false);
+    }
+  }
+
   function focusTarget(targetKey: string) {
-    const targets = contentRef.current?.querySelectorAll<HTMLElement>(
-      "[data-annotation-target]",
-    );
-    const target = [...(targets ?? [])].find(
-      (candidate) => candidate.dataset.annotationTarget === targetKey,
+    const target = contentRef.current?.querySelector<HTMLElement>(
+      `[data-inline-annotation-target="${CSS.escape(targetKey)}"]`,
     );
     if (!target) return;
     target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -219,201 +586,261 @@ export default function AnalysisComments({
     window.setTimeout(() => target.classList.remove("is-annotation-highlight"), 1800);
   }
 
-  const openCount = comments.filter((comment) => comment.status === "OPEN").length;
+  const totalRecords = comments.length + suggestions.length;
+  const pendingCount = suggestions.filter(
+    (suggestion) => suggestion.status === "PENDING",
+  ).length;
 
   return (
-    <section
-      className={`analysis-comment-workspace ${drawerOpen ? "is-open" : ""} ${annotationMode ? "is-annotating" : ""}`}
-    >
-      <div className="analysis-comment-toolbar">
-        <div>
-          <strong>修订与批注</strong>
-          <span>选中文字或点击内容块，批注会绑定当前公开版本。</span>
-        </div>
-        <button
-          type="button"
-          className={annotationMode ? "is-active" : ""}
-          onClick={() => {
-            setAnnotationMode((current) => !current);
-            setDrawerOpen(true);
-          }}
-        >
-          {annotationMode ? "退出批注模式" : "开启批注模式"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setDrawerOpen((current) => !current)}
-        >
-          批注 {comments.length}{openCount ? ` · 待处理 ${openCount}` : ""}
-        </button>
-      </div>
-
-      <div className="analysis-comment-layout">
-        <div
-          ref={contentRef}
-          className="analysis-comment-content"
-          onMouseUp={handleContentMouseUp}
-          onClick={handleContentClick}
-        >
+    <InlineAnnotationContext.Provider value={contextValue}>
+      <section className="analysis-comment-workspace inline-mode">
+        {notice ? <p className="analysis-comment-notice">{notice}</p> : null}
+        <div ref={contentRef} className="analysis-comment-content">
           {children}
         </div>
+        {totalRecords ? (
+          <details className="inline-annotation-overview">
+            <summary>
+              全部批注与修订 · {totalRecords}
+              {pendingCount ? ` · 待处理 ${pendingCount}` : ""}
+            </summary>
+            <div>
+              {[...comments, ...suggestions].map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => focusTarget(item.targetKey)}
+                >
+                  <strong>{item.targetLabel}</strong>
+                  <span>
+                    {"body" in item ? item.body : `修订为：${item.replacementText}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </details>
+        ) : null}
 
-        {drawerOpen ? (
-          <aside className="analysis-comment-drawer" aria-label="作业原位批注">
+        {selection ? (
+          <div
+            className={`inline-selection-toolbar is-${selection.placement}`}
+            style={{ left: selection.x, top: selection.y }}
+            role="toolbar"
+            aria-label="所选文字操作"
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <button type="button" onClick={() => openComposer("COMMENT", selection)}>
+              批注
+            </button>
+            <button type="button" onClick={() => openComposer("REVISION", selection)}>
+              修订
+            </button>
+            <button type="button" aria-label="取消" onClick={() => setSelection(null)}>
+              ×
+            </button>
+          </div>
+        ) : null}
+
+        {composer ? (
+          <div
+            className={`analysis-comment-composer inline-composer is-${composer.placement}`}
+            style={{ left: composer.x, top: composer.y }}
+            role="dialog"
+            aria-label={composer.mode === "COMMENT" ? "添加批注" : "添加修订"}
+          >
             <header>
               <div>
-                <span>当前公开版本</span>
-                <strong>{comments.length} 条批注</strong>
+                <span>{composer.targetLabel}</span>
+                {composer.selectedText ? (
+                  <small>“{composer.selectedText}”</small>
+                ) : (
+                  <small>整项内容</small>
+                )}
               </div>
-              <button
-                type="button"
-                aria-label="关闭批注栏"
-                onClick={() => setDrawerOpen(false)}
-              >
+              <button type="button" onClick={() => setComposer(null)} aria-label="关闭">
                 ×
               </button>
             </header>
-            {notice ? <p className="analysis-comment-notice">{notice}</p> : null}
-            {comments.length ? (
-              <div className="analysis-comment-list">
-                {comments.map((comment) => (
-                  <article
-                    key={comment.id}
-                    className={`${comment.status === "RESOLVED" ? "is-resolved" : ""} ${comment.isExcellent ? "is-excellent" : ""}`}
-                  >
-                    <button
-                      type="button"
-                      className="analysis-comment-target"
-                      onClick={() => focusTarget(comment.targetKey)}
+            {composer.mode === "COMMENT" ? (
+              <>
+                {isAdmin ? (
+                  <label className="analysis-comment-kind">
+                    <span>批注类型</span>
+                    <select
+                      value={commentKind}
+                      onChange={(event) =>
+                        setCommentKind(event.target.value as AnalysisCommentKind)
+                      }
                     >
-                      {comment.isExcellent ? "★ 优秀片段 · " : ""}
-                      {comment.targetLabel}
+                      <option value="COMMENT">普通批注</option>
+                      <option value="EXPERT_NOTE">专家精修意见</option>
+                    </select>
+                  </label>
+                ) : null}
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={commentBody}
+                  onChange={(event) => setCommentBody(event.target.value)}
+                  placeholder="写下对这段内容的判断…"
+                />
+                <button
+                  type="button"
+                  className="button button-accent compact"
+                  disabled={busy}
+                  onClick={() => void createComment()}
+                >
+                  保存批注
+                </button>
+              </>
+            ) : (
+              <>
+                <label className="inline-revision-field">
+                  <span>修订为</span>
+                  <textarea
+                    autoFocus
+                    rows={4}
+                    value={replacementText}
+                    onChange={(event) => setReplacementText(event.target.value)}
+                  />
+                </label>
+                <label className="inline-revision-field">
+                  <span>修订理由</span>
+                  <textarea
+                    rows={2}
+                    value={revisionReason}
+                    onChange={(event) => setRevisionReason(event.target.value)}
+                    placeholder="说明为什么这样改…"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="button button-accent compact"
+                  disabled={busy}
+                  onClick={() => void createSuggestion()}
+                >
+                  {canDecide ? "保存并写入修订草稿" : "提交修订建议"}
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {hoverCard ? (
+          <div
+            className={`inline-annotation-popover is-${hoverCard.placement}`}
+            style={{ left: hoverCard.x, top: hoverCard.y }}
+            onMouseEnter={() => {
+              if (hoverCloseTimer.current) {
+                window.clearTimeout(hoverCloseTimer.current);
+              }
+            }}
+            onMouseLeave={contextValue.scheduleHoverCardClose}
+          >
+            {hoverCard.records.map((record) =>
+              record.type === "comment" ? (
+                <article key={record.id}>
+                  <header>
+                    <strong>
+                      {record.comment.kind === "EXPERT_NOTE" ? "专家精修" : "批注"}
+                    </strong>
+                    <span>{record.comment.authorName}</span>
+                  </header>
+                  <p>{record.comment.body}</p>
+                  {record.comment.replies.map((reply) => (
+                    <small key={reply.id}>
+                      {reply.authorName}：{reply.body}
+                    </small>
+                  ))}
+                  <time>{formatLongDate(record.comment.createdAt)}</time>
+                  <label className="inline-popover-reply">
+                    <input
+                      value={replyDrafts[record.id] ?? ""}
+                      onChange={(event) =>
+                        setReplyDrafts((current) => ({
+                          ...current,
+                          [record.id]: event.target.value,
+                        }))
+                      }
+                      placeholder="回复这条批注"
+                    />
+                    <button type="button" onClick={() => void createComment(record.id)}>
+                      回复
                     </button>
-                    {comment.selectedText ? (
-                      <blockquote>“{comment.selectedText}”</blockquote>
-                    ) : null}
-                    <p>{comment.body}</p>
-                    <div className="analysis-comment-meta">
-                      <span>
-                        {comment.kind === "EXPERT_NOTE" ? "专家精修 · " : ""}
-                        {comment.authorName} · {formatLongDate(comment.createdAt)}
-                      </span>
-                    </div>
-                    {comment.replies.map((reply) => (
-                      <div className="analysis-comment-reply" key={reply.id}>
-                        <strong>{reply.authorName}</strong>
-                        <p>{reply.body}</p>
-                      </div>
-                    ))}
-                    <label className="analysis-comment-reply-box">
-                      <span>回复</span>
-                      <textarea
-                        rows={2}
-                        value={replyDrafts[comment.id] ?? ""}
-                        onChange={(event) =>
-                          setReplyDrafts((current) => ({
-                            ...current,
-                            [comment.id]: event.target.value,
-                          }))
-                        }
-                      />
+                  </label>
+                  <div className="inline-popover-actions">
+                    {record.comment.canResolve ? (
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void createComment(comment.id)}
+                        onClick={() =>
+                          void updateComment(record.id, {
+                            status:
+                              record.comment.status === "OPEN" ? "RESOLVED" : "OPEN",
+                          })
+                        }
                       >
-                        发送回复
+                        {record.comment.status === "OPEN" ? "标为已解决" : "重新打开"}
                       </button>
-                    </label>
-                    <div className="analysis-comment-actions">
-                      {comment.canResolve ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void updateComment(comment.id, {
-                              status:
-                                comment.status === "OPEN" ? "RESOLVED" : "OPEN",
-                            })
-                          }
-                        >
-                          {comment.status === "OPEN" ? "标为已解决" : "重新打开"}
-                        </button>
-                      ) : null}
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void updateComment(comment.id, {
-                              isExcellent: !comment.isExcellent,
-                            })
-                          }
-                        >
-                          {comment.isExcellent ? "取消优秀标记" : "标记优秀片段"}
-                        </button>
-                      ) : null}
+                    ) : null}
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void updateComment(record.id, {
+                            isExcellent: !record.comment.isExcellent,
+                          })
+                        }
+                      >
+                        {record.comment.isExcellent ? "取消优秀" : "标记优秀"}
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              ) : (
+                <article className="is-revision" key={record.id}>
+                  <header>
+                    <strong>修订建议</strong>
+                    <span>{record.suggestion.authorName}</span>
+                  </header>
+                  <div className="inline-revision-diff">
+                    <del>{record.suggestion.selectedText || "（空白）"}</del>
+                    <ins>{record.suggestion.replacementText || "（删除）"}</ins>
+                  </div>
+                  <p>{record.suggestion.reason}</p>
+                  <time>
+                    {record.suggestion.status === "PENDING"
+                      ? "待处理"
+                      : record.suggestion.status === "ACCEPTED"
+                        ? `已接受 · 草稿修订 ${record.suggestion.appliedRevision ?? ""}`
+                        : "已驳回"}
+                  </time>
+                  {record.suggestion.canDecide &&
+                  record.suggestion.status === "PENDING" ? (
+                    <div className="inline-popover-actions">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void decideSuggestion(record.id, "ACCEPTED")}
+                      >
+                        接受并写入草稿
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void decideSuggestion(record.id, "REJECTED")}
+                      >
+                        驳回
+                      </button>
                     </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="analysis-comment-empty">
-                <strong>还没有批注</strong>
-                <p>开启批注模式，选中文字或点击一个镜头组／字段即可开始。</p>
-              </div>
+                  ) : null}
+                </article>
+              ),
             )}
-          </aside>
+          </div>
         ) : null}
-      </div>
-
-      {composer ? (
-        <div
-          className="analysis-comment-composer"
-          style={{ left: composer.x, top: composer.y }}
-          role="dialog"
-          aria-label="添加原位批注"
-        >
-          <header>
-            <div>
-              <span>{composer.targetLabel}</span>
-              {composer.selectedText ? <small>“{composer.selectedText}”</small> : null}
-            </div>
-            <button type="button" onClick={() => setComposer(null)} aria-label="关闭">
-              ×
-            </button>
-          </header>
-          {isAdmin ? (
-            <label className="analysis-comment-kind">
-              <span>批注类型</span>
-              <select
-                value={commentKind}
-                onChange={(event) =>
-                  setCommentKind(event.target.value as AnalysisCommentKind)
-                }
-              >
-                <option value="COMMENT">普通批注</option>
-                <option value="EXPERT_NOTE">专家精修意见</option>
-              </select>
-            </label>
-          ) : null}
-          <textarea
-            autoFocus
-            rows={4}
-            value={commentBody}
-            onChange={(event) => setCommentBody(event.target.value)}
-            placeholder="写下判断、修订建议或值得保留的原因…"
-          />
-          <button
-            type="button"
-            className="button button-accent compact"
-            disabled={busy}
-            onClick={() => void createComment()}
-          >
-            保存批注
-          </button>
-        </div>
-      ) : null}
-    </section>
+      </section>
+    </InlineAnnotationContext.Provider>
   );
 }

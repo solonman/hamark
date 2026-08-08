@@ -12,6 +12,7 @@ import {
   InlineReviewScore,
   InlineReviewScoreGroup,
 } from "./ReviewPanel";
+import { InlineAnnotationText } from "./AnalysisComments";
 
 function groupSubmittedShots(shots: ShotDraft[]) {
   const groups: Array<{ name: string; shots: ShotDraft[] }> = [];
@@ -22,13 +23,6 @@ function groupSubmittedShots(shots: ShotDraft[]) {
     else groups.push({ name, shots: [shot] });
   });
   return groups;
-}
-
-function groupCreativeComment(shots: ShotDraft[]) {
-  return shots
-    .map((shot) => shot.creativeComment.trim())
-    .filter(Boolean)
-    .join("\n\n");
 }
 
 const shotScoreCodes = [
@@ -75,13 +69,10 @@ export default function SubmittedAnalysisContent({
         <ShotTableWidthToolbar onReset={columnSizing.resetAll} dark />
         <div className="submitted-shot-groups">
           {shotGroups.map((group, groupIndex) => {
-            const creativeComment = groupCreativeComment(group.shots);
             return (
               <section
                 className="submitted-shot-group"
                 key={`${group.name}-${groupIndex}`}
-                data-annotation-target={`shot-group:${groupIndex}`}
-                data-annotation-label={`镜头组 ${String(groupIndex + 1).padStart(2, "0")} · ${group.name}`}
               >
                 <header>
                   <span>镜头组 {String(groupIndex + 1).padStart(2, "0")}</span>
@@ -105,43 +96,66 @@ export default function SubmittedAnalysisContent({
                             <td
                               className="submitted-group-table-cell"
                               rowSpan={group.shots.length}
-                              data-annotation-target={`shot-group:${groupIndex}:identity`}
-                              data-annotation-label={`镜头组 ${String(groupIndex + 1).padStart(2, "0")} 分段与名称`}
                             >
                               <strong>{String(groupIndex + 1).padStart(2, "0")}</strong>
-                              <small>{group.name}</small>
+                              <small>
+                                <InlineAnnotationText
+                                  targetKey={`shot:${group.shots[0]?.id}:group-name`}
+                                  targetLabel={`镜头组 ${String(groupIndex + 1).padStart(2, "0")} 分段与名称`}
+                                  value={group.shots[0]?.groupName ?? ""}
+                                  emptyText={group.name}
+                                />
+                              </small>
                             </td>
                           ) : null}
-                          <td
-                            data-annotation-target={`shot:${shot.id || shotIndex}:number`}
-                            data-annotation-label={`${group.name} · 镜头序号`}
-                          >
-                            <strong>{shot.shotNumber}</strong>
+                          <td>
+                            <strong>
+                              <InlineAnnotationText
+                                targetKey={`shot:${shot.id || shotIndex}:number`}
+                                targetLabel={`${group.name} · 镜头序号`}
+                                value={shot.shotNumber}
+                              />
+                            </strong>
                           </td>
-                          <td
-                            data-annotation-target={`shot:${shot.id || shotIndex}:time`}
-                            data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 时间段`}
-                          >
-                            {shot.startTime || "—"}
-                            <br />→ {shot.endTime || "—"}
+                          <td className="inline-time-cell">
+                            <InlineAnnotationText
+                              targetKey={`shot:${shot.id || shotIndex}:start-time`}
+                              targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 开始时间`}
+                              value={shot.startTime}
+                            />
+                            <span>→</span>
+                            <InlineAnnotationText
+                              targetKey={`shot:${shot.id || shotIndex}:end-time`}
+                              targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 结束时间`}
+                              value={shot.endTime}
+                            />
                           </td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:shot-size`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 景别`}>{shot.shotSize || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:camera-angle`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 机位／角度`}>{shot.cameraAngle || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:camera-movement`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 镜头运动`}>{shot.cameraMovement || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:visual-content`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 画面内容`}>{shot.visualContent || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:dialogue`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 对白`}>{shot.dialogue || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:voiceover`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 旁白`}>{shot.voiceover || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:screen-text`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 字幕／文案`}>{shot.screenText || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:sound-effect`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 声效`}>{shot.soundEffect || "—"}</td>
-                          <td data-annotation-target={`shot:${shot.id || shotIndex}:music`} data-annotation-label={`${group.name} · 镜头 ${shot.shotNumber} 音乐`}>{shot.music || "—"}</td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:shot-size`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 景别`} value={shot.shotSize} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:camera-angle`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 机位／角度`} value={shot.cameraAngle} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:camera-movement`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 镜头运动`} value={shot.cameraMovement} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:visual-content`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 画面内容`} value={shot.visualContent} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:dialogue`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 对白`} value={shot.dialogue} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:voiceover`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 旁白`} value={shot.voiceover} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:screen-text`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 字幕／文案`} value={shot.screenText} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:sound-effect`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 声效`} value={shot.soundEffect} /></td>
+                          <td><InlineAnnotationText targetKey={`shot:${shot.id || shotIndex}:music`} targetLabel={`${group.name} · 镜头 ${shot.shotNumber} 音乐`} value={shot.music} /></td>
                           {shotIndex === 0 ? (
                             <td
                               className="submitted-group-comment-cell"
                               rowSpan={group.shots.length}
-                              data-annotation-target={`shot-group:${groupIndex}:creative-comment`}
-                              data-annotation-label={`${group.name} · 镜头创意点评`}
                             >
-                              {creativeComment || "—"}
+                              <div className="group-comment-lines">
+                                {group.shots.map((groupShot) => (
+                                  <div key={groupShot.id}>
+                                    <small>镜头 {groupShot.shotNumber}</small>
+                                    <InlineAnnotationText
+                                      targetKey={`shot:${groupShot.id}:creative-comment`}
+                                      targetLabel={`${group.name} · 镜头 ${groupShot.shotNumber} 创意点评`}
+                                      value={groupShot.creativeComment}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
                             </td>
                           ) : null}
                         </tr>
@@ -166,40 +180,40 @@ export default function SubmittedAnalysisContent({
       </details>
 
       <div className="analysis-core-grid" id={`analysis-${analysis.id}-core`}>
-        <div className="inline-scored-content" data-annotation-target="core:commercial-intent" data-annotation-label="商业意图">
+        <div className="inline-scored-content">
           <div className="inline-scored-content-head">
             <span>商业意图</span>
             <InlineReviewScore code="commercial_intent" hideLabel />
           </div>
-          <p>{payload.commercialIntent || "—"}</p>
+          <p><InlineAnnotationText targetKey="core:commercial-intent" targetLabel="商业意图" value={payload.commercialIntent} /></p>
         </div>
-        <div className="inline-scored-content" data-annotation-target="core:creative-theme" data-annotation-label="创意母题">
+        <div className="inline-scored-content">
           <div className="inline-scored-content-head">
             <span>创意母题</span>
             <InlineReviewScore code="creative_theme" hideLabel />
           </div>
-          <p>{payload.creativeTheme || "—"}</p>
+          <p><InlineAnnotationText targetKey="core:creative-theme" targetLabel="创意母题" value={payload.creativeTheme} /></p>
         </div>
-        <div className="wide inline-scored-content" data-annotation-target="core:story-synopsis" data-annotation-label="故事梗概">
+        <div className="wide inline-scored-content">
           <div className="inline-scored-content-head">
             <span>故事梗概</span>
             <InlineReviewScore code="story_synopsis" hideLabel />
           </div>
-          <p>{payload.synopsis || "—"}</p>
+          <p><InlineAnnotationText targetKey="core:story-synopsis" targetLabel="故事梗概" value={payload.synopsis} /></p>
         </div>
-        <div className="wide inline-scored-content" data-annotation-target="core:thinking-chain" data-annotation-label="创意思维链">
+        <div className="wide inline-scored-content">
           <div className="inline-scored-content-head">
             <span>创意思维链</span>
             <InlineReviewScore code="thinking_chain" hideLabel />
           </div>
-          <p>{payload.thinkingChain || "—"}</p>
+          <p><InlineAnnotationText targetKey="core:thinking-chain" targetLabel="创意思维链" value={payload.thinkingChain} /></p>
         </div>
-        <div className="wide inline-scored-content" data-annotation-target="core:full-summary" data-annotation-label="全篇创意总结">
+        <div className="wide inline-scored-content">
           <div className="inline-scored-content-head">
             <span>全篇创意总结</span>
             <InlineReviewScore code="full_summary" hideLabel />
           </div>
-          <p>{payload.summary || payload.shotCommentary || "—"}</p>
+          <p><InlineAnnotationText targetKey={payload.summary ? "core:full-summary" : "core:shot-commentary"} targetLabel="全篇创意总结" value={payload.summary || payload.shotCommentary} /></p>
         </div>
       </div>
 
@@ -213,11 +227,11 @@ export default function SubmittedAnalysisContent({
           {annotationFields.slice(0, 9).map((field) => {
             const answer = payload.fields.find((item) => item.code === field.code);
             return (
-              <div className="inline-scored-content" key={field.code} data-annotation-target={`field:${field.code}`} data-annotation-label={`${field.code} ${field.name}`}>
+              <div className="inline-scored-content" key={field.code}>
                 <span>{field.code}</span>
                 <strong>{field.name}</strong>
-                <p>{answer?.answer || "—"}</p>
-                {answer?.evidence ? <small>依据：{answer.evidence}</small> : null}
+                <p><InlineAnnotationText targetKey={`field:${field.code}:answer`} targetLabel={`${field.code} ${field.name} · 答案`} value={answer?.answer ?? ""} /></p>
+                {answer?.evidence ? <small>依据：<InlineAnnotationText targetKey={`field:${field.code}:evidence`} targetLabel={`${field.code} ${field.name} · 标注依据`} value={answer.evidence} /></small> : null}
                 <InlineReviewScore code={`field_${field.code}`} />
               </div>
             );
@@ -228,11 +242,11 @@ export default function SubmittedAnalysisContent({
           {annotationFields.slice(9).map((field) => {
             const answer = payload.fields.find((item) => item.code === field.code);
             return (
-              <div className="inline-scored-content" key={field.code} data-annotation-target={`field:${field.code}`} data-annotation-label={`${field.code} ${field.name}`}>
+              <div className="inline-scored-content" key={field.code}>
                 <span>{field.code}</span>
                 <strong>{field.name}</strong>
-                <p>{answer?.answer || "—"}</p>
-                {answer?.evidence ? <small>依据：{answer.evidence}</small> : null}
+                <p><InlineAnnotationText targetKey={`field:${field.code}:answer`} targetLabel={`${field.code} ${field.name} · 答案`} value={answer?.answer ?? ""} /></p>
+                {answer?.evidence ? <small>依据：<InlineAnnotationText targetKey={`field:${field.code}:evidence`} targetLabel={`${field.code} ${field.name} · 标注依据`} value={answer.evidence} /></small> : null}
                 <InlineReviewScore code={`field_${field.code}`} />
               </div>
             );

@@ -12,6 +12,7 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
     reviewPanel,
     reviewRubric,
     comments,
+    styles,
     layout,
   ] =
     await Promise.all([
@@ -50,6 +51,7 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
         new URL("../app/videos/[id]/AnalysisComments.tsx", import.meta.url),
         "utf8",
       ),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
       readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     ]);
 
@@ -77,9 +79,17 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(reviewRubric, /镜头组分段与顺序/);
   assert.match(reviewPanel, /参照项/);
   assert.match(reviewPanel, /taxonomy-reference-dock/);
-  assert.match(comments, /开启批注模式/);
+  assert.match(comments, /InlineAnnotationText/);
+  assert.match(comments, /data-inline-annotation-target/);
+  assert.match(comments, /inline-text-mark/);
+  assert.match(comments, /提交修订建议/);
+  assert.match(comments, /接受并写入草稿/);
   assert.match(comments, /专家精修意见/);
-  assert.match(comments, /标记优秀片段/);
+  assert.match(comments, /标记优秀/);
+  assert.doesNotMatch(comments, /开启批注模式/);
+  assert.match(styles, /\.inline-annotation-entry-actions/);
+  assert.match(styles, /\.inline-text-mark/);
+  assert.match(styles, /\.inline-annotation-popover/);
   assert.match(layout, /GlobalHomeButton/);
   assert.doesNotMatch(home, /Your site is taking shape|Starter Project/);
   assert.doesNotMatch(home, /react-loading-skeleton/);

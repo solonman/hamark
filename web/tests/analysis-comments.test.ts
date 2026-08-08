@@ -44,3 +44,23 @@ test("inline comment migration is additive and version-bound", async () => {
   assert.match(migration, /is_excellent INTEGER NOT NULL DEFAULT 0/);
   assert.doesNotMatch(migration, /\bDROP\b|\bDELETE\b|\bTRUNCATE\b/);
 });
+
+test("inline revision migration preserves anchors, decisions, and draft revision audit", async () => {
+  const migration = await readFile(
+    new URL(
+      "../db/migrations/2026-08-08-inline-revision-suggestions.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(migration, /anchor_start INTEGER NOT NULL DEFAULT -1/);
+  assert.match(migration, /anchor_end INTEGER NOT NULL DEFAULT -1/);
+  assert.match(
+    migration,
+    /submission_id TEXT NOT NULL REFERENCES annotation_snapshots\(id\)/,
+  );
+  assert.match(migration, /replacement_text TEXT NOT NULL DEFAULT ''/);
+  assert.match(migration, /applied_revision INTEGER/);
+  assert.match(migration, /PENDING.*ACCEPTED.*REJECTED/s);
+  assert.doesNotMatch(migration, /\bDROP\b|\bDELETE\b|\bTRUNCATE\b/);
+});
