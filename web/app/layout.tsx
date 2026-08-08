@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import GlobalHomeButton from "./components/GlobalHomeButton";
+import UpdateNotifier from "./components/UpdateNotifier";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -50,6 +51,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <GlobalHomeButton />
+        <UpdateNotifier version={process.env.VERCEL_GIT_COMMIT_SHA || "dev"} />
         {children}
       </body>
     </html>

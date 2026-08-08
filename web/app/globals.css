@@ -3524,6 +3524,39 @@ body.is-resizing-shot-column * {
   color: var(--orange);
 }
 
+.update-toast {
+  position: fixed;
+  z-index: 96;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  max-width: 340px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(79, 116, 6, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 254, 250, 0.97);
+  box-shadow: 0 14px 40px rgba(17, 18, 15, 0.2);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.update-toast strong {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 13px;
+}
+
+.update-toast span {
+  color: var(--muted);
+}
+
+.update-toast-actions {
+  display: flex;
+  gap: 10px;
+}
+
 .revision-context-banner {
   display: flex;
   align-items: center;

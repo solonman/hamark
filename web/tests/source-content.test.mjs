@@ -339,6 +339,30 @@ test("shot group names stay local while typing before updating the full table", 
   assert.match(editor, /placeholder=\{group\.name\}/);
 });
 
+test("deploy updates surface a refresh prompt that flushes autosave first", async () => {
+  const [route, notifier, layout, styles] = await Promise.all([
+    readFile(new URL("../app/api/version/route.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/components/UpdateNotifier.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /VERCEL_GIT_COMMIT_SHA/);
+  assert.match(route, /"Cache-Control": "no-store"/);
+  assert.match(layout, /<UpdateNotifier version=\{process\.env\.VERCEL_GIT_COMMIT_SHA \|\| "dev"\} \/>/);
+  // 刷新前必须先给自动保存留出落库机会：练习页通过导航保护事件完整保存，
+  // 其他页面等 2.5 秒防抖窗口过去。
+  assert.match(notifier, /HOME_NAVIGATION_EVENT/);
+  assert.match(notifier, /const AUTOSAVE_FLUSH_DELAY_MS = 2500;/);
+  assert.match(notifier, /window\.setTimeout\(reload, AUTOSAVE_FLUSH_DELAY_MS\)/);
+  assert.match(notifier, /data\.version !== version/);
+  assert.match(notifier, /visibilitychange/);
+  assert.match(styles, /\.update-toast \{/);
+});
+
 test("V0.2 taxonomy preserves all appendix fields and preset values", async () => {
   const taxonomy = JSON.parse(
     await readFile(new URL("../lib/taxonomy-v0.2.json", import.meta.url), "utf8"),
