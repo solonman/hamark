@@ -28,6 +28,10 @@ type AnnotationRow = {
   status: "DRAFT" | "SUBMITTED";
   review_status: AnnotationDraft["reviewStatus"];
   active_base_snapshot_id: string | null;
+  base_release_id: string | null;
+  base_snapshot_id: string | null;
+  source_public_snapshot_id: string | null;
+  base_release_number: number | null;
   revision: number;
   analysis_title: string;
   commercial_intent: string;
@@ -258,6 +262,60 @@ async function seedV03FromLatestV02(
   } satisfies AnnotationDraft;
 }
 
+async function seedV03FromActiveStandard(
+  videoId: string,
+  authorName: string,
+) {
+  const release = await getDbClient().prepare(
+    `SELECT id, release_number, approved_snapshot_id, source_snapshot_id, payload_json
+    FROM approved_analysis_releases
+    WHERE video_id = ? AND status = 'ACTIVE'
+    ORDER BY release_number DESC LIMIT 1`,
+  ).bind(videoId).first<{
+    id: string;
+    release_number: number;
+    approved_snapshot_id: string;
+    source_snapshot_id: string;
+    payload_json: string;
+  }>();
+  if (!release) return null;
+  const source = parseJson<AnnotationDraft | null>(release.payload_json, null);
+  if (!source) return null;
+  const groupIdMap = new Map<string, string>();
+  const groups = (source.shotGroups ?? []).map((group, index) => {
+    const id = draftId("group");
+    groupIdMap.set(group.id, id);
+    return { ...group, id, orderIndex: index };
+  });
+  const shots = source.shots.map((shot, index) => ({
+    ...shot,
+    id: draftId("shot"),
+    orderIndex: index,
+    shotGroupId: shot.shotGroupId ? groupIdMap.get(shot.shotGroupId) ?? null : null,
+  }));
+  return {
+    ...structuredClone(source),
+    id: null,
+    authorName,
+    status: "DRAFT" as const,
+    reviewStatus: "DRAFT" as const,
+    activeBaseSnapshotId: null,
+    baseReleaseId: release.id,
+    baseReleaseNumber: Number(release.release_number),
+    baseSnapshotId: release.approved_snapshot_id,
+    sourcePublicSnapshotId: release.source_snapshot_id,
+    revision: 0,
+    shots,
+    shotGroups: groups,
+    creativeStructure: source.creativeStructure ? {
+      ...source.creativeStructure,
+      formationRelatedGroupIds: source.creativeStructure.formationRelatedGroupIds
+        .flatMap((id) => groupIdMap.get(id) ? [groupIdMap.get(id)!] : []),
+    } : emptyCreativeStructure(),
+    updatedAt: null,
+  } satisfies AnnotationDraft;
+}
+
 export async function loadAnnotation(
   videoId: string,
   authorEmail: string,
@@ -269,6 +327,9 @@ export async function loadAnnotation(
     .prepare(
       `SELECT id, video_id, author_name, taxonomy_version, workflow_version,
         source_snapshot_id, status, review_status, active_base_snapshot_id,
+        base_release_id, base_snapshot_id, source_public_snapshot_id,
+        (SELECT release_number FROM approved_analysis_releases release
+          WHERE release.id = annotations.base_release_id) AS base_release_number,
         revision, analysis_title,
         commercial_intent, creative_theme, synopsis, thinking_chain,
         shot_commentary, summary, updated_at
@@ -280,9 +341,11 @@ export async function loadAnnotation(
     .first<AnnotationRow>();
 
   if (!row) {
-    return taxonomyVersion === V03_TAXONOMY_VERSION
-      ? seedV03FromLatestV02(videoId, authorEmail, authorName)
-      : emptyAnnotation(videoId, authorName, taxonomyVersion);
+    if (taxonomyVersion === V03_TAXONOMY_VERSION) {
+      return (await seedV03FromActiveStandard(videoId, authorName)) ??
+        seedV03FromLatestV02(videoId, authorEmail, authorName);
+    }
+    return emptyAnnotation(videoId, authorName, taxonomyVersion);
   }
 
   const [shotResult, groupResult, fieldResult, structureRow] = await Promise.all([
@@ -370,6 +433,10 @@ export async function loadAnnotation(
     status: row.status,
     reviewStatus: row.review_status,
     activeBaseSnapshotId: row.active_base_snapshot_id,
+    baseReleaseId: row.base_release_id,
+    baseSnapshotId: row.base_snapshot_id,
+    sourcePublicSnapshotId: row.source_public_snapshot_id,
+    baseReleaseNumber: row.base_release_number == null ? null : Number(row.base_release_number),
     revision: row.revision,
     analysisTitle: row.analysis_title,
     commercialIntent: row.commercial_intent,

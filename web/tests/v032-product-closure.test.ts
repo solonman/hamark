@@ -25,8 +25,12 @@ test("V0.3.2 state-role matrix never exposes review on approved or historical co
     "APPROVED_READ_ONLY",
   );
   assert.equal(
-    resolveReviewEntry({ taxonomyVersion: "V0.3-PILOT", workflowStatus: "APPROVED", review: review({ isAuthor: true }) }),
+    resolveReviewEntry({ taxonomyVersion: "V0.3-PILOT", workflowStatus: "APPROVED", review: review({ isAuthor: true }), versionIdentity: "ACTIVE_STANDARD" }),
     "AUTHOR_NEW_ROUND",
+  );
+  assert.equal(
+    resolveReviewEntry({ taxonomyVersion: "V0.3-PILOT", workflowStatus: "APPROVED", review: review({ isAuthor: true }), versionIdentity: "HISTORICAL_STANDARD" }),
+    "APPROVED_READ_ONLY",
   );
   assert.equal(
     resolveReviewEntry({ taxonomyVersion: "V0.3-PILOT", workflowStatus: "PENDING_REVIEW", review: review({ canReview: true, isFinalReviewer: true }) }),

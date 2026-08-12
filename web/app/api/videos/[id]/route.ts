@@ -48,6 +48,7 @@ type SnapshotVersionRow = {
   revision: number;
   content_hash: string;
   created_at: string;
+  workflow_status: string;
 };
 
 type MyAnnotationRow = {
@@ -57,6 +58,10 @@ type MyAnnotationRow = {
   updated_at: string;
   taxonomy_version: "V0.2" | "V0.3-PILOT";
   review_status: "DRAFT" | "PENDING_REVIEW" | "CHANGES_REQUESTED" | "PENDING_REREVIEW" | "APPROVED";
+  base_release_id: string | null;
+  base_release_number: number | null;
+  base_snapshot_id: string | null;
+  source_public_snapshot_id: string | null;
 };
 
 export async function GET(
@@ -111,7 +116,7 @@ export async function GET(
         INNER JOIN (
           SELECT author_email, taxonomy_version, MAX(revision) AS latest_revision
           FROM annotation_snapshots
-          WHERE video_id = ?
+          WHERE video_id = ? AND workflow_status = 'SUBMITTED'
           GROUP BY author_email, taxonomy_version
         ) latest
         ON latest.author_email = s.author_email
@@ -119,37 +124,44 @@ export async function GET(
         AND latest.latest_revision = s.revision
         INNER JOIN annotations a ON a.id = s.annotation_id
         LEFT JOIN analysis_review_rounds r ON r.submitted_snapshot_id = s.id
-        WHERE s.video_id = ?
+        WHERE s.video_id = ? AND s.workflow_status = 'SUBMITTED'
         ORDER BY s.created_at DESC`,
       )
       .bind(id, id)
       .all<SnapshotRow>(),
     db
       .prepare(
-        `SELECT id, annotation_id, revision, content_hash, created_at
+        `SELECT id, annotation_id, revision, content_hash, created_at,
+          workflow_status
         FROM annotation_snapshots
-        WHERE video_id = ?
+        WHERE video_id = ? AND workflow_status = 'SUBMITTED'
         ORDER BY annotation_id ASC, created_at ASC, revision ASC`,
       )
       .bind(id)
       .all<SnapshotVersionRow>(),
     db
       .prepare(
-        `SELECT id, status, revision, updated_at, taxonomy_version, review_status
-        FROM annotations
-        WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL
-        ORDER BY CASE WHEN taxonomy_version = 'V0.3-PILOT' THEN 0 ELSE 1 END`,
+        `SELECT a.id, a.status, a.revision, a.updated_at, a.taxonomy_version,
+          a.review_status, a.base_release_id, a.base_snapshot_id,
+          a.source_public_snapshot_id, release.release_number AS base_release_number
+        FROM annotations a
+        LEFT JOIN approved_analysis_releases release ON release.id = a.base_release_id
+        WHERE a.video_id = ? AND a.author_email = ? AND a.deleted_at IS NULL
+        ORDER BY CASE WHEN a.taxonomy_version = 'V0.3-PILOT' THEN 0 ELSE 1 END`,
     )
       .bind(id, user.identityKey)
       .all<MyAnnotationRow>(),
     db
       .prepare(
-        `SELECT id, release_number, approved_snapshot_id, source_snapshot_id,
-          payload_json, content_hash, approved_by_name, approved_at,
-          expert_creative_grade, assignment_quality_grade, status
-        FROM approved_analysis_releases
-        WHERE video_id = ?
-        ORDER BY release_number DESC, approved_at DESC`,
+        `SELECT r.id, r.release_number, r.approved_snapshot_id, r.source_snapshot_id,
+          r.payload_json, r.content_hash, r.approved_by_name, r.approved_at,
+          r.expert_creative_grade, r.assignment_quality_grade, r.status,
+          source.author_name AS source_author_name,
+          COALESCE(source.submitted_at, source.created_at) AS source_submitted_at
+        FROM approved_analysis_releases r
+        INNER JOIN annotation_snapshots source ON source.id = r.source_snapshot_id
+        WHERE r.video_id = ?
+        ORDER BY r.release_number DESC, r.approved_at DESC`,
       )
       .bind(id)
       .all<{
@@ -159,6 +171,8 @@ export async function GET(
         expert_creative_grade: "S" | "A" | "B" | "C";
         assignment_quality_grade: string | null;
         status: "ACTIVE" | "SUPERSEDED" | "WITHDRAWN";
+        source_author_name: string;
+        source_submitted_at: string;
       }>(),
     db
       .prepare(
@@ -205,7 +219,9 @@ export async function GET(
       createdAt: video.created_at,
       annotationCount: snapshots.results.length,
     },
-    analyses: snapshots.results.map((snapshot: SnapshotRow) => {
+    analyses: snapshots.results.filter((snapshot) => !approvedStandards.results.some(
+      (release) => release.status === "ACTIVE" && release.source_snapshot_id === snapshot.id,
+    )).map((snapshot: SnapshotRow) => {
       const versions = snapshotVersions.results
         .filter((version) => version.annotation_id === snapshot.annotation_id)
         .map((version, index) => ({
@@ -237,6 +253,7 @@ export async function GET(
         contentHash: snapshot.content_hash,
         payload: JSON.parse(snapshot.payload_json),
         versions,
+        versionIdentity: "PUBLIC_SUBMISSION" as const,
         reviewContext: {
           round: snapshot.round_id ? {
             id: snapshot.round_id,
@@ -277,6 +294,9 @@ export async function GET(
       assignmentQualityGrade: release.assignment_quality_grade,
       contentHash: release.content_hash,
       status: release.status,
+      versionIdentity: "ACTIVE_STANDARD" as const,
+      sourceAuthorName: release.source_author_name,
+      sourceSubmittedAt: release.source_submitted_at,
       payload: JSON.parse(release.payload_json),
     })),
     approvedStandardHistory: approvedStandards.results.map((release) => ({
@@ -290,7 +310,9 @@ export async function GET(
       assignmentQualityGrade: release.assignment_quality_grade,
       contentHash: release.content_hash,
       status: release.status,
-      payload: JSON.parse(release.payload_json),
+      versionIdentity: release.status === "ACTIVE" ? "ACTIVE_STANDARD" as const : "HISTORICAL_STANDARD" as const,
+      sourceAuthorName: release.source_author_name,
+      sourceSubmittedAt: release.source_submitted_at,
     })),
     myAnalysis: myAnnotations.results[0]
       ? {
@@ -300,6 +322,10 @@ export async function GET(
           updatedAt: myAnnotations.results[0].updated_at,
       taxonomyVersion: myAnnotations.results[0].taxonomy_version,
           reviewStatus: myAnnotations.results[0].review_status,
+          baseReleaseId: myAnnotations.results[0].base_release_id,
+          baseReleaseNumber: myAnnotations.results[0].base_release_number == null ? null : Number(myAnnotations.results[0].base_release_number),
+          baseSnapshotId: myAnnotations.results[0].base_snapshot_id,
+          sourcePublicSnapshotId: myAnnotations.results[0].source_public_snapshot_id,
         }
       : null,
     myAnalyses: myAnnotations.results.map((annotation) => ({
@@ -309,6 +335,10 @@ export async function GET(
       updatedAt: annotation.updated_at,
       taxonomyVersion: annotation.taxonomy_version,
       reviewStatus: annotation.review_status,
+      baseReleaseId: annotation.base_release_id,
+      baseReleaseNumber: annotation.base_release_number == null ? null : Number(annotation.base_release_number),
+      baseSnapshotId: annotation.base_snapshot_id,
+      sourcePublicSnapshotId: annotation.source_public_snapshot_id,
     })),
     canManage,
     canDeletePermanently: canManage && !hasSubmittedAnalysis,

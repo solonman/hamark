@@ -9,7 +9,6 @@ import { isAppAdmin, isFinalReviewer } from "@/lib/admin";
 import {
   canonicalRevisionValue,
   ensureReviewRoundForSnapshot,
-  inferRevisionEditType,
   sha256Text,
 } from "@/lib/review-workflow";
 import { V03_VOCABULARY_VERSION } from "@/lib/taxonomy-v0.3";
@@ -23,6 +22,7 @@ import type {
   AnalysisRevisionSuggestionStatus,
   AnnotationDraft,
   RevisionValueType,
+  RevisionEditType,
 } from "@/lib/types";
 
 const REVISION_CONTENT_MAX_LENGTH = 50_000;
@@ -122,7 +122,7 @@ export async function GET(
           replacement_text, COALESCE(reason, '') AS reason, status,
           applied_revision, linked_comment_id, original_text_hash,
           value_type, original_value_json, replacement_value_json,
-          vocabulary_version,
+          vocabulary_version, change_set_id,
           created_at, updated_at
         FROM analysis_revision_events
         WHERE base_snapshot_id = ? AND status <> 'SUPERSEDED'
@@ -141,6 +141,7 @@ export async function GET(
         original_value_json: string | null;
         replacement_value_json: string | null;
         vocabulary_version: "V0.3.1" | "V0.3.2";
+        change_set_id: string | null;
         created_at: string; updated_at: string;
       }>();
     const suggestions: AnalysisRevisionSuggestion[] = result.results.map((row) => ({
@@ -160,6 +161,7 @@ export async function GET(
       originalValue: parseStoredRevisionValue(row.original_value_json),
       replacementValue: parseStoredRevisionValue(row.replacement_value_json),
       vocabularyVersion: row.vocabulary_version,
+      changeSetId: row.change_set_id,
       originalTextHash: row.original_text_hash,
       linkedCommentId: row.linked_comment_id,
       status: row.status,
@@ -276,6 +278,9 @@ export async function POST(
 
   const requestedValueType = String(payload.valueType ?? "TEXT") as RevisionValueType;
   const structuredRevision = requestedValueType !== "TEXT";
+  const requestedEditType = String(
+    payload.editType ?? (structuredRevision ? "UNIT_REPLACE" : ""),
+  ) as RevisionEditType;
   const effectiveAnchorStart = structuredRevision ? -1 : anchorStart;
   const effectiveAnchorEnd = structuredRevision ? -1 : anchorEnd;
 
@@ -335,17 +340,37 @@ export async function POST(
   if (!structuredRevision && replacementText == null) {
     return Response.json({ error: "请填写修订后的内容。" }, { status: 400 });
   }
-  if (!structuredRevision && (
-    !Number.isInteger(anchorStart) ||
-    !Number.isInteger(anchorEnd) ||
-    anchorStart < 0 ||
-    anchorEnd < anchorStart ||
-    (targetValue as string).slice(anchorStart, anchorEnd) !== selectedText
-  )) {
+  if (!structuredRevision && !["RANGE_REPLACE", "UNIT_REPLACE", "INSERT", "DELETE"].includes(requestedEditType)) {
+    return Response.json({ error: "请选择明确的文本修订方式。" }, { status: 400 });
+  }
+  const textTarget = typeof targetValue === "string" ? targetValue : "";
+  const rangeValid = Number.isInteger(anchorStart) && Number.isInteger(anchorEnd) &&
+    anchorStart >= 0 && anchorEnd >= anchorStart &&
+    textTarget.slice(anchorStart, anchorEnd) === selectedText;
+  if (!structuredRevision && !rangeValid) {
     return Response.json(
       { error: "所选文字已变化，请重新选中后修订。" },
       { status: 409 },
     );
+  }
+  if (!structuredRevision && requestedEditType === "UNIT_REPLACE" && (
+    anchorStart !== 0 || anchorEnd !== textTarget.length || selectedText !== textTarget
+  )) {
+    return Response.json({ error: "整项替换必须绑定当前内容单元的完整原文。" }, { status: 409 });
+  }
+  if (!structuredRevision && requestedEditType === "RANGE_REPLACE" && !selectedText) {
+    return Response.json({ error: "局部替换需要先选择原文。" }, { status: 400 });
+  }
+  if (!structuredRevision && requestedEditType === "INSERT" && (
+    selectedText !== "" || anchorStart !== anchorEnd
+  )) {
+    return Response.json({ error: "插入操作必须绑定一个明确光标位置。" }, { status: 400 });
+  }
+  if (!structuredRevision && requestedEditType === "DELETE" && !selectedText) {
+    return Response.json({ error: "删除操作需要先选择原文。" }, { status: 400 });
+  }
+  if (!structuredRevision && requestedEditType === "DELETE" && replacementText !== "") {
+    return Response.json({ error: "删除操作不能携带替代文字。" }, { status: 400 });
   }
   if (!structuredRevision && selectedText === replacementText) {
     return Response.json({ error: "修订前后内容相同。" }, { status: 400 });
@@ -386,21 +411,13 @@ export async function POST(
     if (!roundRow || !["PENDING", "IN_REVIEW"].includes(roundRow.status)) {
       return Response.json({ error: "当前审核轮次已经结束。" }, { status: 409 });
     }
-    const requestedDelete = !structuredRevision && payload.editType === "DELETE";
+    const requestedDelete = !structuredRevision && requestedEditType === "DELETE";
     if (!structuredRevision && !requestedDelete && !replacementText!.trim()) {
       return Response.json({ error: "请填写修订后的内容。" }, { status: 400 });
     }
     const editType = structuredRevision
       ? "UNIT_REPLACE"
-      : requestedDelete
-      ? "DELETE"
-      : inferRevisionEditType({
-          targetValue: targetValue as string,
-          selectedText,
-          anchorStart,
-          anchorEnd,
-          replacementText: replacementText!,
-        });
+      : requestedEditType;
     const revisionId = newId("revision_event");
     const originalTextHash = await sha256Text(
       structuredRevision

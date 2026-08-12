@@ -576,6 +576,17 @@ export default function PracticeClient({
         </div>
       ) : null}
 
+      {draft.baseReleaseNumber ? (
+        <div className="revision-context-banner active-standard-baseline-banner">
+          <strong>本轮基于活动标准版 R{draft.baseReleaseNumber} 创建</strong>
+          <span>
+            发布后将生成公开版本 V{publishedVersionCount + 1}；
+            在新标准版获得终审批准前，R{draft.baseReleaseNumber} 继续作为当前活动标准。
+          </span>
+          <Link href={`/videos/${videoId}`}>查看活动标准版与来源 ↗</Link>
+        </div>
+      ) : null}
+
       {seededFromV02 && !draft.id ? (
         <div className="revision-context-banner pilot-seed-banner">
           <strong>已从你最新的 V0.2 公开版建立 V0.3 草稿</strong>

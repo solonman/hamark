@@ -120,6 +120,10 @@ export type AnnotationDraft = {
   status: "DRAFT" | "SUBMITTED";
   reviewStatus?: AnalysisWorkflowStatus;
   activeBaseSnapshotId?: string | null;
+  baseReleaseId?: string | null;
+  baseSnapshotId?: string | null;
+  sourcePublicSnapshotId?: string | null;
+  baseReleaseNumber?: number | null;
   revision: number;
   analysisTitle: string;
   commercialIntent: string;
@@ -165,7 +169,13 @@ export type SubmittedAnalysis = {
   payload: AnnotationDraft;
   versions: SubmissionVersionSummary[];
   reviewContext?: AnalysisReviewContext;
+  versionIdentity?: AnalysisVersionIdentity;
 };
+
+export type AnalysisVersionIdentity =
+  | "ACTIVE_STANDARD"
+  | "HISTORICAL_STANDARD"
+  | "PUBLIC_SUBMISSION";
 
 export type SubmissionVersionSummary = {
   id: string;
@@ -244,6 +254,7 @@ export type AnalysisRevisionSuggestion = {
   originalValue?: string | string[];
   replacementValue?: string | string[];
   vocabularyVersion?: VocabularyVersion;
+  changeSetId?: string | null;
   originalTextHash?: string;
   linkedCommentId?: string | null;
   status: AnalysisRevisionSuggestionStatus;
@@ -287,7 +298,10 @@ export type ApprovedAnalysisRelease = {
   assignmentQualityGrade: string | null;
   contentHash: string;
   status?: "ACTIVE" | "SUPERSEDED" | "WITHDRAWN";
-  payload: AnnotationDraft;
+  versionIdentity?: "ACTIVE_STANDARD" | "HISTORICAL_STANDARD";
+  sourceAuthorName?: string;
+  sourceSubmittedAt?: string;
+  payload?: AnnotationDraft;
 };
 
 export type MyAnalysisStatus = {
@@ -297,6 +311,10 @@ export type MyAnalysisStatus = {
   updatedAt: string;
   taxonomyVersion?: TaxonomyVersion;
   reviewStatus?: AnalysisWorkflowStatus;
+  baseReleaseId?: string | null;
+  baseReleaseNumber?: number | null;
+  baseSnapshotId?: string | null;
+  sourcePublicSnapshotId?: string | null;
 };
 
 export type AssignmentReviewDraft = {

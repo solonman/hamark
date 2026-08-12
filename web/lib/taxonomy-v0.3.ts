@@ -61,7 +61,7 @@ export const bridgeRoleGroups = [
 
 export const bridgeRoles = bridgeRoleGroups.flatMap((group) => group.options);
 
-const legacyMechanismOptions = [
+export const legacyMechanismOptions = [
   ...((taxonomyV02 as Array<{ code: string; options: Array<{ value: string }> }>).find(
     (field) => field.code === "A2",
   )?.options.map((option) => option.value) ?? []),
@@ -81,6 +81,18 @@ export function displayMechanismLabel(value: string) {
 export const mechanismOptions = Array.from(
   new Set(legacyMechanismOptions.map(displayMechanismLabel)),
 );
+
+export function mechanismChoicesFor(values: string[] = []) {
+  const seen = new Set<string>();
+  return [...values, ...mechanismOptions]
+    .filter(Boolean)
+    .flatMap((value) => {
+      const label = displayMechanismLabel(value);
+      if (seen.has(label)) return [];
+      seen.add(label);
+      return [{ value, label }];
+    });
+}
 
 export const storyReferenceOptions =
   (taxonomyV02 as Array<{ code: string; options: Array<{ value: string }> }>).find(

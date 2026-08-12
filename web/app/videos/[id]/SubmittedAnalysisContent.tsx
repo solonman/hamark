@@ -19,10 +19,9 @@ import {
 import {
   creativeGradeOptions,
   creativePathOptions,
-  displayMechanismLabel,
   formationOptions,
   mainPathFields,
-  mechanismOptions,
+  mechanismChoicesFor,
   bridgeRoles,
 } from "@/lib/taxonomy-v0.3";
 import type { CreativePath } from "@/lib/types";
@@ -132,13 +131,7 @@ export default function SubmittedAnalysisContent({
                             </td>
                           ) : null}
                           <td>
-                            <strong>
-                              <InlineAnnotationText
-                                targetKey={`shot:${shot.id || shotIndex}:number`}
-                                targetLabel={`${group.name} · 镜头序号`}
-                                value={shot.shotNumber}
-                              />
-                            </strong>
+                            <strong>{shot.shotNumber}</strong>
                           </td>
                           <td className="inline-time-cell">
                             <InlineAnnotationText
@@ -297,13 +290,10 @@ function SubmittedV03Analysis({
   }
   const pathLabel = (path: string) =>
     creativePathOptions.find((option) => option.value === path)?.label ?? path;
-  const mechanismChoices = Array.from(
-    new Set([
-      structure.mechanismPrimary,
-      ...structure.mechanismAuxiliary,
-      ...mechanismOptions,
-    ].filter(Boolean)),
-  ).map((value) => ({ value, label: displayMechanismLabel(value) }));
+  const mechanismChoices = mechanismChoicesFor([
+    structure.mechanismPrimary,
+    ...structure.mechanismAuxiliary,
+  ]);
   const formationChoices = formationOptions.map(({ value, label }) => ({ value, label }));
   const pathChoices = creativePathOptions.map(({ value, label }) => ({ value, label }));
   const bridgeChoices = [
@@ -351,7 +341,7 @@ function SubmittedV03Analysis({
                       {groupShots.map((shot, shotIndex) => (
                         <tr key={shot.id}>
                           {shotIndex === 0 ? <td className="submitted-group-table-cell" rowSpan={groupShots.length}><strong>{String(groupIndex + 1).padStart(2, "0")}</strong><small>{group.title}</small></td> : null}
-                          <td><strong><InlineAnnotationText targetKey={`shot:${shot.id}:number`} targetLabel={`${group.title} · 镜头序号`} value={shot.shotNumber} /></strong></td>
+                          <td><strong>{shot.shotNumber}</strong></td>
                           <td className="inline-time-cell"><InlineAnnotationText targetKey={`shot:${shot.id}:start-time`} targetLabel={`${group.title} · 开始时间`} value={shot.startTime} emptyText="未记时码" /><span>→</span><InlineAnnotationText targetKey={`shot:${shot.id}:end-time`} targetLabel={`${group.title} · 结束时间`} value={shot.endTime} emptyText="未记时码" /></td>
                           <td><InlineAnnotationText targetKey={`shot:${shot.id}:shot-size`} targetLabel={`${group.title} · 景别`} value={shot.shotSize} /></td>
                           <td><InlineAnnotationText targetKey={`shot:${shot.id}:camera-angle`} targetLabel={`${group.title} · 机位／角度`} value={shot.cameraAngle} /></td>

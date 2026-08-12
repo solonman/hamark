@@ -17,8 +17,11 @@ import type {
   AnalysisComment,
   AnalysisCommentKind,
   AnalysisRevisionSuggestion,
+  SubmittedAnalysis,
+  RevisionEditType,
   RevisionValueType,
 } from "@/lib/types";
+import CombinedStructureRevisionPanel from "./CombinedStructureRevisionPanel";
 
 type StructuredOption = { value: string; label: string };
 
@@ -34,6 +37,7 @@ type TextAnchor = {
   x: number;
   y: number;
   placement: "above" | "below";
+  editType?: RevisionEditType;
 };
 
 type ComposerState = TextAnchor & {
@@ -61,7 +65,9 @@ type InlineAnnotationContextValue = {
   recordsFor: (targetKey: string) => AnnotationRecord[];
   openCellComposer: (
     mode: "COMMENT" | "REVISION",
-    input: Omit<TextAnchor, "selectedText" | "anchorStart" | "anchorEnd">,
+    input: Omit<TextAnchor, "selectedText" | "anchorStart" | "anchorEnd"> & {
+      editType?: RevisionEditType;
+    },
   ) => void;
   openSelection: (anchor: TextAnchor) => void;
   showHoverCard: (records: AnnotationRecord[], rect: DOMRect) => void;
@@ -101,7 +107,7 @@ function selectionAnchor(
   copy: HTMLElement,
   selection: Selection,
 ): TextAnchor | null {
-  if (!selection.rangeCount || selection.isCollapsed) return null;
+  if (!selection.rangeCount) return null;
   const range = selection.getRangeAt(0);
   if (!copy.contains(range.startContainer) || !copy.contains(range.endContainer)) {
     return null;
@@ -109,14 +115,15 @@ function selectionAnchor(
   const rawText = range.toString();
   const leadingWhitespace = rawText.length - rawText.trimStart().length;
   const selectedText = rawText.trim().slice(0, 600);
-  if (!selectedText) return null;
   const before = range.cloneRange();
   before.selectNodeContents(copy);
   before.setEnd(range.startContainer, range.startOffset);
   const anchorStart = before.toString().length + leadingWhitespace;
   const anchorEnd = anchorStart + selectedText.length;
   if (targetValue.slice(anchorStart, anchorEnd) !== selectedText) return null;
-  const position = floatingPosition(range.getBoundingClientRect());
+  const position = floatingPosition(
+    range.getBoundingClientRect().width ? range.getBoundingClientRect() : copy.getBoundingClientRect(),
+  );
   return {
     targetKey,
     targetLabel,
@@ -125,6 +132,7 @@ function selectionAnchor(
     selectedText,
     anchorStart,
     anchorEnd,
+    editType: selectedText ? "RANGE_REPLACE" : "INSERT",
     ...position,
   };
 }
@@ -174,6 +182,21 @@ function formatRevisionValue(value: string | string[]) {
   return Array.isArray(value) ? value.join(" · ") : value;
 }
 
+function textPoint(root: HTMLElement, absoluteOffset: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, absoluteOffset);
+  let node = walker.nextNode();
+  let last: Text | null = null;
+  while (node) {
+    const text = node as Text;
+    last = text;
+    if (remaining <= text.data.length) return { node: text, offset: remaining };
+    remaining -= text.data.length;
+    node = walker.nextNode();
+  }
+  return last ? { node: last, offset: last.data.length } : null;
+}
+
 export function InlineAnnotationText({
   targetKey,
   targetLabel,
@@ -189,6 +212,7 @@ export function InlineAnnotationText({
 }) {
   const context = useContext(InlineAnnotationContext);
   const copyRef = useRef<HTMLSpanElement | null>(null);
+  const keyboardRangeRef = useRef<{ start: number; end: number } | null>(null);
   if (!context) {
     return <span className={className}>{value || emptyText}</span>;
   }
@@ -215,11 +239,28 @@ export function InlineAnnotationText({
   }
 
   function handleKeyboardSelection(event: KeyboardEvent<HTMLSpanElement>) {
-    if (!event.shiftKey) return;
+    if (!event.shiftKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    const copy = copyRef.current;
+    if (!copy || !value.length) return;
+    event.preventDefault();
+    const previous = keyboardRangeRef.current;
+    const next = event.key === "ArrowRight"
+      ? { start: previous?.start ?? 0, end: Math.min(value.length, (previous?.end ?? 0) + 1) }
+      : { start: Math.max(0, (previous?.start ?? value.length) - 1), end: previous?.end ?? value.length };
+    keyboardRangeRef.current = next;
+    const start = textPoint(copy, next.start);
+    const end = textPoint(copy, next.end);
+    if (!start || !end) return;
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
     window.setTimeout(handleMouseUp, 0);
   }
 
-  function openCell(mode: "COMMENT" | "REVISION", event: MouseEvent) {
+  function openCell(mode: "COMMENT" | "REVISION", event: MouseEvent, editType?: RevisionEditType) {
     event.preventDefault();
     event.stopPropagation();
     const target = event.currentTarget.closest<HTMLElement>(
@@ -233,6 +274,7 @@ export function InlineAnnotationText({
       targetLabel,
       targetValue: value,
       valueType: "TEXT",
+      editType,
       ...position,
     });
   }
@@ -245,9 +287,19 @@ export function InlineAnnotationText({
       <span
         ref={copyRef}
         className="inline-annotation-copy"
-        onMouseUp={handleMouseUp}
-        onPointerUp={() => window.setTimeout(handleMouseUp, 0)}
-        onKeyUp={handleKeyboardSelection}
+        onMouseUp={() => {
+          keyboardRangeRef.current = null;
+          handleMouseUp();
+        }}
+        onPointerUp={() => {
+          keyboardRangeRef.current = null;
+          window.setTimeout(handleMouseUp, 0);
+        }}
+        onKeyDown={handleKeyboardSelection}
+        onBlur={() => {
+          keyboardRangeRef.current = null;
+        }}
+        aria-keyshortcuts="Shift+ArrowLeft Shift+ArrowRight"
         tabIndex={context.canCreate ? 0 : undefined}
       >
         {value
@@ -290,11 +342,20 @@ export function InlineAnnotationText({
         <button type="button" onClick={(event) => openCell("REVISION", event)}>
           修订
         </button>
+        <button type="button" onClick={(event) => openCell("REVISION", event, "INSERT")}>
+          插入
+        </button>
         {cellRecords.length ? (
           <button
             type="button"
             className="inline-annotation-count"
             aria-label={`${cellRecords.length} 条整项批注或修订`}
+            onClick={(event) =>
+              context.showHoverCard(
+                cellRecords,
+                event.currentTarget.getBoundingClientRect(),
+              )
+            }
             onMouseEnter={(event) =>
               context.showHoverCard(
                 cellRecords,
@@ -419,11 +480,13 @@ export function InlineStructuredAnnotation({
 export default function AnalysisComments({
   snapshotId,
   taxonomyVersion,
+  analysis,
   children,
   reviewMode = false,
 }: {
   snapshotId: string;
   taxonomyVersion: string;
+  analysis?: SubmittedAnalysis;
   children: ReactNode;
   reviewMode?: boolean;
 }) {
@@ -529,7 +592,7 @@ export default function AnalysisComments({
     setCommentBody("");
     setCommentKind("COMMENT");
     setReplacementText(
-      mode === "REVISION" && typeof anchor.targetValue === "string"
+      mode === "REVISION" && typeof anchor.targetValue === "string" && anchor.editType !== "DELETE" && anchor.editType !== "INSERT"
         ? anchor.selectedText || anchor.targetValue
         : "",
     );
@@ -547,13 +610,16 @@ export default function AnalysisComments({
         ...input,
         selectedText:
           mode === "REVISION" && input.valueType === "TEXT"
-            ? input.targetValue as string
+            ? input.editType === "INSERT" ? "" : input.targetValue as string
             : "",
-        anchorStart: mode === "REVISION" && input.valueType === "TEXT" ? 0 : -1,
+        anchorStart: mode === "REVISION" && input.valueType === "TEXT"
+          ? input.editType === "INSERT" ? (input.targetValue as string).length : 0
+          : -1,
         anchorEnd:
           mode === "REVISION" && input.valueType === "TEXT"
-            ? (input.targetValue as string).length
+            ? input.editType === "INSERT" ? (input.targetValue as string).length : (input.targetValue as string).length
             : -1,
+        editType: input.editType ?? (input.valueType === "TEXT" ? "UNIT_REPLACE" : "UNIT_REPLACE"),
       }),
     openSelection: (anchor) => {
       if (taxonomyVersion === "V0.3-PILOT" && !(reviewMode && canReviewV03)) return;
@@ -618,7 +684,11 @@ export default function AnalysisComments({
 
   async function createSuggestion() {
     if (!composer || composer.mode !== "REVISION") return;
-    if (composer.valueType === "TEXT" && !replacementText.trim()) {
+    if (
+      composer.valueType === "TEXT" &&
+      composer.editType !== "DELETE" &&
+      !replacementText.trim()
+    ) {
       setNotice("请填写修订后的内容。");
       return;
     }
@@ -635,6 +705,7 @@ export default function AnalysisComments({
           anchorStart: composer.anchorStart,
           anchorEnd: composer.anchorEnd,
           replacementText,
+          editType: composer.editType,
           reason: revisionReason,
           valueType: composer.valueType,
           originalValue: composer.valueType === "TEXT" ? undefined : composer.targetValue,
@@ -759,7 +830,8 @@ export default function AnalysisComments({
       <section className={`analysis-comment-workspace inline-mode ${contextValue.canCreate ? "is-review-enabled" : ""}`}>
         {contextValue.canCreate ? (
           <div className="inline-review-instruction" role="status">
-            选择文字可做局部批注／修订；使用科目右上角操作可处理整项内容。
+            <span>选择文字可做局部批注／修订；使用科目右上角操作可处理整项内容。</span>
+            {analysis ? <CombinedStructureRevisionPanel analysis={analysis} onSaved={loadAnnotations} /> : null}
           </div>
         ) : null}
         {notice ? <p className="analysis-comment-notice">{notice}</p> : null}
@@ -800,9 +872,12 @@ export default function AnalysisComments({
             <button type="button" onClick={() => openComposer("COMMENT", selection)}>
               批注
             </button>
-            <button type="button" onClick={() => openComposer("REVISION", selection)}>
-              修订
-            </button>
+            {selection.selectedText ? <>
+              <button type="button" onClick={() => openComposer("REVISION", { ...selection, editType: "RANGE_REPLACE" })}>替换</button>
+              <button type="button" onClick={() => openComposer("REVISION", { ...selection, editType: "DELETE" })}>删除</button>
+            </> : (
+              <button type="button" onClick={() => openComposer("REVISION", { ...selection, editType: "INSERT" })}>在此插入</button>
+            )}
             <button type="button" aria-label="取消" onClick={() => setSelection(null)}>
               ×
             </button>
@@ -863,15 +938,12 @@ export default function AnalysisComments({
               </>
             ) : composer.valueType === "TEXT" ? (
               <>
-                <label className="inline-revision-field">
-                  <span>修订为</span>
-                  <textarea
-                    autoFocus
-                    rows={4}
-                    value={replacementText}
-                    onChange={(event) => setReplacementText(event.target.value)}
-                  />
-                </label>
+                {composer.editType === "DELETE" ? (
+                  <p className="inline-revision-delete-confirm">将删除所选原文，不用填写替代文字。</p>
+                ) : <label className="inline-revision-field">
+                  <span>{composer.editType === "INSERT" ? "插入内容" : "修订为"}</span>
+                  <textarea autoFocus rows={4} value={replacementText} onChange={(event) => setReplacementText(event.target.value)} />
+                </label>}
                 <label className="inline-revision-field">
                   <span>原因（选填）</span>
                   <textarea
@@ -887,7 +959,7 @@ export default function AnalysisComments({
                   disabled={busy}
                   onClick={() => void createSuggestion()}
                 >
-                  {taxonomyVersion === "V0.3-PILOT"
+                  {composer.editType === "DELETE" ? "确认删除并保存" : taxonomyVersion === "V0.3-PILOT"
                     ? "保存到终审工作层"
                     : canDecide
                       ? "保存并写入修订草稿"

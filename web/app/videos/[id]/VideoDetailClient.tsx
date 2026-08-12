@@ -19,6 +19,7 @@ import SubmittedAnalysisContent from "./SubmittedAnalysisContent";
 import AnalysisComments from "./AnalysisComments";
 import V03ReviewDecisionBar from "./V03ReviewDecisionBar";
 import { resolveReviewEntry } from "@/lib/review-entry";
+import StandardRevisionHistory from "./StandardRevisionHistory";
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -58,6 +59,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [playerRevision, setPlayerRevision] = useState(0);
   const [versionLoading, setVersionLoading] = useState<string | null>(null);
   const [versionNotice, setVersionNotice] = useState("");
+  const [loadedStandardHistory, setLoadedStandardHistory] = useState<Record<string, ApprovedAnalysisRelease>>({});
+  const [sourceAnalyses, setSourceAnalyses] = useState<Record<string, SubmittedAnalysis>>({});
   const playerSlotRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -143,7 +146,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     myV03Analysis?.reviewStatus === "CHANGES_REQUESTED"
       ? "开始修改我的作业 ↗"
       : myV03Analysis?.reviewStatus === "APPROVED"
-        ? "基于标准版开始新一轮修订 ↗"
+        ? `基于活动标准版 R${myV03Analysis.baseReleaseNumber ?? "—"} 开始新一轮 ↗`
         : myV03Analysis?.reviewStatus === "PENDING_REVIEW" ||
             myV03Analysis?.reviewStatus === "PENDING_REREVIEW"
           ? "查看已提交作业 ↗"
@@ -177,6 +180,42 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
       setVersionNotice(
         reason instanceof Error ? reason.message : "作业版本读取失败",
       );
+    } finally {
+      setVersionLoading(null);
+    }
+  }
+
+  async function loadHistoricalStandard(releaseId: string) {
+    if (loadedStandardHistory[releaseId]) return;
+    setVersionLoading(releaseId);
+    setVersionNotice("");
+    try {
+      const response = await fetch(`/api/approved-standards/${releaseId}`, { cache: "no-store" });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as { release?: ApprovedAnalysisRelease; error?: string };
+      if (!response.ok || !data.release?.payload) {
+        throw new Error(data.error || "历史标准版读取失败");
+      }
+      setLoadedStandardHistory((current) => ({ ...current, [releaseId]: data.release! }));
+    } catch (reason) {
+      setVersionNotice(reason instanceof Error ? reason.message : "历史标准版读取失败");
+    } finally {
+      setVersionLoading(null);
+    }
+  }
+
+  async function loadSourceAnalysis(snapshotId: string) {
+    if (sourceAnalyses[snapshotId]) return;
+    setVersionLoading(snapshotId);
+    setVersionNotice("");
+    try {
+      const response = await fetch(`/api/analyses/${snapshotId}`, { cache: "no-store" });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as { analysis?: SubmittedAnalysis; error?: string };
+      if (!response.ok || !data.analysis) throw new Error(data.error || "来源作业读取失败");
+      setSourceAnalyses((current) => ({ ...current, [snapshotId]: data.analysis! }));
+    } catch (reason) {
+      setVersionNotice(reason instanceof Error ? reason.message : "来源作业读取失败");
     } finally {
       setVersionLoading(null);
     }
@@ -341,6 +380,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         {approvedStandards.length ? (
           <div className="standard-case-list">
             {approvedStandards.map((release) => {
+              if (!release.payload) return null;
               const cleanAnalysis: SubmittedAnalysis = {
                 id: release.approvedSnapshotId,
                 authorName: release.payload.authorName,
@@ -351,17 +391,42 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                 contentHash: release.contentHash,
                 payload: release.payload,
                 versions: [],
+                versionIdentity: "ACTIVE_STANDARD",
               };
+              const sourceAnalysis = sourceAnalyses[release.sourceSnapshotId];
               return (
                 <details className="standard-case-card" key={release.id} open>
                   <summary>
-                    <span>标准案例 R{release.releaseNumber}</span>
+                    <span>活动标准版 R{release.releaseNumber}</span>
                     <strong>专家创意等级 {release.expertCreativeGrade}</strong>
                     <small>{release.approvedByName} 终审 · 干净批准快照</small>
                   </summary>
+                  <div className="standard-lineage-bar">
+                    <span>来源：{release.sourceAuthorName ?? release.payload.authorName} 的公开作业</span>
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={versionLoading === release.sourceSnapshotId}
+                      onClick={() => void loadSourceAnalysis(release.sourceSnapshotId)}
+                    >
+                      {sourceAnalysis ? "已加载来源" : versionLoading === release.sourceSnapshotId ? "读取中…" : "查看来源作业"}
+                    </button>
+                    <Link className="button button-ghost compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+                      基于 R{release.releaseNumber} 开始新一轮
+                    </Link>
+                  </div>
+                  {sourceAnalysis ? (
+                    <details className="standard-source-card">
+                      <summary>来源公开作业 V{sourceAnalysis.versionNumber} · {sourceAnalysis.authorName}</summary>
+                      <div className="reading-surface">
+                        <SubmittedAnalysisContent analysis={sourceAnalysis} forceOpen={false} />
+                      </div>
+                    </details>
+                  ) : null}
                   <div className="reading-surface">
                     <SubmittedAnalysisContent analysis={cleanAnalysis} forceOpen={false} />
                   </div>
+                  <StandardRevisionHistory releaseId={release.id} />
                 </details>
               );
             })}
@@ -378,17 +443,19 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               {approvedStandardHistory
                 .filter((release) => release.status !== "ACTIVE")
                 .map((release) => {
-                  const historical: SubmittedAnalysis = {
-                    id: release.approvedSnapshotId,
-                    authorName: release.payload.authorName,
-                    taxonomyVersion: release.payload.taxonomyVersion,
-                    revision: release.payload.revision,
-                    versionNumber: release.releaseNumber,
-                    createdAt: release.approvedAt,
-                    contentHash: release.contentHash,
-                    payload: release.payload,
+                  const loaded = loadedStandardHistory[release.id];
+                  const historical: SubmittedAnalysis | null = loaded?.payload ? {
+                    id: loaded.approvedSnapshotId,
+                    authorName: loaded.payload.authorName,
+                    taxonomyVersion: loaded.payload.taxonomyVersion,
+                    revision: loaded.payload.revision,
+                    versionNumber: loaded.releaseNumber,
+                    createdAt: loaded.approvedAt,
+                    contentHash: loaded.contentHash,
+                    payload: loaded.payload,
                     versions: [],
-                  };
+                    versionIdentity: "HISTORICAL_STANDARD",
+                  } : null;
                   return (
                     <details className="standard-case-card historical" key={release.id}>
                       <summary>
@@ -396,9 +463,21 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                         <strong>已由后续版本替代</strong>
                         <small>{release.approvedByName} 终审</small>
                       </summary>
-                      <div className="reading-surface">
-                        <SubmittedAnalysisContent analysis={historical} forceOpen={false} />
-                      </div>
+                      {!historical ? (
+                        <button
+                          type="button"
+                          className="button button-ghost compact standard-history-loader"
+                          disabled={versionLoading === release.id}
+                          onClick={() => void loadHistoricalStandard(release.id)}
+                        >
+                          {versionLoading === release.id ? "读取中…" : "按需读取历史正文"}
+                        </button>
+                      ) : <>
+                        <div className="reading-surface">
+                          <SubmittedAnalysisContent analysis={historical} forceOpen={false} />
+                        </div>
+                        <StandardRevisionHistory releaseId={release.id} />
+                      </>}
                     </details>
                   );
                 })}
@@ -423,6 +502,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                 taxonomyVersion: analysis.taxonomyVersion,
                 workflowStatus: analysis.payload.reviewStatus,
                 review: reviewContext,
+                versionIdentity: analysis.versionIdentity,
               });
               const canEnterReview = entryState === "ENTER_REVIEW";
               const authorNeedsAction = entryState === "AUTHOR_EDIT";
@@ -506,7 +586,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                   {reviewActive && analysis.taxonomyVersion === "V0.3-PILOT" ? (
                     <>
                       <V03ReviewDecisionBar snapshotId={analysis.id} initialReview={reviewContext} mode="review" />
-                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion} reviewMode>
+                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion} analysis={analysis} reviewMode>
                         {content}
                       </AnalysisComments>
                     </>
@@ -515,7 +595,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                       {reviewContext?.isAuthor && reviewContext.canWithdraw ? (
                         <V03ReviewDecisionBar snapshotId={analysis.id} initialReview={reviewContext} mode="author" />
                       ) : null}
-                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion}>
+                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion} analysis={analysis}>
                         {content}
                       </AnalysisComments>
                     </>

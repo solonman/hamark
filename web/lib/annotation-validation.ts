@@ -1,6 +1,162 @@
 import { annotationFields } from "./annotation-fields";
-import { mainPathFields, V03_TAXONOMY_VERSION } from "./taxonomy-v0.3";
-import type { AnnotationDraft } from "./types";
+import {
+  bridgeRoles,
+  creativePathOptions,
+  formationOptions,
+  legacyMechanismOptions,
+  mainPathFields,
+  mechanismOptions,
+  V03_TAXONOMY_VERSION,
+} from "./taxonomy-v0.3";
+import type { AnnotationDraft, CreativePath, FormationMode } from "./types";
+
+const validBridgeRoles = new Set<string>(bridgeRoles);
+
+export type ApprovalValidationIssue = {
+  targetKey: string;
+  message: string;
+};
+
+function unique(values: string[]) {
+  return new Set(values).size === values.length;
+}
+
+function structureIssues(payload: AnnotationDraft): ApprovalValidationIssue[] {
+  if (payload.taxonomyVersion !== V03_TAXONOMY_VERSION) return [];
+  const structure = payload.creativeStructure;
+  if (!structure) {
+    return [{ targetKey: "structure", message: "缺少 V0.3 创意结构。" }];
+  }
+  const issues: ApprovalValidationIssue[] = [];
+  const paths = new Set(creativePathOptions.map((option) => option.value));
+  const formations = new Set(formationOptions.map((option) => option.value));
+  const mechanisms = new Set([...legacyMechanismOptions, ...mechanismOptions]);
+  const groupIds = new Set<string>();
+  const shotIds = new Set<string>();
+
+  for (const [index, group] of (payload.shotGroups ?? []).entries()) {
+    const groupTarget = `group:${group.id || index}`;
+    if (!group.id || groupIds.has(group.id)) {
+      issues.push({ targetKey: groupTarget, message: `桥段 ${index + 1} 的稳定 ID 缺失或重复。` });
+    } else {
+      groupIds.add(group.id);
+    }
+    if (group.primaryRole !== "__CUSTOM__" && !validBridgeRoles.has(group.primaryRole)) {
+      issues.push({ targetKey: `${groupTarget}:primary-role`, message: `桥段 ${index + 1} 的主要作用不在当前词表中。` });
+    }
+    if (group.primaryRole === "__CUSTOM__" && !group.customRole.trim()) {
+      issues.push({ targetKey: `${groupTarget}:custom-role`, message: `桥段 ${index + 1} 选择“其他”后必须填写自定义作用。` });
+    }
+    if (group.auxiliaryRoles.length > 2 || !unique(group.auxiliaryRoles)) {
+      issues.push({ targetKey: `${groupTarget}:auxiliary-roles`, message: `桥段 ${index + 1} 的辅助作用最多两项且不能重复。` });
+    }
+    if (group.auxiliaryRoles.includes(group.primaryRole)) {
+      issues.push({ targetKey: `${groupTarget}:auxiliary-roles`, message: `桥段 ${index + 1} 的主要作用不能同时作为辅助作用。` });
+    }
+    if (group.auxiliaryRoles.some((role) => !validBridgeRoles.has(role))) {
+      issues.push({ targetKey: `${groupTarget}:auxiliary-roles`, message: `桥段 ${index + 1} 含有无效的辅助作用。` });
+    }
+  }
+
+  for (const [index, shot] of payload.shots.entries()) {
+    if (!shot.id || shotIds.has(shot.id)) {
+      issues.push({ targetKey: `shot:${shot.id || index}:row`, message: `镜头 ${index + 1} 的稳定 ID 缺失或重复。` });
+    } else {
+      shotIds.add(shot.id);
+    }
+    if (!shot.shotGroupId || !groupIds.has(shot.shotGroupId)) {
+      issues.push({ targetKey: `shot:${shot.id || index}:row`, message: `镜头 ${index + 1} 没有绑定到真实桥段。` });
+    }
+  }
+
+  if (!paths.has(structure.primaryCreativePath as CreativePath)) {
+    issues.push({ targetKey: "structure:primary-creative-path", message: "主导创意路径无效。" });
+  }
+  if (structure.auxiliaryCreativePaths.length > 2 || !unique(structure.auxiliaryCreativePaths)) {
+    issues.push({ targetKey: "structure:auxiliary-creative-paths", message: "辅助创意路径最多两项且不能重复。" });
+  }
+  if (structure.auxiliaryCreativePaths.includes(structure.primaryCreativePath as CreativePath)) {
+    issues.push({ targetKey: "structure:auxiliary-creative-paths", message: "主导创意路径不能同时作为辅助路径。" });
+  }
+  if (structure.auxiliaryCreativePaths.some((path) => !paths.has(path))) {
+    issues.push({ targetKey: "structure:auxiliary-creative-paths", message: "辅助创意路径含有无效枚举值。" });
+  }
+  if (structure.primaryCreativePath && paths.has(structure.primaryCreativePath)) {
+    for (const field of mainPathFields[structure.primaryCreativePath]) {
+      if (!structure.mainPathPayload[field.key]?.trim()) {
+        issues.push({ targetKey: `structure:main-path:${field.key}`, message: `主导路径缺少“${field.label}”。` });
+      }
+    }
+  }
+  for (const path of structure.auxiliaryCreativePaths) {
+    if (!structure.auxiliaryPathNotes[path]?.trim()) {
+      issues.push({ targetKey: `structure:aux-path:${path}`, message: `辅助路径 ${path} 缺少增强作用说明。` });
+    }
+  }
+
+  if (!mechanisms.has(structure.mechanismPrimary)) {
+    issues.push({ targetKey: "structure:mechanism-primary", message: "主机制不在当前或兼容词表中。" });
+  }
+  if (structure.mechanismAuxiliary.length > 2 || !unique(structure.mechanismAuxiliary)) {
+    issues.push({ targetKey: "structure:mechanism-auxiliary", message: "辅助机制最多两项且不能重复。" });
+  }
+  if (structure.mechanismAuxiliary.includes(structure.mechanismPrimary)) {
+    issues.push({ targetKey: "structure:mechanism-auxiliary", message: "主机制不能同时作为辅助机制。" });
+  }
+  if (structure.mechanismAuxiliary.some((item) => !mechanisms.has(item))) {
+    issues.push({ targetKey: "structure:mechanism-auxiliary", message: "辅助机制含有无效枚举值。" });
+  }
+  if (
+    [structure.mechanismPrimary, ...structure.mechanismAuxiliary].some(
+      (value) => value.includes("其他") || value.includes("待形成新机制"),
+    ) && !structure.mechanismCustom.trim()
+  ) {
+    issues.push({ targetKey: "structure:mechanism-custom", message: "选择自定义机制后必须填写说明。" });
+  }
+
+  if (!formations.has(structure.formationPrimary as FormationMode)) {
+    issues.push({ targetKey: "structure:formation-primary", message: "全片主要形成方式无效。" });
+  }
+  if (structure.formationAuxiliary.length > 2 || !unique(structure.formationAuxiliary)) {
+    issues.push({ targetKey: "structure:formation-auxiliary", message: "辅助形成方式最多两项且不能重复。" });
+  }
+  if (structure.formationAuxiliary.includes(structure.formationPrimary as FormationMode)) {
+    issues.push({ targetKey: "structure:formation-auxiliary", message: "主要形成方式不能同时作为辅助方式。" });
+  }
+  if (structure.formationAuxiliary.some((item) => !formations.has(item))) {
+    issues.push({ targetKey: "structure:formation-auxiliary", message: "辅助形成方式含有无效枚举值。" });
+  }
+  const usesLocalTrigger = [structure.formationPrimary, ...structure.formationAuxiliary]
+    .includes("LOCAL_TRIGGER");
+  if (usesLocalTrigger && !structure.formationRelatedGroupIds.length) {
+    issues.push({ targetKey: "structure:formation-related-groups", message: "关键局部触发必须关联至少一个真实桥段。" });
+  }
+  if (!usesLocalTrigger && structure.formationRelatedGroupIds.length) {
+    issues.push({ targetKey: "structure:formation-related-groups", message: "未选择关键局部触发时不能保留关联桥段。" });
+  }
+  if (
+    !unique(structure.formationRelatedGroupIds) ||
+    structure.formationRelatedGroupIds.some((id) => !groupIds.has(id))
+  ) {
+    issues.push({ targetKey: "structure:formation-related-groups", message: "关联桥段包含重复或不存在的 ID。" });
+  }
+  return issues;
+}
+
+export function validateApprovalCandidate(payload: AnnotationDraft) {
+  const required = validateAnnotation(payload).map((message) => ({
+    targetKey: "required",
+    message: `必填项未完成：${message}`,
+  }));
+  const structural = structureIssues(payload);
+  const seen = new Set<string>();
+  return [...required, ...structural].filter((issue) => {
+    const key = `${issue.targetKey}:${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function validateV02(payload: AnnotationDraft) {
   const missing: string[] = [];

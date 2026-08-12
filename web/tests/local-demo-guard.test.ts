@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { assertLocalDemoDatabase } from "../lib/local-demo.ts";
+import {
+  assertLocalDemoDatabase,
+  isLocalDemoMode,
+} from "../lib/local-demo.ts";
 
 test("loopback databases are accepted in every spelling", () => {
   for (const host of ["127.0.0.1", "localhost", "[::1]"]) {
@@ -54,14 +57,33 @@ test("the guard sits on the pool so every entry point is covered", async () => {
   assert.match(db, /isLocalDemoMode\(\)\s*\?\s*assertLocalDemoDatabase\(connectionString\)/);
 });
 
-test("local demo mode still requires development", async () => {
-  const source = await readFile(
-    path.join(process.cwd(), "lib/local-demo.ts"),
-    "utf8",
-  );
+test("local demo mode is limited to development or explicit local acceptance", () => {
+  const previous = {
+    nodeEnv: process.env.NODE_ENV,
+    localDemo: process.env.LOCAL_DEMO_MODE,
+    acceptance: process.env.LOCAL_DEMO_ACCEPTANCE_MODE,
+  };
 
-  assert.match(
-    source,
-    /LOCAL_DEMO_MODE === "1" && process\.env\.NODE_ENV === "development"/,
-  );
+  try {
+    process.env.LOCAL_DEMO_MODE = "1";
+    process.env.NODE_ENV = "development";
+    delete process.env.LOCAL_DEMO_ACCEPTANCE_MODE;
+    assert.equal(isLocalDemoMode(), true);
+
+    process.env.NODE_ENV = "production";
+    assert.equal(isLocalDemoMode(), false);
+
+    process.env.LOCAL_DEMO_ACCEPTANCE_MODE = "1";
+    assert.equal(isLocalDemoMode(), true);
+
+    delete process.env.LOCAL_DEMO_MODE;
+    assert.equal(isLocalDemoMode(), false);
+  } finally {
+    if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous.nodeEnv;
+    if (previous.localDemo === undefined) delete process.env.LOCAL_DEMO_MODE;
+    else process.env.LOCAL_DEMO_MODE = previous.localDemo;
+    if (previous.acceptance === undefined) delete process.env.LOCAL_DEMO_ACCEPTANCE_MODE;
+    else process.env.LOCAL_DEMO_ACCEPTANCE_MODE = previous.acceptance;
+  }
 });

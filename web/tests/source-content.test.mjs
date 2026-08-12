@@ -255,7 +255,7 @@ test("video detail API returns current user's analysis status", async () => {
 
   assert.match(
     source,
-    /WHERE video_id = \? AND author_email = \? AND deleted_at IS NULL/,
+    /WHERE a\.video_id = \? AND a\.author_email = \? AND a\.deleted_at IS NULL/,
   );
   assert.match(source, /\.bind\(id, user\.identityKey\)/);
   assert.match(source, /myAnalysis:/);
@@ -269,7 +269,7 @@ test("video detail client labels current V0.3 work by status and de-emphasizes V
 
   assert.match(source, /myAnalysis/);
   assert.match(source, /编辑／继续修订我的作业 ↗/);
-  assert.match(source, /基于标准版开始新一轮修订 ↗/);
+  assert.match(source, /基于活动标准版 R/);
   assert.match(source, /开始修改我的作业 ↗/);
   assert.match(source, /开始 V0\.3 试点分析 ↗/);
   assert.match(source, /历史体系 V0\.2 · 只读查看/);

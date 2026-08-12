@@ -32,6 +32,11 @@ type VersionRow = {
   created_at: string;
 };
 
+type ReleaseIdentityRow = {
+  release_number: number;
+  status: "ACTIVE" | "SUPERSEDED" | "WITHDRAWN";
+};
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ snapshotId: string }> },
@@ -64,15 +69,20 @@ export async function GET(
     return Response.json({ error: "作业版本不存在。" }, { status: 404 });
   }
 
-  const versionResult = await db
+  const [versionResult, releaseIdentity] = await Promise.all([db
     .prepare(
       `SELECT id, revision, content_hash, created_at
       FROM annotation_snapshots
-      WHERE annotation_id = ?
+      WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'
       ORDER BY created_at ASC, revision ASC`,
     )
     .bind(snapshot.annotation_id)
-    .all<VersionRow>();
+    .all<VersionRow>(),
+    db.prepare(
+      `SELECT release_number, status FROM approved_analysis_releases
+      WHERE approved_snapshot_id = ? LIMIT 1`,
+    ).bind(snapshotId).first<ReleaseIdentityRow>(),
+  ]);
   const versions = versionResult.results.map((version, index) => ({
     id: version.id,
     revision: version.revision,
@@ -101,6 +111,9 @@ export async function GET(
       contentHash: snapshot.content_hash,
       payload: JSON.parse(snapshot.payload_json),
       versions,
+      versionIdentity: releaseIdentity
+        ? releaseIdentity.status === "ACTIVE" ? "ACTIVE_STANDARD" : "HISTORICAL_STANDARD"
+        : "PUBLIC_SUBMISSION",
       reviewContext: {
         round: snapshot.round_id ? {
           id: snapshot.round_id,
@@ -124,7 +137,9 @@ export async function GET(
           Number(snapshot.comment_count) === 0 &&
           Number(snapshot.revision_count) === 0
         ),
-        activeReleaseNumber: null,
+        activeReleaseNumber: releaseIdentity?.status === "ACTIVE"
+          ? Number(releaseIdentity.release_number)
+          : null,
       },
     },
   });

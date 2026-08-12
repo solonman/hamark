@@ -30,7 +30,6 @@ const annotationTargets = {
 
 const shotTargets = {
   "group-name": { property: "groupName", column: "group_name" },
-  number: { property: "shotNumber", column: "shot_number" },
   "start-time": { property: "startTime", column: "start_time" },
   "end-time": { property: "endTime", column: "end_time" },
   "shot-size": { property: "shotSize", column: "shot_size" },
@@ -301,7 +300,10 @@ export function analysisTargetValue(
     const values = annotation.creativeStructure?.[target.property] as
       | Record<string, string | undefined>
       | undefined;
-    return values?.[target.itemKey] ?? null;
+    // Path fields are conditionally displayed. A newly selected path can target a
+    // field that did not exist in the source JSON yet; its canonical source value
+    // is the empty string, not a missing target.
+    return values?.[target.itemKey] ?? "";
   }
   const field = annotation.fields.find((item) => item.code === target.fieldCode);
   return field?.[target.property] ?? null;

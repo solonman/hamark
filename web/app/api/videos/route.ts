@@ -39,6 +39,7 @@ export async function GET(request: Request) {
         (SELECT COUNT(*) FROM annotation_snapshots s WHERE s.video_id = v.id) AS annotation_count
       FROM videos v
       WHERE v.deleted_at IS NULL
+        AND COALESCE(v.data_scope, 'BUSINESS') = 'BUSINESS'
       ORDER BY v.created_at DESC`,
     )
     .all<VideoRow>();

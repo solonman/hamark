@@ -25,6 +25,22 @@ test("local demo mode is available only in development", () => {
   }
 });
 
+test("final-build acceptance mode is explicit and still uses the local-demo safety guards", () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousLocalDemo = process.env.LOCAL_DEMO_MODE;
+  const previousAcceptance = process.env.LOCAL_DEMO_ACCEPTANCE_MODE;
+  process.env.NODE_ENV = "production";
+  process.env.LOCAL_DEMO_MODE = "1";
+  delete process.env.LOCAL_DEMO_ACCEPTANCE_MODE;
+  assert.equal(isLocalDemoMode(), false);
+  process.env.LOCAL_DEMO_ACCEPTANCE_MODE = "1";
+  assert.equal(isLocalDemoMode(), true);
+  process.env.NODE_ENV = previousNodeEnv;
+  process.env.LOCAL_DEMO_MODE = previousLocalDemo;
+  if (previousAcceptance === undefined) delete process.env.LOCAL_DEMO_ACCEPTANCE_MODE;
+  else process.env.LOCAL_DEMO_ACCEPTANCE_MODE = previousAcceptance;
+});
+
 test("local demo URL accepts only an HTTP loopback origin", () => {
   const previousMode = process.env.LOCAL_DEMO_MODE;
   const previousNodeEnv = process.env.NODE_ENV;

@@ -45,7 +45,7 @@ export async function GET(
     ? await getDbClient()
         .prepare(
           `SELECT COUNT(*) AS version_count FROM annotation_snapshots
-          WHERE annotation_id = ?`,
+          WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
         )
         .bind(annotation.id)
         .first<{ version_count: number }>()
@@ -53,7 +53,8 @@ export async function GET(
   return Response.json({
     video,
     annotation,
-    seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION && Boolean(annotation.sourceSnapshotId) && !annotation.id,
+    seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION &&
+      Boolean(annotation.sourceSnapshotId) && !annotation.baseReleaseId && !annotation.id,
     hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
     publishedVersionCount: Number(published?.version_count ?? 0),
   });
@@ -96,7 +97,9 @@ export async function PUT(
 
   const existing = await db
     .prepare(
-      `SELECT id, revision, source_snapshot_id, review_status FROM annotations
+      `SELECT id, revision, source_snapshot_id, review_status,
+        base_release_id, base_snapshot_id, source_public_snapshot_id
+      FROM annotations
       WHERE video_id = ? AND author_email = ? AND taxonomy_version = ?
         AND deleted_at IS NULL`,
     )
@@ -106,6 +109,9 @@ export async function PUT(
       revision: number;
       source_snapshot_id: string | null;
       review_status: string;
+      base_release_id: string | null;
+      base_snapshot_id: string | null;
+      source_public_snapshot_id: string | null;
     }>();
 
   if (
@@ -158,6 +164,18 @@ export async function PUT(
       : null;
   const sourceSnapshotId =
     requestedSource?.id ?? existing?.source_snapshot_id ?? null;
+  const requestedBaseline = isV03 && payload.baseReleaseId
+    ? await db.prepare(
+        `SELECT id, approved_snapshot_id, source_snapshot_id
+        FROM approved_analysis_releases
+        WHERE id = ? AND video_id = ? AND status = 'ACTIVE'`,
+      ).bind(payload.baseReleaseId, videoId).first<{
+        id: string; approved_snapshot_id: string; source_snapshot_id: string;
+      }>()
+    : null;
+  const baseReleaseId = requestedBaseline?.id ?? existing?.base_release_id ?? null;
+  const baseSnapshotId = requestedBaseline?.approved_snapshot_id ?? existing?.base_snapshot_id ?? null;
+  const sourcePublicSnapshotId = requestedBaseline?.source_snapshot_id ?? existing?.source_public_snapshot_id ?? null;
 
   const statements: DbPreparedStatement[] = [];
   if (existing) {
@@ -166,6 +184,7 @@ export async function PUT(
         .prepare(
           `UPDATE annotations SET
             author_name = ?, workflow_version = ?, source_snapshot_id = ?,
+            base_release_id = ?, base_snapshot_id = ?, source_public_snapshot_id = ?,
             status = 'DRAFT',
             review_status = CASE WHEN review_status = 'APPROVED' THEN 'DRAFT' ELSE review_status END,
             revision = ?, analysis_title = ?,
@@ -178,6 +197,9 @@ export async function PUT(
           user.displayName,
           workflowVersion,
           sourceSnapshotId,
+          baseReleaseId,
+          baseSnapshotId,
+          sourcePublicSnapshotId,
           nextRevision,
           payload.analysisTitle.trim(),
           payload.commercialIntent.trim(),
@@ -198,9 +220,10 @@ export async function PUT(
           `INSERT INTO annotations (
             id, video_id, author_email, author_name, taxonomy_version,
             workflow_version, source_snapshot_id, status, revision,
+            base_release_id, base_snapshot_id, source_public_snapshot_id,
             analysis_title, commercial_intent, creative_theme, synopsis,
             thinking_chain, shot_commentary, summary
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           annotationId,
@@ -211,6 +234,9 @@ export async function PUT(
           workflowVersion,
           sourceSnapshotId,
           nextRevision,
+          baseReleaseId,
+          baseSnapshotId,
+          sourcePublicSnapshotId,
           payload.analysisTitle.trim(),
           payload.commercialIntent.trim(),
           payload.creativeTheme.trim(),

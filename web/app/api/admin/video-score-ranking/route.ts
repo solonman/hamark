@@ -44,6 +44,7 @@ export async function GET(request: Request) {
       FROM videos v
       INNER JOIN assignment_reviews r ON r.video_id = v.id
       WHERE v.deleted_at IS NULL
+        AND COALESCE(v.data_scope, 'BUSINESS') = 'BUSINESS'
         AND v.created_at >= ? AND v.created_at < ?
         AND r.status = 'SUBMITTED'
         AND r.is_valid_for_aggregate = 1

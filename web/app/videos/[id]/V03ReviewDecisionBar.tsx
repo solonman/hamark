@@ -18,6 +18,7 @@ export default function V03ReviewDecisionBar({
   const [decisionNote, setDecisionNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [validationIssues, setValidationIssues] = useState<Array<{ targetKey: string; message: string }>>([]);
 
   useEffect(() => {
     let active = true;
@@ -38,6 +39,7 @@ export default function V03ReviewDecisionBar({
     }
     setBusy(true);
     setNotice("");
+    setValidationIssues([]);
     try {
       const response = await fetch(`/api/analyses/${snapshotId}/review`, {
         method: "PATCH",
@@ -49,7 +51,12 @@ export default function V03ReviewDecisionBar({
           assignmentQualityGrade: qualityGrade,
         }),
       });
-      const data = (await response.json()) as { error?: string; releaseNumber?: number };
+      const data = (await response.json()) as {
+        error?: string;
+        releaseNumber?: number;
+        issues?: Array<{ targetKey: string; message: string }>;
+      };
+      if (data.issues?.length) setValidationIssues(data.issues);
       if (!response.ok) throw new Error(data.error || "审核操作失败");
       setNotice(
         action === "APPROVE"
@@ -101,6 +108,12 @@ export default function V03ReviewDecisionBar({
         <button className="button button-ghost compact" disabled={busy} onClick={() => void decide("WITHDRAW")}>撤回并继续修订</button>
       ) : null}
       {notice ? <p className="analysis-comment-notice">{notice}</p> : null}
+      {validationIssues.length ? (
+        <div className="approval-validation-issues" role="alert">
+          <strong>批准前需修正 {validationIssues.length} 个结构问题</strong>
+          <ul>{validationIssues.map((issue) => <li key={`${issue.targetKey}:${issue.message}`}><code>{issue.targetKey}</code><span>{issue.message}</span></li>)}</ul>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -31,6 +31,9 @@ const statements = [
     deleted_at TEXT
   )`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS thumbnail_key TEXT`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS data_scope TEXT NOT NULL DEFAULT 'BUSINESS'`,
+  `ALTER TABLE videos ADD COLUMN IF NOT EXISTS test_run_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS videos_data_scope_idx ON videos(data_scope, created_at)`,
   `CREATE INDEX IF NOT EXISTS videos_status_idx ON videos(status)`,
   `CREATE INDEX IF NOT EXISTS videos_created_at_idx ON videos(created_at)`,
   `CREATE TABLE IF NOT EXISTS annotations (
@@ -260,11 +263,14 @@ const statements = [
     ON analysis_revision_suggestions(submission_id, target_key)`,
   `ALTER TABLE annotations ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'DRAFT'`,
   `ALTER TABLE annotations ADD COLUMN IF NOT EXISTS active_base_snapshot_id TEXT REFERENCES annotation_snapshots(id)`,
+  `ALTER TABLE annotations ADD COLUMN IF NOT EXISTS base_snapshot_id TEXT REFERENCES annotation_snapshots(id)`,
+  `ALTER TABLE annotations ADD COLUMN IF NOT EXISTS source_public_snapshot_id TEXT REFERENCES annotation_snapshots(id)`,
   `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS base_snapshot_id TEXT REFERENCES annotation_snapshots(id)`,
   `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS version_number INTEGER`,
   `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS revision_cause TEXT NOT NULL DEFAULT 'INITIAL'`,
   `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS workflow_status TEXT NOT NULL DEFAULT 'SUBMITTED'`,
   `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS submitted_at TEXT`,
+  `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS source_public_snapshot_id TEXT REFERENCES annotation_snapshots(id)`,
   `CREATE TABLE IF NOT EXISTS analysis_review_rounds (
     id TEXT PRIMARY KEY,
     annotation_id TEXT NOT NULL REFERENCES annotations(id),
@@ -326,8 +332,11 @@ const statements = [
   `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS original_value_json TEXT`,
   `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS replacement_value_json TEXT`,
   `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS vocabulary_version TEXT NOT NULL DEFAULT 'V0.3.1'`,
+  `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS change_set_id TEXT`,
   `CREATE INDEX IF NOT EXISTS analysis_revision_events_value_type_idx
     ON analysis_revision_events(review_round_id, value_type, created_at)`,
+  `CREATE INDEX IF NOT EXISTS analysis_revision_events_change_set_idx
+    ON analysis_revision_events(review_round_id, change_set_id, created_at)`,
   `ALTER TABLE analysis_comments ADD COLUMN IF NOT EXISTS review_round_id TEXT REFERENCES analysis_review_rounds(id)`,
   `ALTER TABLE analysis_comments ADD COLUMN IF NOT EXISTS base_version_id TEXT REFERENCES annotation_snapshots(id)`,
   `ALTER TABLE analysis_comments ADD COLUMN IF NOT EXISTS workflow_status TEXT NOT NULL DEFAULT 'OPEN'`,
@@ -369,6 +378,8 @@ const statements = [
     WHERE status = 'ACTIVE'`,
   `CREATE INDEX IF NOT EXISTS approved_analysis_releases_video_idx
     ON approved_analysis_releases(video_id, status, approved_at)`,
+  `ALTER TABLE annotations ADD COLUMN IF NOT EXISTS base_release_id TEXT REFERENCES approved_analysis_releases(id)`,
+  `ALTER TABLE annotation_snapshots ADD COLUMN IF NOT EXISTS base_release_id TEXT REFERENCES approved_analysis_releases(id)`,
   `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     wecom_corp_id TEXT NOT NULL,

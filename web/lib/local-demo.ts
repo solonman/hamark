@@ -1,7 +1,11 @@
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 export function isLocalDemoMode() {
-  return process.env.LOCAL_DEMO_MODE === "1" && process.env.NODE_ENV === "development";
+  const acceptanceRuntime =
+    process.env.NODE_ENV === "production" &&
+    process.env.LOCAL_DEMO_ACCEPTANCE_MODE === "1";
+  return process.env.LOCAL_DEMO_MODE === "1" &&
+    (process.env.NODE_ENV === "development" || acceptanceRuntime);
 }
 
 export function requireLocalDemoMode() {

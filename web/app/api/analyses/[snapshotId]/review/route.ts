@@ -7,6 +7,7 @@ import {
   sha256Text,
   type RevisionEventRecord,
 } from "@/lib/review-workflow";
+import { validateApprovalCandidate } from "@/lib/annotation-validation";
 import type { AnalysisReviewContext, AnnotationDraft, CreativeGrade } from "@/lib/types";
 
 type SnapshotRow = {
@@ -211,6 +212,16 @@ export async function PATCH(
       }
       const sourcePayload = JSON.parse(snapshot.payload_json) as AnnotationDraft;
       const cleanPayload = await materializeRevisionEvents(sourcePayload, events);
+      if (action === "APPROVE") {
+        const issues = validateApprovalCandidate(cleanPayload);
+        if (issues.length) {
+          return {
+            error: "整案结构校验未通过；请修正列出的字段后再批准。",
+            status: 422,
+            issues,
+          };
+        }
+      }
       for (const event of events) {
         await applyRevisionEventToAnnotation(db, snapshot.annotation_id, event);
       }
@@ -247,7 +258,8 @@ export async function PATCH(
       const payloadJson = JSON.stringify(cleanPayload);
       const contentHash = await sha256Text(payloadJson);
       const version = await db.prepare(
-        `SELECT COUNT(*) AS count FROM annotation_snapshots WHERE annotation_id = ?`,
+        `SELECT COUNT(*) AS count FROM annotation_snapshots
+        WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
       ).bind(snapshot.annotation_id).first<{ count: number }>();
       const release = await db.prepare(
         `SELECT id, release_number FROM approved_analysis_releases
@@ -282,11 +294,6 @@ export async function PATCH(
           Number(version?.count ?? 0) + 1,
           decidedAt,
         ),
-        db.prepare(
-          `UPDATE annotations SET status = 'SUBMITTED', review_status = 'APPROVED',
-            revision = ?, active_base_snapshot_id = ?, submitted_at = ?,
-            updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        ).bind(nextRevision, approvedSnapshotId, decidedAt, snapshot.annotation_id),
         db.prepare(
           `UPDATE analysis_review_rounds SET status = 'APPROVED', reviewer_email = ?,
             reviewer_name = ?, decision_note = ?, decided_at = ?, updated_at = CURRENT_TIMESTAMP
@@ -328,15 +335,37 @@ export async function PATCH(
           release?.id ?? null,
         ),
         db.prepare(
+          `UPDATE annotations SET status = 'SUBMITTED', review_status = 'APPROVED',
+            revision = ?, active_base_snapshot_id = ?, submitted_at = ?,
+            base_release_id = ?, base_snapshot_id = ?, source_public_snapshot_id = ?,
+            updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        ).bind(
+          nextRevision,
+          approvedSnapshotId,
+          decidedAt,
+          releaseId,
+          approvedSnapshotId,
+          snapshotId,
+          snapshot.annotation_id,
+        ),
+        db.prepare(
           `INSERT INTO audit_logs (id, actor_email, action, object_type, object_id, detail_json)
           VALUES (?, ?, 'STANDARD_RELEASE_APPROVED', 'APPROVED_RELEASE', ?, ?)`,
         ).bind(newId("audit"), user.identityKey, releaseId, JSON.stringify({ snapshotId, approvedSnapshotId, releaseNumber })),
+        db.prepare(
+          `UPDATE annotation_snapshots
+          SET base_release_id = ?, source_public_snapshot_id = ?
+          WHERE id = ?`,
+        ).bind(releaseId, snapshotId, approvedSnapshotId),
       ]);
       return { ok: true, action, approvedSnapshotId, releaseId, releaseNumber };
     });
 
     if ("error" in result) {
-      return Response.json({ error: result.error }, { status: result.status });
+      return Response.json(
+        { error: result.error, ...(result.issues ? { issues: result.issues } : {}) },
+        { status: result.status },
+      );
     }
     return Response.json(result);
   } catch (error) {

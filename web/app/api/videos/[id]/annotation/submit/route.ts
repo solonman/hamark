@@ -64,7 +64,7 @@ export async function POST(
     const versionCount = await db
       .prepare(
         `SELECT COUNT(*) AS version_count FROM annotation_snapshots
-        WHERE annotation_id = ?`,
+        WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
       )
       .bind(annotation.id)
       .first<{ version_count: number }>();
@@ -89,7 +89,7 @@ export async function POST(
   const previousVersionCount = await db
     .prepare(
       `SELECT COUNT(*) AS version_count FROM annotation_snapshots
-      WHERE annotation_id = ?`,
+      WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
     )
     .bind(annotation.id)
     .first<{ version_count: number }>();
@@ -97,7 +97,8 @@ export async function POST(
   const priorSnapshot = await db
     .prepare(
       `SELECT id FROM annotation_snapshots
-      WHERE annotation_id = ? ORDER BY created_at DESC, revision DESC LIMIT 1`,
+      WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'
+      ORDER BY created_at DESC, revision DESC LIMIT 1`,
     )
     .bind(annotation.id)
     .first<{ id: string }>();
@@ -111,8 +112,9 @@ export async function POST(
             id, annotation_id, video_id, author_email, author_name,
             taxonomy_version, revision, payload_json, content_hash,
             base_snapshot_id, version_number, revision_cause,
-            workflow_status, submitted_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?)`,
+            workflow_status, submitted_at, base_release_id,
+            source_public_snapshot_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', ?, ?, ?)`,
         )
         .bind(
           snapshotId,
@@ -124,10 +126,12 @@ export async function POST(
           annotation.revision,
           canonicalPayload,
           hash,
-          priorSnapshot?.id ?? null,
+          annotation.baseSnapshotId ?? priorSnapshot?.id ?? null,
           versionNumber,
           priorSnapshot ? "COMMENT_RESPONSE" : "INITIAL",
           new Date().toISOString(),
+          annotation.baseReleaseId ?? null,
+          annotation.sourcePublicSnapshotId ?? null,
         ),
       transaction
         .prepare(
@@ -153,6 +157,9 @@ export async function POST(
             taxonomyVersion: annotation.taxonomyVersion,
             workflowVersion: annotation.workflowVersion,
             sourceSnapshotId: annotation.sourceSnapshotId,
+            baseReleaseId: annotation.baseReleaseId,
+            baseSnapshotId: annotation.baseSnapshotId,
+            sourcePublicSnapshotId: annotation.sourcePublicSnapshotId,
             contentHash: hash,
           }),
         ),

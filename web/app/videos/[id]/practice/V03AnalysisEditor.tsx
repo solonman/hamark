@@ -4,10 +4,9 @@ import { annotationFields } from "@/lib/annotation-fields";
 import {
   creativeGradeOptions,
   creativePathOptions,
-  displayMechanismLabel,
   formationOptions,
   mainPathFields,
-  mechanismOptions,
+  mechanismChoicesFor,
   storyArchetypeOptions,
   storyReferenceOptions,
 } from "@/lib/taxonomy-v0.3";
@@ -89,13 +88,10 @@ export default function V03AnalysisEditor({
     onChange({ ...draft, creativeStructure: { ...structure, ...patch } });
   const optionalCodes = new Set(["A4", "A8", "B1", "B4", "B5", "B10"]);
   const optionalFields = annotationFields.filter((field) => optionalCodes.has(field.code));
-  const mechanismSelectOptions = Array.from(
-    new Set([
-      structure.mechanismPrimary,
-      ...structure.mechanismAuxiliary,
-      ...mechanismOptions,
-    ].filter(Boolean)),
-  );
+  const mechanismSelectOptions = mechanismChoicesFor([
+    structure.mechanismPrimary,
+    ...structure.mechanismAuxiliary,
+  ]);
 
   function updateOptionalField(code: string, answer: string) {
     onChange({
@@ -127,12 +123,12 @@ export default function V03AnalysisEditor({
             <small>在具体句之后再归类；允许判断现有词表不适用。</small>
             <select value={structure.mechanismPrimary} onChange={(event) => updateStructure({ mechanismPrimary: event.target.value, mechanismAuxiliary: structure.mechanismAuxiliary.filter((value) => value !== event.target.value) })}>
               <option value="">请选择主归类</option>
-              {mechanismSelectOptions.map((option) => <option value={option} key={option}>{displayMechanismLabel(option)}</option>)}
+              {mechanismSelectOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
             </select>
           </label>
           <div className="editor-wide v03-inline-field" data-edit-target="structure:mechanism-auxiliary">
             <span>辅助机制（可选 0—2 项）</span>
-            <ToggleList options={mechanismSelectOptions.map((value) => ({ value, label: displayMechanismLabel(value) }))} values={structure.mechanismAuxiliary} disabledValue={structure.mechanismPrimary} limit={2} onChange={(values) => updateStructure({ mechanismAuxiliary: values })} />
+            <ToggleList options={mechanismSelectOptions} values={structure.mechanismAuxiliary} disabledValue={structure.mechanismPrimary} limit={2} onChange={(values) => updateStructure({ mechanismAuxiliary: values })} />
           </div>
           {[structure.mechanismPrimary, ...structure.mechanismAuxiliary].some((value) => value.includes("其他") || value.includes("待形成新机制")) ? (
             <TextAreaField targetKey="structure:mechanism-custom" label="自定义／新机制说明" hint="说明现有词表为什么不适用，并给出你的命名。" value={structure.mechanismCustom} onChange={(value) => updateStructure({ mechanismCustom: value })} wide />
