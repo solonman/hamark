@@ -14,15 +14,24 @@ import {
   type SaveResponseBody,
 } from "@/lib/annotation-sync";
 import { validateAnnotation } from "@/lib/annotation-validation";
-import type { AnnotationDraft, ShotDraft } from "@/lib/types";
+import { emptyCreativeStructure } from "@/lib/taxonomy-v0.3";
+import type {
+  AnnotationDraft,
+  ShotDraft,
+  ShotGroupDraft,
+  TaxonomyVersion,
+} from "@/lib/types";
 import ShotGroupEditor from "./ShotGroupEditor";
 import TaxonomyFieldEditor from "./TaxonomyFieldEditor";
+import V03ShotGroupEditor from "./V03ShotGroupEditor";
+import V03AnalysisEditor from "./V03AnalysisEditor";
 
 type AnnotationResponse = {
   video?: { id: string; title: string; status: string };
   annotation?: AnnotationDraft;
   hasPublishedVersion?: boolean;
   publishedVersionCount?: number;
+  seededFromV02?: boolean;
   error?: string;
 };
 
@@ -44,6 +53,31 @@ function newShot(orderIndex: number): ShotDraft {
     soundEffect: "",
     music: "",
     creativeComment: "",
+  };
+}
+
+function ensureV03Worksheet(annotation: AnnotationDraft): AnnotationDraft {
+  if (annotation.taxonomyVersion !== "V0.3-PILOT") return annotation;
+  if (annotation.shotGroups?.length && annotation.shots.length) {
+    return {
+      ...annotation,
+      creativeStructure: annotation.creativeStructure ?? emptyCreativeStructure(),
+    };
+  }
+  const group: ShotGroupDraft = {
+    id: crypto.randomUUID(),
+    orderIndex: 0,
+    title: "桥段 1",
+    primaryRole: "",
+    auxiliaryRoles: [],
+    customRole: "",
+    note: "",
+  };
+  return {
+    ...annotation,
+    shotGroups: [group],
+    shots: [{ ...newShot(0), groupName: group.title, shotGroupId: group.id }],
+    creativeStructure: annotation.creativeStructure ?? emptyCreativeStructure(),
   };
 }
 
@@ -88,7 +122,13 @@ function redirectOnUnauthorized(response: Response) {
   return false;
 }
 
-export default function PracticeClient({ videoId }: { videoId: string }) {
+export default function PracticeClient({
+  videoId,
+  taxonomyVersion,
+}: {
+  videoId: string;
+  taxonomyVersion: TaxonomyVersion;
+}) {
   const [videoTitle, setVideoTitle] = useState("");
   const [videoStatus, setVideoStatus] = useState("");
   const [draft, setDraft] = useState<AnnotationDraft | null>(null);
@@ -96,6 +136,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
   const [dirty, setDirty] = useState(false);
   const [hasPublishedVersion, setHasPublishedVersion] = useState(false);
   const [publishedVersionCount, setPublishedVersionCount] = useState(0);
+  const [seededFromV02, setSeededFromV02] = useState(false);
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -126,7 +167,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/videos/${videoId}/annotation`, { cache: "no-store" })
+    fetch(`/api/videos/${videoId}/annotation?taxonomy=${encodeURIComponent(taxonomyVersion)}`, { cache: "no-store" })
       .then(async (response) => {
         if (redirectOnUnauthorized(response)) return;
         const data = (await response.json()) as AnnotationResponse;
@@ -138,10 +179,13 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
           setVideoStatus(data.video.status);
           setHasPublishedVersion(Boolean(data.hasPublishedVersion));
           setPublishedVersionCount(Number(data.publishedVersionCount ?? 0));
+          setSeededFromV02(Boolean(data.seededFromV02));
           setDraft(
-            data.annotation.shots.length
-              ? data.annotation
-              : { ...data.annotation, shots: [newShot(0)] },
+            taxonomyVersion === "V0.3-PILOT"
+              ? ensureV03Worksheet(data.annotation)
+              : data.annotation.shots.length
+                ? data.annotation
+                : { ...data.annotation, shots: [newShot(0)] },
           );
         }
       })
@@ -157,7 +201,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     return () => {
       active = false;
     };
-  }, [videoId]);
+  }, [taxonomyVersion, videoId]);
 
   const markChanged = useCallback((next: AnnotationDraft) => {
     editSequence.current += 1;
@@ -184,7 +228,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
       setSaveState("saving");
       setNotice("");
       try {
-      const response = await fetch(`/api/videos/${videoId}/annotation`, {
+      const response = await fetch(`/api/videos/${videoId}/annotation?taxonomy=${encodeURIComponent(taxonomyVersion)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(current),
@@ -246,7 +290,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     })();
     saveInFlight.current = operation;
     return operation;
-  }, [videoId]);
+  }, [taxonomyVersion, videoId]);
 
   useEffect(() => {
     function handleHomeNavigation(rawEvent: Event) {
@@ -291,6 +335,20 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
 
   const completion = useMemo(() => {
     if (!draft) return { done: 0, total: 24 };
+    if (draft.taxonomyVersion === "V0.3-PILOT") {
+      const structure = draft.creativeStructure ?? emptyCreativeStructure();
+      const conditionalCount =
+        Number(structure.conditionFlags.unconventionalWorld) +
+        Number(structure.conditionFlags.audiovisualCarriesIdea) +
+        Number(
+          structure.primaryCreativePath === "INTERESTING" ||
+            structure.conditionFlags.interestingLoadBearing,
+        );
+      const total = 23 + (draft.shotGroups?.length ?? 0) * 3 +
+        structure.auxiliaryCreativePaths.length + conditionalCount;
+      const blockers = validateAnnotation(draft).length;
+      return { done: Math.max(0, total - blockers), total };
+    }
     const coreDone = [
       draft.commercialIntent,
       draft.creativeTheme,
@@ -338,7 +396,7 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
     }
     setSaveState("saving");
     try {
-      const response = await fetch(`/api/videos/${videoId}/annotation/submit`, {
+      const response = await fetch(`/api/videos/${videoId}/annotation/submit?taxonomy=${encodeURIComponent(taxonomyVersion)}`, {
         method: "POST",
       });
       if (redirectOnUnauthorized(response)) return;
@@ -414,7 +472,23 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
                         ? "草稿已自动保存"
                         : "新作业"}
           </span>
-          <span className="version-pill">体系 V0.2</span>
+          <span className={`version-pill ${taxonomyVersion === "V0.3-PILOT" ? "is-pilot" : ""}`}>
+            体系 {taxonomyVersion}
+          </span>
+          <div className="taxonomy-switch" aria-label="标注体系切换">
+            <Link
+              className={taxonomyVersion === "V0.3-PILOT" ? "is-active" : ""}
+              href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
+            >
+              V0.3 试点
+            </Link>
+            <Link
+              className={taxonomyVersion === "V0.2" ? "is-active" : ""}
+              href={`/videos/${videoId}/practice?taxonomy=V0.2`}
+            >
+              V0.2 原版
+            </Link>
+          </div>
           <div className="completion-pill">
             <span>{completion.done}</span> / {completion.total}
           </div>
@@ -453,6 +527,13 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
         </div>
       ) : null}
 
+      {seededFromV02 && !draft.id ? (
+        <div className="revision-context-banner pilot-seed-banner">
+          <strong>已从你最新的 V0.2 公开版建立 V0.3 草稿</strong>
+          <span>只带入共通的整体判断与逐镜脚本；原 19 项没有被重解或覆盖。首次修改后将作为独立 V0.3 草稿保存。</span>
+        </div>
+      ) : null}
+
       <div className="practice-layout">
         <DraggableVideoPlayer enabled>
           <aside className="practice-aside">
@@ -472,13 +553,26 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
             <div className="practice-nav">
               <p className="eyebrow">WORKSHEET</p>
               <a href="#shots">01 逐镜脚本还原</a>
-              <a href="#core">02 整体判断与总结</a>
-              <a href="#creative">03 创意构成 9 项</a>
-              <a href="#story">04 故事组织 10 项</a>
+              {taxonomyVersion === "V0.3-PILOT" ? (
+                <>
+                  <a href="#core">02 全片事实与核心判断</a>
+                  <a href="#path">03 主导类型发生路径</a>
+                  <a href="#grade">04 提交与 S/A/B/C 自评</a>
+                </>
+              ) : (
+                <>
+                  <a href="#core">02 整体判断与总结</a>
+                  <a href="#creative">03 创意构成 9 项</a>
+                  <a href="#story">04 故事组织 10 项</a>
+                </>
+              )}
             </div>
             <div className="practice-note">
               <strong>反写，不是仿写</strong>
-              <p>先忠实还原成片，再判断创意为何成立。所有内容都绑定 V0.2。</p>
+              <p>
+                先忠实还原成片，再判断创意为何成立。
+                所有内容都绑定 {taxonomyVersion}。
+              </p>
             </div>
           </aside>
         </DraggableVideoPlayer>
@@ -550,13 +644,26 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
               </div>
               <p>先按叙事段落切镜头组，再在组内逐镜还原；镜号由系统自动维护。</p>
             </div>
-            <ShotGroupEditor
-              shots={draft.shots}
-              onChange={(shots) => markChanged({ ...draft, shots })}
-            />
+            {taxonomyVersion === "V0.3-PILOT" ? (
+              <V03ShotGroupEditor
+                groups={draft.shotGroups ?? []}
+                shots={draft.shots}
+                onChange={(shotGroups, shots) =>
+                  markChanged({ ...draft, shotGroups, shots })
+                }
+              />
+            ) : (
+              <ShotGroupEditor
+                shots={draft.shots}
+                onChange={(shots) => markChanged({ ...draft, shots })}
+              />
+            )}
           </section>
 
-          <section className="worksheet-section" id="core">
+          {taxonomyVersion === "V0.3-PILOT" ? (
+            <V03AnalysisEditor draft={draft} onChange={markChanged} />
+          ) : (
+          <><section className="worksheet-section" id="core">
             <div className="worksheet-section-head">
               <span>02</span>
               <div>
@@ -664,14 +771,15 @@ export default function PracticeClient({ videoId }: { videoId: string }) {
                 })}
               </div>
             </section>
-          ))}
+          ))}</>
+          )}
 
           <section className="submit-panel" ref={submitPanelRef}>
             <div>
               <p className="eyebrow">READY TO SHARE?</p>
               <h2>把这份作业交给团队</h2>
               <p>
-                每一处修改都会自动存入个人草稿；发布时生成不可覆盖的修订快照，
+                每一处修改都会自动存入个人草稿；发布时生成不可覆盖的 {taxonomyVersion} 修订快照，
                 不会改写之前的公开版本。
               </p>
               {publishBlockers.length ? (

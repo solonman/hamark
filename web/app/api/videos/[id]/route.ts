@@ -43,6 +43,7 @@ type MyAnnotationRow = {
   status: "DRAFT" | "SUBMITTED";
   revision: number;
   updated_at: string;
+  taxonomy_version: "V0.2" | "V0.3-PILOT";
 };
 
 export async function GET(
@@ -72,7 +73,7 @@ export async function GET(
   const [
     snapshots,
     snapshotVersions,
-    myAnnotation,
+    myAnnotations,
     submittedAnalysis,
     playbackUrl,
     thumbnailUrl,
@@ -84,12 +85,13 @@ export async function GET(
           s.payload_json, s.content_hash, s.created_at
         FROM annotation_snapshots s
         INNER JOIN (
-          SELECT author_email, MAX(revision) AS latest_revision
+          SELECT author_email, taxonomy_version, MAX(revision) AS latest_revision
           FROM annotation_snapshots
           WHERE video_id = ?
-          GROUP BY author_email
+          GROUP BY author_email, taxonomy_version
         ) latest
         ON latest.author_email = s.author_email
+        AND latest.taxonomy_version = s.taxonomy_version
         AND latest.latest_revision = s.revision
         WHERE s.video_id = ?
         ORDER BY s.created_at DESC`,
@@ -107,12 +109,13 @@ export async function GET(
       .all<SnapshotVersionRow>(),
     db
       .prepare(
-        `SELECT id, status, revision, updated_at
+        `SELECT id, status, revision, updated_at, taxonomy_version
         FROM annotations
-        WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL`,
+        WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL
+        ORDER BY CASE WHEN taxonomy_version = 'V0.3-PILOT' THEN 0 ELSE 1 END`,
     )
       .bind(id, user.identityKey)
-      .first<MyAnnotationRow>(),
+      .all<MyAnnotationRow>(),
     db
       .prepare(
         `SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`,
@@ -181,14 +184,22 @@ export async function GET(
         versions,
       };
     }),
-    myAnalysis: myAnnotation
+    myAnalysis: myAnnotations.results[0]
       ? {
-          id: myAnnotation.id,
-          status: myAnnotation.status,
-          revision: myAnnotation.revision,
-          updatedAt: myAnnotation.updated_at,
+          id: myAnnotations.results[0].id,
+          status: myAnnotations.results[0].status,
+          revision: myAnnotations.results[0].revision,
+          updatedAt: myAnnotations.results[0].updated_at,
+          taxonomyVersion: myAnnotations.results[0].taxonomy_version,
         }
       : null,
+    myAnalyses: myAnnotations.results.map((annotation) => ({
+      id: annotation.id,
+      status: annotation.status,
+      revision: annotation.revision,
+      updatedAt: annotation.updated_at,
+      taxonomyVersion: annotation.taxonomy_version,
+    })),
     canManage,
     canDeletePermanently: canManage && !hasSubmittedAnalysis,
     canReplaceOriginal: canManage,

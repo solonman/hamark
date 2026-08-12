@@ -1,6 +1,13 @@
 import { getDbClient } from "@/db";
 import { loadAnnotation, validateAnnotation } from "@/lib/annotation-server";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import { V03_TAXONOMY_VERSION } from "@/lib/taxonomy-v0.3";
+import type { TaxonomyVersion } from "@/lib/types";
+
+function requestedTaxonomy(request: Request): TaxonomyVersion | null {
+  const value = new URL(request.url).searchParams.get("taxonomy") ?? "V0.2";
+  return value === "V0.2" || value === V03_TAXONOMY_VERSION ? value : null;
+}
 
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -18,8 +25,17 @@ export async function POST(
   if (originError) return originError;
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
+  const taxonomyVersion = requestedTaxonomy(request);
+  if (!taxonomyVersion) {
+    return Response.json({ error: "不支持的标注体系版本。" }, { status: 400 });
+  }
   const { id: videoId } = await context.params;
-  const annotation = await loadAnnotation(videoId, user.identityKey, user.displayName);
+  const annotation = await loadAnnotation(
+    videoId,
+    user.identityKey,
+    user.displayName,
+    taxonomyVersion,
+  );
 
   if (!annotation.id) {
     return Response.json({ error: "请先保存作业。" }, { status: 400 });
@@ -113,6 +129,8 @@ export async function POST(
           videoId,
           revision: annotation.revision,
           taxonomyVersion: annotation.taxonomyVersion,
+          workflowVersion: annotation.workflowVersion,
+          sourceSnapshotId: annotation.sourceSnapshotId,
           contentHash: hash,
         }),
       ),

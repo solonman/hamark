@@ -231,6 +231,42 @@ async function readTargetValue(
       .first<{ value: string }>();
     return row?.value ?? null;
   }
+  if (target.scope === "shot-group") {
+    const row = await db
+      .prepare(
+        `SELECT ${target.column} AS value FROM shot_groups
+        WHERE id = ? AND annotation_id = ? FOR UPDATE`,
+      )
+      .bind(target.groupId, suggestion.annotation_id)
+      .first<{ value: string }>();
+    return row?.value ?? null;
+  }
+  if (target.scope === "creative-structure") {
+    const row = await db
+      .prepare(
+        `SELECT ${target.column} AS value FROM annotation_creative_structures
+        WHERE annotation_id = ? FOR UPDATE`,
+      )
+      .bind(suggestion.annotation_id)
+      .first<{ value: string }>();
+    return row?.value ?? null;
+  }
+  if (target.scope === "creative-structure-json") {
+    const row = await db
+      .prepare(
+        `SELECT ${target.column} AS value FROM annotation_creative_structures
+        WHERE annotation_id = ? FOR UPDATE`,
+      )
+      .bind(suggestion.annotation_id)
+      .first<{ value: string }>();
+    if (!row) return null;
+    try {
+      const values = JSON.parse(row.value || "{}") as Record<string, string>;
+      return values[target.itemKey] ?? "";
+    } catch {
+      return null;
+    }
+  }
   const row = await db
     .prepare(
       `SELECT ${target.column} AS value FROM field_answers
@@ -299,6 +335,62 @@ async function writeTargetValue(
         `UPDATE shots SET ${target.column} = ? WHERE id = ? AND annotation_id = ?`,
       )
       .bind(value, target.shotId, suggestion.annotation_id)
+      .run();
+    return;
+  }
+  if (target.scope === "shot-group") {
+    await db
+      .prepare(
+        `UPDATE shot_groups SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND annotation_id = ?`,
+      )
+      .bind(value, target.groupId, suggestion.annotation_id)
+      .run();
+    if (target.property === "title") {
+      await db
+        .prepare(
+          `UPDATE shots SET group_name = ?
+          WHERE shot_group_id = ? AND annotation_id = ?`,
+        )
+        .bind(value, target.groupId, suggestion.annotation_id)
+        .run();
+    }
+    return;
+  }
+  if (target.scope === "creative-structure") {
+    await db
+      .prepare(
+        `UPDATE annotation_creative_structures
+        SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE annotation_id = ?`,
+      )
+      .bind(value, suggestion.annotation_id)
+      .run();
+    return;
+  }
+  if (target.scope === "creative-structure-json") {
+    const row = await db
+      .prepare(
+        `SELECT ${target.column} AS value FROM annotation_creative_structures
+        WHERE annotation_id = ? FOR UPDATE`,
+      )
+      .bind(suggestion.annotation_id)
+      .first<{ value: string }>();
+    const values = (() => {
+      try {
+        return JSON.parse(row?.value || "{}") as Record<string, string>;
+      } catch {
+        return {} as Record<string, string>;
+      }
+    })();
+    values[target.itemKey] = value;
+    await db
+      .prepare(
+        `UPDATE annotation_creative_structures
+        SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE annotation_id = ?`,
+      )
+      .bind(JSON.stringify(values), suggestion.annotation_id)
       .run();
     return;
   }

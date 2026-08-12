@@ -40,6 +40,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
   const [myAnalysis, setMyAnalysis] = useState<MyAnalysisStatus | null>(null);
+  const [myAnalyses, setMyAnalyses] = useState<MyAnalysisStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
@@ -64,6 +65,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           video?: VideoItem;
           analyses?: SubmittedAnalysis[];
           myAnalysis?: MyAnalysisStatus | null;
+          myAnalyses?: MyAnalysisStatus[];
           canManage?: boolean;
           canDeletePermanently?: boolean;
           error?: string;
@@ -73,6 +75,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           setVideo(data.video ?? null);
           setAnalyses(data.analyses ?? []);
           setMyAnalysis(data.myAnalysis ?? null);
+          setMyAnalyses(data.myAnalyses ?? []);
           setCanManage(Boolean(data.canManage));
           setCanDeletePermanently(Boolean(data.canDeletePermanently));
         }
@@ -125,10 +128,22 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     setEditOpen(false);
   }
 
+  const myV03Analysis =
+    myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.3-PILOT") ??
+    (myAnalysis?.taxonomyVersion === "V0.3-PILOT" ? myAnalysis : null);
+  const myV02Analysis =
+    myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.2") ??
+    (myAnalysis?.taxonomyVersion === "V0.2" ? myAnalysis : null);
   const myAnalysisLabel =
-    myAnalysis?.status === "SUBMITTED"
+    myV03Analysis?.status === "SUBMITTED"
+      ? "继续修订我的 V0.3 作业 ↗"
+      : myV03Analysis?.status === "DRAFT"
+        ? "继续编辑 V0.3 分析 ↗"
+        : "开始 V0.3 试点分析 ↗";
+  const myV02AnalysisLabel =
+    myV02Analysis?.status === "SUBMITTED"
       ? "继续修订我的作业 ↗"
-      : myAnalysis?.status === "DRAFT"
+      : myV02Analysis?.status === "DRAFT"
         ? "继续编辑我的分析 ↗"
         : "写下我的分析 ↗";
 
@@ -188,8 +203,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         </Link>
         <div className="detail-header-actions">
           <span>{analyses.length} 份公开分析</span>
-          <Link className="button button-accent" href={`/videos/${videoId}/practice`}>
-            练习 / 交作业
+          <Link className="button button-accent" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+            V0.3 练习 / 交作业
           </Link>
         </div>
       </header>
@@ -305,9 +320,14 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             <p className="eyebrow">SCRIPT & CREATIVE ANALYSIS</p>
             <h2 id="analysis-title">脚本及创意分析</h2>
           </div>
-          <Link className="text-button" href={`/videos/${videoId}/practice`}>
-            {myAnalysisLabel}
-          </Link>
+          <div className="analysis-entry-actions">
+            <Link className="text-button" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+              {myAnalysisLabel}
+            </Link>
+            <Link className="text-button muted" href={`/videos/${videoId}/practice?taxonomy=V0.2`}>
+              V0.2 原版·{myV02AnalysisLabel}
+            </Link>
+          </div>
         </div>
 
         {versionNotice ? (
@@ -318,8 +338,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           <div className="no-analysis">
             <span>还没有人交作业</span>
             <p>第一份公开分析，可以从你开始。</p>
-            <Link className="button button-dark" href={`/videos/${videoId}/practice`}>
-              开始逆向
+            <Link className="button button-dark" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+              开始 V0.3 逆向
             </Link>
           </div>
         ) : (
@@ -376,12 +396,16 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                           )
                         }
                       >
-                        {reviewActive ? "退出原位批改" : "原位批改 · 100分"}
+                        {reviewActive
+                          ? "退出原位批改"
+                          : analysis.taxonomyVersion === "V0.2"
+                            ? "原位批改 · 100分"
+                            : "原位批注"}
                       </button>
                     </div>
                   </div>
 
-                  {reviewActive ? (
+                  {reviewActive && analysis.taxonomyVersion === "V0.2" ? (
                     <ReviewPanel
                       snapshotId={analysis.id}
                       onClose={() => setActiveReviewId(null)}

@@ -163,19 +163,25 @@ export function ShotTableColGroup({ widths }: { widths: number[] }) {
 
 export function ResizableShotTableHeader({
   sizing,
+  commentLabel,
 }: {
   sizing: ColumnSizing;
+  commentLabel?: string;
 }) {
   return (
     <thead>
       <tr>
-        {shotTableColumns.map((column, index) => (
+        {shotTableColumns.map((column, index) => {
+          const label = column.id === "comment" && commentLabel
+            ? commentLabel
+            : column.label;
+          return (
           <th key={column.id}>
-            <span>{column.label}</span>
+            <span>{label}</span>
             <button
               type="button"
               className="shot-column-resize-handle"
-              aria-label={`调整“${column.label}”列宽`}
+              aria-label={`调整“${label}”列宽`}
               title="拖动调整列宽；双击恢复本列"
               onPointerDown={(event) => sizing.beginResize(index, event)}
               onDoubleClick={(event) => {
@@ -194,7 +200,8 @@ export function ResizableShotTableHeader({
               }}
             />
           </th>
-        ))}
+          );
+        })}
       </tr>
     </thead>
   );

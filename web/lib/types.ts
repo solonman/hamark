@@ -1,5 +1,20 @@
 import type { AnnotationFieldCode } from "./annotation-fields";
 
+export type TaxonomyVersion = "V0.2" | "V0.3-PILOT";
+export type AnnotationWorkflowVersion =
+  | "REVERSE-WORKFLOW-V0.2"
+  | "REVERSE-WORKFLOW-V0.3-PILOT";
+export type CreativePath = "LOVE" | "INTERESTING" | "SUBSTANCE";
+export type FormationMode =
+  | "HOLISTIC_EMERGENCE"
+  | "CROSS_GROUP_ACCUMULATION"
+  | "BEFORE_AFTER_CONTRAST"
+  | "RULE_THROUGHOUT"
+  | "LOCAL_TRIGGER"
+  | "COMPOSITE"
+  | "NOT_YET_DECOMPOSABLE";
+export type CreativeGrade = "S" | "A" | "B" | "C" | "";
+
 export type VideoStatus = "UPLOADING" | "READY" | "FAILED";
 
 export type VideoItem = {
@@ -36,19 +51,68 @@ export type ShotDraft = {
   soundEffect: string;
   music: string;
   creativeComment: string;
+  shotGroupId?: string | null;
+};
+
+export type ShotGroupDraft = {
+  id: string;
+  orderIndex: number;
+  title: string;
+  primaryRole: string;
+  auxiliaryRoles: string[];
+  customRole: string;
+  note: string;
 };
 
 export type FieldAnswerDraft = {
   code: AnnotationFieldCode;
   answer: string;
   evidence: string;
+  source?: "HUMAN_ORIGINAL" | "HUMAN_CONFIRMED_AI" | "AI_DERIVED" | "SYSTEM_MAPPED";
+};
+
+export type CreativeStructureDraft = {
+  creativeButton: string;
+  mechanismStatement: string;
+  mechanismPrimary: string;
+  mechanismAuxiliary: string[];
+  mechanismCustom: string;
+  realizationSkeleton: string;
+  brandProductLanding: string;
+  storyReferenceType: string;
+  storyArchetype: string;
+  primaryCreativePath: CreativePath | "";
+  auxiliaryCreativePaths: CreativePath[];
+  compositeStateReason: string;
+  formationPrimary: FormationMode | "";
+  formationAuxiliary: FormationMode[];
+  formationStatement: string;
+  formationRelatedGroupIds: string[];
+  creativeCarriers: string;
+  establishmentConditions: string;
+  strengthSources: string;
+  acceptanceContract: string;
+  audiovisualMechanism: string;
+  informationReleaseTurning: string;
+  creativeGrade: CreativeGrade;
+  creativeGradeReason: string;
+  creativeGradeVersion: "CREATIVE-GRADE-V0.1";
+  mainPathPayload: Record<string, string>;
+  auxiliaryPathNotes: Partial<Record<CreativePath, string>>;
+  conditionFlags: {
+    unconventionalWorld: boolean;
+    audiovisualCarriesIdea: boolean;
+    interestingLoadBearing: boolean;
+  };
 };
 
 export type AnnotationDraft = {
   id: string | null;
   videoId: string;
   authorName: string;
-  taxonomyVersion: "V0.2";
+  taxonomyVersion: TaxonomyVersion;
+  workflowVersion?: AnnotationWorkflowVersion;
+  sourceSnapshotId?: string | null;
   status: "DRAFT" | "SUBMITTED";
   revision: number;
   analysisTitle: string;
@@ -59,7 +123,9 @@ export type AnnotationDraft = {
   shotCommentary: string;
   summary: string;
   shots: ShotDraft[];
+  shotGroups?: ShotGroupDraft[];
   fields: FieldAnswerDraft[];
+  creativeStructure?: CreativeStructureDraft;
   updatedAt: string | null;
 };
 
@@ -143,6 +209,7 @@ export type MyAnalysisStatus = {
   status: "DRAFT" | "SUBMITTED";
   revision: number;
   updatedAt: string;
+  taxonomyVersion?: TaxonomyVersion;
 };
 
 export type AssignmentReviewDraft = {

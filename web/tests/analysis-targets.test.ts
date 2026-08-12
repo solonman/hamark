@@ -106,3 +106,62 @@ test("stale ambiguous revisions fail instead of changing the wrong text", () => 
     "新增内容",
   );
 });
+
+test("V0.3 bridge and creative-structure targets remain individually revisable", () => {
+  const v03: AnnotationDraft = {
+    ...draft,
+    taxonomyVersion: "V0.3-PILOT",
+    shotGroups: [{
+      id: "group_1",
+      orderIndex: 0,
+      title: "归来",
+      primaryRole: "建立人物／关系",
+      auxiliaryRoles: [],
+      customRole: "",
+      note: "建立归属感",
+    }],
+    creativeStructure: {
+      creativeButton: "把到达改写为被接住",
+      mechanismStatement: "",
+      mechanismPrimary: "",
+      mechanismAuxiliary: [],
+      mechanismCustom: "",
+      realizationSkeleton: "",
+      brandProductLanding: "",
+      storyReferenceType: "",
+      storyArchetype: "",
+      primaryCreativePath: "LOVE",
+      auxiliaryCreativePaths: [],
+      compositeStateReason: "",
+      formationPrimary: "",
+      formationAuxiliary: [],
+      formationStatement: "",
+      formationRelatedGroupIds: [],
+      creativeCarriers: "",
+      establishmentConditions: "",
+      strengthSources: "",
+      acceptanceContract: "",
+      audiovisualMechanism: "",
+      informationReleaseTurning: "",
+      creativeGrade: "",
+      creativeGradeReason: "",
+      creativeGradeVersion: "CREATIVE-GRADE-V0.1",
+      mainPathPayload: { emotionalBase: "归属" },
+      auxiliaryPathNotes: {},
+      conditionFlags: {
+        unconventionalWorld: false,
+        audiovisualCarriesIdea: false,
+        interestingLoadBearing: false,
+      },
+    },
+  };
+  assert.equal(analysisTargetValue(v03, "group:group_1:note"), "建立归属感");
+  assert.equal(
+    analysisTargetValue(v03, "structure:creative-button"),
+    "把到达改写为被接住",
+  );
+  assert.equal(
+    analysisTargetValue(v03, "structure:main-path:emotionalBase"),
+    "归属",
+  );
+});

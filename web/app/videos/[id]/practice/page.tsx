@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { requirePageUser } from "@/lib/current-user";
 import PracticeClient from "./PracticeClient";
+import type { TaxonomyVersion } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "逆向练习",
@@ -8,10 +9,16 @@ export const metadata: Metadata = {
 
 export default async function PracticePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ taxonomy?: string }>;
 }) {
   const { id } = await params;
-  await requirePageUser(`/videos/${encodeURIComponent(id)}/practice`);
-  return <PracticeClient videoId={id} />;
+  const query = await searchParams;
+  const taxonomyVersion: TaxonomyVersion =
+    query.taxonomy === "V0.2" ? "V0.2" : "V0.3-PILOT";
+  const returnTo = `/videos/${encodeURIComponent(id)}/practice?taxonomy=${encodeURIComponent(taxonomyVersion)}`;
+  await requirePageUser(returnTo);
+  return <PracticeClient videoId={id} taxonomyVersion={taxonomyVersion} />;
 }
