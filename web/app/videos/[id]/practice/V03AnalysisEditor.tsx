@@ -127,7 +127,16 @@ export default function V03AnalysisEditor({
           {[structure.mechanismPrimary, ...structure.mechanismAuxiliary].some((value) => value.includes("其他") || value.includes("待形成新机制")) ? (
             <TextAreaField label="自定义／新机制说明" hint="说明现有词表为什么不适用，并给出你的命名。" value={structure.mechanismCustom} onChange={(value) => updateStructure({ mechanismCustom: value })} wide />
           ) : null}
-          <TextAreaField label="实现骨架" hint="按钮被具象化的最小步骤是什么？" value={structure.realizationSkeleton} onChange={(value) => updateStructure({ realizationSkeleton: value })} rows={5} />
+          <TextAreaField
+            label="创意兑现路径"
+            hint="不复述情节。说明创意如何建立、累积或偏离、完成揭示或释放，并落到品牌。"
+            value={structure.creativeRealizationPath || structure.realizationSkeleton}
+            onChange={(value) => updateStructure({
+              creativeRealizationPath: value,
+              realizationSkeleton: value,
+            })}
+            rows={5}
+          />
           <TextAreaField label="品牌／产品落点" hint="品牌或产品怎样成为这个创意的必要一部分？" value={structure.brandProductLanding} onChange={(value) => updateStructure({ brandProductLanding: value })} rows={5} />
           <TextAreaField label="创意思维链" hint="从商业问题到母题、按钮、机制、实现和品牌落点的完整推导。" value={draft.thinkingChain} onChange={(value) => onChange({ ...draft, thinkingChain: value })} rows={7} wide />
           <label><span>故事参照类型</span><small>可选预设，也可直接输入新类型。</small><input list="v03-story-reference" value={structure.storyReferenceType} onChange={(event) => updateStructure({ storyReferenceType: event.target.value })} /><datalist id="v03-story-reference">{storyReferenceOptions.map((value) => <option value={value} key={value} />)}</datalist></label>

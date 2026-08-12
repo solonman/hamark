@@ -74,6 +74,7 @@ export async function GET(
     snapshots,
     snapshotVersions,
     myAnnotations,
+    approvedStandards,
     submittedAnalysis,
     playbackUrl,
     thumbnailUrl,
@@ -116,6 +117,24 @@ export async function GET(
     )
       .bind(id, user.identityKey)
       .all<MyAnnotationRow>(),
+    db
+      .prepare(
+        `SELECT id, release_number, approved_snapshot_id, source_snapshot_id,
+          payload_json, content_hash, approved_by_name, approved_at,
+          expert_creative_grade, assignment_quality_grade, status
+        FROM approved_analysis_releases
+        WHERE video_id = ?
+        ORDER BY release_number DESC, approved_at DESC`,
+      )
+      .bind(id)
+      .all<{
+        id: string; release_number: number; approved_snapshot_id: string;
+        source_snapshot_id: string; payload_json: string; content_hash: string;
+        approved_by_name: string; approved_at: string;
+        expert_creative_grade: "S" | "A" | "B" | "C";
+        assignment_quality_grade: string | null;
+        status: "ACTIVE" | "SUPERSEDED" | "WITHDRAWN";
+      }>(),
     db
       .prepare(
         `SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`,
@@ -184,6 +203,32 @@ export async function GET(
         versions,
       };
     }),
+    approvedStandards: approvedStandards.results.filter((release) => release.status === "ACTIVE").map((release) => ({
+      id: release.id,
+      releaseNumber: Number(release.release_number),
+      approvedSnapshotId: release.approved_snapshot_id,
+      sourceSnapshotId: release.source_snapshot_id,
+      approvedByName: release.approved_by_name,
+      approvedAt: release.approved_at,
+      expertCreativeGrade: release.expert_creative_grade,
+      assignmentQualityGrade: release.assignment_quality_grade,
+      contentHash: release.content_hash,
+      status: release.status,
+      payload: JSON.parse(release.payload_json),
+    })),
+    approvedStandardHistory: approvedStandards.results.map((release) => ({
+      id: release.id,
+      releaseNumber: Number(release.release_number),
+      approvedSnapshotId: release.approved_snapshot_id,
+      sourceSnapshotId: release.source_snapshot_id,
+      approvedByName: release.approved_by_name,
+      approvedAt: release.approved_at,
+      expertCreativeGrade: release.expert_creative_grade,
+      assignmentQualityGrade: release.assignment_quality_grade,
+      contentHash: release.content_hash,
+      status: release.status,
+      payload: JSON.parse(release.payload_json),
+    })),
     myAnalysis: myAnnotations.results[0]
       ? {
           id: myAnnotations.results[0].id,

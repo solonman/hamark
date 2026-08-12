@@ -26,6 +26,7 @@ type AnnotationRow = {
   workflow_version: AnnotationDraft["workflowVersion"];
   source_snapshot_id: string | null;
   status: "DRAFT" | "SUBMITTED";
+  review_status: AnnotationDraft["reviewStatus"];
   revision: number;
   analysis_title: string;
   commercial_intent: string;
@@ -159,6 +160,7 @@ function mapCreativeStructure(row: CreativeStructureRow | null): CreativeStructu
     mechanismPrimary: row.mechanism_primary,
     mechanismAuxiliary: parseJson(row.mechanism_auxiliary_json, []),
     mechanismCustom: row.mechanism_custom,
+    creativeRealizationPath: row.realization_skeleton,
     realizationSkeleton: row.realization_skeleton,
     brandProductLanding: row.brand_product_landing,
     storyReferenceType: row.story_reference_type,
@@ -263,7 +265,7 @@ export async function loadAnnotation(
   const row = await db
     .prepare(
       `SELECT id, video_id, author_name, taxonomy_version, workflow_version,
-        source_snapshot_id, status, revision, analysis_title,
+        source_snapshot_id, status, review_status, revision, analysis_title,
         commercial_intent, creative_theme, synopsis, thinking_chain,
         shot_commentary, summary, updated_at
       FROM annotations
@@ -362,6 +364,7 @@ export async function loadAnnotation(
     workflowVersion: row.workflow_version,
     sourceSnapshotId: row.source_snapshot_id,
     status: row.status,
+    reviewStatus: row.review_status,
     revision: row.revision,
     analysisTitle: row.analysis_title,
     commercialIntent: row.commercial_intent,

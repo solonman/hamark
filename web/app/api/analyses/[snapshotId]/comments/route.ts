@@ -6,8 +6,9 @@ import {
   normalizeCommentText,
   validateCommentBody,
 } from "@/lib/analysis-comments";
-import { isAppAdmin } from "@/lib/admin";
+import { isAppAdmin, isFinalReviewer } from "@/lib/admin";
 import { analysisTargetValue } from "@/lib/analysis-targets";
+import { ensureReviewRoundForSnapshot } from "@/lib/review-workflow";
 import {
   newId,
   requireApiUser,
@@ -21,8 +22,10 @@ import type {
 
 type SnapshotRow = {
   id: string;
+  annotation_id: string;
   video_id: string;
   author_email: string;
+  taxonomy_version: string;
   payload_json: string;
 };
 
@@ -39,9 +42,13 @@ type CommentRow = {
   anchor_end: number;
   body: string;
   kind: AnalysisCommentKind;
-  status: "OPEN" | "RESOLVED";
+  status: "OPEN" | "AUTHOR_MARKED_HANDLED" | "RESOLVED" | "REOPENED";
   is_excellent: number;
   marked_by_name: string | null;
+  resolved_by_name: string | null;
+  final_conclusion: string | null;
+  linked_revision_event_id: string | null;
+  handled_in_snapshot_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -49,7 +56,8 @@ type CommentRow = {
 async function loadSnapshot(snapshotId: string) {
   return getDbClient()
     .prepare(
-      `SELECT s.id, s.video_id, s.author_email, s.payload_json
+      `SELECT s.id, s.annotation_id, s.video_id, s.author_email,
+        s.taxonomy_version, s.payload_json
       FROM annotation_snapshots s
       INNER JOIN videos v ON v.id = s.video_id
       WHERE s.id = ? AND v.deleted_at IS NULL`,
@@ -75,13 +83,28 @@ export async function GET(
       .prepare(
         `SELECT id, submission_id, parent_id, author_email, author_name,
           target_key, target_label, selected_text, anchor_start, anchor_end,
-          body, kind, status,
-          is_excellent, marked_by_name, created_at, updated_at
-        FROM analysis_comments
-        WHERE submission_id = ? AND deleted_at IS NULL
+          body, kind,
+          CASE WHEN ? = 'V0.3-PILOT' THEN workflow_status ELSE status END AS status,
+          is_excellent, marked_by_name, resolved_by_name, final_conclusion,
+          linked_revision_event_id, handled_in_snapshot_id, created_at, updated_at
+        FROM analysis_comments c
+        WHERE c.deleted_at IS NULL AND (
+          c.submission_id = ? OR (
+            ? = 'V0.3-PILOT' AND EXISTS (
+              SELECT 1 FROM annotation_snapshots linked_snapshot
+              WHERE linked_snapshot.id = c.submission_id
+                AND linked_snapshot.annotation_id = ?
+            )
+          )
+        )
         ORDER BY created_at ASC`,
       )
-      .bind(snapshotId)
+      .bind(
+        snapshot.taxonomy_version,
+        snapshotId,
+        snapshot.taxonomy_version,
+        snapshot.annotation_id,
+      )
       .all<CommentRow>(),
     isAppAdmin(user),
   ]);
@@ -116,12 +139,22 @@ export async function GET(
       status: row.status,
       isExcellent: Boolean(row.is_excellent),
       markedByName: row.marked_by_name,
+      resolvedByName: row.resolved_by_name,
+      finalConclusion: row.final_conclusion,
+      linkedRevisionEventId: row.linked_revision_event_id,
+      handledInSnapshotId: row.handled_in_snapshot_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       canResolve:
-        admin ||
-        row.author_email === user.identityKey ||
-        snapshot.author_email === user.identityKey,
+        snapshot.taxonomy_version === "V0.3-PILOT"
+          ? admin
+          : admin ||
+            row.author_email === user.identityKey ||
+            snapshot.author_email === user.identityKey,
+      canMarkHandled:
+        snapshot.taxonomy_version === "V0.3-PILOT" &&
+        snapshot.author_email === user.identityKey &&
+        row.status !== "RESOLVED",
       replies: replies.get(row.id) ?? [],
     }));
 
@@ -140,6 +173,12 @@ export async function POST(
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) {
     return Response.json({ error: "作业版本不存在。" }, { status: 404 });
+  }
+  if (snapshot.taxonomy_version === "V0.2") {
+    return Response.json(
+      { error: "V0.2 已归档为历史体系，批注记录只读保留。" },
+      { status: 409 },
+    );
   }
 
   const payload = (await request.json()) as {
@@ -177,11 +216,24 @@ export async function POST(
     const parent = await db
       .prepare(
         `SELECT id, target_key, target_label, selected_text, anchor_start, anchor_end
-        FROM analysis_comments
-        WHERE id = ? AND submission_id = ? AND parent_id IS NULL
-          AND deleted_at IS NULL`,
+        FROM analysis_comments parent_comment
+        WHERE id = ? AND parent_id IS NULL AND deleted_at IS NULL
+          AND (
+            submission_id = ? OR (
+              ? = 'V0.3-PILOT' AND EXISTS (
+                SELECT 1 FROM annotation_snapshots parent_snapshot
+                WHERE parent_snapshot.id = parent_comment.submission_id
+                  AND parent_snapshot.annotation_id = ?
+              )
+            )
+          )`,
       )
-      .bind(parentId, snapshotId)
+      .bind(
+        parentId,
+        snapshotId,
+        snapshot.taxonomy_version,
+        snapshot.annotation_id,
+      )
       .first<{
         id: string;
         target_key: string;
@@ -222,6 +274,46 @@ export async function POST(
   }
 
   const admin = await isAppAdmin(user);
+  const finalReviewer = await isFinalReviewer(user);
+  let reviewRoundId: string | null = null;
+  if (snapshot.taxonomy_version === "V0.3-PILOT") {
+    if (!parentId && !finalReviewer) {
+      return Response.json(
+        { error: "当前体系的正式批注由终审者发起；作者可回复并处理批注。" },
+        { status: 403 },
+      );
+    }
+    if (parentId && !finalReviewer && snapshot.author_email !== user.identityKey) {
+      return Response.json({ error: "只有作者或终审者可以回复批注。" }, { status: 403 });
+    }
+    const annotationState = await db.prepare(
+      `SELECT review_status, active_base_snapshot_id FROM annotations WHERE id = ?`,
+    ).bind(snapshot.annotation_id).first<{
+      review_status: string; active_base_snapshot_id: string | null;
+    }>();
+    if (
+      annotationState?.review_status === "APPROVED" &&
+      annotationState.active_base_snapshot_id === snapshotId
+    ) {
+      return Response.json(
+        { error: "该版本已经批准入库；请从标准版建立新草稿后再开启审核。" },
+        { status: 409 },
+      );
+    }
+    const round = await ensureReviewRoundForSnapshot(db, {
+      annotationId: snapshot.annotation_id,
+      videoId: snapshot.video_id,
+      snapshotId,
+    });
+    reviewRoundId = round.id;
+    const state = await db
+      .prepare(`SELECT status FROM analysis_review_rounds WHERE id = ?`)
+      .bind(round.id)
+      .first<{ status: string }>();
+    if (!state || !["PENDING", "IN_REVIEW"].includes(state.status)) {
+      return Response.json({ error: "当前审核轮次已经结束。" }, { status: 409 });
+    }
+  }
   const requestedKind = payload.kind === "EXPERT_NOTE" ? "EXPERT_NOTE" : "COMMENT";
   if (requestedKind === "EXPERT_NOTE" && !admin) {
     return Response.json({ error: "只有管理员可以添加专家精修意见。" }, { status: 403 });
@@ -233,8 +325,8 @@ export async function POST(
       `INSERT INTO analysis_comments (
         id, submission_id, video_id, parent_id, author_email, author_name,
         target_key, target_label, selected_text, anchor_start, anchor_end,
-        body, kind
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        body, kind, review_round_id, base_version_id, workflow_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')`,
     )
     .bind(
       commentId,
@@ -250,8 +342,22 @@ export async function POST(
       anchorEnd,
       body,
       requestedKind,
+      reviewRoundId,
+      snapshotId,
     )
     .run();
+
+  if (reviewRoundId && !parentId) {
+    await db
+      .prepare(
+        `UPDATE analysis_review_rounds
+        SET status = 'IN_REVIEW', reviewer_email = ?, reviewer_name = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status IN ('PENDING', 'IN_REVIEW')`,
+      )
+      .bind(user.identityKey, user.displayName, reviewRoundId)
+      .run();
+  }
 
   return Response.json({ ok: true, commentId }, { status: 201 });
 }

@@ -80,6 +80,18 @@ test("V0.3 complete vertical draft publishes without requiring all 19 legacy ans
   assert.ok(draft.shots.every((shot) => !shot.startTime && !shot.endTime));
 });
 
+test("V0.3.1 presents realization_skeleton through the creative realization path business name", async () => {
+  const [editor, submitted, validation] = await Promise.all([
+    readFile(new URL("../app/videos/[id]/practice/V03AnalysisEditor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/SubmittedAnalysisContent.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/annotation-validation.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(editor, /创意兑现路径/);
+  assert.match(editor, /不复述情节/);
+  assert.match(submitted, /创意兑现路径/);
+  assert.doesNotMatch(`${editor}\n${submitted}\n${validation}`, /实现骨架/);
+});
+
 test("V0.3 validation requires bridge roles and path facts but not timecodes", () => {
   const draft = completeV03();
   draft.shotGroups![0].primaryRole = "";

@@ -51,6 +51,7 @@ type HoverCardState = {
 };
 
 type InlineAnnotationContextValue = {
+  canCreate: boolean;
   recordsFor: (targetKey: string) => AnnotationRecord[];
   openCellComposer: (
     mode: "COMMENT" | "REVISION",
@@ -262,7 +263,7 @@ export function InlineAnnotationText({
             })
           : emptyText}
       </span>
-      <span className="inline-annotation-entry-actions" aria-label={`${targetLabel}操作`}>
+      {context.canCreate ? <span className="inline-annotation-entry-actions" aria-label={`${targetLabel}操作`}>
         <button type="button" onClick={(event) => openCell("COMMENT", event)}>
           批注
         </button>
@@ -292,16 +293,38 @@ export function InlineAnnotationText({
             {cellRecords.length}
           </button>
         ) : null}
-      </span>
+      </span> : null}
+      {records
+        .filter((record) => record.type === "suggestion")
+        .map((record) => {
+          const revision = record.type === "suggestion" ? record.suggestion : null;
+          if (!revision) return null;
+          const verb = revision.editType === "DELETE"
+            ? "删除"
+            : revision.editType === "INSERT"
+              ? "补充"
+              : "修订为";
+          const display = revision.editType === "DELETE"
+            ? revision.selectedText
+            : revision.replacementText;
+          return (
+            <span className="inline-revision-trace" key={`trace-${record.id}`}>
+              [{revision.authorName}{revision.actorRole === "FINAL_REVIEWER" ? "｜终审" : ""}{verb}：{display}
+              {revision.reason ? `（原因：${revision.reason}）` : ""}]
+            </span>
+          );
+        })}
     </span>
   );
 }
 
 export default function AnalysisComments({
   snapshotId,
+  taxonomyVersion,
   children,
 }: {
   snapshotId: string;
+  taxonomyVersion: string;
   children: ReactNode;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -310,6 +333,7 @@ export default function AnalysisComments({
   const [suggestions, setSuggestions] = useState<AnalysisRevisionSuggestion[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [canDecide, setCanDecide] = useState(false);
+  const [canReviewV03, setCanReviewV03] = useState(false);
   const [selection, setSelection] = useState<TextAnchor | null>(null);
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [hoverCard, setHoverCard] = useState<HoverCardState | null>(null);
@@ -324,13 +348,17 @@ export default function AnalysisComments({
 
   const loadAnnotations = useCallback(async () => {
     try {
-      const [commentResponse, suggestionResponse] = await Promise.all([
+      const [commentResponse, suggestionResponse, reviewResponse] = await Promise.all([
         fetch(`/api/analyses/${snapshotId}/comments`, { cache: "no-store" }),
         fetch(`/api/analyses/${snapshotId}/suggestions`, { cache: "no-store" }),
+        taxonomyVersion === "V0.3-PILOT"
+          ? fetch(`/api/analyses/${snapshotId}/review`, { cache: "no-store" })
+          : Promise.resolve(null),
       ]);
       if (
         redirectOnUnauthorized(commentResponse) ||
-        redirectOnUnauthorized(suggestionResponse)
+        redirectOnUnauthorized(suggestionResponse) ||
+        (reviewResponse ? redirectOnUnauthorized(reviewResponse) : false)
       ) {
         return;
       }
@@ -344,20 +372,30 @@ export default function AnalysisComments({
         canDecide?: boolean;
         error?: string;
       };
+      const reviewData = reviewResponse
+        ? (await reviewResponse.json()) as {
+            review?: { canReview?: boolean };
+            error?: string;
+          }
+        : null;
       if (!commentResponse.ok) {
         throw new Error(commentData.error || "批注读取失败");
       }
       if (!suggestionResponse.ok) {
         throw new Error(suggestionData.error || "修订建议读取失败");
       }
+      if (reviewResponse && !reviewResponse.ok) {
+        throw new Error(reviewData?.error || "审核状态读取失败");
+      }
       setComments(commentData.comments ?? []);
       setSuggestions(suggestionData.suggestions ?? []);
       setIsAdmin(Boolean(commentData.isAdmin));
       setCanDecide(Boolean(suggestionData.canDecide));
+      setCanReviewV03(Boolean(reviewData?.review?.canReview));
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "批注读取失败");
     }
-  }, [snapshotId]);
+  }, [snapshotId, taxonomyVersion]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void loadAnnotations(), 0);
@@ -395,6 +433,7 @@ export default function AnalysisComments({
   }
 
   const contextValue: InlineAnnotationContextValue = {
+    canCreate: taxonomyVersion === "V0.3-PILOT" && canReviewV03,
     recordsFor: (targetKey) => recordsByTarget.get(targetKey) ?? [],
     openCellComposer: (mode, input) =>
       openComposer(mode, {
@@ -404,6 +443,7 @@ export default function AnalysisComments({
         anchorEnd: mode === "REVISION" ? input.targetValue.length : -1,
       }),
     openSelection: (anchor) => {
+      if (taxonomyVersion === "V0.3-PILOT" && !isAdmin) return;
       setComposer(null);
       setSelection(anchor);
     },
@@ -465,8 +505,8 @@ export default function AnalysisComments({
 
   async function createSuggestion() {
     if (!composer || composer.mode !== "REVISION") return;
-    if (!revisionReason.trim()) {
-      setNotice("请填写修订理由。");
+    if (!replacementText.trim()) {
+      setNotice("请填写修订后的内容。");
       return;
     }
     setBusy(true);
@@ -494,11 +534,15 @@ export default function AnalysisComments({
       if (!response.ok || !data.suggestionId) {
         throw new Error(data.error || "修订建议保存失败");
       }
-      if (data.canDecide) {
+      if (taxonomyVersion !== "V0.3-PILOT" && data.canDecide) {
         await decideSuggestion(data.suggestionId, "ACCEPTED", false);
         setNotice("修订已写入个人草稿，发布作业后将生成新的公开版本。");
       } else {
-        setNotice("修订建议已送达作业作者。");
+        setNotice(
+          taxonomyVersion === "V0.3-PILOT"
+            ? "修订已保存到当前终审工作层；退回或批准时才会物化为干净版本。"
+            : "修订建议已送达作业作者。",
+        );
       }
       setComposer(null);
       window.getSelection()?.removeAllRanges();
@@ -512,7 +556,10 @@ export default function AnalysisComments({
 
   async function updateComment(
     commentId: string,
-    update: { status?: "OPEN" | "RESOLVED"; isExcellent?: boolean },
+    update: {
+      status?: "OPEN" | "AUTHOR_MARKED_HANDLED" | "RESOLVED" | "REOPENED";
+      isExcellent?: boolean;
+    },
   ) {
     setBusy(true);
     setNotice("");
@@ -588,7 +635,7 @@ export default function AnalysisComments({
 
   const totalRecords = comments.length + suggestions.length;
   const pendingCount = suggestions.filter(
-    (suggestion) => suggestion.status === "PENDING",
+    (suggestion) => suggestion.status === "PENDING" || suggestion.status === "DRAFT",
   ).length;
 
   return (
@@ -621,7 +668,7 @@ export default function AnalysisComments({
           </details>
         ) : null}
 
-        {selection ? (
+        {selection && contextValue.canCreate ? (
           <div
             className={`inline-selection-toolbar is-${selection.placement}`}
             style={{ left: selection.x, top: selection.y }}
@@ -705,12 +752,12 @@ export default function AnalysisComments({
                   />
                 </label>
                 <label className="inline-revision-field">
-                  <span>修订理由</span>
+                  <span>原因（选填）</span>
                   <textarea
                     rows={2}
                     value={revisionReason}
                     onChange={(event) => setRevisionReason(event.target.value)}
-                    placeholder="说明为什么这样改…"
+                    placeholder="如有必要，说明为什么这样改…"
                   />
                 </label>
                 <button
@@ -719,7 +766,11 @@ export default function AnalysisComments({
                   disabled={busy}
                   onClick={() => void createSuggestion()}
                 >
-                  {canDecide ? "保存并写入修订草稿" : "提交修订建议"}
+                  {taxonomyVersion === "V0.3-PILOT"
+                    ? "保存到终审工作层"
+                    : canDecide
+                      ? "保存并写入修订草稿"
+                      : "提交修订建议"}
                 </button>
               </>
             )}
@@ -775,12 +826,20 @@ export default function AnalysisComments({
                         disabled={busy}
                         onClick={() =>
                           void updateComment(record.id, {
-                            status:
-                              record.comment.status === "OPEN" ? "RESOLVED" : "OPEN",
+                            status: record.comment.status === "RESOLVED" ? "REOPENED" : "RESOLVED",
                           })
                         }
                       >
-                        {record.comment.status === "OPEN" ? "标为已解决" : "重新打开"}
+                        {record.comment.status === "RESOLVED" ? "重新打开" : "终审解决"}
+                      </button>
+                    ) : null}
+                    {record.comment.canMarkHandled && record.comment.status !== "AUTHOR_MARKED_HANDLED" ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void updateComment(record.id, { status: "AUTHOR_MARKED_HANDLED" })}
+                      >
+                        作者标记已处理
                       </button>
                     ) : null}
                     {isAdmin ? (
@@ -801,16 +860,20 @@ export default function AnalysisComments({
               ) : (
                 <article className="is-revision" key={record.id}>
                   <header>
-                    <strong>修订建议</strong>
+                    <strong>{taxonomyVersion === "V0.3-PILOT" ? "终审修订" : "修订建议"}</strong>
                     <span>{record.suggestion.authorName}</span>
                   </header>
                   <div className="inline-revision-diff">
                     <del>{record.suggestion.selectedText || "（空白）"}</del>
                     <ins>{record.suggestion.replacementText || "（删除）"}</ins>
                   </div>
-                  <p>{record.suggestion.reason}</p>
+                  {record.suggestion.reason ? <p>原因：{record.suggestion.reason}</p> : null}
                   <time>
-                    {record.suggestion.status === "PENDING"
+                    {record.suggestion.status === "DRAFT"
+                      ? "终审工作层 · 尚未批准"
+                      : record.suggestion.status === "APPLIED"
+                        ? "已物化到干净版本"
+                        : record.suggestion.status === "PENDING"
                       ? "待处理"
                       : record.suggestion.status === "ACCEPTED"
                         ? `已接受 · 草稿修订 ${record.suggestion.appliedRevision ?? ""}`

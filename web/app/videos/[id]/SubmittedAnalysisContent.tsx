@@ -371,7 +371,11 @@ function SubmittedV03Analysis({
           <V03ReadCard label="创意机制具体句" target="structure:mechanism-statement" value={structure.mechanismStatement} />
           <V03ReadCard label="机制二级归类" value={[structure.mechanismPrimary, ...structure.mechanismAuxiliary].filter(Boolean).join(" · ")} />
           {structure.mechanismCustom ? <V03ReadCard label="自定义／新机制" target="structure:mechanism-custom" value={structure.mechanismCustom} /> : null}
-          <V03ReadCard label="实现骨架" target="structure:realization-skeleton" value={structure.realizationSkeleton} />
+          <V03ReadCard
+            label="创意兑现路径"
+            target="structure:creative-realization-path"
+            value={structure.creativeRealizationPath || structure.realizationSkeleton}
+          />
           <V03ReadCard label="品牌／产品落点" target="structure:brand-product-landing" value={structure.brandProductLanding} />
           <V03ReadCard label="创意思维链" target="core:thinking-chain" value={payload.thinkingChain} wide />
           <V03ReadCard label="故事参照类型" target="structure:story-reference-type" value={structure.storyReferenceType} />

@@ -55,7 +55,9 @@ function validateV03(payload: AnnotationDraft) {
   ) {
     missing.push("自定义／新机制说明");
   }
-  if (!structure.realizationSkeleton.trim()) missing.push("实现骨架");
+  if (!(structure.creativeRealizationPath || structure.realizationSkeleton).trim()) {
+    missing.push("创意兑现路径");
+  }
   if (!payload.thinkingChain.trim()) missing.push("创意思维链");
   if (!structure.brandProductLanding.trim()) missing.push("品牌／产品落点");
   if (!structure.storyReferenceType.trim()) missing.push("故事参照类型");

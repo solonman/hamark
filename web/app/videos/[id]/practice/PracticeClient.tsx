@@ -410,7 +410,15 @@ export default function PracticeClient({
         throw new Error(data.error || "提交失败");
       }
       setDraft((current) =>
-        current ? { ...current, status: "SUBMITTED" } : current,
+        current
+          ? {
+              ...current,
+              status: "SUBMITTED",
+              reviewStatus: hasPublishedVersion
+                ? "PENDING_REREVIEW"
+                : "PENDING_REVIEW",
+            }
+          : current,
       );
       setHasPublishedVersion(true);
       setPublishedVersionCount(
@@ -441,6 +449,46 @@ export default function PracticeClient({
         <p>{notice || "无法打开作业。"}</p>
         <Link className="text-button" href={`/videos/${videoId}`}>
           返回作品
+        </Link>
+      </main>
+    );
+  }
+
+  if (taxonomyVersion === "V0.2") {
+    return (
+      <main className="detail-state v02-archive-state">
+        <p className="eyebrow">历史体系 · V0.2</p>
+        <h1>旧版作业已只读归档</h1>
+        <p>
+          已有 V0.2 作业、提交快照、评分、批注和修订记录完整保留，
+          不再从这里创建或覆盖旧版内容。新作业统一使用当前逆向体系。
+        </p>
+        <div className="conflict-actions">
+          <Link className="button button-accent" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+            进入当前逆向体系
+          </Link>
+          <Link className="button button-ghost" href={`/videos/${videoId}`}>
+            查看历史作业
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  if (
+    draft.reviewStatus === "PENDING_REVIEW" ||
+    draft.reviewStatus === "PENDING_REREVIEW"
+  ) {
+    return (
+      <main className="detail-state v031-review-lock-state">
+        <p className="eyebrow">当前逆向体系 · 审核中</p>
+        <h1>{draft.reviewStatus === "PENDING_REREVIEW" ? "修改版正在复审" : "作业正在终审"}</h1>
+        <p>
+          已提交快照不会被覆盖。当前轮次结束前，作者与终审者不会并行修改同一版本。
+          你可以返回作品查看原位批注、修订痕迹和审核状态。
+        </p>
+        <Link className="button button-accent" href={`/videos/${videoId}`}>
+          查看批注与审核状态
         </Link>
       </main>
     );
@@ -483,7 +531,7 @@ export default function PracticeClient({
               V0.3 试点
             </Link>
             <Link
-              className={taxonomyVersion === "V0.2" ? "is-active" : ""}
+              className=""
               href={`/videos/${videoId}/practice?taxonomy=V0.2`}
             >
               V0.2 原版
@@ -553,7 +601,7 @@ export default function PracticeClient({
             <div className="practice-nav">
               <p className="eyebrow">WORKSHEET</p>
               <a href="#shots">01 逐镜脚本还原</a>
-              {taxonomyVersion === "V0.3-PILOT" ? (
+              {draft.taxonomyVersion === "V0.3-PILOT" ? (
                 <>
                   <a href="#core">02 全片事实与核心判断</a>
                   <a href="#path">03 主导类型发生路径</a>
@@ -644,7 +692,7 @@ export default function PracticeClient({
               </div>
               <p>先按叙事段落切镜头组，再在组内逐镜还原；镜号由系统自动维护。</p>
             </div>
-            {taxonomyVersion === "V0.3-PILOT" ? (
+            {draft.taxonomyVersion === "V0.3-PILOT" ? (
               <V03ShotGroupEditor
                 groups={draft.shotGroups ?? []}
                 shots={draft.shots}
@@ -660,7 +708,7 @@ export default function PracticeClient({
             )}
           </section>
 
-          {taxonomyVersion === "V0.3-PILOT" ? (
+          {draft.taxonomyVersion === "V0.3-PILOT" ? (
             <V03AnalysisEditor draft={draft} onChange={markChanged} />
           ) : (
           <><section className="worksheet-section" id="core">

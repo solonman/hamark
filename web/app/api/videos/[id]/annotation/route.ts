@@ -74,6 +74,13 @@ export async function PUT(
   const payload = (await request.json()) as AnnotationDraft;
   const db = getDbClient();
 
+  if (taxonomyVersion === "V0.2") {
+    return Response.json(
+      { error: "V0.2 已归档为历史体系，只读保留；请使用当前逆向体系。" },
+      { status: 409 },
+    );
+  }
+
   const video = await db
     .prepare(`SELECT id FROM videos WHERE id = ? AND deleted_at IS NULL`)
     .bind(videoId)
@@ -88,12 +95,31 @@ export async function PUT(
 
   const existing = await db
     .prepare(
-      `SELECT id, revision, source_snapshot_id FROM annotations
+      `SELECT id, revision, source_snapshot_id, review_status FROM annotations
       WHERE video_id = ? AND author_email = ? AND taxonomy_version = ?
         AND deleted_at IS NULL`,
     )
     .bind(videoId, user.identityKey, taxonomyVersion)
-    .first<{ id: string; revision: number; source_snapshot_id: string | null }>();
+    .first<{
+      id: string;
+      revision: number;
+      source_snapshot_id: string | null;
+      review_status: string;
+    }>();
+
+  if (
+    existing &&
+    (existing.review_status === "PENDING_REVIEW" ||
+      existing.review_status === "PENDING_REREVIEW")
+  ) {
+    return Response.json(
+      {
+        error: "这份提交正在终审，当前轮次结束前不能并行修改。",
+        code: "ACTIVE_REVIEW_LOCK",
+      },
+      { status: 423 },
+    );
+  }
 
   if (existing && existing.revision !== payload.revision) {
     return Response.json(
@@ -139,7 +165,9 @@ export async function PUT(
         .prepare(
           `UPDATE annotations SET
             author_name = ?, workflow_version = ?, source_snapshot_id = ?,
-            status = 'DRAFT', revision = ?, analysis_title = ?,
+            status = 'DRAFT',
+            review_status = CASE WHEN review_status = 'APPROVED' THEN 'DRAFT' ELSE review_status END,
+            revision = ?, analysis_title = ?,
             commercial_intent = ?, creative_theme = ?, synopsis = ?,
             thinking_chain = ?, shot_commentary = ?, summary = ?,
             updated_at = CURRENT_TIMESTAMP
@@ -314,7 +342,7 @@ export async function PUT(
           structure.mechanismPrimary,
           JSON.stringify([...new Set(structure.mechanismAuxiliary)].slice(0, 2)),
           structure.mechanismCustom.trim(),
-          structure.realizationSkeleton.trim(),
+          (structure.creativeRealizationPath || structure.realizationSkeleton).trim(),
           structure.brandProductLanding.trim(),
           structure.storyReferenceType.trim(),
           structure.storyArchetype.trim(),

@@ -5188,6 +5188,138 @@ body.is-resizing-shot-column * {
   align-items: center;
 }
 
+.inline-revision-trace {
+  display: block;
+  margin-top: 0.42rem;
+  color: #8b3d24;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.v031-review-bar {
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(139, 61, 36, 0.22);
+  border-radius: 16px;
+  background: #fff9f4;
+}
+
+.v031-review-status,
+.v031-review-controls {
+  display: flex;
+  align-items: end;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.v031-review-status span {
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(139, 61, 36, 0.09);
+  font-size: 0.75rem;
+}
+
+.v031-review-controls {
+  margin-top: 0.85rem;
+}
+
+.v031-review-controls label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 170px;
+  font-size: 0.72rem;
+}
+
+.v031-review-controls label.wide {
+  flex: 1 1 280px;
+}
+
+.v031-review-controls input,
+.v031-review-controls select {
+  min-height: 38px;
+  border: 1px solid rgba(31, 31, 31, 0.2);
+  border-radius: 9px;
+  padding: 0.55rem 0.65rem;
+  background: white;
+  color: inherit;
+}
+
+.standard-case-list {
+  margin-bottom: 1.5rem;
+}
+
+.standard-case-card {
+  border: 1px solid rgba(139, 61, 36, 0.24);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fffaf5, #fff);
+  overflow: hidden;
+}
+
+.standard-case-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  cursor: pointer;
+}
+
+.standard-case-card > summary span {
+  color: #8b3d24;
+  font-weight: 800;
+}
+
+.standard-case-card > summary small {
+  margin-left: auto;
+  color: rgba(31, 31, 31, 0.58);
+}
+
+.standard-case-card > :not(summary) {
+  margin-inline: 1rem;
+}
+
+.standard-history {
+  margin: 0 0 1.5rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(31, 31, 31, 0.12);
+  border-radius: 16px;
+  background: #f7f7f3;
+}
+
+.standard-history > summary {
+  display: flex;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.standard-history > div {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.standard-case-card.historical {
+  background: white;
+}
+
+.v02-archive-state,
+.v031-review-lock-state {
+  max-width: 680px;
+  margin-inline: auto;
+}
+
+@media (max-width: 760px) {
+  .standard-case-card > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .standard-case-card > summary small {
+    margin-left: 0;
+  }
+}
+
 .v03-grade-result > header {
   margin: 0;
 }

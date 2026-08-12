@@ -77,6 +77,8 @@ export type CreativeStructureDraft = {
   mechanismPrimary: string;
   mechanismAuxiliary: string[];
   mechanismCustom: string;
+  creativeRealizationPath?: string;
+  /** @deprecated V0.3.1 keeps this compatibility key for existing pilot data. */
   realizationSkeleton: string;
   brandProductLanding: string;
   storyReferenceType: string;
@@ -114,6 +116,7 @@ export type AnnotationDraft = {
   workflowVersion?: AnnotationWorkflowVersion;
   sourceSnapshotId?: string | null;
   status: "DRAFT" | "SUBMITTED";
+  reviewStatus?: AnalysisWorkflowStatus;
   revision: number;
   analysisTitle: string;
   commercialIntent: string;
@@ -128,6 +131,25 @@ export type AnnotationDraft = {
   creativeStructure?: CreativeStructureDraft;
   updatedAt: string | null;
 };
+
+export type AnalysisWorkflowStatus =
+  | "DRAFT"
+  | "PENDING_REVIEW"
+  | "CHANGES_REQUESTED"
+  | "PENDING_REREVIEW"
+  | "APPROVED";
+
+export type ReviewRoundStatus =
+  | "PENDING"
+  | "IN_REVIEW"
+  | "CHANGES_REQUESTED"
+  | "APPROVED";
+
+export type ReviewCommentWorkflowStatus =
+  | "OPEN"
+  | "AUTHOR_MARKED_HANDLED"
+  | "RESOLVED"
+  | "REOPENED";
 
 export type SubmittedAnalysis = {
   id: string;
@@ -149,7 +171,7 @@ export type SubmissionVersionSummary = {
   contentHash: string;
 };
 
-export type AnalysisCommentStatus = "OPEN" | "RESOLVED";
+export type AnalysisCommentStatus = ReviewCommentWorkflowStatus;
 export type AnalysisCommentKind = "COMMENT" | "EXPERT_NOTE";
 
 export type AnalysisCommentReply = {
@@ -174,16 +196,30 @@ export type AnalysisComment = {
   status: AnalysisCommentStatus;
   isExcellent: boolean;
   markedByName: string | null;
+  resolvedByName?: string | null;
+  finalConclusion?: string | null;
+  linkedRevisionEventId?: string | null;
+  handledInSnapshotId?: string | null;
   createdAt: string;
   updatedAt: string;
   canResolve: boolean;
+  canMarkHandled?: boolean;
   replies: AnalysisCommentReply[];
 };
 
 export type AnalysisRevisionSuggestionStatus =
+  | "DRAFT"
+  | "APPLIED"
+  | "SUPERSEDED"
   | "PENDING"
   | "ACCEPTED"
   | "REJECTED";
+
+export type RevisionEditType =
+  | "RANGE_REPLACE"
+  | "UNIT_REPLACE"
+  | "INSERT"
+  | "DELETE";
 
 export type AnalysisRevisionSuggestion = {
   id: string;
@@ -196,12 +232,51 @@ export type AnalysisRevisionSuggestion = {
   replacementText: string;
   reason: string;
   authorName: string;
+  actorRole?: "AUTHOR" | "FINAL_REVIEWER";
+  editType?: RevisionEditType;
+  originalTextHash?: string;
+  linkedCommentId?: string | null;
   status: AnalysisRevisionSuggestionStatus;
   decidedByName: string | null;
   appliedRevision: number | null;
   createdAt: string;
   updatedAt: string;
   canDecide: boolean;
+};
+
+export type AnalysisReviewRound = {
+  id: string;
+  submissionId: string;
+  roundNumber: number;
+  status: ReviewRoundStatus;
+  reviewerName: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+};
+
+export type AnalysisReviewContext = {
+  round: AnalysisReviewRound | null;
+  isAuthor: boolean;
+  isFinalReviewer: boolean;
+  canReview: boolean;
+  canReturn: boolean;
+  canApprove: boolean;
+  activeReleaseNumber: number | null;
+};
+
+export type ApprovedAnalysisRelease = {
+  id: string;
+  releaseNumber: number;
+  approvedSnapshotId: string;
+  sourceSnapshotId: string;
+  approvedByName: string;
+  approvedAt: string;
+  expertCreativeGrade: Exclude<CreativeGrade, "">;
+  assignmentQualityGrade: string | null;
+  contentHash: string;
+  status?: "ACTIVE" | "SUPERSEDED" | "WITHDRAWN";
+  payload: AnnotationDraft;
 };
 
 export type MyAnalysisStatus = {

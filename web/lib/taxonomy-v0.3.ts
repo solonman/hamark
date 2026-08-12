@@ -141,6 +141,7 @@ export function emptyCreativeStructure(): CreativeStructureDraft {
     mechanismPrimary: "",
     mechanismAuxiliary: [],
     mechanismCustom: "",
+    creativeRealizationPath: "",
     realizationSkeleton: "",
     brandProductLanding: "",
     storyReferenceType: "",

@@ -5,11 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import DraggableVideoPlayer from "@/app/components/DraggableVideoPlayer";
 import { formatLongDate } from "@/lib/date-format";
 import type {
+  ApprovedAnalysisRelease,
   MyAnalysisStatus,
   SubmittedAnalysis,
   VideoItem,
 } from "@/lib/types";
-import ReviewPanel from "./ReviewPanel";
 import DeleteVideoDialog from "./DeleteVideoDialog";
 import EditVideoDialog, { type EditableVideoInfo } from "./EditVideoDialog";
 import ReplaceVideoDialog, {
@@ -17,6 +17,7 @@ import ReplaceVideoDialog, {
 } from "./ReplaceVideoDialog";
 import SubmittedAnalysisContent from "./SubmittedAnalysisContent";
 import AnalysisComments from "./AnalysisComments";
+import V03ReviewDecisionBar from "./V03ReviewDecisionBar";
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -39,6 +40,8 @@ function redirectOnUnauthorized(response: Response) {
 export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
+  const [approvedStandards, setApprovedStandards] = useState<ApprovedAnalysisRelease[]>([]);
+  const [approvedStandardHistory, setApprovedStandardHistory] = useState<ApprovedAnalysisRelease[]>([]);
   const [myAnalysis, setMyAnalysis] = useState<MyAnalysisStatus | null>(null);
   const [myAnalyses, setMyAnalyses] = useState<MyAnalysisStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +67,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         const data = (await response.json()) as {
           video?: VideoItem;
           analyses?: SubmittedAnalysis[];
+          approvedStandards?: ApprovedAnalysisRelease[];
+          approvedStandardHistory?: ApprovedAnalysisRelease[];
           myAnalysis?: MyAnalysisStatus | null;
           myAnalyses?: MyAnalysisStatus[];
           canManage?: boolean;
@@ -74,6 +79,8 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         if (active) {
           setVideo(data.video ?? null);
           setAnalyses(data.analyses ?? []);
+          setApprovedStandards(data.approvedStandards ?? []);
+          setApprovedStandardHistory(data.approvedStandardHistory ?? []);
           setMyAnalysis(data.myAnalysis ?? null);
           setMyAnalyses(data.myAnalyses ?? []);
           setCanManage(Boolean(data.canManage));
@@ -131,21 +138,12 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const myV03Analysis =
     myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.3-PILOT") ??
     (myAnalysis?.taxonomyVersion === "V0.3-PILOT" ? myAnalysis : null);
-  const myV02Analysis =
-    myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.2") ??
-    (myAnalysis?.taxonomyVersion === "V0.2" ? myAnalysis : null);
   const myAnalysisLabel =
     myV03Analysis?.status === "SUBMITTED"
       ? "继续修订我的 V0.3 作业 ↗"
       : myV03Analysis?.status === "DRAFT"
         ? "继续编辑 V0.3 分析 ↗"
         : "开始 V0.3 试点分析 ↗";
-  const myV02AnalysisLabel =
-    myV02Analysis?.status === "SUBMITTED"
-      ? "继续修订我的作业 ↗"
-      : myV02Analysis?.status === "DRAFT"
-        ? "继续编辑我的分析 ↗"
-        : "写下我的分析 ↗";
 
   async function showAnalysisVersion(index: number, snapshotId: string) {
     if (analyses[index]?.id === snapshotId) return;
@@ -325,13 +323,77 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               {myAnalysisLabel}
             </Link>
             <Link className="text-button muted" href={`/videos/${videoId}/practice?taxonomy=V0.2`}>
-              V0.2 原版·{myV02AnalysisLabel}
+              历史体系 V0.2 · 只读查看
             </Link>
           </div>
         </div>
 
         {versionNotice ? (
           <div className="review-notice error">{versionNotice}</div>
+        ) : null}
+
+        {approvedStandards.length ? (
+          <div className="standard-case-list">
+            {approvedStandards.map((release) => {
+              const cleanAnalysis: SubmittedAnalysis = {
+                id: release.approvedSnapshotId,
+                authorName: release.payload.authorName,
+                taxonomyVersion: release.payload.taxonomyVersion,
+                revision: release.payload.revision,
+                versionNumber: release.releaseNumber,
+                createdAt: release.approvedAt,
+                contentHash: release.contentHash,
+                payload: release.payload,
+                versions: [],
+              };
+              return (
+                <details className="standard-case-card" key={release.id} open>
+                  <summary>
+                    <span>标准案例 R{release.releaseNumber}</span>
+                    <strong>专家创意等级 {release.expertCreativeGrade}</strong>
+                    <small>{release.approvedByName} 终审 · 干净批准快照</small>
+                  </summary>
+                  <SubmittedAnalysisContent analysis={cleanAnalysis} forceOpen={false} />
+                </details>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {approvedStandardHistory.some((release) => release.status !== "ACTIVE") ? (
+          <details className="standard-history">
+            <summary>
+              历史批准版本
+              <span>{approvedStandardHistory.filter((release) => release.status !== "ACTIVE").length} 个</span>
+            </summary>
+            <div>
+              {approvedStandardHistory
+                .filter((release) => release.status !== "ACTIVE")
+                .map((release) => {
+                  const historical: SubmittedAnalysis = {
+                    id: release.approvedSnapshotId,
+                    authorName: release.payload.authorName,
+                    taxonomyVersion: release.payload.taxonomyVersion,
+                    revision: release.payload.revision,
+                    versionNumber: release.releaseNumber,
+                    createdAt: release.approvedAt,
+                    contentHash: release.contentHash,
+                    payload: release.payload,
+                    versions: [],
+                  };
+                  return (
+                    <details className="standard-case-card historical" key={release.id}>
+                      <summary>
+                        <span>标准案例 R{release.releaseNumber}</span>
+                        <strong>已由后续版本替代</strong>
+                        <small>{release.approvedByName} 终审</small>
+                      </summary>
+                      <SubmittedAnalysisContent analysis={historical} forceOpen={false} />
+                    </details>
+                  );
+                })}
+            </div>
+          </details>
         ) : null}
 
         {analyses.length === 0 ? (
@@ -387,35 +449,33 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                       ) : (
                         <span className="analysis-version-only">公开版本 V1</span>
                       )}
-                      <button
-                        type="button"
-                        className="button button-accent compact"
-                        onClick={() =>
-                          setActiveReviewId((current) =>
-                            current === analysis.id ? null : analysis.id,
-                          )
-                        }
-                      >
-                        {reviewActive
-                          ? "退出原位批改"
-                          : analysis.taxonomyVersion === "V0.2"
-                            ? "原位批改 · 100分"
-                            : "原位批注"}
-                      </button>
+                      {analysis.taxonomyVersion === "V0.2" ? (
+                        <span className="analysis-version-only">历史体系 · 只读</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="button button-accent compact"
+                          onClick={() =>
+                            setActiveReviewId((current) =>
+                              current === analysis.id ? null : analysis.id,
+                            )
+                          }
+                        >
+                          {reviewActive ? "退出终审" : "进入原位终审"}
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  {reviewActive && analysis.taxonomyVersion === "V0.2" ? (
-                    <ReviewPanel
-                      snapshotId={analysis.id}
-                      onClose={() => setActiveReviewId(null)}
-                    >
-                      <AnalysisComments snapshotId={analysis.id}>
+                  {reviewActive && analysis.taxonomyVersion === "V0.3-PILOT" ? (
+                    <>
+                      <V03ReviewDecisionBar snapshotId={analysis.id} />
+                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion}>
                         {content}
                       </AnalysisComments>
-                    </ReviewPanel>
+                    </>
                   ) : (
-                    <AnalysisComments snapshotId={analysis.id}>
+                    <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion}>
                       {content}
                     </AnalysisComments>
                   )}

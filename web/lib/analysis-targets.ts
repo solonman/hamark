@@ -64,6 +64,7 @@ const creativeStructureTargets = {
   "creative-button": { property: "creativeButton", column: "creative_button" },
   "mechanism-statement": { property: "mechanismStatement", column: "mechanism_statement" },
   "mechanism-custom": { property: "mechanismCustom", column: "mechanism_custom" },
+  "creative-realization-path": { property: "creativeRealizationPath", column: "realization_skeleton" },
   "realization-skeleton": { property: "realizationSkeleton", column: "realization_skeleton" },
   "brand-product-landing": { property: "brandProductLanding", column: "brand_product_landing" },
   "story-reference-type": { property: "storyReferenceType", column: "story_reference_type" },
@@ -196,6 +197,12 @@ export function analysisTargetValue(
     return group?.[target.property] ?? null;
   }
   if (target.scope === "creative-structure") {
+    if (target.property === "creativeRealizationPath") {
+      return annotation.creativeStructure
+        ? annotation.creativeStructure.creativeRealizationPath ||
+            annotation.creativeStructure.realizationSkeleton
+        : null;
+    }
     return annotation.creativeStructure?.[target.property] ?? null;
   }
   if (target.scope === "creative-structure-json") {

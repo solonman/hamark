@@ -71,7 +71,8 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(practice, /对照视频 · 始终悬浮/);
   assert.match(shotTable, /拖动表头边界调整列宽/);
   assert.match(shotTable, /恢复默认列宽/);
-  assert.match(detail, /原位批改 · 100分/);
+  assert.match(detail, /进入原位终审/);
+  assert.match(detail, /历史体系 · 只读/);
   assert.match(detail, /替换原视频/);
   assert.match(detail, /对照视频 · 随页面悬浮/);
   assert.match(reviewPanel, /提交正式评分/);
@@ -260,16 +261,17 @@ test("video detail API returns current user's analysis status", async () => {
   assert.match(source, /myAnalysis:/);
 });
 
-test("video detail client labels my analysis CTA by status", async () => {
+test("video detail client labels current V0.3 work by status and de-emphasizes V0.2", async () => {
   const source = await readFile(
     new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url),
     "utf8",
   );
 
   assert.match(source, /myAnalysis/);
-  assert.match(source, /继续编辑我的分析 ↗/);
-  assert.match(source, /继续修订我的作业 ↗/);
-  assert.match(source, /写下我的分析 ↗/);
+  assert.match(source, /继续编辑 V0\.3 分析 ↗/);
+  assert.match(source, /继续修订我的 V0\.3 作业 ↗/);
+  assert.match(source, /开始 V0\.3 试点分析 ↗/);
+  assert.match(source, /历史体系 V0\.2 · 只读查看/);
 });
 
 test("video management dialogs use protected edit and delete mutations", async () => {
