@@ -142,11 +142,17 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const myV03Analysis =
     myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.3-PILOT") ??
     (myAnalysis?.taxonomyVersion === "V0.3-PILOT" ? myAnalysis : null);
+  const activeStandard = approvedStandards.find((release) => release.status === "ACTIVE") ?? null;
+  const activeStandardStartHref = activeStandard
+    ? `/videos/${videoId}/practice?taxonomy=V0.3-PILOT&start=active-release&releaseId=${encodeURIComponent(activeStandard.id)}`
+    : `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`;
   const myAnalysisLabel =
     myV03Analysis?.reviewStatus === "CHANGES_REQUESTED"
       ? "开始修改我的作业 ↗"
       : myV03Analysis?.reviewStatus === "APPROVED"
-        ? `基于活动标准版 R${myV03Analysis.baseReleaseNumber ?? "—"} 开始新一轮 ↗`
+        ? activeStandard
+          ? `基于活动标准版 R${activeStandard.releaseNumber} 开始新一轮 ↗`
+          : "查看已批准作业 ↗"
         : myV03Analysis?.reviewStatus === "PENDING_REVIEW" ||
             myV03Analysis?.reviewStatus === "PENDING_REREVIEW"
           ? "查看已提交作业 ↗"
@@ -364,7 +370,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             <h2 id="analysis-title">脚本及创意分析</h2>
           </div>
           <div className="analysis-entry-actions">
-            <Link className="text-button" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+            <Link
+              className="text-button"
+              href={myV03Analysis?.reviewStatus === "APPROVED" ? activeStandardStartHref : `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
+            >
               {myAnalysisLabel}
             </Link>
             <Link className="text-button muted" href={`/videos/${videoId}/practice?taxonomy=V0.2`}>
@@ -411,7 +420,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                     >
                       {sourceAnalysis ? "已加载来源" : versionLoading === release.sourceSnapshotId ? "读取中…" : "查看来源作业"}
                     </button>
-                    <Link className="button button-ghost compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+                    <Link
+                      className="button button-ghost compact"
+                      href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT&start=active-release&releaseId=${encodeURIComponent(release.id)}`}
+                    >
                       基于 R{release.releaseNumber} 开始新一轮
                     </Link>
                   </div>
@@ -566,8 +578,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                           开始修改
                         </Link>
                       ) : entryState === "AUTHOR_NEW_ROUND" ? (
-                        <Link className="button button-ghost compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-                          基于标准版开始新一轮修订
+                        <Link className="button button-ghost compact" href={activeStandardStartHref}>
+                          {activeStandard
+                            ? `基于活动标准版 R${activeStandard.releaseNumber} 开始新一轮修订`
+                            : "查看已批准作业"}
                         </Link>
                       ) : (
                         <span className="analysis-version-only">

@@ -1,5 +1,8 @@
 import { getDbClient, type DbPreparedStatement } from "@/db";
-import { loadAnnotation } from "@/lib/annotation-server";
+import {
+  loadAnnotation,
+  seedV03FromActiveStandard,
+} from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
 import {
   emptyCreativeStructure,
@@ -44,11 +47,13 @@ export async function GET(
   const published = annotation.id
     ? await getDbClient()
         .prepare(
-          `SELECT COUNT(*) AS version_count FROM annotation_snapshots
+          `SELECT COUNT(*) AS version_count,
+            COALESCE(MAX(version_number), 0) AS latest_version_number
+          FROM annotation_snapshots
           WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
         )
         .bind(annotation.id)
-        .first<{ version_count: number }>()
+        .first<{ version_count: number; latest_version_number: number }>()
     : null;
   return Response.json({
     video,
@@ -56,7 +61,115 @@ export async function GET(
     seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION &&
       Boolean(annotation.sourceSnapshotId) && !annotation.baseReleaseId && !annotation.id,
     hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
-    publishedVersionCount: Number(published?.version_count ?? 0),
+    publishedVersionCount: Number(published?.latest_version_number ?? 0),
+  });
+}
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const originError = requireSameOriginMutation(request);
+  if (originError) return originError;
+  const user = await requireApiUser(request);
+  if (user instanceof Response) return user;
+  const taxonomyVersion = requestedTaxonomy(request);
+  if (taxonomyVersion !== V03_TAXONOMY_VERSION) {
+    return Response.json({ error: "只有当前逆向体系可以从活动标准版建立新一轮。" }, { status: 400 });
+  }
+  const { id: videoId } = await context.params;
+  const body = (await request.json().catch(() => ({}))) as {
+    action?: unknown;
+    releaseId?: unknown;
+  };
+  if (body.action !== "START_FROM_ACTIVE_RELEASE" || typeof body.releaseId !== "string") {
+    return Response.json({ error: "缺少明确的活动标准版起新轮指令。" }, { status: 400 });
+  }
+  const releaseId = body.releaseId.trim().slice(0, 200);
+  if (!releaseId) {
+    return Response.json({ error: "活动标准版标识不能为空。" }, { status: 400 });
+  }
+  const db = getDbClient();
+  const video = await db.prepare(
+    `SELECT id, title, status FROM videos WHERE id = ? AND deleted_at IS NULL`,
+  ).bind(videoId).first<{ id: string; title: string; status: string }>();
+  if (!video) return Response.json({ error: "视频不存在。" }, { status: 404 });
+
+  const seed = await seedV03FromActiveStandard(videoId, user.displayName, releaseId);
+  if (!seed || seed.baseReleaseId !== releaseId) {
+    return Response.json(
+      { error: "指定标准版不是这个作品当前的活动版本，请刷新作品页后重试。" },
+      { status: 409 },
+    );
+  }
+  const existing = await db.prepare(
+    `SELECT id, status, review_status, revision, base_release_id
+    FROM annotations
+    WHERE video_id = ? AND author_email = ? AND taxonomy_version = 'V0.3-PILOT'
+      AND deleted_at IS NULL`,
+  ).bind(videoId, user.identityKey).first<{
+    id: string;
+    status: "DRAFT" | "SUBMITTED";
+    review_status: string;
+    revision: number;
+    base_release_id: string | null;
+  }>();
+
+  if (existing?.status === "DRAFT" && existing.review_status === "DRAFT") {
+    if (existing.base_release_id !== releaseId) {
+      return Response.json(
+        { error: "你已有一份基于其他版本的未提交草稿，请先完成或处理该草稿。" },
+        { status: 409 },
+      );
+    }
+  } else if (existing && ["PENDING_REVIEW", "PENDING_REREVIEW"].includes(existing.review_status)) {
+    return Response.json({ error: "当前作业正在审核，不能同时建立新一轮。" }, { status: 423 });
+  } else if (existing && existing.review_status !== "APPROVED") {
+    return Response.json(
+      { error: "当前作业尚有未完成的退回或修订任务，不能覆盖为新一轮。" },
+      { status: 409 },
+    );
+  }
+
+  if (!(existing?.status === "DRAFT" && existing.base_release_id === releaseId)) {
+    const startingDraft: AnnotationDraft = {
+      ...seed,
+      id: existing?.id ?? null,
+      revision: existing?.revision ?? 0,
+    };
+    const forwardedHeaders = new Headers(request.headers);
+    forwardedHeaders.set("Content-Type", "application/json");
+    const persisted = await PUT(
+      new Request(request.url, {
+        method: "PUT",
+        headers: forwardedHeaders,
+        body: JSON.stringify(startingDraft),
+      }),
+      { params: Promise.resolve({ id: videoId }) },
+    );
+    if (!persisted.ok) return persisted;
+  }
+
+  const annotation = await loadAnnotation(
+    videoId,
+    user.identityKey,
+    user.displayName,
+    V03_TAXONOMY_VERSION,
+  );
+  const published = annotation.id
+    ? await db.prepare(
+        `SELECT COUNT(*) AS version_count,
+          COALESCE(MAX(version_number), 0) AS latest_version_number
+        FROM annotation_snapshots
+        WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
+      ).bind(annotation.id).first<{ version_count: number; latest_version_number: number }>()
+    : null;
+  return Response.json({
+    video,
+    annotation,
+    startedFromActiveRelease: true,
+    hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
+    publishedVersionCount: Number(published?.latest_version_number ?? 0),
   });
 }
 
@@ -185,6 +298,7 @@ export async function PUT(
           `UPDATE annotations SET
             author_name = ?, workflow_version = ?, source_snapshot_id = ?,
             base_release_id = ?, base_snapshot_id = ?, source_public_snapshot_id = ?,
+            active_base_snapshot_id = CASE WHEN review_status = 'APPROVED' THEN NULL ELSE active_base_snapshot_id END,
             status = 'DRAFT',
             review_status = CASE WHEN review_status = 'APPROVED' THEN 'DRAFT' ELSE review_status END,
             revision = ?, analysis_title = ?,

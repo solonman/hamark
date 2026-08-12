@@ -8,6 +8,7 @@ import {
   mainPathFields,
   mechanismChoicesFor,
 } from "@/lib/taxonomy-v0.3";
+import { toggleLimitedSelection } from "@/lib/selection";
 import type {
   CreativePath,
   CreativeStructureDraft,
@@ -25,21 +26,17 @@ type Change = {
   replacementValue?: string | string[];
 };
 
-function toggle(values: string[], value: string, limit = 2) {
-  return values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value].slice(-limit);
-}
-
 function CheckList({
   options,
   values,
   disabledValue = "",
+  limit = 2,
   onChange,
 }: {
   options: Array<{ value: string; label: string }>;
   values: string[];
   disabledValue?: string;
+  limit?: number | null;
   onChange: (values: string[]) => void;
 }) {
   return <div className="combined-check-list">
@@ -48,7 +45,7 @@ function CheckList({
         type="checkbox"
         checked={values.includes(option.value)}
         disabled={option.value === disabledValue}
-        onChange={() => onChange(toggle(values, option.value))}
+        onChange={() => onChange(toggleLimitedSelection(values, option.value, limit))}
       />
       <span>{option.label}</span>
     </label>)}
@@ -178,7 +175,7 @@ export default function CombinedStructureRevisionPanel({
       {kind === "FORMATION" ? <div className="combined-revision-grid">
         <label><span>全片主形成方式</span><select value={structure.formationPrimary} onChange={(event) => setStructure({ ...structure, formationPrimary: event.target.value as FormationMode })}><option value="">请选择</option>{formationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <fieldset><legend>辅助形成方式</legend><CheckList options={formationOptions} values={structure.formationAuxiliary} disabledValue={structure.formationPrimary} onChange={(values) => setStructure({ ...structure, formationAuxiliary: values as FormationMode[] })} /></fieldset>
-        <fieldset><legend>关联桥段</legend><CheckList options={sourceGroups.map((group) => ({ value: group.id, label: group.title }))} values={structure.formationRelatedGroupIds} onChange={(values) => setStructure({ ...structure, formationRelatedGroupIds: values })} /></fieldset>
+        <fieldset><legend>关联桥段</legend><CheckList options={sourceGroups.map((group) => ({ value: group.id, label: group.title }))} values={structure.formationRelatedGroupIds} limit={null} onChange={(values) => setStructure({ ...structure, formationRelatedGroupIds: values })} /></fieldset>
         <label><span>全片形成说明</span><textarea value={structure.formationStatement} onChange={(event) => setStructure({ ...structure, formationStatement: event.target.value })} /></label>
       </div> : null}
       {kind === "GROUP" && selectedGroup ? <div className="combined-revision-grid">

@@ -12,7 +12,7 @@ export default async function PracticePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ taxonomy?: string }>;
+  searchParams: Promise<{ taxonomy?: string; start?: string; releaseId?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -20,5 +20,15 @@ export default async function PracticePage({
     query.taxonomy === "V0.2" ? "V0.2" : "V0.3-PILOT";
   const returnTo = `/videos/${encodeURIComponent(id)}/practice?taxonomy=${encodeURIComponent(taxonomyVersion)}`;
   await requirePageUser(returnTo);
-  return <PracticeClient videoId={id} taxonomyVersion={taxonomyVersion} />;
+  const startReleaseId =
+    taxonomyVersion === "V0.3-PILOT" && query.start === "active-release"
+      ? query.releaseId
+      : undefined;
+  return (
+    <PracticeClient
+      videoId={id}
+      taxonomyVersion={taxonomyVersion}
+      startReleaseId={startReleaseId}
+    />
+  );
 }

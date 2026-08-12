@@ -25,7 +25,7 @@ export async function GET(
   const { releaseId } = await context.params;
   const db = getDbClient();
   const release = await db.prepare(
-    `SELECT r.id, r.source_snapshot_id, r.source_review_round_id,
+    `SELECT r.id, r.annotation_id, r.source_snapshot_id, r.source_review_round_id,
       r.approved_snapshot_id, r.status, round.round_number,
       round.status AS round_status, round.reviewer_name,
       round.decision_note, round.decided_at
@@ -34,36 +34,50 @@ export async function GET(
     INNER JOIN analysis_review_rounds round ON round.id = r.source_review_round_id
     WHERE r.id = ? AND v.deleted_at IS NULL`,
   ).bind(releaseId).first<{
-    id: string; source_snapshot_id: string; source_review_round_id: string;
+    id: string; annotation_id: string; source_snapshot_id: string; source_review_round_id: string;
     approved_snapshot_id: string; status: string;
     round_number: number; round_status: string; reviewer_name: string | null;
     decision_note: string | null; decided_at: string | null;
   }>();
   if (!release) return Response.json({ error: "标准版本不存在。" }, { status: 404 });
-  const [events, comments] = await Promise.all([
+  const [rounds, events, comments] = await Promise.all([
     db.prepare(
-      `SELECT id, base_snapshot_id, actor_name, actor_role, edit_type,
+      `SELECT id, round_number, status, reviewer_name, decision_note,
+        created_at, decided_at
+      FROM analysis_review_rounds
+      WHERE annotation_id = ? AND round_number <= ?
+      ORDER BY round_number ASC`,
+    ).bind(release.annotation_id, release.round_number).all<Record<string, string | number | null>>(),
+    db.prepare(
+      `SELECT id, review_round_id, base_snapshot_id, actor_name, actor_role, edit_type,
         target_key, target_label, original_text, anchor_start, anchor_end,
         replacement_text, COALESCE(reason, '') AS reason, status,
         applied_revision, linked_comment_id, original_text_hash, value_type,
         original_value_json, replacement_value_json, vocabulary_version,
         change_set_id, created_at, updated_at
       FROM analysis_revision_events
-      WHERE review_round_id = ? AND status = 'APPLIED'
+      WHERE review_round_id IN (
+        SELECT id FROM analysis_review_rounds
+        WHERE annotation_id = ? AND round_number <= ?
+      ) AND status = 'APPLIED'
       ORDER BY created_at ASC`,
-    ).bind(release.source_review_round_id).all<Record<string, string | number | null>>(),
+    ).bind(release.annotation_id, release.round_number).all<Record<string, string | number | null>>(),
     db.prepare(
-      `SELECT id, submission_id, parent_id, author_name, target_key,
+      `SELECT id, review_round_id, submission_id, parent_id, author_name, target_key,
         target_label, selected_text, anchor_start, anchor_end, body, kind,
         workflow_status, linked_revision_event_id, final_conclusion,
         resolved_by_name, created_at, updated_at
       FROM analysis_comments
-      WHERE review_round_id = ? AND deleted_at IS NULL
+      WHERE review_round_id IN (
+        SELECT id FROM analysis_review_rounds
+        WHERE annotation_id = ? AND round_number <= ?
+      ) AND deleted_at IS NULL
       ORDER BY created_at ASC`,
-    ).bind(release.source_review_round_id).all<Record<string, string | number | null>>(),
+    ).bind(release.annotation_id, release.round_number).all<Record<string, string | number | null>>(),
   ]);
   const mappedComments = comments.results.map((row) => ({
     id: String(row.id),
+    reviewRoundId: String(row.review_round_id),
     parentId: row.parent_id ? String(row.parent_id) : null,
     submissionId: String(row.submission_id),
     targetKey: String(row.target_key),
@@ -104,6 +118,15 @@ export async function GET(
     releaseId,
     sourceSnapshotId: release.source_snapshot_id,
     approvedSnapshotId: release.approved_snapshot_id,
+    reviewRounds: rounds.results.map((row) => ({
+      id: String(row.id),
+      roundNumber: Number(row.round_number),
+      status: String(row.status),
+      reviewerName: row.reviewer_name ? String(row.reviewer_name) : null,
+      decisionNote: row.decision_note ? String(row.decision_note) : null,
+      createdAt: String(row.created_at),
+      decidedAt: row.decided_at ? String(row.decided_at) : null,
+    })),
     reviewRound: {
       id: release.source_review_round_id,
       roundNumber: Number(release.round_number),
@@ -114,6 +137,7 @@ export async function GET(
     },
     revisions: events.results.map((row) => ({
       id: String(row.id),
+      reviewRoundId: String(row.review_round_id),
       submissionId: String(row.base_snapshot_id),
       targetKey: String(row.target_key),
       targetLabel: String(row.target_label),

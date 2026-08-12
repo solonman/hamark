@@ -262,16 +262,18 @@ async function seedV03FromLatestV02(
   } satisfies AnnotationDraft;
 }
 
-async function seedV03FromActiveStandard(
+export async function seedV03FromActiveStandard(
   videoId: string,
   authorName: string,
+  releaseId?: string,
 ) {
   const release = await getDbClient().prepare(
     `SELECT id, release_number, approved_snapshot_id, source_snapshot_id, payload_json
     FROM approved_analysis_releases
     WHERE video_id = ? AND status = 'ACTIVE'
+      AND (? = '' OR id = ?)
     ORDER BY release_number DESC LIMIT 1`,
-  ).bind(videoId).first<{
+  ).bind(videoId, releaseId ?? "", releaseId ?? "").first<{
     id: string;
     release_number: number;
     approved_snapshot_id: string;

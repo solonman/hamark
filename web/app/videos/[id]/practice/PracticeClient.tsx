@@ -126,9 +126,11 @@ function redirectOnUnauthorized(response: Response) {
 export default function PracticeClient({
   videoId,
   taxonomyVersion,
+  startReleaseId,
 }: {
   videoId: string;
   taxonomyVersion: TaxonomyVersion;
+  startReleaseId?: string;
 }) {
   const [videoTitle, setVideoTitle] = useState("");
   const [videoStatus, setVideoStatus] = useState("");
@@ -168,7 +170,18 @@ export default function PracticeClient({
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/videos/${videoId}/annotation?taxonomy=${encodeURIComponent(taxonomyVersion)}`, { cache: "no-store" })
+    const startFromRelease = taxonomyVersion === "V0.3-PILOT" && Boolean(startReleaseId);
+    fetch(`/api/videos/${videoId}/annotation?taxonomy=${encodeURIComponent(taxonomyVersion)}`, {
+      cache: "no-store",
+      ...(startFromRelease ? {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "START_FROM_ACTIVE_RELEASE",
+          releaseId: startReleaseId,
+        }),
+      } : {}),
+    })
       .then(async (response) => {
         if (redirectOnUnauthorized(response)) return;
         const data = (await response.json()) as AnnotationResponse;
@@ -188,6 +201,13 @@ export default function PracticeClient({
                 ? data.annotation
                 : { ...data.annotation, shots: [newShot(0)] },
           );
+          if (startFromRelease) {
+            window.history.replaceState(
+              null,
+              "",
+              `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`,
+            );
+          }
         }
       })
       .catch((reason) => {
@@ -202,7 +222,7 @@ export default function PracticeClient({
     return () => {
       active = false;
     };
-  }, [taxonomyVersion, videoId]);
+  }, [startReleaseId, taxonomyVersion, videoId]);
 
   const markChanged = useCallback((next: AnnotationDraft) => {
     editSequence.current += 1;
@@ -565,7 +585,7 @@ export default function PracticeClient({
         </div>
       </header>
 
-      {hasPublishedVersion ? (
+      {hasPublishedVersion && !draft.baseReleaseId ? (
         <div className="revision-context-banner">
           <strong>正在继续修订公开版本 V{publishedVersionCount}</strong>
           <span>

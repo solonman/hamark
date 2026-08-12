@@ -5,6 +5,8 @@ import { analysisTargetValue } from "../lib/analysis-targets.ts";
 import { emptyAnnotation } from "../lib/annotation-server.ts";
 import { validateApprovalCandidate } from "../lib/annotation-validation.ts";
 import { resolveReviewEntry } from "../lib/review-entry.ts";
+import { toggleLimitedSelection } from "../lib/selection.ts";
+import { groupReleaseHistory } from "../lib/standard-history.ts";
 import {
   canonicalRevisionValue,
   materializeRevisionEvents,
@@ -149,4 +151,53 @@ test("V0.3.3 safety migration is additive and legacy verifiers are hard-disabled
     assert.match(source, /旧验证脚本已停用/);
     assert.doesNotMatch(source, /video_1329|approved_analysis_releases|expertCreativeGrade/);
   }
+});
+
+test("V0.3.3.1 groups returned round one and approving round two into the same release history", async () => {
+  const rounds = [
+    { id: "round-1", roundNumber: 1, status: "CHANGES_REQUESTED", reviewerName: "终审者", decisionNote: "退回", decidedAt: "2026-08-12T10:00:00Z" },
+    { id: "round-2", roundNumber: 2, status: "APPROVED", reviewerName: "终审者", decisionNote: "批准", decidedAt: "2026-08-12T11:00:00Z" },
+  ];
+  const grouped = groupReleaseHistory(
+    rounds,
+    [{ id: "revision-1", reviewRoundId: "round-1" }],
+    [{ id: "comment-1", reviewRoundId: "round-1" }],
+  );
+  assert.deepEqual(grouped.map((item) => item.round.roundNumber), [1, 2]);
+  assert.equal(grouped[0].revisions.length, 1);
+  assert.equal(grouped[0].comments.length, 1);
+  assert.equal(grouped[1].round.status, "APPROVED");
+
+  const route = await readFile(new URL("../app/api/approved-standards/[releaseId]/history/route.ts", import.meta.url), "utf8");
+  assert.match(route, /round_number <= \?/);
+  assert.match(route, /reviewRounds/);
+});
+
+test("V0.3.3.1 allows all related bridge groups while other multi-selects keep max two", () => {
+  let related: string[] = [];
+  for (const id of ["group-1", "group-2", "group-3"]) {
+    related = toggleLimitedSelection(related, id, null);
+  }
+  assert.deepEqual(related, ["group-1", "group-2", "group-3"]);
+
+  let auxiliary: string[] = [];
+  for (const id of ["one", "two", "three"]) {
+    auxiliary = toggleLimitedSelection(auxiliary, id);
+  }
+  assert.deepEqual(auxiliary, ["two", "three"]);
+});
+
+test("V0.3.3.1 starts a new round through an explicit active release POST", async () => {
+  const [detail, route, practice] = await Promise.all([
+    readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/[id]/annotation/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(detail, /start=active-release&releaseId=/);
+  assert.doesNotMatch(detail, /R\$\{myV03Analysis\.baseReleaseNumber \?\? "—"\}/);
+  assert.match(route, /START_FROM_ACTIVE_RELEASE/);
+  assert.match(route, /status = 'ACTIVE'/);
+  assert.match(route, /base_release_id = \?, base_snapshot_id = \?, source_public_snapshot_id = \?/);
+  assert.match(practice, /method: "POST"/);
+  assert.match(practice, /hasPublishedVersion && !draft\.baseReleaseId/);
 });

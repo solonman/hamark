@@ -14,8 +14,11 @@ const ids = {
   video: `${prefix}_video`,
   annotation: `${prefix}_annotation`,
   group: `${prefix}_group_1`,
+  group2: `${prefix}_group_2`,
+  group3: `${prefix}_group_3`,
   shot1: `${prefix}_shot_1`,
   shot2: `${prefix}_shot_2`,
+  shot3: `${prefix}_shot_3`,
   public1: `${prefix}_snapshot_public_1`,
   approved1: `${prefix}_snapshot_approved_1`,
   public2: `${prefix}_snapshot_public_2`,
@@ -27,7 +30,7 @@ const ids = {
 };
 
 function makePayload(revision: number, label: string): AnnotationDraft {
-  const group: ShotGroupDraft = {
+  const groups: ShotGroupDraft[] = [{
     id: ids.group,
     orderIndex: 0,
     title: "TEST_ONLY 回家桥段",
@@ -35,10 +38,26 @@ function makePayload(revision: number, label: string): AnnotationDraft {
     auxiliaryRoles: ["累积情感"],
     customRole: "",
     note: "从离开到归来，用于验收桥段联合修订。",
-  };
+  }, {
+    id: ids.group2,
+    orderIndex: 1,
+    title: "TEST_ONLY 远行桥段",
+    primaryRole: "推进故事事件",
+    auxiliaryRoles: ["累积信息"],
+    customRole: "",
+    note: "第二个可关联桥段。",
+  }, {
+    id: ids.group3,
+    orderIndex: 2,
+    title: "TEST_ONLY 归来桥段",
+    primaryRole: "完成情感释放",
+    auxiliaryRoles: ["完成品牌／产品进入"],
+    customRole: "",
+    note: "第三个可关联桥段。",
+  }];
   const shots: ShotDraft[] = [
     {
-      id: ids.shot1, orderIndex: 0, groupName: group.title, shotNumber: "1",
+      id: ids.shot1, orderIndex: 0, groupName: groups[0].title, shotNumber: "1",
       startTime: "00:00", endTime: "00:04", shotSize: "全景", cameraAngle: "平视",
       cameraMovement: "固定", visualContent: "人物拖着行李离开家门。",
       dialogue: "", voiceover: "我以为这只是一次普通的出发。",
@@ -46,11 +65,18 @@ function makePayload(revision: number, label: string): AnnotationDraft {
       creativeComment: "建立离开的原始预期。", shotGroupId: ids.group,
     },
     {
-      id: ids.shot2, orderIndex: 1, groupName: group.title, shotNumber: "2",
+      id: ids.shot2, orderIndex: 1, groupName: groups[1].title, shotNumber: "2",
       startTime: "00:04", endTime: "00:09", shotSize: "中景", cameraAngle: "平视",
       cameraMovement: "缓慢推进", visualContent: "人物回到家门，家人迎上前。",
       dialogue: "欢迎回家。", voiceover: "", screenText: "WELCOME HOME",
-      soundEffect: "脚步声", music: "旋律抬升", creativeComment: "用归来重释出发。", shotGroupId: ids.group,
+      soundEffect: "脚步声", music: "旋律抬升", creativeComment: "累积远行情境。", shotGroupId: ids.group2,
+    },
+    {
+      id: ids.shot3, orderIndex: 2, groupName: groups[2].title, shotNumber: "3",
+      startTime: "00:09", endTime: "00:12", shotSize: "近景", cameraAngle: "平视",
+      cameraMovement: "固定", visualContent: "家人在门前拥抱，品牌落点出现。",
+      dialogue: "欢迎回家。", voiceover: "", screenText: "WELCOME HOME",
+      soundEffect: "拥抱衣料声", music: "旋律落定", creativeComment: "完成情感释放。", shotGroupId: ids.group3,
     },
   ];
   const payload = emptyAnnotation(ids.video, "TEST_ONLY 作者", "V0.3-PILOT");
@@ -65,7 +91,7 @@ function makePayload(revision: number, label: string): AnnotationDraft {
   payload.thinkingChain = "从移动出行的功能，转向出发与归来的情感价值。";
   payload.summary = "以前后对照和情感累积完成品牌落点。";
   payload.shotCommentary = payload.summary;
-  payload.shotGroups = [group];
+  payload.shotGroups = groups;
   payload.shots = shots;
   payload.creativeStructure = {
     ...payload.creativeStructure!,
@@ -100,7 +126,7 @@ function makePayload(revision: number, label: string): AnnotationDraft {
   payload.baseReleaseId = ids.release2;
   payload.baseSnapshotId = ids.approved2;
   payload.sourcePublicSnapshotId = ids.public2;
-  payload.baseReleaseNumber = 2;
+  payload.baseReleaseNumber = 5;
   return payload;
 }
 
@@ -154,13 +180,16 @@ async function cleanup(db: DbClient) {
 
 async function prepare(db: DbClient) {
   await cleanup(db);
-  const public1 = makePayload(1, "V1");
-  const approved1 = makePayload(2, "R1");
-  const public2 = makePayload(3, "V2");
-  const approved2 = makePayload(4, "R2");
-  const draft = makePayload(5, "待提交");
-  draft.status = "DRAFT";
-  draft.reviewStatus = "DRAFT";
+  const public1 = makePayload(8, "公开 V8");
+  const public2 = makePayload(9, "公开 V9");
+  const approved2 = makePayload(14, "标准 R5");
+  const legacy = makePayload(14, "旧记录 V9");
+  legacy.status = "SUBMITTED";
+  legacy.reviewStatus = "APPROVED";
+  legacy.baseReleaseId = null;
+  legacy.baseSnapshotId = null;
+  legacy.sourcePublicSnapshotId = null;
+  legacy.baseReleaseNumber = null;
   const sourceMedia = await db.prepare(
     `SELECT object_key, thumbnail_key, original_name, content_type, file_size
     FROM videos WHERE COALESCE(data_scope, 'BUSINESS') = 'BUSINESS' AND status = 'READY'
@@ -190,18 +219,19 @@ async function prepare(db: DbClient) {
         status, review_status, revision, analysis_title, commercial_intent,
         creative_theme, synopsis, thinking_chain, shot_commentary, summary
       ) VALUES (?, ?, 'reviewer@reverse.local', 'TEST_ONLY 作者', 'V0.3-PILOT',
-        'REVERSE-WORKFLOW-V0.3-PILOT', 'DRAFT', 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(ids.annotation, ids.video, draft.revision, draft.analysisTitle, draft.commercialIntent,
-      draft.creativeTheme, draft.synopsis, draft.thinkingChain, draft.shotCommentary,
-      draft.summary).run();
-    const group = draft.shotGroups![0];
-    await transaction.prepare(
-      `INSERT INTO shot_groups (id, annotation_id, order_index, title, primary_role_id,
-        primary_role_name_snapshot, auxiliary_roles_json, custom_role, note)
-      VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-    ).bind(group.id, ids.annotation, group.title, group.primaryRole, group.primaryRole,
-      JSON.stringify(group.auxiliaryRoles), group.customRole, group.note).run();
-    for (const shot of draft.shots) {
+        'REVERSE-WORKFLOW-V0.3-PILOT', 'SUBMITTED', 'APPROVED', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(ids.annotation, ids.video, legacy.revision, legacy.analysisTitle, legacy.commercialIntent,
+      legacy.creativeTheme, legacy.synopsis, legacy.thinkingChain, legacy.shotCommentary,
+      legacy.summary).run();
+    for (const group of legacy.shotGroups!) {
+      await transaction.prepare(
+        `INSERT INTO shot_groups (id, annotation_id, order_index, title, primary_role_id,
+          primary_role_name_snapshot, auxiliary_roles_json, custom_role, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(group.id, ids.annotation, group.orderIndex, group.title, group.primaryRole, group.primaryRole,
+        JSON.stringify(group.auxiliaryRoles), group.customRole, group.note).run();
+    }
+    for (const shot of legacy.shots) {
       await transaction.prepare(
         `INSERT INTO shots (id, annotation_id, order_index, group_name, shot_number,
           start_time, end_time, shot_size, camera_angle, camera_movement, visual_content,
@@ -212,7 +242,7 @@ async function prepare(db: DbClient) {
         shot.visualContent, shot.dialogue, shot.voiceover, shot.screenText, shot.soundEffect,
         shot.music, shot.creativeComment, shot.shotGroupId ?? null).run();
     }
-    const s = draft.creativeStructure!;
+    const s = legacy.creativeStructure!;
     await transaction.prepare(
       `INSERT INTO annotation_creative_structures (
         annotation_id, vocabulary_version, creative_button, mechanism_statement,
@@ -238,10 +268,9 @@ async function prepare(db: DbClient) {
       s.creativeGradeReason, s.creativeGradeVersion, JSON.stringify(s.mainPathPayload),
       JSON.stringify(s.auxiliaryPathNotes), JSON.stringify(s.conditionFlags)).run();
     for (const [snapshotId, payload, workflow, version, cause] of [
-      [ids.public1, public1, "SUBMITTED", 1, "INITIAL"],
-      [ids.approved1, approved1, "APPROVED", 2, "EXPERT_BASE"],
-      [ids.public2, public2, "SUBMITTED", 2, "AUTHOR_REVISION"],
-      [ids.approved2, approved2, "APPROVED", 4, "EXPERT_BASE"],
+      [ids.public1, public1, "SUBMITTED", 8, "INITIAL"],
+      [ids.public2, public2, "SUBMITTED", 9, "AUTHOR_REVISION"],
+      [ids.approved2, approved2, "APPROVED", 14, "EXPERT_BASE"],
     ] as const) {
       const payloadJson = JSON.stringify(payload);
       await transaction.prepare(
@@ -253,21 +282,48 @@ async function prepare(db: DbClient) {
           'V0.3-PILOT', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)`,
       ).bind(snapshotId, ids.annotation, ids.video, payload.revision, payloadJson,
         await sha256Text(payloadJson), version, cause, workflow,
-        snapshotId === ids.public1 ? null : snapshotId === ids.approved1 ? ids.public1 : snapshotId === ids.public2 ? ids.approved1 : ids.public2,
+        snapshotId === ids.public1 ? null : snapshotId === ids.public2 ? ids.public1 : ids.public2,
         snapshotId === ids.approved2 ? ids.public2 : null).run();
     }
     await transaction.prepare(
       `INSERT INTO analysis_review_rounds (id, annotation_id, video_id, submitted_snapshot_id,
         round_number, reviewer_email, reviewer_name, status, decision_note, decided_at)
-      VALUES (?, ?, ?, ?, 1, 'demo@reverse.local', 'TEST_ONLY 终审者', 'APPROVED',
-        'TEST_ONLY 历史轮次', CURRENT_TIMESTAMP),
+      VALUES (?, ?, ?, ?, 1, 'demo@reverse.local', 'TEST_ONLY 终审者', 'CHANGES_REQUESTED',
+        'TEST_ONLY 第一轮退回', CURRENT_TIMESTAMP),
         (?, ?, ?, ?, 2, 'demo@reverse.local', 'TEST_ONLY 终审者', 'APPROVED',
-        'TEST_ONLY 活动轮次', CURRENT_TIMESTAMP)`,
+        'TEST_ONLY 第二轮批准', CURRENT_TIMESTAMP)`,
     ).bind(ids.round1, ids.annotation, ids.video, ids.public1,
       ids.round2, ids.annotation, ids.video, ids.public2).run();
+    const roundOneCommentId = `${prefix}_round_1_comment`;
+    await transaction.prepare(
+      `INSERT INTO analysis_comments (
+        id, submission_id, video_id, author_email, author_name, target_key,
+        target_label, selected_text, body, kind, status, anchor_start, anchor_end,
+        review_round_id, base_version_id, workflow_status, resolved_by_email,
+        resolved_by_name, final_conclusion
+      ) VALUES (?, ?, ?, 'demo@reverse.local', 'TEST_ONLY 终审者',
+        'core:commercial-intent', '商业意图', '建立品牌',
+        'TEST_ONLY 第一轮退回批注', 'COMMENT', 'RESOLVED', 0, 4,
+        ?, ?, 'RESOLVED', 'demo@reverse.local', 'TEST_ONLY 终审者',
+        'TEST_ONLY 第二轮已解决')`,
+    ).bind(roundOneCommentId, ids.public1, ids.video, ids.round1, ids.public1).run();
+    await transaction.prepare(
+      `INSERT INTO analysis_revision_events (
+        id, annotation_id, video_id, review_round_id, base_snapshot_id,
+        target_key, target_label, edit_type, anchor_start, anchor_end,
+        original_text, original_text_hash, replacement_text, reason,
+        actor_email, actor_name, actor_role, source, status, applied_revision,
+        materialized_snapshot_id, value_type, vocabulary_version
+      ) VALUES (?, ?, ?, ?, ?, 'core:commercial-intent', '商业意图',
+        'UNIT_REPLACE', 0, 14, '建立品牌与回家情感之间的连接。', ?,
+        '通过离开与归来建立品牌连接。', 'TEST_ONLY 第一轮直接修订',
+        'demo@reverse.local', 'TEST_ONLY 终审者', 'FINAL_REVIEWER',
+        'FINAL_DIRECT_REVISION', 'APPLIED', 9, ?, 'TEXT', ?)`,
+    ).bind(`${prefix}_round_1_revision`, ids.annotation, ids.video, ids.round1,
+      ids.public1, await sha256Text("建立品牌与回家情感之间的连接。"), ids.public2,
+      V03_VOCABULARY_VERSION).run();
     for (const [releaseId, releaseNumber, approvedId, publicId, roundId, payload, status, replaces] of [
-      [ids.release1, 1, ids.approved1, ids.public1, ids.round1, approved1, "SUPERSEDED", null],
-      [ids.release2, 2, ids.approved2, ids.public2, ids.round2, approved2, "ACTIVE", ids.release1],
+      [ids.release2, 5, ids.approved2, ids.public2, ids.round2, approved2, "ACTIVE", null],
     ] as const) {
       const payloadJson = JSON.stringify(payload);
       await transaction.prepare(
@@ -282,9 +338,9 @@ async function prepare(db: DbClient) {
         roundId, payloadJson, await sha256Text(payloadJson), status, replaces).run();
     }
     await transaction.prepare(
-      `UPDATE annotations SET base_release_id = ?, base_snapshot_id = ?,
-        source_public_snapshot_id = ? WHERE id = ?`,
-    ).bind(ids.release2, ids.approved2, ids.public2, ids.annotation).run();
+      `UPDATE annotations SET active_base_snapshot_id = ?, base_release_id = NULL,
+        base_snapshot_id = NULL, source_public_snapshot_id = NULL WHERE id = ?`,
+    ).bind(ids.approved2, ids.annotation).run();
     await transaction.prepare(
       `UPDATE annotation_snapshots SET base_release_id = ? WHERE id = ?`,
     ).bind(ids.release2, ids.approved2).run();
