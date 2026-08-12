@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { emptyAnnotation } from "../lib/annotation-server.ts";
 import {
+  canonicalRevisionValue,
   materializeRevisionEvents,
   sha256Text,
   type RevisionEventRecord,
@@ -35,6 +36,29 @@ test("V0.3.1 materializes an exact one-character correction without equal-length
   const clean = await materializeRevisionEvents(payload, [correction]);
   assert.equal(clean.commercialIntent, "这示范购买决策");
   assert.equal(payload.commercialIntent, "这是购买决策", "基础快照不能被原地修改");
+});
+
+test("V0.3.2 materializes typed multi-select revisions without text anchoring", async () => {
+  const payload = emptyAnnotation("video_1", "作者", "V0.3-PILOT");
+  payload.creativeStructure!.mechanismAuxiliary = ["反转重释"];
+  const original = ["反转重释"];
+  const replacement = ["对置生义", "隐喻转译"];
+  const structured: RevisionEventRecord = {
+    id: "revision_structured",
+    target_key: "structure:mechanism-auxiliary",
+    edit_type: "UNIT_REPLACE",
+    anchor_start: -1,
+    anchor_end: -1,
+    original_text: "",
+    original_text_hash: await sha256Text(canonicalRevisionValue(original)),
+    replacement_text: replacement.join(" · "),
+    value_type: "MULTI_SELECT",
+    original_value_json: canonicalRevisionValue(original),
+    replacement_value_json: canonicalRevisionValue(replacement),
+  };
+  const clean = await materializeRevisionEvents(payload, [structured]);
+  assert.deepEqual(clean.creativeStructure!.mechanismAuxiliary, replacement);
+  assert.deepEqual(payload.creativeStructure!.mechanismAuxiliary, original);
 });
 
 test("V0.3.1 supports whole-unit rewrites and rejects stale anchors", async () => {

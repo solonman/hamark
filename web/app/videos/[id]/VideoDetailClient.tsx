@@ -18,6 +18,7 @@ import ReplaceVideoDialog, {
 import SubmittedAnalysisContent from "./SubmittedAnalysisContent";
 import AnalysisComments from "./AnalysisComments";
 import V03ReviewDecisionBar from "./V03ReviewDecisionBar";
+import { resolveReviewEntry } from "@/lib/review-entry";
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -139,11 +140,16 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.3-PILOT") ??
     (myAnalysis?.taxonomyVersion === "V0.3-PILOT" ? myAnalysis : null);
   const myAnalysisLabel =
-    myV03Analysis?.status === "SUBMITTED"
-      ? "继续修订我的 V0.3 作业 ↗"
-      : myV03Analysis?.status === "DRAFT"
-        ? "继续编辑 V0.3 分析 ↗"
-        : "开始 V0.3 试点分析 ↗";
+    myV03Analysis?.reviewStatus === "CHANGES_REQUESTED"
+      ? "开始修改我的作业 ↗"
+      : myV03Analysis?.reviewStatus === "APPROVED"
+        ? "基于标准版开始新一轮修订 ↗"
+        : myV03Analysis?.reviewStatus === "PENDING_REVIEW" ||
+            myV03Analysis?.reviewStatus === "PENDING_REREVIEW"
+          ? "查看已提交作业 ↗"
+          : myV03Analysis?.status === "DRAFT"
+            ? "编辑／继续修订我的作业 ↗"
+            : "开始 V0.3 试点分析 ↗";
 
   async function showAnalysisVersion(index: number, snapshotId: string) {
     if (analyses[index]?.id === snapshotId) return;
@@ -353,7 +359,9 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                     <strong>专家创意等级 {release.expertCreativeGrade}</strong>
                     <small>{release.approvedByName} 终审 · 干净批准快照</small>
                   </summary>
-                  <SubmittedAnalysisContent analysis={cleanAnalysis} forceOpen={false} />
+                  <div className="reading-surface">
+                    <SubmittedAnalysisContent analysis={cleanAnalysis} forceOpen={false} />
+                  </div>
                 </details>
               );
             })}
@@ -388,7 +396,9 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                         <strong>已由后续版本替代</strong>
                         <small>{release.approvedByName} 终审</small>
                       </summary>
-                      <SubmittedAnalysisContent analysis={historical} forceOpen={false} />
+                      <div className="reading-surface">
+                        <SubmittedAnalysisContent analysis={historical} forceOpen={false} />
+                      </div>
                     </details>
                   );
                 })}
@@ -408,6 +418,14 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           <div className="analysis-list">
             {analyses.map((analysis, index) => {
               const reviewActive = activeReviewId === analysis.id;
+              const reviewContext = analysis.reviewContext;
+              const entryState = resolveReviewEntry({
+                taxonomyVersion: analysis.taxonomyVersion,
+                workflowStatus: analysis.payload.reviewStatus,
+                review: reviewContext,
+              });
+              const canEnterReview = entryState === "ENTER_REVIEW";
+              const authorNeedsAction = entryState === "AUTHOR_EDIT";
               const content = (
                 <SubmittedAnalysisContent
                   analysis={analysis}
@@ -415,7 +433,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                 />
               );
               return (
-                <article className="analysis-card" key={analysis.id}>
+                <article className="analysis-card reading-surface" key={analysis.id}>
                   <div className="analysis-card-head">
                     <span className="analysis-index">
                       {(index + 1).toString().padStart(2, "0")}
@@ -451,7 +469,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                       )}
                       {analysis.taxonomyVersion === "V0.2" ? (
                         <span className="analysis-version-only">历史体系 · 只读</span>
-                      ) : (
+                      ) : canEnterReview ? (
                         <button
                           type="button"
                           className="button button-accent compact"
@@ -461,23 +479,46 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                             )
                           }
                         >
-                          {reviewActive ? "退出终审" : "进入原位终审"}
+                          {reviewActive ? "退出终审模式" : "进入终审模式"}
                         </button>
+                      ) : authorNeedsAction ? (
+                        <Link className="button button-accent compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+                          开始修改
+                        </Link>
+                      ) : entryState === "AUTHOR_NEW_ROUND" ? (
+                        <Link className="button button-ghost compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+                          基于标准版开始新一轮修订
+                        </Link>
+                      ) : (
+                        <span className="analysis-version-only">
+                          {entryState === "APPROVED_READ_ONLY"
+                            ? "已批准 · 只读"
+                            : entryState === "WAITING_AUTHOR"
+                              ? "等待作者提交"
+                              : entryState === "WAITING_REVIEW"
+                                ? "等待终审"
+                                : "公开作业 · 只读"}
+                        </span>
                       )}
                     </div>
                   </div>
 
                   {reviewActive && analysis.taxonomyVersion === "V0.3-PILOT" ? (
                     <>
-                      <V03ReviewDecisionBar snapshotId={analysis.id} />
-                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion}>
+                      <V03ReviewDecisionBar snapshotId={analysis.id} initialReview={reviewContext} mode="review" />
+                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion} reviewMode>
                         {content}
                       </AnalysisComments>
                     </>
                   ) : (
-                    <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion}>
-                      {content}
-                    </AnalysisComments>
+                    <>
+                      {reviewContext?.isAuthor && reviewContext.canWithdraw ? (
+                        <V03ReviewDecisionBar snapshotId={analysis.id} initialReview={reviewContext} mode="author" />
+                      ) : null}
+                      <AnalysisComments snapshotId={analysis.id} taxonomyVersion={analysis.taxonomyVersion}>
+                        {content}
+                      </AnalysisComments>
+                    </>
                   )}
                 </article>
               );

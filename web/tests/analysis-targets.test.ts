@@ -124,7 +124,7 @@ test("V0.3 bridge and creative-structure targets remain individually revisable",
       creativeButton: "把到达改写为被接住",
       mechanismStatement: "",
       mechanismPrimary: "",
-      mechanismAuxiliary: [],
+      mechanismAuxiliary: ["反转重释"],
       mechanismCustom: "",
       realizationSkeleton: "",
       brandProductLanding: "",
@@ -163,5 +163,17 @@ test("V0.3 bridge and creative-structure targets remain individually revisable",
   assert.equal(
     analysisTargetValue(v03, "structure:main-path:emotionalBase"),
     "归属",
+  );
+  assert.equal(
+    analysisTargetValue(v03, "structure:primary-creative-path"),
+    "LOVE",
+  );
+  assert.deepEqual(
+    analysisTargetValue(v03, "structure:mechanism-auxiliary"),
+    ["反转重释"],
+  );
+  assert.equal(
+    parseAnalysisTarget("group:group_1:primary-role")?.scope,
+    "shot-group-structured",
   );
 });

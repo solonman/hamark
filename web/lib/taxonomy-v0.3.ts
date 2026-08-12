@@ -10,6 +10,7 @@ import type {
 export const V03_TAXONOMY_VERSION = "V0.3-PILOT" as const;
 export const V03_WORKFLOW_VERSION = "REVERSE-WORKFLOW-V0.3-PILOT" as const;
 export const V03_RUBRIC_VERSION = "RUBRIC-V0.5-PILOT" as const;
+export const V03_VOCABULARY_VERSION = "V0.3.2" as const;
 
 export const bridgeRoleGroups = [
   {
@@ -60,12 +61,26 @@ export const bridgeRoleGroups = [
 
 export const bridgeRoles = bridgeRoleGroups.flatMap((group) => group.options);
 
-export const mechanismOptions = [
+const legacyMechanismOptions = [
   ...((taxonomyV02 as Array<{ code: string; options: Array<{ value: string }> }>).find(
     (field) => field.code === "A2",
   )?.options.map((option) => option.value) ?? []),
   "现有词表不适用／待形成新机制",
 ] as string[];
+
+export const mechanismDisplayMap: Record<string, string> = {
+  "重复积累": "重复变义",
+  "对比冲突": "对置生义",
+  "规则设定": "非常规规则建构",
+};
+
+export function displayMechanismLabel(value: string) {
+  return mechanismDisplayMap[value] ?? value;
+}
+
+export const mechanismOptions = Array.from(
+  new Set(legacyMechanismOptions.map(displayMechanismLabel)),
+);
 
 export const storyReferenceOptions =
   (taxonomyV02 as Array<{ code: string; options: Array<{ value: string }> }>).find(
@@ -83,10 +98,10 @@ export const formationOptions: Array<{
   hint: string;
 }> = [
   { value: "HOLISTIC_EMERGENCE", label: "整体涌现", hint: "全片关系合在一起才形成创意。" },
-  { value: "CROSS_GROUP_ACCUMULATION", label: "跨段累积", hint: "多个桥段逐步累积并在后程成立。" },
-  { value: "BEFORE_AFTER_CONTRAST", label: "前后对照", hint: "依靠前后变化或反差完成意义。" },
-  { value: "RULE_THROUGHOUT", label: "规则贯穿", hint: "同一创意规则自始至终组织表达。" },
-  { value: "LOCAL_TRIGGER", label: "局部触发", hint: "某个关键桥段使创意开始成立。" },
+  { value: "CROSS_GROUP_ACCUMULATION", label: "跨桥段渐进形成", hint: "多个桥段逐步累积并在后程成立。" },
+  { value: "BEFORE_AFTER_CONTRAST", label: "前后关系对照形成", hint: "依靠前后变化或反差完成意义。" },
+  { value: "RULE_THROUGHOUT", label: "规则全片贯穿", hint: "同一创意规则自始至终组织表达。" },
+  { value: "LOCAL_TRIGGER", label: "关键局部触发", hint: "某个关键桥段使创意开始成立。" },
   { value: "COMPOSITE", label: "复合形成", hint: "两种以上形成方式分工协作。" },
   { value: "NOT_YET_DECOMPOSABLE", label: "暂时无法拆解", hint: "允许保留不确定，在说明中写清原因。" },
 ];
@@ -136,6 +151,7 @@ export const creativeGradeOptions: Array<{
 
 export function emptyCreativeStructure(): CreativeStructureDraft {
   return {
+    vocabularyVersion: V03_VOCABULARY_VERSION,
     creativeButton: "",
     mechanismStatement: "",
     mechanismPrimary: "",

@@ -143,6 +143,7 @@ export default function V03ShotGroupEditor({
               <label className="shot-group-name">
                 <span>桥段标题</span>
                 <input
+                  data-edit-target={`group:${group.id}:title`}
                   value={group.title}
                   onChange={(event) => updateGroup(group.id, { title: event.target.value })}
                   aria-label={`桥段 ${groupIndex + 1} 标题`}
@@ -154,7 +155,7 @@ export default function V03ShotGroupEditor({
                 <button type="button" onClick={() => addShot(group)}>＋ 本桥段加镜头</button>
               </div>
               <div className="bridge-role-editor">
-                <label>
+                <label data-edit-target={`group:${group.id}:primary-role`}>
                   <span>主创意作用（必选 1 项）</span>
                   <select
                     value={group.primaryRole}
@@ -175,7 +176,7 @@ export default function V03ShotGroupEditor({
                     <option value="__CUSTOM__">其他（自定义）</option>
                   </select>
                 </label>
-                <div>
+                <div data-edit-target={`group:${group.id}:auxiliary-roles`}>
                   <span>辅助作用（可选 0—2 项）</span>
                   <div className="bridge-role-options">
                     {bridgeRoleGroups.flatMap((roleGroup) => roleGroup.options).map((role) => (
@@ -196,7 +197,7 @@ export default function V03ShotGroupEditor({
                   </div>
                 </div>
                 {group.primaryRole === "__CUSTOM__" ? (
-                  <label>
+                  <label data-edit-target={`group:${group.id}:custom-role`}>
                     <span>自定义作用</span>
                     <input value={group.customRole} onChange={(event) => updateGroup(group.id, { customRole: event.target.value })} />
                   </label>
@@ -227,20 +228,20 @@ export default function V03ShotGroupEditor({
                         </div>
                       </td>
                       <td>
-                        <label><span>开始（可选）</span><input value={shot.startTime} onChange={(event) => updateShot(shot.id, "startTime", event.target.value)} placeholder="00:00" /></label>
-                        <label><span>结束（可选）</span><input value={shot.endTime} onChange={(event) => updateShot(shot.id, "endTime", event.target.value)} placeholder="00:05" /></label>
+                        <label data-edit-target={`shot:${shot.id}:start-time`}><span>开始（可选）</span><input value={shot.startTime} onChange={(event) => updateShot(shot.id, "startTime", event.target.value)} placeholder="00:00" /></label>
+                        <label data-edit-target={`shot:${shot.id}:end-time`}><span>结束（可选）</span><input value={shot.endTime} onChange={(event) => updateShot(shot.id, "endTime", event.target.value)} placeholder="00:05" /></label>
                       </td>
-                      <td><input value={shot.shotSize} onChange={(event) => updateShot(shot.id, "shotSize", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 景别`} /></td>
-                      <td><input value={shot.cameraAngle} onChange={(event) => updateShot(shot.id, "cameraAngle", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 机位／角度`} /></td>
-                      <td><input value={shot.cameraMovement} onChange={(event) => updateShot(shot.id, "cameraMovement", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 镜头运动`} /></td>
-                      <td><textarea rows={8} value={shot.visualContent} onChange={(event) => updateShot(shot.id, "visualContent", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 画面内容`} /></td>
-                      <td><textarea rows={6} value={shot.dialogue} onChange={(event) => updateShot(shot.id, "dialogue", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 对白`} /></td>
-                      <td><textarea rows={6} value={shot.voiceover} onChange={(event) => updateShot(shot.id, "voiceover", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 旁白`} /></td>
-                      <td><textarea rows={6} value={shot.screenText} onChange={(event) => updateShot(shot.id, "screenText", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 字幕／文案`} /></td>
-                      <td><textarea rows={6} value={shot.soundEffect} onChange={(event) => updateShot(shot.id, "soundEffect", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 声效`} /></td>
-                      <td><textarea rows={6} value={shot.music} onChange={(event) => updateShot(shot.id, "music", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 音乐`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:shot-size`}><input value={shot.shotSize} onChange={(event) => updateShot(shot.id, "shotSize", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 景别`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:camera-angle`}><input value={shot.cameraAngle} onChange={(event) => updateShot(shot.id, "cameraAngle", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 机位／角度`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:camera-movement`}><input value={shot.cameraMovement} onChange={(event) => updateShot(shot.id, "cameraMovement", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 镜头运动`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:visual-content`}><textarea rows={8} value={shot.visualContent} onChange={(event) => updateShot(shot.id, "visualContent", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 画面内容`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:dialogue`}><textarea rows={6} value={shot.dialogue} onChange={(event) => updateShot(shot.id, "dialogue", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 对白`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:voiceover`}><textarea rows={6} value={shot.voiceover} onChange={(event) => updateShot(shot.id, "voiceover", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 旁白`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:screen-text`}><textarea rows={6} value={shot.screenText} onChange={(event) => updateShot(shot.id, "screenText", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 字幕／文案`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:sound-effect`}><textarea rows={6} value={shot.soundEffect} onChange={(event) => updateShot(shot.id, "soundEffect", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 声效`} /></td>
+                      <td data-edit-target={`shot:${shot.id}:music`}><textarea rows={6} value={shot.music} onChange={(event) => updateShot(shot.id, "music", event.target.value)} aria-label={`镜头 ${shot.orderIndex + 1} 音乐`} /></td>
                       {position === 0 ? (
-                        <td className="shot-group-comment-cell" rowSpan={Math.max(1, groupShots.length)}>
+                        <td className="shot-group-comment-cell" rowSpan={Math.max(1, groupShots.length)} data-edit-target={`group:${group.id}:note`}>
                           <div className="bridge-role-summary">
                             <strong>{group.primaryRole === "__CUSTOM__" ? group.customRole || "待补充自定义作用" : group.primaryRole || "待选主作用"}</strong>
                             {group.auxiliaryRoles.map((role) => <span key={role}>{role}</span>)}

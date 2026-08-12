@@ -7,10 +7,12 @@ import {
 } from "@/lib/analysis-comments";
 import { isAppAdmin, isFinalReviewer } from "@/lib/admin";
 import {
+  canonicalRevisionValue,
   ensureReviewRoundForSnapshot,
   inferRevisionEditType,
   sha256Text,
 } from "@/lib/review-workflow";
+import { V03_VOCABULARY_VERSION } from "@/lib/taxonomy-v0.3";
 import {
   newId,
   requireApiUser,
@@ -20,9 +22,43 @@ import type {
   AnalysisRevisionSuggestion,
   AnalysisRevisionSuggestionStatus,
   AnnotationDraft,
+  RevisionValueType,
 } from "@/lib/types";
 
 const REVISION_CONTENT_MAX_LENGTH = 50_000;
+
+function parseStoredRevisionValue(value: string | null) {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return parsed;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function normalizeStructuredValue(
+  value: unknown,
+  valueType: RevisionValueType,
+): string | string[] | null {
+  if (valueType === "SINGLE_SELECT") {
+    return typeof value === "string" ? value.trim().slice(0, 500) : null;
+  }
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    return null;
+  }
+  return [...new Set(value.map((item) => item.trim()).filter(Boolean))]
+    .slice(0, 20)
+    .map((item) => item.slice(0, 500));
+}
+
+function displayStructuredValue(value: string | string[]) {
+  return Array.isArray(value) ? value.join(" · ") : value;
+}
 
 type SnapshotRow = {
   id: string;
@@ -85,6 +121,8 @@ export async function GET(
           original_text AS selected_text, anchor_start, anchor_end,
           replacement_text, COALESCE(reason, '') AS reason, status,
           applied_revision, linked_comment_id, original_text_hash,
+          value_type, original_value_json, replacement_value_json,
+          vocabulary_version,
           created_at, updated_at
         FROM analysis_revision_events
         WHERE base_snapshot_id = ? AND status <> 'SUPERSEDED'
@@ -99,6 +137,10 @@ export async function GET(
         anchor_start: number; anchor_end: number; replacement_text: string;
         reason: string; status: "DRAFT" | "APPLIED"; applied_revision: number | null;
         linked_comment_id: string | null; original_text_hash: string;
+        value_type: RevisionValueType;
+        original_value_json: string | null;
+        replacement_value_json: string | null;
+        vocabulary_version: "V0.3.1" | "V0.3.2";
         created_at: string; updated_at: string;
       }>();
     const suggestions: AnalysisRevisionSuggestion[] = result.results.map((row) => ({
@@ -114,6 +156,10 @@ export async function GET(
       authorName: row.author_name,
       actorRole: row.actor_role,
       editType: row.edit_type,
+      valueType: row.value_type ?? "TEXT",
+      originalValue: parseStoredRevisionValue(row.original_value_json),
+      replacementValue: parseStoredRevisionValue(row.replacement_value_json),
+      vocabularyVersion: row.vocabulary_version,
       originalTextHash: row.original_text_hash,
       linkedCommentId: row.linked_comment_id,
       status: row.status,
@@ -197,6 +243,9 @@ export async function POST(
     reason?: unknown;
     editType?: unknown;
     linkedCommentId?: unknown;
+    valueType?: unknown;
+    originalValue?: unknown;
+    replacementValue?: unknown;
   };
   const targetKey = normalizeCommentTarget(payload.targetKey);
   const targetLabel = normalizeCommentText(
@@ -225,25 +274,80 @@ export async function POST(
       )
     : null;
 
+  const requestedValueType = String(payload.valueType ?? "TEXT") as RevisionValueType;
+  const structuredRevision = requestedValueType !== "TEXT";
+  const effectiveAnchorStart = structuredRevision ? -1 : anchorStart;
+  const effectiveAnchorEnd = structuredRevision ? -1 : anchorEnd;
+
   if (!target || targetValue == null) {
     return Response.json({ error: "当前内容项不支持修订。" }, { status: 400 });
   }
-  if (replacementText == null) {
-    return Response.json({ error: "请填写修订后的内容。" }, { status: 400 });
+  const structuredTargetValueType = "valueType" in target ? target.valueType : null;
+  if (
+    structuredRevision &&
+    requestedValueType !== "SINGLE_SELECT" &&
+    requestedValueType !== "MULTI_SELECT"
+  ) {
+    return Response.json({ error: "结构化修订类型无效。" }, { status: 400 });
+  }
+  if (structuredRevision && !structuredTargetValueType) {
+    return Response.json({ error: "当前内容项不是结构化修订目标。" }, { status: 400 });
+  }
+  if (structuredRevision && structuredTargetValueType !== requestedValueType) {
+    return Response.json({ error: "结构化修订类型与内容项不一致。" }, { status: 400 });
+  }
+
+  const originalStructuredValue = structuredRevision
+    ? normalizeStructuredValue(payload.originalValue, requestedValueType)
+    : null;
+  const replacementStructuredValue = structuredRevision
+    ? normalizeStructuredValue(payload.replacementValue, requestedValueType)
+    : null;
+  if (
+    structuredRevision &&
+    (originalStructuredValue == null || replacementStructuredValue == null)
+  ) {
+    return Response.json({ error: "结构化修订值无效。" }, { status: 400 });
   }
   if (
+    structuredRevision &&
+    canonicalRevisionValue(targetValue) !==
+      canonicalRevisionValue(originalStructuredValue!)
+  ) {
+    return Response.json(
+      { error: "当前结构化内容已变化，请刷新后重新修订。" },
+      { status: 409 },
+    );
+  }
+  if (
+    structuredRevision &&
+    canonicalRevisionValue(originalStructuredValue!) ===
+      canonicalRevisionValue(replacementStructuredValue!)
+  ) {
+    return Response.json({ error: "修订前后内容相同。" }, { status: 400 });
+  }
+  if (structuredRevision && requestedValueType === "SINGLE_SELECT" && !String(replacementStructuredValue).trim()) {
+    return Response.json({ error: "请选择修订后的值。" }, { status: 400 });
+  }
+  if (!structuredRevision && typeof targetValue !== "string") {
+    return Response.json({ error: "该内容项必须使用结构化修订。" }, { status: 400 });
+  }
+  if (!structuredRevision && replacementText == null) {
+    return Response.json({ error: "请填写修订后的内容。" }, { status: 400 });
+  }
+  if (!structuredRevision && (
     !Number.isInteger(anchorStart) ||
     !Number.isInteger(anchorEnd) ||
     anchorStart < 0 ||
     anchorEnd < anchorStart ||
-    targetValue.slice(anchorStart, anchorEnd) !== selectedText
-  ) {
+    (targetValue as string).slice(anchorStart, anchorEnd) !== selectedText
+  )) {
     return Response.json(
       { error: "所选文字已变化，请重新选中后修订。" },
       { status: 409 },
     );
   }
-  if (selectedText === replacementText) {
+  if (!structuredRevision && selectedText === replacementText) {
     return Response.json({ error: "修订前后内容相同。" }, { status: 400 });
   }
 
@@ -282,21 +386,27 @@ export async function POST(
     if (!roundRow || !["PENDING", "IN_REVIEW"].includes(roundRow.status)) {
       return Response.json({ error: "当前审核轮次已经结束。" }, { status: 409 });
     }
-    const requestedDelete = payload.editType === "DELETE";
-    if (!requestedDelete && !replacementText.trim()) {
+    const requestedDelete = !structuredRevision && payload.editType === "DELETE";
+    if (!structuredRevision && !requestedDelete && !replacementText!.trim()) {
       return Response.json({ error: "请填写修订后的内容。" }, { status: 400 });
     }
-    const editType = requestedDelete
+    const editType = structuredRevision
+      ? "UNIT_REPLACE"
+      : requestedDelete
       ? "DELETE"
       : inferRevisionEditType({
-          targetValue,
+          targetValue: targetValue as string,
           selectedText,
           anchorStart,
           anchorEnd,
-          replacementText,
+          replacementText: replacementText!,
         });
     const revisionId = newId("revision_event");
-    const originalTextHash = await sha256Text(selectedText);
+    const originalTextHash = await sha256Text(
+      structuredRevision
+        ? canonicalRevisionValue(originalStructuredValue!)
+        : selectedText,
+    );
     let linkedCommentId = normalizeCommentText(payload.linkedCommentId, 100) || null;
     if (!linkedCommentId) {
       const matchingComment = await db.prepare(
@@ -309,8 +419,8 @@ export async function POST(
         round.id,
         targetKey,
         selectedText,
-        anchorStart,
-        anchorEnd,
+        effectiveAnchorStart,
+        effectiveAnchorEnd,
       ).first<{ id: string }>();
       linkedCommentId = matchingComment?.id ?? null;
     }
@@ -325,9 +435,11 @@ export async function POST(
           id, annotation_id, video_id, review_round_id, base_snapshot_id,
           target_key, target_label, edit_type, anchor_start, anchor_end,
           original_text, original_text_hash, replacement_text, reason,
-          actor_email, actor_name, actor_role, source, linked_comment_id
+          actor_email, actor_name, actor_role, source, linked_comment_id,
+          value_type, original_value_json, replacement_value_json,
+          vocabulary_version
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-          'FINAL_REVIEWER', 'FINAL_DIRECT_REVISION', ?)`,
+          'FINAL_REVIEWER', 'FINAL_DIRECT_REVISION', ?, ?, ?, ?, ?)`,
       ).bind(
         revisionId,
         snapshot.annotation_id,
@@ -337,15 +449,23 @@ export async function POST(
         targetKey,
         targetLabel,
         editType,
-        anchorStart,
-        anchorEnd,
-        selectedText,
+        effectiveAnchorStart,
+        effectiveAnchorEnd,
+        structuredRevision ? "" : selectedText,
         originalTextHash,
-        requestedDelete ? "" : replacementText,
+        structuredRevision
+          ? displayStructuredValue(replacementStructuredValue!)
+          : requestedDelete
+            ? ""
+            : replacementText,
         reason || null,
         user.identityKey,
         user.displayName,
         linkedCommentId,
+        requestedValueType,
+        structuredRevision ? canonicalRevisionValue(originalStructuredValue!) : null,
+        structuredRevision ? canonicalRevisionValue(replacementStructuredValue!) : null,
+        V03_VOCABULARY_VERSION,
       ),
       db.prepare(
         `UPDATE analysis_review_rounds
@@ -397,8 +517,8 @@ export async function POST(
       targetKey,
       targetLabel,
       selectedText,
-      anchorStart,
-      anchorEnd,
+        effectiveAnchorStart,
+        effectiveAnchorEnd,
       replacementText,
       reason,
     )

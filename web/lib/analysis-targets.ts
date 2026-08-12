@@ -60,6 +60,19 @@ const shotGroupTargets = {
   "custom-role": { property: "customRole", column: "custom_role" },
 } as const;
 
+const structuredShotGroupTargets = {
+  "primary-role": {
+    property: "primaryRole",
+    column: "primary_role_name_snapshot",
+    valueType: "SINGLE_SELECT",
+  },
+  "auxiliary-roles": {
+    property: "auxiliaryRoles",
+    column: "auxiliary_roles_json",
+    valueType: "MULTI_SELECT",
+  },
+} as const;
+
 const creativeStructureTargets = {
   "creative-button": { property: "creativeButton", column: "creative_button" },
   "mechanism-statement": { property: "mechanismStatement", column: "mechanism_statement" },
@@ -80,10 +93,53 @@ const creativeStructureTargets = {
   "creative-grade-reason": { property: "creativeGradeReason", column: "creative_grade_reason" },
 } as const;
 
+const structuredCreativeStructureTargets = {
+  "mechanism-primary": {
+    property: "mechanismPrimary",
+    column: "mechanism_primary",
+    valueType: "SINGLE_SELECT",
+  },
+  "mechanism-auxiliary": {
+    property: "mechanismAuxiliary",
+    column: "mechanism_auxiliary_json",
+    valueType: "MULTI_SELECT",
+  },
+  "formation-primary": {
+    property: "formationPrimary",
+    column: "formation_primary",
+    valueType: "SINGLE_SELECT",
+  },
+  "formation-auxiliary": {
+    property: "formationAuxiliary",
+    column: "formation_auxiliary_json",
+    valueType: "MULTI_SELECT",
+  },
+  "formation-related-groups": {
+    property: "formationRelatedGroupIds",
+    column: "formation_related_group_ids_json",
+    valueType: "MULTI_SELECT",
+  },
+  "primary-creative-path": {
+    property: "primaryCreativePath",
+    column: "primary_creative_path",
+    valueType: "SINGLE_SELECT",
+  },
+  "auxiliary-creative-paths": {
+    property: "auxiliaryCreativePaths",
+    column: "auxiliary_creative_paths_json",
+    valueType: "MULTI_SELECT",
+  },
+} as const;
+
 type AnnotationTargetKey = keyof typeof annotationTargets;
 type ShotTargetKey = keyof typeof shotTargets;
 type ShotGroupTargetKey = keyof typeof shotGroupTargets;
+type StructuredShotGroupTargetKey = keyof typeof structuredShotGroupTargets;
 type CreativeStructureTargetKey = keyof typeof creativeStructureTargets;
+type StructuredCreativeStructureTargetKey =
+  keyof typeof structuredCreativeStructureTargets;
+
+export type AnalysisTargetValue = string | string[];
 
 export type ParsedAnalysisTarget =
   | {
@@ -110,9 +166,22 @@ export type ParsedAnalysisTarget =
       column: (typeof shotGroupTargets)[ShotGroupTargetKey]["column"];
     }
   | {
+      scope: "shot-group-structured";
+      groupId: string;
+      property: (typeof structuredShotGroupTargets)[StructuredShotGroupTargetKey]["property"];
+      column: (typeof structuredShotGroupTargets)[StructuredShotGroupTargetKey]["column"];
+      valueType: (typeof structuredShotGroupTargets)[StructuredShotGroupTargetKey]["valueType"];
+    }
+  | {
       scope: "creative-structure";
       property: (typeof creativeStructureTargets)[CreativeStructureTargetKey]["property"];
       column: (typeof creativeStructureTargets)[CreativeStructureTargetKey]["column"];
+    }
+  | {
+      scope: "creative-structure-structured";
+      property: (typeof structuredCreativeStructureTargets)[StructuredCreativeStructureTargetKey]["property"];
+      column: (typeof structuredCreativeStructureTargets)[StructuredCreativeStructureTargetKey]["column"];
+      valueType: (typeof structuredCreativeStructureTargets)[StructuredCreativeStructureTargetKey]["valueType"];
     }
   | {
       scope: "creative-structure-json";
@@ -140,6 +209,16 @@ export function parseAnalysisTarget(targetKey: string): ParsedAnalysisTarget | n
     const target = shotGroupTargets[groupMatch[2] as ShotGroupTargetKey];
     return { scope: "shot-group", groupId: groupMatch[1], ...target };
   }
+  if (groupMatch && groupMatch[2] in structuredShotGroupTargets) {
+    const target = structuredShotGroupTargets[
+      groupMatch[2] as StructuredShotGroupTargetKey
+    ];
+    return {
+      scope: "shot-group-structured",
+      groupId: groupMatch[1],
+      ...target,
+    };
+  }
 
   const structureMatch = /^structure:([a-z-]+)$/.exec(targetKey);
   if (structureMatch && structureMatch[1] in creativeStructureTargets) {
@@ -147,6 +226,12 @@ export function parseAnalysisTarget(targetKey: string): ParsedAnalysisTarget | n
       structureMatch[1] as CreativeStructureTargetKey
     ];
     return { scope: "creative-structure", ...target };
+  }
+  if (structureMatch && structureMatch[1] in structuredCreativeStructureTargets) {
+    const target = structuredCreativeStructureTargets[
+      structureMatch[1] as StructuredCreativeStructureTargetKey
+    ];
+    return { scope: "creative-structure-structured", ...target };
   }
 
   const structureJsonMatch =
@@ -182,7 +267,7 @@ export function parseAnalysisTarget(targetKey: string): ParsedAnalysisTarget | n
 export function analysisTargetValue(
   annotation: AnnotationDraft,
   targetKey: string,
-): string | null {
+): AnalysisTargetValue | null {
   const target = parseAnalysisTarget(targetKey);
   if (!target) return null;
   if (target.scope === "annotation") {
@@ -196,6 +281,10 @@ export function analysisTargetValue(
     const group = annotation.shotGroups?.find((item) => item.id === target.groupId);
     return group?.[target.property] ?? null;
   }
+  if (target.scope === "shot-group-structured") {
+    const group = annotation.shotGroups?.find((item) => item.id === target.groupId);
+    return group?.[target.property] ?? null;
+  }
   if (target.scope === "creative-structure") {
     if (target.property === "creativeRealizationPath") {
       return annotation.creativeStructure
@@ -203,6 +292,9 @@ export function analysisTargetValue(
             annotation.creativeStructure.realizationSkeleton
         : null;
     }
+    return annotation.creativeStructure?.[target.property] ?? null;
+  }
+  if (target.scope === "creative-structure-structured") {
     return annotation.creativeStructure?.[target.property] ?? null;
   }
   if (target.scope === "creative-structure-json") {

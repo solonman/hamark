@@ -11,6 +11,14 @@
   --acid: #dfff4f;
   --orange: #ff5b35;
   --blue: #b8d3ff;
+  --reading-bg: #1a1b17;
+  --reading-bg-raised: #22231f;
+  --reading-answer: #d8d9d2;
+  --reading-muted: #898c82;
+  --reading-subject: #c7aa72;
+  --reading-line: rgba(255, 255, 255, 0.12);
+  --reading-revision: #bb805f;
+  --reading-comment: #d9be70;
   --radius: 18px;
 }
 
@@ -1177,7 +1185,7 @@ a {
 
 .analysis-card {
   padding: clamp(24px, 4vw, 54px);
-  background: #1a1b17;
+  background: var(--reading-bg);
 }
 
 .analysis-card-head {
@@ -5359,5 +5367,276 @@ body.is-resizing-shot-column * {
 
   .analysis-entry-actions {
     justify-items: start;
+  }
+}
+
+/* V0.3.2 unified reading theme: public work, active standards and history. */
+.reading-surface {
+  background: var(--reading-bg);
+  color: var(--reading-answer);
+}
+
+.standard-case-card > .reading-surface {
+  margin: 0;
+  padding: clamp(18px, 3vw, 34px);
+  border-top: 1px solid rgba(139, 61, 36, 0.18);
+}
+
+.reading-surface .analysis-details,
+.reading-surface .submitted-shot-group,
+.reading-surface .v03-submitted-section,
+.reading-surface .inline-annotation-overview {
+  border-color: var(--reading-line);
+}
+
+.reading-surface .v03-submitted-section,
+.reading-surface .analysis-core-grid > div,
+.reading-surface .submitted-shot-table td,
+.reading-surface .submitted-group-table-cell,
+.reading-surface .submitted-group-comment-cell {
+  background: var(--reading-bg);
+  color: var(--reading-answer);
+}
+
+.reading-surface .v03-submitted-section {
+  padding: 22px;
+}
+
+.reading-surface .v03-submission-banner {
+  border-color: var(--reading-line);
+  background: var(--reading-bg-raised);
+  color: var(--reading-muted);
+}
+
+.reading-surface .v03-submission-banner strong,
+.reading-surface .v03-submitted-section > header strong,
+.reading-surface .inline-scored-content-head > span,
+.reading-surface .submitted-field-heading,
+.reading-surface .v03-metadata-read strong {
+  color: var(--reading-subject);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+}
+
+.reading-surface .analysis-core-grid,
+.reading-surface .submitted-shot-table th,
+.reading-surface .submitted-shot-table td,
+.reading-surface .submitted-shot-group > header {
+  border-color: var(--reading-line);
+}
+
+.reading-surface .analysis-core-grid p,
+.reading-surface .v03-read-card p,
+.reading-surface .submitted-shot-table td,
+.reading-surface .submitted-shot-group > header strong,
+.reading-surface .v03-grade-result p {
+  color: var(--reading-answer);
+}
+
+.reading-surface .analysis-details summary,
+.reading-surface .analysis-details summary > span,
+.reading-surface .v03-submitted-section > header small,
+.reading-surface .submitted-shot-group > header span,
+.reading-surface .submitted-shot-group > header small,
+.reading-surface .submitted-shot-table td small {
+  color: var(--reading-muted);
+}
+
+.reading-surface .analysis-details summary {
+  color: var(--reading-subject);
+}
+
+.reading-surface .bridge-role-summary strong,
+.reading-surface .bridge-role-summary span {
+  background: rgba(199, 170, 114, 0.12);
+  color: var(--reading-subject);
+}
+
+.reading-surface .v03-grade-result .grade-mark {
+  background: var(--acid);
+  color: var(--ink);
+}
+
+.inline-review-instruction {
+  position: sticky;
+  z-index: 12;
+  top: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(223, 255, 79, 0.28);
+  border-radius: 10px;
+  background: rgba(26, 27, 23, 0.96);
+  color: var(--reading-answer);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.analysis-comment-workspace.is-review-enabled .inline-annotation-target {
+  min-height: 24px;
+  padding-top: 24px;
+}
+
+.analysis-comment-workspace.is-review-enabled .inline-annotation-entry-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.inline-structured-target {
+  min-height: 28px;
+}
+
+.inline-structured-revision-field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.inline-structured-revision-field > span {
+  color: #2e7771;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.inline-structured-revision-field select {
+  min-height: 42px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.inline-structured-choice-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.inline-structured-choice-list label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 9px;
+}
+
+.inline-revision-trace {
+  color: var(--reading-revision);
+}
+
+.inline-text-mark.is-comment {
+  background: color-mix(in srgb, var(--reading-comment) 38%, transparent);
+}
+
+.author-revision-tasks {
+  margin: 0 0 28px;
+  padding: 20px;
+  border: 1px solid rgba(187, 128, 95, 0.32);
+  background: #fff9f4;
+}
+
+.author-revision-tasks > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.author-revision-tasks h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.author-revision-tasks > header > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.author-revision-tasks > div {
+  display: grid;
+  gap: 8px;
+}
+
+.author-revision-tasks article {
+  padding: 14px;
+  border: 1px solid rgba(17, 18, 15, 0.12);
+  background: #fff;
+}
+
+.author-comment-location {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #8b3d24;
+  text-align: left;
+}
+
+.author-revision-tasks article p,
+.author-revision-tasks blockquote {
+  margin: 10px 0;
+  line-height: 1.7;
+}
+
+.author-revision-tasks blockquote {
+  padding-left: 12px;
+  border-left: 2px solid #d2b397;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.author-revision-tasks footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.author-revision-tasks footer button {
+  padding: 6px 9px;
+  border: 1px solid #bd8a6d;
+  border-radius: 999px;
+  background: #fff4ea;
+  color: #7a3925;
+  font-weight: 750;
+}
+
+[data-edit-target].is-author-comment-target {
+  animation: author-comment-target 2.2s ease;
+}
+
+@keyframes author-comment-target {
+  0%, 100% { box-shadow: none; }
+  20%, 80% { box-shadow: 0 0 0 4px rgba(199, 170, 114, 0.45); }
+}
+
+@media (max-width: 720px) {
+  .standard-case-card > .reading-surface {
+    padding: 14px;
+  }
+
+  .reading-surface .v03-submitted-section {
+    padding: 14px;
+  }
+
+  .inline-structured-choice-list {
+    grid-template-columns: 1fr;
+  }
+
+  .author-revision-tasks > header,
+  .author-revision-tasks footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

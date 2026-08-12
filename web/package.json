@@ -18,6 +18,7 @@
     "local:dev": "next dev",
     "verify:v03-local": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v03-local.ts",
     "verify:v031-local": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v031-local.ts",
+    "verify:v032-local": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v032-local.ts",
     "thumbnails:backfill": "tsx scripts/backfill-thumbnails.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },

@@ -12,12 +12,18 @@ import {
   InlineReviewScore,
   InlineReviewScoreGroup,
 } from "./ReviewPanel";
-import { InlineAnnotationText } from "./AnalysisComments";
+import {
+  InlineAnnotationText,
+  InlineStructuredAnnotation,
+} from "./AnalysisComments";
 import {
   creativeGradeOptions,
   creativePathOptions,
+  displayMechanismLabel,
   formationOptions,
   mainPathFields,
+  mechanismOptions,
+  bridgeRoles,
 } from "@/lib/taxonomy-v0.3";
 import type { CreativePath } from "@/lib/types";
 
@@ -291,8 +297,20 @@ function SubmittedV03Analysis({
   }
   const pathLabel = (path: string) =>
     creativePathOptions.find((option) => option.value === path)?.label ?? path;
-  const formationLabel = (mode: string) =>
-    formationOptions.find((option) => option.value === mode)?.label ?? mode;
+  const mechanismChoices = Array.from(
+    new Set([
+      structure.mechanismPrimary,
+      ...structure.mechanismAuxiliary,
+      ...mechanismOptions,
+    ].filter(Boolean)),
+  ).map((value) => ({ value, label: displayMechanismLabel(value) }));
+  const formationChoices = formationOptions.map(({ value, label }) => ({ value, label }));
+  const pathChoices = creativePathOptions.map(({ value, label }) => ({ value, label }));
+  const bridgeChoices = [
+    ...bridgeRoles.map((value) => ({ value, label: value })),
+    { value: "__CUSTOM__", label: "其他（自定义）" },
+  ];
+  const groupChoices = groups.map((group) => ({ value: group.id, label: group.title }));
   const showValue = (targetKey: string, label: string, value: string) => (
     <InlineAnnotationText
       targetKey={targetKey}
@@ -346,7 +364,11 @@ function SubmittedV03Analysis({
                           <td><InlineAnnotationText targetKey={`shot:${shot.id}:music`} targetLabel={`${group.title} · 音乐`} value={shot.music} /></td>
                           {shotIndex === 0 ? (
                             <td className="submitted-group-comment-cell" rowSpan={groupShots.length}>
-                              <div className="bridge-role-summary"><strong>{group.primaryRole === "__CUSTOM__" ? group.customRole : group.primaryRole}</strong>{group.auxiliaryRoles.map((role) => <span key={role}>{role}</span>)}</div>
+                              <div className="bridge-role-summary">
+                                <strong><InlineStructuredAnnotation targetKey={`group:${group.id}:primary-role`} targetLabel={`${group.title} · 桥段主要创意作用`} value={group.primaryRole} options={bridgeChoices} /></strong>
+                                <InlineStructuredAnnotation targetKey={`group:${group.id}:auxiliary-roles`} targetLabel={`${group.title} · 桥段辅助创意作用`} value={group.auxiliaryRoles} options={bridgeChoices} multiple emptyText="无辅助作用" />
+                              </div>
+                              {group.primaryRole === "__CUSTOM__" ? <p>{showValue(`group:${group.id}:custom-role`, `${group.title} · 自定义创意作用`, group.customRole)}</p> : null}
                               <p>{showValue(`group:${group.id}:note`, `${group.title} · 桥段创意作用说明`, group.note)}</p>
                             </td>
                           ) : null}
@@ -369,7 +391,8 @@ function SubmittedV03Analysis({
           <V03ReadCard label="创意母题" target="core:creative-theme" value={payload.creativeTheme} />
           <V03ReadCard label="创意按钮" target="structure:creative-button" value={structure.creativeButton} />
           <V03ReadCard label="创意机制具体句" target="structure:mechanism-statement" value={structure.mechanismStatement} />
-          <V03ReadCard label="机制二级归类" value={[structure.mechanismPrimary, ...structure.mechanismAuxiliary].filter(Boolean).join(" · ")} />
+          <V03StructuredReadCard label="机制主归类" target="structure:mechanism-primary" value={structure.mechanismPrimary} options={mechanismChoices} />
+          <V03StructuredReadCard label="辅助机制" target="structure:mechanism-auxiliary" value={structure.mechanismAuxiliary} options={mechanismChoices} multiple />
           {structure.mechanismCustom ? <V03ReadCard label="自定义／新机制" target="structure:mechanism-custom" value={structure.mechanismCustom} /> : null}
           <V03ReadCard
             label="创意兑现路径"
@@ -380,7 +403,9 @@ function SubmittedV03Analysis({
           <V03ReadCard label="创意思维链" target="core:thinking-chain" value={payload.thinkingChain} wide />
           <V03ReadCard label="故事参照类型" target="structure:story-reference-type" value={structure.storyReferenceType} />
           <V03ReadCard label="故事原型" target="structure:story-archetype" value={structure.storyArchetype} />
-          <V03ReadCard label="创意如何形成" value={[formationLabel(structure.formationPrimary), ...structure.formationAuxiliary.map(formationLabel)].filter(Boolean).join(" · ")} />
+          <V03StructuredReadCard label="全片主要形成方式" target="structure:formation-primary" value={structure.formationPrimary} options={formationChoices} />
+          <V03StructuredReadCard label="辅助形成方式" target="structure:formation-auxiliary" value={structure.formationAuxiliary} options={formationChoices} multiple />
+          {structure.formationRelatedGroupIds.length ? <V03StructuredReadCard label="关联桥段" target="structure:formation-related-groups" value={structure.formationRelatedGroupIds} options={groupChoices} multiple wide /> : null}
           <V03ReadCard label="形成说明" target="structure:formation-statement" value={structure.formationStatement} wide />
           <V03ReadCard label="创意承重载体" target="structure:creative-carriers" value={structure.creativeCarriers} />
           <V03ReadCard label="创意成立条件" target="structure:establishment-conditions" value={structure.establishmentConditions} />
@@ -395,6 +420,8 @@ function SubmittedV03Analysis({
       <section className="v03-submitted-section">
         <header><span>03</span><div><strong>主导类型发生路径</strong><small>主导 {pathLabel(structure.primaryCreativePath)}{structure.auxiliaryCreativePaths.length ? ` · 辅助 ${structure.auxiliaryCreativePaths.map(pathLabel).join("／")}` : ""}</small></div></header>
         <div className="analysis-core-grid v03-submitted-core">
+          <V03StructuredReadCard label="主导创意路径" target="structure:primary-creative-path" value={structure.primaryCreativePath} options={pathChoices} />
+          <V03StructuredReadCard label="辅助创意路径" target="structure:auxiliary-creative-paths" value={structure.auxiliaryCreativePaths} options={pathChoices} multiple />
           <V03ReadCard label="复合态判断" target="structure:composite-state-reason" value={structure.compositeStateReason} wide />
           {structure.primaryCreativePath ? mainPathFields[structure.primaryCreativePath].map((field) => <V03ReadCard key={field.key} label={field.label} target={`structure:main-path:${field.key}`} value={structure.mainPathPayload[field.key] ?? ""} />) : null}
           {structure.auxiliaryCreativePaths.map((path) => <V03ReadCard key={path} label={`辅助·${pathLabel(path)}`} target={`structure:aux-path:${path}`} value={structure.auxiliaryPathNotes[path as CreativePath] ?? ""} wide />)}
@@ -414,6 +441,29 @@ function SubmittedV03Analysis({
 
 function V03ReadCard({ label, value, target, wide = false }: { label: string; value: string; target?: string; wide?: boolean }) {
   return <div className={`${wide ? "wide " : ""}inline-scored-content v03-read-card`}><div className="inline-scored-content-head"><span>{label}</span></div><p>{target ? <InlineAnnotationText targetKey={target} targetLabel={label} value={value} /> : value || "未填写"}</p></div>;
+}
+
+function V03StructuredReadCard({
+  label,
+  target,
+  value,
+  options,
+  multiple = false,
+  wide = false,
+}: {
+  label: string;
+  target: string;
+  value: string | string[];
+  options: Array<{ value: string; label: string }>;
+  multiple?: boolean;
+  wide?: boolean;
+}) {
+  return (
+    <div className={`${wide ? "wide " : ""}inline-scored-content v03-read-card`}>
+      <div className="inline-scored-content-head"><span>{label}</span></div>
+      <p><InlineStructuredAnnotation targetKey={target} targetLabel={label} value={value} options={options} multiple={multiple} /></p>
+    </div>
+  );
 }
 
 function V03Metadata({ payload }: { payload: SubmittedAnalysis["payload"] }) {

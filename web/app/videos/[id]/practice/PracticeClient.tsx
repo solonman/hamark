@@ -25,6 +25,7 @@ import ShotGroupEditor from "./ShotGroupEditor";
 import TaxonomyFieldEditor from "./TaxonomyFieldEditor";
 import V03ShotGroupEditor from "./V03ShotGroupEditor";
 import V03AnalysisEditor from "./V03AnalysisEditor";
+import AuthorRevisionTasks from "./AuthorRevisionTasks";
 
 type AnnotationResponse = {
   video?: { id: string; title: string; status: string };
@@ -643,6 +644,10 @@ export default function PracticeClient({
                 : "尚未发布"}
             </p>
           </div>
+
+          {draft.reviewStatus === "CHANGES_REQUESTED" && draft.activeBaseSnapshotId ? (
+            <AuthorRevisionTasks snapshotId={draft.activeBaseSnapshotId} />
+          ) : null}
 
           {conflict ? (
             <div className="conflict-panel" role="alert">

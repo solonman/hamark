@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { formatLongDate } from "@/lib/date-format";
@@ -16,12 +17,17 @@ import type {
   AnalysisComment,
   AnalysisCommentKind,
   AnalysisRevisionSuggestion,
+  RevisionValueType,
 } from "@/lib/types";
+
+type StructuredOption = { value: string; label: string };
 
 type TextAnchor = {
   targetKey: string;
   targetLabel: string;
-  targetValue: string;
+  targetValue: string | string[];
+  valueType: RevisionValueType;
+  options?: StructuredOption[];
   selectedText: string;
   anchorStart: number;
   anchorEnd: number;
@@ -115,6 +121,7 @@ function selectionAnchor(
     targetKey,
     targetLabel,
     targetValue,
+    valueType: "TEXT",
     selectedText,
     anchorStart,
     anchorEnd,
@@ -163,6 +170,10 @@ function recordIds(records: AnnotationRecord[]) {
   return records.map((record) => record.id).sort().join(":");
 }
 
+function formatRevisionValue(value: string | string[]) {
+  return Array.isArray(value) ? value.join(" · ") : value;
+}
+
 export function InlineAnnotationText({
   targetKey,
   targetLabel,
@@ -203,6 +214,11 @@ export function InlineAnnotationText({
     if (anchor) context?.openSelection(anchor);
   }
 
+  function handleKeyboardSelection(event: KeyboardEvent<HTMLSpanElement>) {
+    if (!event.shiftKey) return;
+    window.setTimeout(handleMouseUp, 0);
+  }
+
   function openCell(mode: "COMMENT" | "REVISION", event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
@@ -216,6 +232,7 @@ export function InlineAnnotationText({
       targetKey,
       targetLabel,
       targetValue: value,
+      valueType: "TEXT",
       ...position,
     });
   }
@@ -229,6 +246,9 @@ export function InlineAnnotationText({
         ref={copyRef}
         className="inline-annotation-copy"
         onMouseUp={handleMouseUp}
+        onPointerUp={() => window.setTimeout(handleMouseUp, 0)}
+        onKeyUp={handleKeyboardSelection}
+        tabIndex={context.canCreate ? 0 : undefined}
       >
         {value
           ? segments.map((segment) => {
@@ -318,14 +338,94 @@ export function InlineAnnotationText({
   );
 }
 
+export function InlineStructuredAnnotation({
+  targetKey,
+  targetLabel,
+  value,
+  options,
+  multiple = false,
+  emptyText = "未填写",
+}: {
+  targetKey: string;
+  targetLabel: string;
+  value: string | string[];
+  options: StructuredOption[];
+  multiple?: boolean;
+  emptyText?: string;
+}) {
+  const context = useContext(InlineAnnotationContext);
+  const records = context?.recordsFor(targetKey) ?? [];
+  const labels = new Map(options.map((option) => [option.value, option.label]));
+  const display = (Array.isArray(value) ? value : [value])
+    .filter(Boolean)
+    .map((item) => labels.get(item) ?? item)
+    .join(" · ") || emptyText;
+
+  function openCell(mode: "COMMENT" | "REVISION", event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.closest<HTMLElement>("[data-inline-annotation-target]")
+      ?.getBoundingClientRect() ?? event.currentTarget.getBoundingClientRect();
+    context?.openCellComposer(mode, {
+      targetKey,
+      targetLabel,
+      targetValue: value,
+      valueType: multiple ? "MULTI_SELECT" : "SINGLE_SELECT",
+      options,
+      ...floatingPosition(rect),
+    });
+  }
+
+  return (
+    <span
+      className={`inline-annotation-target inline-structured-target ${records.length ? "has-inline-annotations" : ""}`}
+      data-inline-annotation-target={targetKey}
+    >
+      <span className="inline-annotation-copy">{display}</span>
+      {context?.canCreate ? (
+        <span className="inline-annotation-entry-actions" aria-label={`${targetLabel}操作`}>
+          <button type="button" onClick={(event) => openCell("COMMENT", event)}>批注</button>
+          <button type="button" onClick={(event) => openCell("REVISION", event)}>修订</button>
+          {records.length ? (
+            <button
+              type="button"
+              className="inline-annotation-count"
+              onClick={(event) => context.showHoverCard(records, event.currentTarget.getBoundingClientRect())}
+              onFocus={(event) => context.showHoverCard(records, event.currentTarget.getBoundingClientRect())}
+              onBlur={context.scheduleHoverCardClose}
+            >
+              {records.length}
+            </button>
+          ) : null}
+        </span>
+      ) : null}
+      {records.filter((record) => record.type === "suggestion").map((record) => {
+        if (record.type !== "suggestion") return null;
+        const replacement = record.suggestion.replacementValue ?? record.suggestion.replacementText;
+        const replacementDisplay = (Array.isArray(replacement) ? replacement : [replacement])
+          .map((item) => labels.get(item) ?? item)
+          .join(" · ");
+        return (
+          <span className="inline-revision-trace" key={`trace-${record.id}`}>
+            [{record.suggestion.authorName}｜终审修订为：{replacementDisplay || "（空）"}
+            {record.suggestion.reason ? `（原因：${record.suggestion.reason}）` : ""}]
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 export default function AnalysisComments({
   snapshotId,
   taxonomyVersion,
   children,
+  reviewMode = false,
 }: {
   snapshotId: string;
   taxonomyVersion: string;
   children: ReactNode;
+  reviewMode?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const hoverCloseTimer = useRef<number | null>(null);
@@ -341,6 +441,7 @@ export default function AnalysisComments({
   const [commentKind, setCommentKind] =
     useState<AnalysisCommentKind>("COMMENT");
   const [replacementText, setReplacementText] = useState("");
+  const [structuredReplacement, setStructuredReplacement] = useState<string | string[]>("");
   const [revisionReason, setRevisionReason] = useState("");
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -404,6 +505,7 @@ export default function AnalysisComments({
 
   const recordsByTarget = useMemo(() => {
     const result = new Map<string, AnnotationRecord[]>();
+    if (!reviewMode) return result;
     for (const comment of comments) {
       const current = result.get(comment.targetKey) ?? [];
       current.push({ type: "comment", id: comment.id, comment });
@@ -419,7 +521,7 @@ export default function AnalysisComments({
       result.set(suggestion.targetKey, current);
     }
     return result;
-  }, [comments, suggestions]);
+  }, [comments, reviewMode, suggestions]);
 
   function openComposer(mode: "COMMENT" | "REVISION", anchor: TextAnchor) {
     setSelection(null);
@@ -427,23 +529,34 @@ export default function AnalysisComments({
     setCommentBody("");
     setCommentKind("COMMENT");
     setReplacementText(
-      mode === "REVISION" ? anchor.selectedText || anchor.targetValue : "",
+      mode === "REVISION" && typeof anchor.targetValue === "string"
+        ? anchor.selectedText || anchor.targetValue
+        : "",
+    );
+    setStructuredReplacement(
+      Array.isArray(anchor.targetValue) ? [...anchor.targetValue] : anchor.targetValue,
     );
     setRevisionReason("");
   }
 
   const contextValue: InlineAnnotationContextValue = {
-    canCreate: taxonomyVersion === "V0.3-PILOT" && canReviewV03,
+    canCreate: taxonomyVersion === "V0.3-PILOT" && reviewMode && canReviewV03,
     recordsFor: (targetKey) => recordsByTarget.get(targetKey) ?? [],
     openCellComposer: (mode, input) =>
       openComposer(mode, {
         ...input,
-        selectedText: mode === "REVISION" ? input.targetValue : "",
-        anchorStart: mode === "REVISION" ? 0 : -1,
-        anchorEnd: mode === "REVISION" ? input.targetValue.length : -1,
+        selectedText:
+          mode === "REVISION" && input.valueType === "TEXT"
+            ? input.targetValue as string
+            : "",
+        anchorStart: mode === "REVISION" && input.valueType === "TEXT" ? 0 : -1,
+        anchorEnd:
+          mode === "REVISION" && input.valueType === "TEXT"
+            ? (input.targetValue as string).length
+            : -1,
       }),
     openSelection: (anchor) => {
-      if (taxonomyVersion === "V0.3-PILOT" && !isAdmin) return;
+      if (taxonomyVersion === "V0.3-PILOT" && !(reviewMode && canReviewV03)) return;
       setComposer(null);
       setSelection(anchor);
     },
@@ -505,7 +618,7 @@ export default function AnalysisComments({
 
   async function createSuggestion() {
     if (!composer || composer.mode !== "REVISION") return;
-    if (!replacementText.trim()) {
+    if (composer.valueType === "TEXT" && !replacementText.trim()) {
       setNotice("请填写修订后的内容。");
       return;
     }
@@ -523,6 +636,9 @@ export default function AnalysisComments({
           anchorEnd: composer.anchorEnd,
           replacementText,
           reason: revisionReason,
+          valueType: composer.valueType,
+          originalValue: composer.valueType === "TEXT" ? undefined : composer.targetValue,
+          replacementValue: composer.valueType === "TEXT" ? undefined : structuredReplacement,
         }),
       });
       if (redirectOnUnauthorized(response)) return;
@@ -640,12 +756,17 @@ export default function AnalysisComments({
 
   return (
     <InlineAnnotationContext.Provider value={contextValue}>
-      <section className="analysis-comment-workspace inline-mode">
+      <section className={`analysis-comment-workspace inline-mode ${contextValue.canCreate ? "is-review-enabled" : ""}`}>
+        {contextValue.canCreate ? (
+          <div className="inline-review-instruction" role="status">
+            选择文字可做局部批注／修订；使用科目右上角操作可处理整项内容。
+          </div>
+        ) : null}
         {notice ? <p className="analysis-comment-notice">{notice}</p> : null}
         <div ref={contentRef} className="analysis-comment-content">
           {children}
         </div>
-        {totalRecords ? (
+        {reviewMode && totalRecords ? (
           <details className="inline-annotation-overview">
             <summary>
               全部批注与修订 · {totalRecords}
@@ -740,7 +861,7 @@ export default function AnalysisComments({
                   保存批注
                 </button>
               </>
-            ) : (
+            ) : composer.valueType === "TEXT" ? (
               <>
                 <label className="inline-revision-field">
                   <span>修订为</span>
@@ -771,6 +892,51 @@ export default function AnalysisComments({
                     : canDecide
                       ? "保存并写入修订草稿"
                       : "提交修订建议"}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="inline-structured-revision-field">
+                  <span>修订为</span>
+                  {composer.valueType === "SINGLE_SELECT" ? (
+                    <select
+                      autoFocus
+                      value={typeof structuredReplacement === "string" ? structuredReplacement : ""}
+                      onChange={(event) => setStructuredReplacement(event.target.value)}
+                    >
+                      <option value="">请选择</option>
+                      {composer.options?.map((option) => (
+                        <option value={option.value} key={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="inline-structured-choice-list">
+                      {composer.options?.map((option) => {
+                        const values = Array.isArray(structuredReplacement) ? structuredReplacement : [];
+                        return (
+                          <label key={option.value}>
+                            <input
+                              type="checkbox"
+                              checked={values.includes(option.value)}
+                              onChange={() => setStructuredReplacement(
+                                values.includes(option.value)
+                                  ? values.filter((value) => value !== option.value)
+                                  : [...values, option.value],
+                              )}
+                            />
+                            {option.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <label className="inline-revision-field">
+                  <span>原因（选填）</span>
+                  <textarea rows={2} value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} />
+                </label>
+                <button type="button" className="button button-accent compact" disabled={busy} onClick={() => void createSuggestion()}>
+                  保存结构化修订
                 </button>
               </>
             )}
@@ -864,8 +1030,8 @@ export default function AnalysisComments({
                     <span>{record.suggestion.authorName}</span>
                   </header>
                   <div className="inline-revision-diff">
-                    <del>{record.suggestion.selectedText || "（空白）"}</del>
-                    <ins>{record.suggestion.replacementText || "（删除）"}</ins>
+                    <del>{formatRevisionValue(record.suggestion.originalValue ?? record.suggestion.selectedText) || "（空白）"}</del>
+                    <ins>{formatRevisionValue(record.suggestion.replacementValue ?? record.suggestion.replacementText) || "（删除）"}</ins>
                   </div>
                   {record.suggestion.reason ? <p>原因：{record.suggestion.reason}</p> : null}
                   <time>

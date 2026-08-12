@@ -4,6 +4,7 @@ import { annotationFields } from "@/lib/annotation-fields";
 import {
   emptyCreativeStructure,
   V03_TAXONOMY_VERSION,
+  V03_VOCABULARY_VERSION,
   V03_WORKFLOW_VERSION,
 } from "@/lib/taxonomy-v0.3";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
@@ -321,7 +322,7 @@ export async function PUT(
       db
         .prepare(
           `INSERT INTO annotation_creative_structures (
-            annotation_id, creative_button, mechanism_statement,
+            annotation_id, vocabulary_version, creative_button, mechanism_statement,
             mechanism_primary, mechanism_auxiliary_json, mechanism_custom,
             realization_skeleton, brand_product_landing,
             story_reference_type, story_archetype, primary_creative_path,
@@ -333,10 +334,11 @@ export async function PUT(
             creative_grade_reason, creative_grade_version,
             main_path_payload_json, auxiliary_path_notes_json,
             condition_flags_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           annotationId,
+          V03_VOCABULARY_VERSION,
           structure.creativeButton.trim(),
           structure.mechanismStatement.trim(),
           structure.mechanismPrimary,

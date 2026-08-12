@@ -321,6 +321,13 @@ const statements = [
     ON analysis_revision_events(review_round_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS analysis_revision_events_target_idx
     ON analysis_revision_events(base_snapshot_id, target_key, created_at)`,
+  `ALTER TABLE annotation_creative_structures ADD COLUMN IF NOT EXISTS vocabulary_version TEXT NOT NULL DEFAULT 'V0.3.1'`,
+  `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS value_type TEXT NOT NULL DEFAULT 'TEXT'`,
+  `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS original_value_json TEXT`,
+  `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS replacement_value_json TEXT`,
+  `ALTER TABLE analysis_revision_events ADD COLUMN IF NOT EXISTS vocabulary_version TEXT NOT NULL DEFAULT 'V0.3.1'`,
+  `CREATE INDEX IF NOT EXISTS analysis_revision_events_value_type_idx
+    ON analysis_revision_events(review_round_id, value_type, created_at)`,
   `ALTER TABLE analysis_comments ADD COLUMN IF NOT EXISTS review_round_id TEXT REFERENCES analysis_review_rounds(id)`,
   `ALTER TABLE analysis_comments ADD COLUMN IF NOT EXISTS base_version_id TEXT REFERENCES annotation_snapshots(id)`,
   `ALTER TABLE analysis_comments ADD COLUMN IF NOT EXISTS workflow_status TEXT NOT NULL DEFAULT 'OPEN'`,

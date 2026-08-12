@@ -14,6 +14,7 @@ export type FormationMode =
   | "COMPOSITE"
   | "NOT_YET_DECOMPOSABLE";
 export type CreativeGrade = "S" | "A" | "B" | "C" | "";
+export type VocabularyVersion = "V0.3.1" | "V0.3.2";
 
 export type VideoStatus = "UPLOADING" | "READY" | "FAILED";
 
@@ -72,6 +73,7 @@ export type FieldAnswerDraft = {
 };
 
 export type CreativeStructureDraft = {
+  vocabularyVersion?: VocabularyVersion;
   creativeButton: string;
   mechanismStatement: string;
   mechanismPrimary: string;
@@ -117,6 +119,7 @@ export type AnnotationDraft = {
   sourceSnapshotId?: string | null;
   status: "DRAFT" | "SUBMITTED";
   reviewStatus?: AnalysisWorkflowStatus;
+  activeBaseSnapshotId?: string | null;
   revision: number;
   analysisTitle: string;
   commercialIntent: string;
@@ -161,6 +164,7 @@ export type SubmittedAnalysis = {
   contentHash: string;
   payload: AnnotationDraft;
   versions: SubmissionVersionSummary[];
+  reviewContext?: AnalysisReviewContext;
 };
 
 export type SubmissionVersionSummary = {
@@ -221,6 +225,8 @@ export type RevisionEditType =
   | "INSERT"
   | "DELETE";
 
+export type RevisionValueType = "TEXT" | "SINGLE_SELECT" | "MULTI_SELECT";
+
 export type AnalysisRevisionSuggestion = {
   id: string;
   submissionId: string;
@@ -234,6 +240,10 @@ export type AnalysisRevisionSuggestion = {
   authorName: string;
   actorRole?: "AUTHOR" | "FINAL_REVIEWER";
   editType?: RevisionEditType;
+  valueType?: RevisionValueType;
+  originalValue?: string | string[];
+  replacementValue?: string | string[];
+  vocabularyVersion?: VocabularyVersion;
   originalTextHash?: string;
   linkedCommentId?: string | null;
   status: AnalysisRevisionSuggestionStatus;
@@ -262,6 +272,7 @@ export type AnalysisReviewContext = {
   canReview: boolean;
   canReturn: boolean;
   canApprove: boolean;
+  canWithdraw: boolean;
   activeReleaseNumber: number | null;
 };
 
@@ -285,6 +296,7 @@ export type MyAnalysisStatus = {
   revision: number;
   updatedAt: string;
   taxonomyVersion?: TaxonomyVersion;
+  reviewStatus?: AnalysisWorkflowStatus;
 };
 
 export type AssignmentReviewDraft = {

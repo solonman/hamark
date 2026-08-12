@@ -3,8 +3,16 @@
 import { useEffect, useState } from "react";
 import type { AnalysisReviewContext, CreativeGrade } from "@/lib/types";
 
-export default function V03ReviewDecisionBar({ snapshotId }: { snapshotId: string }) {
-  const [review, setReview] = useState<AnalysisReviewContext | null>(null);
+export default function V03ReviewDecisionBar({
+  snapshotId,
+  initialReview = null,
+  mode = "review",
+}: {
+  snapshotId: string;
+  initialReview?: AnalysisReviewContext | null;
+  mode?: "review" | "author";
+}) {
+  const [review, setReview] = useState<AnalysisReviewContext | null>(initialReview);
   const [grade, setGrade] = useState<CreativeGrade>("");
   const [qualityGrade, setQualityGrade] = useState("");
   const [decisionNote, setDecisionNote] = useState("");
@@ -62,13 +70,13 @@ export default function V03ReviewDecisionBar({ snapshotId }: { snapshotId: strin
   const round = review?.round;
   const active = Boolean(round && ["PENDING", "IN_REVIEW"].includes(round.status));
   return (
-    <section className="v031-review-bar" aria-label="V0.3.1 审核工作台">
+    <section className={`v031-review-bar is-${mode}`} aria-label={mode === "review" ? "终审工作台" : "作者审核状态"}>
       <div className="v031-review-status">
         <strong>{round ? `终审轮次 ${round.roundNumber}` : "尚未建立审核轮次"}</strong>
         <span>{round?.status ?? "—"}</span>
         {review?.activeReleaseNumber ? <span>当前标准版 R{review.activeReleaseNumber}</span> : null}
       </div>
-      {review?.isFinalReviewer && active ? (
+      {mode === "review" && review?.isFinalReviewer && active ? (
         <div className="v031-review-controls">
           <label>
             <span>专家作品创意等级</span>
@@ -89,7 +97,7 @@ export default function V03ReviewDecisionBar({ snapshotId }: { snapshotId: strin
           <button className="button button-accent" disabled={busy} onClick={() => void decide("APPROVE")}>批准入库</button>
         </div>
       ) : null}
-      {review?.isAuthor && round?.status === "PENDING" ? (
+      {mode === "author" && review?.canWithdraw ? (
         <button className="button button-ghost compact" disabled={busy} onClick={() => void decide("WITHDRAW")}>撤回并继续修订</button>
       ) : null}
       {notice ? <p className="analysis-comment-notice">{notice}</p> : null}

@@ -267,6 +267,12 @@ async function readTargetValue(
       return null;
     }
   }
+  if (
+    target.scope === "shot-group-structured" ||
+    target.scope === "creative-structure-structured"
+  ) {
+    return null;
+  }
   const row = await db
     .prepare(
       `SELECT ${target.column} AS value FROM field_answers
@@ -393,6 +399,12 @@ async function writeTargetValue(
       .bind(JSON.stringify(values), suggestion.annotation_id)
       .run();
     return;
+  }
+  if (
+    target.scope === "shot-group-structured" ||
+    target.scope === "creative-structure-structured"
+  ) {
+    throw new Error("STRUCTURED_REVISION_REQUIRES_V03_WORKFLOW");
   }
   await db
     .prepare(

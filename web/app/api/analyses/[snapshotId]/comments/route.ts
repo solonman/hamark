@@ -258,7 +258,7 @@ export async function POST(
       targetKey,
     );
     if (
-      targetValue == null ||
+      typeof targetValue !== "string" ||
       anchorStart < 0 ||
       anchorEnd < anchorStart ||
       targetValue.slice(anchorStart, anchorEnd) !== selectedText

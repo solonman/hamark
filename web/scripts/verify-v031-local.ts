@@ -47,6 +47,7 @@ async function detail() {
 }
 
 const before = await detail();
+const initialReleaseNumber = before.approvedStandards[0]?.releaseNumber ?? 0;
 const baseAnalysis = before.analyses.find((analysis) => analysis.taxonomyVersion === "V0.3-PILOT");
 assert.ok(baseAnalysis, "a submitted V0.3 case is required");
 const baseSnapshotId = baseAnalysis.id;
@@ -54,8 +55,8 @@ await api(`/api/analyses/${baseSnapshotId}/review`);
 
 const commercial = baseAnalysis.payload.commercialIntent;
 const commercialReplacement = commercial.endsWith("品牌与归属感的连接。")
-  ? commercial
-  : `${commercial.replace(/[。.]$/, "")}，并强化品牌与归属感的连接。`;
+  ? `${commercial.replace(/，并强化品牌与归属感的连接。$/, "")}，并让品牌与归属感的连接更清晰。`
+  : `${commercial.replace(/，并让品牌与归属感的连接更清晰。$/, "").replace(/[。.]$/, "")}，并强化品牌与归属感的连接。`;
 const revision = await api<{ suggestionId: string }>(
   `/api/analyses/${baseSnapshotId}/suggestions`,
   {
@@ -121,10 +122,15 @@ const resubmitted = await api<{ snapshotId: string }>(
   `/api/videos/${videoId}/annotation/submit?taxonomy=V0.3-PILOT`,
   { method: "POST" },
 );
-await api(`/api/analyses/${resubmitted.snapshotId}/comments/${comment.commentId}`, {
-  method: "PATCH",
-  body: JSON.stringify({ status: "RESOLVED" }),
-});
+const commentState = await api<{ comments: Array<{ id: string; status: string }> }>(
+  `/api/analyses/${resubmitted.snapshotId}/comments`,
+);
+for (const pendingComment of commentState.comments.filter((item) => item.status !== "RESOLVED")) {
+  await api(`/api/analyses/${resubmitted.snapshotId}/comments/${pendingComment.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "RESOLVED" }),
+  });
+}
 const approvedR1 = await api<{ releaseNumber: number; approvedSnapshotId: string }>(
   `/api/analyses/${resubmitted.snapshotId}/review`,
   {
@@ -132,9 +138,9 @@ const approvedR1 = await api<{ releaseNumber: number; approvedSnapshotId: string
     body: JSON.stringify({ action: "APPROVE", expertCreativeGrade: "A" }),
   },
 );
-assert.equal(approvedR1.releaseNumber, 1);
+assert.equal(approvedR1.releaseNumber, initialReleaseNumber + 1);
 let afterApproval = await detail();
-assert.equal(afterApproval.approvedStandards[0]?.releaseNumber, 1);
+assert.equal(afterApproval.approvedStandards[0]?.releaseNumber, initialReleaseNumber + 1);
 assert.equal(afterApproval.approvedStandards[0]?.payload.commercialIntent, commercialReplacement);
 assert.doesNotMatch(JSON.stringify(afterApproval.approvedStandards[0]?.payload), /终审.*修订为|\[.*原因：/);
 
@@ -170,14 +176,14 @@ const r2Submitted = await api<{ snapshotId: string }>(
   { method: "POST" },
 );
 afterApproval = await detail();
-assert.equal(afterApproval.approvedStandards[0]?.releaseNumber, 1, "R1 stays active while R2 is under review");
+assert.equal(afterApproval.approvedStandards[0]?.releaseNumber, initialReleaseNumber + 1, "the previous release stays active while the next is under review");
 const approvedR2 = await api<{ releaseNumber: number }>(
   `/api/analyses/${r2Submitted.snapshotId}/review`,
   { method: "PATCH", body: JSON.stringify({ action: "APPROVE", expertCreativeGrade: "A" }) },
 );
-assert.equal(approvedR2.releaseNumber, 2);
+assert.equal(approvedR2.releaseNumber, initialReleaseNumber + 2);
 const finalDetail = await detail();
-assert.equal(finalDetail.approvedStandards[0]?.releaseNumber, 2);
+assert.equal(finalDetail.approvedStandards[0]?.releaseNumber, initialReleaseNumber + 2);
 
 console.log(JSON.stringify({
   ok: true,
@@ -185,5 +191,5 @@ console.log(JSON.stringify({
   returnedAndResubmitted: true,
   immutableBaseSnapshot: true,
   nonFinalReviewerBlocked: true,
-  activeRelease: "R2",
+  activeRelease: `R${initialReleaseNumber + 2}`,
 }, null, 2));

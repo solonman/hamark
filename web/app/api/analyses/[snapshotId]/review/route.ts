@@ -3,7 +3,6 @@ import { isFinalReviewer } from "@/lib/admin";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import {
   applyRevisionEventToAnnotation,
-  ensureReviewRoundForSnapshot,
   materializeRevisionEvents,
   sha256Text,
   type RevisionEventRecord,
@@ -52,45 +51,33 @@ export async function GET(
   const snapshot = await loadSnapshot(snapshotId);
   if (!snapshot) return Response.json({ error: "作业版本不存在。" }, { status: 404 });
   const finalReviewer = await isFinalReviewer(user);
-  let round = await getDbClient().prepare(
+  const round = await getDbClient().prepare(
     `SELECT id, submitted_snapshot_id, round_number, status, reviewer_name,
       decision_note, created_at, decided_at
     FROM analysis_review_rounds WHERE submitted_snapshot_id = ?`,
   ).bind(snapshotId).first<ReviewRoundRow>();
-  if (!round && snapshot.taxonomy_version === "V0.3-PILOT") {
-    const annotationState = await getDbClient().prepare(
-      `SELECT review_status, active_base_snapshot_id FROM annotations WHERE id = ?`,
-    ).bind(snapshot.annotation_id).first<{
-      review_status: string; active_base_snapshot_id: string | null;
-    }>();
-    const latest = await getDbClient().prepare(
-      `SELECT id FROM annotation_snapshots
-      WHERE annotation_id = ? ORDER BY created_at DESC, revision DESC LIMIT 1`,
-    ).bind(snapshot.annotation_id).first<{ id: string }>();
-    if (
-      latest?.id === snapshotId &&
-      !(
-        annotationState?.review_status === "APPROVED" &&
-        annotationState.active_base_snapshot_id === snapshotId
-      )
-    ) {
-      await ensureReviewRoundForSnapshot(getDbClient(), {
-        annotationId: snapshot.annotation_id,
-        videoId: snapshot.video_id,
-        snapshotId,
-      });
-      round = await getDbClient().prepare(
-        `SELECT id, submitted_snapshot_id, round_number, status, reviewer_name,
-          decision_note, created_at, decided_at
-        FROM analysis_review_rounds WHERE submitted_snapshot_id = ?`,
-      ).bind(snapshotId).first<ReviewRoundRow>();
-    }
-  }
+  const annotationState = await getDbClient().prepare(
+    `SELECT review_status, active_base_snapshot_id FROM annotations WHERE id = ?`,
+  ).bind(snapshot.annotation_id).first<{
+    review_status: string; active_base_snapshot_id: string | null;
+  }>();
   const activeRelease = await getDbClient().prepare(
     `SELECT release_number FROM approved_analysis_releases
     WHERE annotation_id = ? AND status = 'ACTIVE' LIMIT 1`,
   ).bind(snapshot.annotation_id).first<{ release_number: number }>();
   const isAuthor = snapshot.author_email === user.identityKey;
+  const activity = round
+    ? await getDbClient().prepare(
+        `SELECT
+          (SELECT COUNT(*) FROM analysis_comments WHERE review_round_id = ? AND parent_id IS NULL) AS comment_count,
+          (SELECT COUNT(*) FROM analysis_revision_events WHERE review_round_id = ? AND status = 'DRAFT') AS revision_count`,
+      ).bind(round.id, round.id).first<{ comment_count: number; revision_count: number }>()
+    : null;
+  const roundIsActive = Boolean(
+    round &&
+    ["PENDING", "IN_REVIEW"].includes(round.status) &&
+    annotationState?.active_base_snapshot_id === snapshotId,
+  );
   const contextValue: AnalysisReviewContext = {
     round: round ? {
       id: round.id,
@@ -104,9 +91,16 @@ export async function GET(
     } : null,
     isAuthor,
     isFinalReviewer: finalReviewer,
-    canReview: finalReviewer && Boolean(round && ["PENDING", "IN_REVIEW"].includes(round.status)),
-    canReturn: finalReviewer && Boolean(round && ["PENDING", "IN_REVIEW"].includes(round.status)),
-    canApprove: finalReviewer && Boolean(round && ["PENDING", "IN_REVIEW"].includes(round.status)),
+    canReview: finalReviewer && roundIsActive,
+    canReturn: finalReviewer && roundIsActive,
+    canApprove: finalReviewer && roundIsActive,
+    canWithdraw: Boolean(
+      isAuthor &&
+      roundIsActive &&
+      round?.status === "PENDING" &&
+      Number(activity?.comment_count ?? 0) === 0 &&
+      Number(activity?.revision_count ?? 0) === 0,
+    ),
     activeReleaseNumber: activeRelease ? Number(activeRelease.release_number) : null,
   };
   return Response.json({ review: contextValue });
@@ -197,7 +191,8 @@ export async function PATCH(
 
       const eventResult = await db.prepare(
         `SELECT id, target_key, edit_type, anchor_start, anchor_end,
-          original_text, original_text_hash, replacement_text
+          original_text, original_text_hash, replacement_text,
+          value_type, original_value_json, replacement_value_json
         FROM analysis_revision_events
         WHERE review_round_id = ? AND status = 'DRAFT'
         ORDER BY created_at ASC`,

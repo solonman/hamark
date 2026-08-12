@@ -5,7 +5,11 @@ import {
   resolveAnchoredReplacement,
   type ParsedAnalysisTarget,
 } from "./analysis-targets";
-import type { AnnotationDraft, RevisionEditType } from "./types";
+import type {
+  AnnotationDraft,
+  RevisionEditType,
+  RevisionValueType,
+} from "./types";
 
 export async function ensureReviewRoundForSnapshot(
   db: DbClient,
@@ -66,7 +70,28 @@ export type RevisionEventRecord = {
   original_text: string;
   original_text_hash: string;
   replacement_text: string;
+  value_type?: RevisionValueType;
+  original_value_json?: string | null;
+  replacement_value_json?: string | null;
 };
+
+export function canonicalRevisionValue(value: string | string[]) {
+  return JSON.stringify(Array.isArray(value) ? [...new Set(value)] : value);
+}
+
+function parseRevisionValue(value: string | null | undefined, fallback: string | string[]) {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return [...new Set(parsed)];
+    }
+  } catch {
+    // V0.3.1 text events have no structured JSON payload.
+  }
+  return fallback;
+}
 
 export async function sha256Text(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -102,6 +127,28 @@ export async function applyRevisionEventToPayload(
   const target = parseAnalysisTarget(event.target_key);
   const currentValue = analysisTargetValue(payload, event.target_key);
   if (!target || currentValue == null) throw new Error("TARGET_MISSING");
+  if ((event.value_type ?? "TEXT") !== "TEXT") {
+    const originalValue = parseRevisionValue(
+      event.original_value_json,
+      event.value_type === "MULTI_SELECT" ? [] : "",
+    );
+    const replacementValue = parseRevisionValue(
+      event.replacement_value_json,
+      event.value_type === "MULTI_SELECT" ? [] : "",
+    );
+    if (
+      (await sha256Text(canonicalRevisionValue(originalValue))) !==
+      event.original_text_hash
+    ) {
+      throw new Error("ORIGINAL_HASH_MISMATCH");
+    }
+    if (canonicalRevisionValue(currentValue) !== canonicalRevisionValue(originalValue)) {
+      throw new Error("CONTENT_CHANGED");
+    }
+    writePayloadTarget(payload, target, replacementValue);
+    return;
+  }
+  if (typeof currentValue !== "string") throw new Error("TARGET_TYPE_MISMATCH");
   if ((await sha256Text(event.original_text)) !== event.original_text_hash) {
     throw new Error("ORIGINAL_HASH_MISMATCH");
   }
@@ -128,13 +175,15 @@ export async function materializeRevisionEvents(
 function writePayloadTarget(
   payload: AnnotationDraft,
   target: ParsedAnalysisTarget,
-  value: string,
+  value: string | string[],
 ) {
   if (target.scope === "annotation") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     payload[target.property] = value;
     return;
   }
   if (target.scope === "shot") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     const shot = payload.shots.find((item) => item.id === target.shotId);
     if (!shot) throw new Error("TARGET_MISSING");
     if (target.property === "groupName") {
@@ -148,6 +197,7 @@ function writePayloadTarget(
     return;
   }
   if (target.scope === "shot-group") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     const group = payload.shotGroups?.find((item) => item.id === target.groupId);
     if (!group) throw new Error("TARGET_MISSING");
     group[target.property] = value;
@@ -158,7 +208,20 @@ function writePayloadTarget(
     }
     return;
   }
+  if (target.scope === "shot-group-structured") {
+    const group = payload.shotGroups?.find((item) => item.id === target.groupId);
+    if (!group) throw new Error("TARGET_MISSING");
+    if (target.valueType === "MULTI_SELECT") {
+      if (!Array.isArray(value)) throw new Error("TARGET_TYPE_MISMATCH");
+      group[target.property] = value as never;
+    } else {
+      if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
+      group[target.property] = value as never;
+    }
+    return;
+  }
   if (target.scope === "creative-structure") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     if (!payload.creativeStructure) throw new Error("TARGET_MISSING");
     payload.creativeStructure[target.property] = value;
     if (target.property === "creativeRealizationPath") {
@@ -168,12 +231,25 @@ function writePayloadTarget(
     }
     return;
   }
+  if (target.scope === "creative-structure-structured") {
+    if (!payload.creativeStructure) throw new Error("TARGET_MISSING");
+    if (target.valueType === "MULTI_SELECT") {
+      if (!Array.isArray(value)) throw new Error("TARGET_TYPE_MISMATCH");
+      payload.creativeStructure[target.property] = value as never;
+    } else {
+      if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
+      payload.creativeStructure[target.property] = value as never;
+    }
+    return;
+  }
   if (target.scope === "creative-structure-json") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     if (!payload.creativeStructure) throw new Error("TARGET_MISSING");
     const values = payload.creativeStructure[target.property] as Record<string, string>;
     values[target.itemKey] = value;
     return;
   }
+  if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
   const field = payload.fields.find((item) => item.code === target.fieldCode);
   if (!field) throw new Error("TARGET_MISSING");
   field[target.property] = value;
@@ -199,10 +275,27 @@ async function readAnnotationTarget(
       .bind(target.groupId, annotationId).first<{ value: string }>();
     return row?.value ?? null;
   }
-  if (target.scope === "creative-structure" || target.scope === "creative-structure-json") {
+  if (target.scope === "shot-group-structured") {
+    const row = await db.prepare(`SELECT ${target.column} AS value FROM shot_groups WHERE id = ? AND annotation_id = ? FOR UPDATE`)
+      .bind(target.groupId, annotationId).first<{ value: string }>();
+    if (!row) return null;
+    return target.valueType === "MULTI_SELECT"
+      ? parseRevisionValue(row.value, [])
+      : row.value ?? "";
+  }
+  if (
+    target.scope === "creative-structure" ||
+    target.scope === "creative-structure-json" ||
+    target.scope === "creative-structure-structured"
+  ) {
     const row = await db.prepare(`SELECT ${target.column} AS value FROM annotation_creative_structures WHERE annotation_id = ? FOR UPDATE`)
       .bind(annotationId).first<{ value: string }>();
     if (!row || target.scope === "creative-structure") return row?.value ?? null;
+    if (target.scope === "creative-structure-structured") {
+      return target.valueType === "MULTI_SELECT"
+        ? parseRevisionValue(row.value, [])
+        : row.value ?? "";
+    }
     try {
       return (JSON.parse(row.value || "{}") as Record<string, string>)[target.itemKey] ?? "";
     } catch {
@@ -218,15 +311,17 @@ async function writeAnnotationTarget(
   db: DbClient,
   annotationId: string,
   target: ParsedAnalysisTarget,
-  currentValue: string,
-  value: string,
+  currentValue: string | string[],
+  value: string | string[],
 ) {
   if (target.scope === "annotation") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     await db.prepare(`UPDATE annotations SET ${target.column} = ? WHERE id = ?`)
       .bind(value, annotationId).run();
     return;
   }
   if (target.scope === "shot") {
+    if (typeof value !== "string" || typeof currentValue !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     if (target.property === "groupName") {
       await db.prepare(`UPDATE shots SET group_name = ? WHERE annotation_id = ? AND group_name = ?`)
         .bind(value, annotationId, currentValue).run();
@@ -237,6 +332,7 @@ async function writeAnnotationTarget(
     return;
   }
   if (target.scope === "shot-group") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     await db.prepare(`UPDATE shot_groups SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND annotation_id = ?`)
       .bind(value, target.groupId, annotationId).run();
     if (target.property === "title") {
@@ -245,12 +341,42 @@ async function writeAnnotationTarget(
     }
     return;
   }
+  if (target.scope === "shot-group-structured") {
+    if (target.valueType === "MULTI_SELECT" && !Array.isArray(value)) {
+      throw new Error("TARGET_TYPE_MISMATCH");
+    }
+    if (target.valueType === "SINGLE_SELECT" && typeof value !== "string") {
+      throw new Error("TARGET_TYPE_MISMATCH");
+    }
+    const stored = target.valueType === "MULTI_SELECT"
+      ? JSON.stringify(value)
+      : String(value);
+    await db.prepare(`UPDATE shot_groups SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND annotation_id = ?`)
+      .bind(stored, target.groupId, annotationId).run();
+    return;
+  }
   if (target.scope === "creative-structure") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     await db.prepare(`UPDATE annotation_creative_structures SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP WHERE annotation_id = ?`)
       .bind(value, annotationId).run();
     return;
   }
+  if (target.scope === "creative-structure-structured") {
+    if (target.valueType === "MULTI_SELECT" && !Array.isArray(value)) {
+      throw new Error("TARGET_TYPE_MISMATCH");
+    }
+    if (target.valueType === "SINGLE_SELECT" && typeof value !== "string") {
+      throw new Error("TARGET_TYPE_MISMATCH");
+    }
+    const stored = target.valueType === "MULTI_SELECT"
+      ? JSON.stringify(value)
+      : String(value);
+    await db.prepare(`UPDATE annotation_creative_structures SET ${target.column} = ?, updated_at = CURRENT_TIMESTAMP WHERE annotation_id = ?`)
+      .bind(stored, annotationId).run();
+    return;
+  }
   if (target.scope === "creative-structure-json") {
+    if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
     const row = await db.prepare(`SELECT ${target.column} AS value FROM annotation_creative_structures WHERE annotation_id = ? FOR UPDATE`)
       .bind(annotationId).first<{ value: string }>();
     const values = (() => {
@@ -262,6 +388,7 @@ async function writeAnnotationTarget(
       .bind(JSON.stringify(values), annotationId).run();
     return;
   }
+  if (typeof value !== "string") throw new Error("TARGET_TYPE_MISMATCH");
   await db.prepare(`UPDATE field_answers SET ${target.column} = ? WHERE annotation_id = ? AND field_code = ?`)
     .bind(value, annotationId, target.fieldCode).run();
 }
@@ -273,11 +400,37 @@ export async function applyRevisionEventToAnnotation(
 ) {
   const target = parseAnalysisTarget(event.target_key);
   if (!target) throw new Error("TARGET_MISSING");
-  if ((await sha256Text(event.original_text)) !== event.original_text_hash) {
+  const valueType = event.value_type ?? "TEXT";
+  if (
+    valueType === "TEXT" &&
+    (await sha256Text(event.original_text)) !== event.original_text_hash
+  ) {
     throw new Error("ORIGINAL_HASH_MISMATCH");
   }
   const currentValue = await readAnnotationTarget(db, annotationId, target);
   if (currentValue == null) throw new Error("TARGET_MISSING");
+  if (valueType !== "TEXT") {
+    const originalValue = parseRevisionValue(
+      event.original_value_json,
+      valueType === "MULTI_SELECT" ? [] : "",
+    );
+    const replacementValue = parseRevisionValue(
+      event.replacement_value_json,
+      valueType === "MULTI_SELECT" ? [] : "",
+    );
+    if (
+      (await sha256Text(canonicalRevisionValue(originalValue))) !==
+      event.original_text_hash
+    ) {
+      throw new Error("ORIGINAL_HASH_MISMATCH");
+    }
+    if (canonicalRevisionValue(currentValue) !== canonicalRevisionValue(originalValue)) {
+      throw new Error("CONTENT_CHANGED");
+    }
+    await writeAnnotationTarget(db, annotationId, target, currentValue, replacementValue);
+    return replacementValue;
+  }
+  if (typeof currentValue !== "string") throw new Error("TARGET_TYPE_MISMATCH");
   const nextValue = resolveAnchoredReplacement({
     currentValue,
     selectedText: event.original_text,

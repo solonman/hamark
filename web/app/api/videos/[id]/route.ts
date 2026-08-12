@@ -1,4 +1,5 @@
 import { getDbClient, getVideoBucket, withDbTransaction } from "@/db";
+import { isFinalReviewer } from "@/lib/admin";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 
 type VideoDetailRow = {
@@ -28,6 +29,17 @@ type SnapshotRow = {
   payload_json: string;
   content_hash: string;
   created_at: string;
+  annotation_review_status: string;
+  active_base_snapshot_id: string | null;
+  round_id: string | null;
+  round_number: number | null;
+  round_status: "PENDING" | "IN_REVIEW" | "CHANGES_REQUESTED" | "APPROVED" | null;
+  reviewer_name: string | null;
+  decision_note: string | null;
+  round_created_at: string | null;
+  round_decided_at: string | null;
+  review_comment_count: number;
+  review_revision_count: number;
 };
 
 type SnapshotVersionRow = {
@@ -44,6 +56,7 @@ type MyAnnotationRow = {
   revision: number;
   updated_at: string;
   taxonomy_version: "V0.2" | "V0.3-PILOT";
+  review_status: "DRAFT" | "PENDING_REVIEW" | "CHANGES_REQUESTED" | "PENDING_REREVIEW" | "APPROVED";
 };
 
 export async function GET(
@@ -69,6 +82,7 @@ export async function GET(
   if (!video) {
     return Response.json({ error: "视频不存在或已进入回收站。" }, { status: 404 });
   }
+  const finalReviewer = await isFinalReviewer(user);
 
   const [
     snapshots,
@@ -83,7 +97,16 @@ export async function GET(
       .prepare(
         `SELECT s.id, s.annotation_id, s.author_email, s.author_name,
           s.taxonomy_version, s.revision,
-          s.payload_json, s.content_hash, s.created_at
+          s.payload_json, s.content_hash, s.created_at,
+          a.review_status AS annotation_review_status,
+          a.active_base_snapshot_id,
+          r.id AS round_id, r.round_number, r.status AS round_status,
+          r.reviewer_name, r.decision_note,
+          r.created_at AS round_created_at, r.decided_at AS round_decided_at,
+          COALESCE((SELECT COUNT(*) FROM analysis_comments c
+            WHERE c.review_round_id = r.id AND c.parent_id IS NULL), 0) AS review_comment_count,
+          COALESCE((SELECT COUNT(*) FROM analysis_revision_events e
+            WHERE e.review_round_id = r.id AND e.status = 'DRAFT'), 0) AS review_revision_count
         FROM annotation_snapshots s
         INNER JOIN (
           SELECT author_email, taxonomy_version, MAX(revision) AS latest_revision
@@ -94,6 +117,8 @@ export async function GET(
         ON latest.author_email = s.author_email
         AND latest.taxonomy_version = s.taxonomy_version
         AND latest.latest_revision = s.revision
+        INNER JOIN annotations a ON a.id = s.annotation_id
+        LEFT JOIN analysis_review_rounds r ON r.submitted_snapshot_id = s.id
         WHERE s.video_id = ?
         ORDER BY s.created_at DESC`,
       )
@@ -110,7 +135,7 @@ export async function GET(
       .all<SnapshotVersionRow>(),
     db
       .prepare(
-        `SELECT id, status, revision, updated_at, taxonomy_version
+        `SELECT id, status, revision, updated_at, taxonomy_version, review_status
         FROM annotations
         WHERE video_id = ? AND author_email = ? AND deleted_at IS NULL
         ORDER BY CASE WHEN taxonomy_version = 'V0.3-PILOT' THEN 0 ELSE 1 END`,
@@ -190,6 +215,17 @@ export async function GET(
           createdAt: version.created_at,
           contentHash: version.content_hash,
         }));
+      const roundIsActive = Boolean(
+        snapshot.round_id &&
+        snapshot.active_base_snapshot_id === snapshot.id &&
+        snapshot.round_status &&
+        ["PENDING", "IN_REVIEW"].includes(snapshot.round_status),
+      );
+      const activeRelease = approvedStandards.results.find(
+        (release) =>
+          release.status === "ACTIVE" &&
+          release.source_snapshot_id === snapshot.id,
+      );
       return {
         id: snapshot.id,
         authorName: snapshot.author_name,
@@ -201,6 +237,33 @@ export async function GET(
         contentHash: snapshot.content_hash,
         payload: JSON.parse(snapshot.payload_json),
         versions,
+        reviewContext: {
+          round: snapshot.round_id ? {
+            id: snapshot.round_id,
+            submissionId: snapshot.id,
+            roundNumber: Number(snapshot.round_number),
+            status: snapshot.round_status,
+            reviewerName: snapshot.reviewer_name,
+            decisionNote: snapshot.decision_note,
+            createdAt: snapshot.round_created_at,
+            decidedAt: snapshot.round_decided_at,
+          } : null,
+          isAuthor: snapshot.author_email === user.identityKey,
+          isFinalReviewer: finalReviewer,
+          canReview: finalReviewer && roundIsActive,
+          canReturn: finalReviewer && roundIsActive,
+          canApprove: finalReviewer && roundIsActive,
+          canWithdraw: Boolean(
+            snapshot.author_email === user.identityKey &&
+            roundIsActive &&
+            snapshot.round_status === "PENDING" &&
+            Number(snapshot.review_comment_count) === 0 &&
+            Number(snapshot.review_revision_count) === 0
+          ),
+          activeReleaseNumber: activeRelease
+            ? Number(activeRelease.release_number)
+            : null,
+        },
       };
     }),
     approvedStandards: approvedStandards.results.filter((release) => release.status === "ACTIVE").map((release) => ({
@@ -235,7 +298,8 @@ export async function GET(
           status: myAnnotations.results[0].status,
           revision: myAnnotations.results[0].revision,
           updatedAt: myAnnotations.results[0].updated_at,
-          taxonomyVersion: myAnnotations.results[0].taxonomy_version,
+      taxonomyVersion: myAnnotations.results[0].taxonomy_version,
+          reviewStatus: myAnnotations.results[0].review_status,
         }
       : null,
     myAnalyses: myAnnotations.results.map((annotation) => ({
@@ -244,6 +308,7 @@ export async function GET(
       revision: annotation.revision,
       updatedAt: annotation.updated_at,
       taxonomyVersion: annotation.taxonomy_version,
+      reviewStatus: annotation.review_status,
     })),
     canManage,
     canDeletePermanently: canManage && !hasSubmittedAnalysis,
