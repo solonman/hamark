@@ -158,7 +158,17 @@ sudo systemctl reload nginx
 `db/migrations/2026-08-08-inline-revision-suggestions.sql`。两个脚本只新增表、字段和索引，
 可以重复执行，不会改写已有作业快照或评分。应用代码必须在迁移成功后部署。
 
-`DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接。认证相关表开启了 RLS，但没有面向浏览器或 anon 角色的策略；运行时数据库访问应只发生在 Next.js 服务端。
+**迁移必须先于部署。** 2026-08-12 发生过一次事故：V0.3／V0.3.1／V0.3.2 的代码部署上线，
+三个迁移一个都没跑，视频详情页全部 500（`42P01 relation "analysis_review_rounds" does not exist`）。
+迁移是加法且幂等的，先跑迁移再部署代码不会有任何损失。
+
+Supabase 的 `public` schema 同时会被 PostgREST 对外暴露，因此所有表都开启了 RLS 且不建任何策略，
+并回收了 `anon`／`authenticated` 的表权限，等于关闭浏览器直连数据库这条路。**新增表时必须同步在
+`db/bootstrap.ts` 末尾的 RLS 清单里加一行**，漏掉就等于把那张表公开可读，Supabase 会发告警邮件。
+补齐历史库执行 `db/migrations/2026-08-12-enable-rls-all-tables.sql`，需在 V0.3 系列迁移之后运行。
+
+`DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接——
+该角色带 BYPASSRLS，所以开启 RLS 不影响任何运行时查询。运行时数据库访问应只发生在 Next.js 服务端。
 
 生产验收还需要在密钥配置完成后执行两项登录检查：一次桌面浏览器企业微信二维码扫码登录，一次企业微信客户端内登录。
 

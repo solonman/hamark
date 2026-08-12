@@ -435,11 +435,6 @@ const statements = [
     updated_at TEXT NOT NULL,
     PRIMARY KEY (corp_id, agent_id)
   )`,
-  `ALTER TABLE users ENABLE ROW LEVEL SECURITY`,
-  `ALTER TABLE user_departments ENABLE ROW LEVEL SECURITY`,
-  `ALTER TABLE auth_sessions ENABLE ROW LEVEL SECURITY`,
-  `ALTER TABLE oauth_states ENABLE ROW LEVEL SECURITY`,
-  `ALTER TABLE wecom_app_tokens ENABLE ROW LEVEL SECURITY`,
   `CREATE TABLE IF NOT EXISTS audit_logs (
     id TEXT PRIMARY KEY,
     actor_email TEXT NOT NULL,
@@ -450,6 +445,43 @@ const statements = [
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE INDEX IF NOT EXISTS audit_logs_object_idx ON audit_logs(object_type, object_id)`,
+  // Supabase also exposes the public schema over PostgREST. Runtime access only
+  // happens server-side through the BYPASSRLS pooler role, so RLS with no
+  // policies closes the anon/authenticated path without affecting any query.
+  // Keep this list covering every table above — a table added without RLS is a
+  // publicly readable table.
+  `ALTER TABLE app_admins ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE videos ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE annotations ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE annotation_taxonomy_versions ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE shot_groups ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE shots ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE field_answers ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE annotation_creative_structures ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE annotation_snapshots ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE assignment_reviews ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE assignment_review_snapshots ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE analysis_comments ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE analysis_revision_suggestions ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE analysis_review_rounds ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE analysis_revision_events ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE approved_analysis_releases ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE users ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE user_departments ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE auth_sessions ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE oauth_states ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE wecom_app_tokens ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;
+    END IF;
+  END
+  $$`,
 ];
 
 export async function applySchema() {
