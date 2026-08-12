@@ -11,13 +11,10 @@ const readRepoFile = (pathFromTestFile) => {
 
 test("admin bootstrap seeds the three approved WeCom display names", () => {
   const bootstrap = readRepoFile("../db/bootstrap.ts");
-  const schema = readRepoFile("../db/supabase.sql");
-  for (const source of [bootstrap, schema]) {
-    assert.match(source, /CREATE TABLE IF NOT EXISTS app_admins/);
-    assert.match(source, /老孙/);
-    assert.match(source, /李丽萍/);
-    assert.match(source, /晏恩华/);
-  }
+  assert.match(bootstrap, /CREATE TABLE IF NOT EXISTS app_admins/);
+  assert.match(bootstrap, /老孙/);
+  assert.match(bootstrap, /李丽萍/);
+  assert.match(bootstrap, /晏恩华/);
 });
 
 test("admin helper checks the current WeCom display name in the database", () => {

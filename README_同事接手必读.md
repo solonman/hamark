@@ -21,7 +21,7 @@
 - `web/`：完整网站源码；
 - `web/package-lock.json`：锁定依赖，使用 `npm ci` 安装；
 - `web/.env.example`：Supabase Postgres、腾讯云 COS、企业微信认证配置模板；
-- `web/db/supabase.sql`：Supabase Postgres 初始化 SQL；
+- `web/db/bootstrap.ts`：数据库 schema 的唯一来源，用 `npm run db:migrate` 应用；
 - `web/.wrangler/state/`：历史本地演示数据快照，仅限内部开发演示，不再作为运行时数据源；
 - `docs/`：产品、数据模型、交互、技术选型和验收资料；
 - `参考资料/`：V0.2权威标准表和三菱汽车完成版样例。

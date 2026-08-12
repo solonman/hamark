@@ -162,9 +162,13 @@ sudo systemctl reload nginx
 三个迁移一个都没跑，视频详情页全部 500（`42P01 relation "analysis_review_rounds" does not exist`）。
 迁移是加法且幂等的，先跑迁移再部署代码不会有任何损失。
 
+`db/bootstrap.ts` 是 schema 的**唯一来源**，用 `npm run db:migrate` 应用，幂等可重复执行。
+`db/migrations/*.sql` 只是可单独贴进 Supabase SQL Editor 的历史记录，内容已包含在 bootstrap 里。
+
 Supabase 的 `public` schema 同时会被 PostgREST 对外暴露，因此所有表都开启了 RLS 且不建任何策略，
 并回收了 `anon`／`authenticated` 的表权限，等于关闭浏览器直连数据库这条路。**新增表时必须同步在
-`db/bootstrap.ts` 末尾的 RLS 清单里加一行**，漏掉就等于把那张表公开可读，Supabase 会发告警邮件。
+`db/bootstrap.ts` 末尾的 RLS 清单里加一行**，漏掉就等于把那张表公开可读，Supabase 会发告警邮件——
+`tests/schema-rls.test.mjs` 会检查这一点，漏了测试会红。
 补齐历史库执行 `db/migrations/2026-08-12-enable-rls-all-tables.sql`，需在 V0.3 系列迁移之后运行。
 
 `DATABASE_URL` 必须使用服务端 Postgres 连接串，推荐 Supabase pooler 的 `postgres`/owner 连接——

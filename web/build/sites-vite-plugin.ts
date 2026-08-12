@@ -14,7 +14,9 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-// Packages Sites metadata and database bootstrap SQL after Vite finishes compiling.
+// Packages Sites metadata after Vite finishes compiling. The schema is no longer
+// shipped as a SQL file: db/bootstrap.ts is the only source, applied with
+// `npm run db:migrate`.
 export function sites(): Plugin {
   let root = process.cwd();
 
@@ -27,17 +29,12 @@ export function sites(): Plugin {
     async closeBundle() {
       const outputDirectory = resolve(root, "dist", ".openai");
       const hostingConfig = resolve(root, ".openai", "hosting.json");
-      const supabaseSql = resolve(root, "db", "supabase.sql");
 
       await rm(outputDirectory, { recursive: true, force: true });
       await mkdir(outputDirectory, { recursive: true });
 
       if (await exists(hostingConfig)) {
         await copyFile(hostingConfig, resolve(outputDirectory, "hosting.json"));
-      }
-      if (await exists(supabaseSql)) {
-        await mkdir(resolve(outputDirectory, "db"), { recursive: true });
-        await copyFile(supabaseSql, resolve(outputDirectory, "db", "supabase.sql"));
       }
     },
   };
