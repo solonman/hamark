@@ -585,7 +585,7 @@ export default function PracticeClient({
         </div>
       </header>
 
-      {hasPublishedVersion && !draft.baseReleaseId ? (
+      {hasPublishedVersion && !draft.baseReleaseId && !seededFromV02 ? (
         <div className="revision-context-banner">
           <strong>正在继续修订公开版本 V{publishedVersionCount}</strong>
           <span>
@@ -607,10 +607,10 @@ export default function PracticeClient({
         </div>
       ) : null}
 
-      {seededFromV02 && !draft.id ? (
+      {seededFromV02 ? (
         <div className="revision-context-banner pilot-seed-banner">
-          <strong>已从你最新的 V0.2 公开版建立 V0.3 草稿</strong>
-          <span>只带入共通的整体判断与逐镜脚本；原 19 项没有被重解或覆盖。首次修改后将作为独立 V0.3 草稿保存。</span>
+          <strong>本轮以 V0.2 源稿清洁重建</strong>
+          <span>共通整体内容与逐镜脚本已迁入；原 19 项只保留为系统映射参考，V0.3 核心判断由你重新维护。现有活动标准版在新一轮获批前继续生效。</span>
         </div>
       ) : null}
 

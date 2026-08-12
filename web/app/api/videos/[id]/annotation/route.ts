@@ -55,11 +55,23 @@ export async function GET(
         .bind(annotation.id)
         .first<{ version_count: number; latest_version_number: number }>()
     : null;
+  const sourceSnapshot =
+    taxonomyVersion === V03_TAXONOMY_VERSION && annotation.sourceSnapshotId
+      ? await getDbClient()
+          .prepare(
+            `SELECT taxonomy_version FROM annotation_snapshots
+            WHERE id = ? AND video_id = ?`,
+          )
+          .bind(annotation.sourceSnapshotId, id)
+          .first<{ taxonomy_version: string }>()
+      : null;
   return Response.json({
     video,
     annotation,
     seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION &&
-      Boolean(annotation.sourceSnapshotId) && !annotation.baseReleaseId && !annotation.id,
+      sourceSnapshot?.taxonomy_version === "V0.2" &&
+      annotation.reviewStatus === "DRAFT" &&
+      !annotation.baseReleaseId,
     hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
     publishedVersionCount: Number(published?.latest_version_number ?? 0),
   });

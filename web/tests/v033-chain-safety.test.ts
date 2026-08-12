@@ -201,3 +201,23 @@ test("V0.3.3.1 starts a new round through an explicit active release POST", asyn
   assert.match(practice, /method: "POST"/);
   assert.match(practice, /hasPublishedVersion && !draft\.baseReleaseId/);
 });
+
+test("welcome-home V0.2 mapping is case-locked, local-only, and keeps history immutable", async () => {
+  const [script, route, practice] = await Promise.all([
+    readFile(new URL("../scripts/map-welcome-home-v02-to-v03.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/[id]/annotation/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(script, /video_1329aaab-2c5c-40b2-867e-d30abb325cb1/);
+  assert.match(script, /targetRevision: 18/);
+  assert.match(script, /activeReleaseNumber: 5/);
+  assert.match(script, /assertLocalDemoDatabase/);
+  assert.match(script, /--confirm=\$\{CONFIRMATION\}/);
+  assert.match(script, /withTransaction/);
+  assert.doesNotMatch(script, /DELETE FROM annotation_snapshots|DELETE FROM approved_analysis_releases|DELETE FROM analysis_review_rounds/);
+  assert.match(script, /otherBusinessSummaryUnchanged/);
+  assert.match(route, /sourceSnapshot\?\.taxonomy_version === "V0\.2"/);
+  assert.match(route, /annotation\.reviewStatus === "DRAFT"/);
+  assert.match(practice, /本轮以 V0\.2 源稿清洁重建/);
+  assert.match(practice, /!draft\.baseReleaseId && !seededFromV02/);
+});
