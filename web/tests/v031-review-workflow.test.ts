@@ -103,7 +103,7 @@ test("review UI keeps optional reasons and display-only traces outside canonical
   ]);
   assert.match(ui, /原因（选填）/);
   assert.match(ui, /inline-revision-trace/);
-  assert.match(ui, /保存到终审工作层/);
+  assert.match(ui, /保存到公共工作稿/);
   assert.match(reviewRoute, /payload_json/);
   assert.match(reviewRoute, /approved_analysis_releases/);
 });

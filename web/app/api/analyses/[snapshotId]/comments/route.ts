@@ -6,7 +6,7 @@ import {
   normalizeCommentText,
   validateCommentBody,
 } from "@/lib/analysis-comments";
-import { isAppAdmin, isFinalReviewer } from "@/lib/admin";
+import { isAppAdmin } from "@/lib/admin";
 import { analysisTargetValue } from "@/lib/analysis-targets";
 import { ensureReviewRoundForSnapshot } from "@/lib/review-workflow";
 import {
@@ -27,6 +27,8 @@ type SnapshotRow = {
   author_email: string;
   taxonomy_version: string;
   payload_json: string;
+  revision: number;
+  workflow_status: string;
 };
 
 type CommentRow = {
@@ -57,7 +59,7 @@ async function loadSnapshot(snapshotId: string) {
   return getDbClient()
     .prepare(
       `SELECT s.id, s.annotation_id, s.video_id, s.author_email,
-        s.taxonomy_version, s.payload_json
+        s.taxonomy_version, s.payload_json, s.revision, s.workflow_status
       FROM annotation_snapshots s
       INNER JOIN videos v ON v.id = s.video_id
       WHERE s.id = ? AND v.deleted_at IS NULL`,
@@ -152,9 +154,7 @@ export async function GET(
             row.author_email === user.identityKey ||
             snapshot.author_email === user.identityKey,
       canMarkHandled:
-        snapshot.taxonomy_version === "V0.3-PILOT" &&
-        snapshot.author_email === user.identityKey &&
-        row.status !== "RESOLVED",
+        snapshot.taxonomy_version === "V0.3-PILOT" && row.status !== "RESOLVED",
       replies: replies.get(row.id) ?? [],
     }));
 
@@ -274,44 +274,25 @@ export async function POST(
   }
 
   const admin = await isAppAdmin(user);
-  const finalReviewer = await isFinalReviewer(user);
   let reviewRoundId: string | null = null;
+  let collaborationRoundId: string | null = null;
   if (snapshot.taxonomy_version === "V0.3-PILOT") {
-    if (!parentId && !finalReviewer) {
-      return Response.json(
-        { error: "当前体系的正式批注由终审者发起；作者可回复并处理批注。" },
-        { status: 403 },
-      );
-    }
-    if (parentId && !finalReviewer && snapshot.author_email !== user.identityKey) {
-      return Response.json({ error: "只有作者或终审者可以回复批注。" }, { status: 403 });
-    }
-    const annotationState = await db.prepare(
-      `SELECT review_status, active_base_snapshot_id FROM annotations WHERE id = ?`,
+    const collaboration = await db.prepare(
+      `SELECT stream.active_round_id, stream.current_snapshot_id
+      FROM v03_collaboration_streams stream
+      WHERE stream.canonical_annotation_id = ? AND stream.status = 'ACTIVE'`,
     ).bind(snapshot.annotation_id).first<{
-      review_status: string; active_base_snapshot_id: string | null;
+      active_round_id: string | null;
+      current_snapshot_id: string | null;
     }>();
-    if (
-      annotationState?.review_status === "APPROVED" &&
-      annotationState.active_base_snapshot_id === snapshotId
-    ) {
-      return Response.json(
-        { error: "该版本已经批准入库；请从标准版建立新草稿后再开启审核。" },
-        { status: 409 },
-      );
-    }
-    const round = await ensureReviewRoundForSnapshot(db, {
-      annotationId: snapshot.annotation_id,
-      videoId: snapshot.video_id,
-      snapshotId,
-    });
-    reviewRoundId = round.id;
-    const state = await db
-      .prepare(`SELECT status FROM analysis_review_rounds WHERE id = ?`)
-      .bind(round.id)
-      .first<{ status: string }>();
-    if (!state || !["PENDING", "IN_REVIEW"].includes(state.status)) {
-      return Response.json({ error: "当前审核轮次已经结束。" }, { status: 409 });
+    collaborationRoundId = collaboration?.active_round_id ?? null;
+    if (snapshot.workflow_status === "SUBMITTED") {
+      const round = await ensureReviewRoundForSnapshot(db, {
+        annotationId: snapshot.annotation_id,
+        videoId: snapshot.video_id,
+        snapshotId,
+      });
+      reviewRoundId = round.id;
     }
   }
   const requestedKind = payload.kind === "EXPERT_NOTE" ? "EXPERT_NOTE" : "COMMENT";
@@ -320,13 +301,18 @@ export async function POST(
   }
 
   const commentId = newId("comment");
+  const snapshotPayload = JSON.parse(snapshot.payload_json) as { revision?: unknown };
+  const baseWorkingRevision = snapshot.taxonomy_version === "V0.3-PILOT"
+    ? Number(snapshotPayload.revision ?? snapshot.revision)
+    : snapshot.revision;
   await db
     .prepare(
       `INSERT INTO analysis_comments (
         id, submission_id, video_id, parent_id, author_email, author_name,
         target_key, target_label, selected_text, anchor_start, anchor_end,
-        body, kind, review_round_id, base_version_id, workflow_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')`,
+        body, kind, review_round_id, base_version_id, workflow_status,
+        collaboration_round_id, base_working_revision
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)`,
     )
     .bind(
       commentId,
@@ -344,10 +330,12 @@ export async function POST(
       requestedKind,
       reviewRoundId,
       snapshotId,
+      collaborationRoundId,
+      baseWorkingRevision,
     )
     .run();
 
-  if (reviewRoundId && !parentId) {
+  if (reviewRoundId && !parentId && admin) {
     await db
       .prepare(
         `UPDATE analysis_review_rounds

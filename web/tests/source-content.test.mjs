@@ -67,11 +67,11 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(taxonomyEditor, /V0\.2 预设选项/);
   assert.match(taxonomyEditor, /其他（自主输入）/);
   assert.match(practice, /修改约3秒自动保存/);
-  assert.match(practice, /发布公开版本/);
+  assert.match(practice, /提交专家定稿候选/);
   assert.match(practice, /对照视频 · 始终悬浮/);
   assert.match(shotTable, /拖动表头边界调整列宽/);
   assert.match(shotTable, /恢复默认列宽/);
-  assert.match(detail, /进入终审模式/);
+  assert.match(detail, /进入共享修订/);
   assert.match(detail, /历史体系 · 只读/);
   assert.match(detail, /替换原视频/);
   assert.match(detail, /对照视频 · 随页面悬浮/);
@@ -83,8 +83,7 @@ test("source contains the RE:VERSE library and worksheet flows", async () => {
   assert.match(comments, /InlineAnnotationText/);
   assert.match(comments, /data-inline-annotation-target/);
   assert.match(comments, /inline-text-mark/);
-  assert.match(comments, /提交修订建议/);
-  assert.match(comments, /接受并写入草稿/);
+  assert.match(comments, /保存到公共工作稿/);
   assert.match(comments, /专家精修意见/);
   assert.match(comments, /标记优秀/);
   assert.doesNotMatch(comments, /开启批注模式/);
@@ -247,31 +246,33 @@ test("replacement object keys are rebuilt from an opaque asset id", async () => 
   assert.equal(isReplacementAssetId(undefined), false);
 });
 
-test("video detail API returns current user's analysis status", async () => {
+test("video detail API returns the shared V0.3 collaboration and keeps personal rows only as legacy metadata", async () => {
   const source = await readFile(
     new URL("../app/api/videos/[id]/route.ts", import.meta.url),
     "utf8",
   );
 
-  assert.match(
-    source,
-    /WHERE a\.video_id = \? AND a\.author_email = \? AND a\.deleted_at IS NULL/,
-  );
+  assert.match(source, /loadSharedV03ReadModel\(id\)/);
+  assert.match(source, /sharedV03MutableAvailable:/);
+  assert.match(source, /sharedV03DisplaySource:/);
+  assert.match(source, /currentPublicV03:/);
+  assert.match(source, /collaboration: shared\?\.collaboration/);
   assert.match(source, /\.bind\(id, user\.identityKey\)/);
   assert.match(source, /myAnalysis:/);
 });
 
-test("video detail client labels current V0.3 work by status and de-emphasizes V0.2", async () => {
+test("video detail client labels current public V0.3 and separates permanent releases from V0.2 history", async () => {
   const source = await readFile(
     new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(source, /myAnalysis/);
-  assert.match(source, /编辑／继续修订我的作业 ↗/);
-  assert.match(source, /基于活动标准版 R/);
-  assert.match(source, /开始修改我的作业 ↗/);
-  assert.match(source, /开始 V0\.3 试点分析 ↗/);
+  assert.match(source, /currentPublicV03/);
+  assert.match(source, /当前公共 V0\.3/);
+  assert.match(source, /编辑公共 V0\.3/);
+  assert.match(source, /共享修订轮/);
+  assert.match(source, /永久只读/);
+  assert.match(source, /从 R\{release\.releaseNumber\} 创建恢复轮/);
   assert.match(source, /历史体系 V0\.2 · 只读查看/);
 });
 

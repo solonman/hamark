@@ -483,12 +483,14 @@ export default function AnalysisComments({
   analysis,
   children,
   reviewMode = false,
+  collaborationMode = false,
 }: {
   snapshotId: string;
   taxonomyVersion: string;
   analysis?: SubmittedAnalysis;
   children: ReactNode;
   reviewMode?: boolean;
+  collaborationMode?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const hoverCloseTimer = useRef<number | null>(null);
@@ -603,7 +605,10 @@ export default function AnalysisComments({
   }
 
   const contextValue: InlineAnnotationContextValue = {
-    canCreate: taxonomyVersion === "V0.3-PILOT" && reviewMode && canReviewV03,
+    canCreate:
+      taxonomyVersion === "V0.3-PILOT" &&
+      reviewMode &&
+      (collaborationMode || canReviewV03),
     recordsFor: (targetKey) => recordsByTarget.get(targetKey) ?? [],
     openCellComposer: (mode, input) =>
       openComposer(mode, {
@@ -622,7 +627,10 @@ export default function AnalysisComments({
         editType: input.editType ?? (input.valueType === "TEXT" ? "UNIT_REPLACE" : "UNIT_REPLACE"),
       }),
     openSelection: (anchor) => {
-      if (taxonomyVersion === "V0.3-PILOT" && !(reviewMode && canReviewV03)) return;
+      if (
+        taxonomyVersion === "V0.3-PILOT" &&
+        !(reviewMode && (collaborationMode || canReviewV03))
+      ) return;
       setComposer(null);
       setSelection(anchor);
     },
@@ -727,12 +735,16 @@ export default function AnalysisComments({
       } else {
         setNotice(
           taxonomyVersion === "V0.3-PILOT"
-            ? "修订已保存到当前终审工作层；退回或批准时才会物化为干净版本。"
+            ? "修订已直接写入公共 V0.3，并保留修订者和前后值。"
             : "修订建议已送达作业作者。",
         );
       }
       setComposer(null);
       window.getSelection()?.removeAllRanges();
+      if (taxonomyVersion === "V0.3-PILOT" && collaborationMode) {
+        window.location.reload();
+        return;
+      }
       await loadAnnotations();
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "修订建议保存失败");
@@ -960,7 +972,7 @@ export default function AnalysisComments({
                   onClick={() => void createSuggestion()}
                 >
                   {composer.editType === "DELETE" ? "确认删除并保存" : taxonomyVersion === "V0.3-PILOT"
-                    ? "保存到终审工作层"
+                    ? "保存到公共工作稿"
                     : canDecide
                       ? "保存并写入修订草稿"
                       : "提交修订建议"}
@@ -1098,7 +1110,7 @@ export default function AnalysisComments({
               ) : (
                 <article className="is-revision" key={record.id}>
                   <header>
-                    <strong>{taxonomyVersion === "V0.3-PILOT" ? "终审修订" : "修订建议"}</strong>
+                    <strong>{taxonomyVersion === "V0.3-PILOT" ? "共享修订" : "修订建议"}</strong>
                     <span>{record.suggestion.authorName}</span>
                   </header>
                   <div className="inline-revision-diff">

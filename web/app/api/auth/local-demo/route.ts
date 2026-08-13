@@ -18,6 +18,12 @@ const profiles = {
     displayName: "演示同事",
     departmentName: "创意评审组",
   },
+  peer: {
+    userId: "peer",
+    identityKey: "peer@reverse.local",
+    displayName: "协作同事",
+    departmentName: "创意学习组",
+  },
 } as const;
 
 export async function POST(request: NextRequest) {
@@ -31,7 +37,10 @@ export async function POST(request: NextRequest) {
   }
 
   const form = await request.formData();
-  const profileKey = form.get("profile") === "reviewer" ? "reviewer" : "owner";
+  const requestedProfile = String(form.get("profile") ?? "");
+  const profileKey = requestedProfile === "reviewer" || requestedProfile === "peer"
+    ? requestedProfile
+    : "owner";
   const profile = profiles[profileKey];
   const now = new Date();
   const user = await services.store.syncUser(

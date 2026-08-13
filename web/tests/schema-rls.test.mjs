@@ -15,8 +15,8 @@ const collect = (pattern) =>
 // readable and writable by anyone holding the project URL and anon key. Adding a
 // table means adding it to the RLS list at the bottom of db/bootstrap.ts.
 test("every table in the schema has row level security enabled", () => {
-  const tables = collect(/CREATE TABLE IF NOT EXISTS ([a-z_]+)/g);
-  const secured = collect(/ALTER TABLE ([a-z_]+) ENABLE ROW LEVEL SECURITY/g);
+  const tables = collect(/CREATE TABLE IF NOT EXISTS ([a-z0-9_]+)/g);
+  const secured = collect(/ALTER TABLE ([a-z0-9_]+) ENABLE ROW LEVEL SECURITY/g);
 
   assert.ok(tables.length > 0, "no tables found in db/bootstrap.ts");
 

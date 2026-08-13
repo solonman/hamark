@@ -148,6 +148,35 @@ async function cleanup(db: DbClient) {
     throw new Error("拒绝清理：目标不是当前 run id 的 TEST_ONLY 夹具。");
   }
   await db.withTransaction(async (transaction) => {
+    const streams = await transaction.prepare(
+      `SELECT id FROM v03_collaboration_streams WHERE video_id = ?`,
+    ).bind(ids.video).all<{ id: string }>();
+    for (const stream of streams.results) {
+      await transaction.prepare(
+        `DELETE FROM v03_collaboration_revision_events WHERE stream_id = ?`,
+      ).bind(stream.id).run();
+      await transaction.prepare(
+        `DELETE FROM analysis_comments WHERE collaboration_round_id IN (
+          SELECT id FROM v03_collaboration_rounds WHERE stream_id = ?
+        )`,
+      ).bind(stream.id).run();
+      await transaction.prepare(
+        `UPDATE approved_analysis_releases SET collaboration_stream_id = NULL,
+          collaboration_round_id = NULL WHERE collaboration_stream_id = ?`,
+      ).bind(stream.id).run();
+      await transaction.prepare(`DELETE FROM v03_collaboration_rounds WHERE stream_id = ?`)
+        .bind(stream.id).run();
+      await transaction.prepare(`DELETE FROM v03_collaboration_baselines WHERE stream_id = ?`)
+        .bind(stream.id).run();
+      await transaction.prepare(`DELETE FROM v03_collaboration_sources WHERE stream_id = ?`)
+        .bind(stream.id).run();
+      await transaction.prepare(`DELETE FROM v03_collaboration_streams WHERE id = ?`)
+        .bind(stream.id).run();
+    }
+    await transaction.prepare(
+      `DELETE FROM admin_data_operations
+      WHERE target_video_id = ? AND operation_key LIKE 'TEST_ONLY_%'`,
+    ).bind(ids.video).run();
     await transaction.prepare(
       `DELETE FROM audit_logs WHERE
         object_id IN (SELECT id FROM analysis_revision_events WHERE video_id = ?)

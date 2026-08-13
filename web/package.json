@@ -20,6 +20,7 @@
     "verify:v031-local": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v031-local.ts",
     "verify:v032-local": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v032-local.ts",
     "verify:v033-test": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/v033-test-fixture.ts verify",
+    "verify:v034-test": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v034-shared-collaboration.ts",
     "fixture:v033:prepare": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/v033-test-fixture.ts prepare",
     "fixture:v033:cleanup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/v033-test-fixture.ts cleanup",
     "audit:v033:origins": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/audit-v033-origins.ts",

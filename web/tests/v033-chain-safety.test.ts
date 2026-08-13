@@ -187,18 +187,17 @@ test("V0.3.3.1 allows all related bridge groups while other multi-selects keep m
   assert.deepEqual(auxiliary, ["two", "three"]);
 });
 
-test("V0.3.3.1 starts a new round through an explicit active release POST", async () => {
+test("V0.3.4 replaces personal active-release rounds with one shared collaboration line", async () => {
   const [detail, route, practice] = await Promise.all([
     readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/videos/[id]/annotation/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(detail, /start=active-release&releaseId=/);
-  assert.doesNotMatch(detail, /R\$\{myV03Analysis\.baseReleaseNumber \?\? "—"\}/);
-  assert.match(route, /START_FROM_ACTIVE_RELEASE/);
-  assert.match(route, /status = 'ACTIVE'/);
-  assert.match(route, /base_release_id = \?, base_snapshot_id = \?, source_public_snapshot_id = \?/);
-  assert.match(practice, /method: "POST"/);
+  assert.doesNotMatch(detail, /start=active-release&releaseId=/);
+  assert.match(detail, /进入共享修订/);
+  assert.match(route, /PERSONAL_ROUND_DISABLED/);
+  assert.match(route, /loadSharedV03Annotation/);
+  assert.match(practice, /CURRENT PUBLIC V0\.3/);
   assert.match(practice, /hasPublishedVersion && !draft\.baseReleaseId/);
 });
 
@@ -217,7 +216,7 @@ test("welcome-home V0.2 mapping is case-locked, local-only, and keeps history im
   assert.doesNotMatch(script, /DELETE FROM annotation_snapshots|DELETE FROM approved_analysis_releases|DELETE FROM analysis_review_rounds/);
   assert.match(script, /otherBusinessSummaryUnchanged/);
   assert.match(route, /sourceSnapshot\?\.taxonomy_version === "V0\.2"/);
-  assert.match(route, /annotation\.reviewStatus === "DRAFT"/);
+  assert.match(route, /annotation\?\.reviewStatus === "DRAFT"/);
   assert.match(practice, /本轮以 V0\.2 源稿清洁重建/);
   assert.match(practice, /!draft\.baseReleaseId && !seededFromV02/);
 });

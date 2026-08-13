@@ -1,6 +1,7 @@
 import { getDbClient, getVideoBucket, withDbTransaction } from "@/db";
 import { isFinalReviewer } from "@/lib/admin";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import { loadSharedV03ReadModel } from "@/lib/v03-collaboration";
 
 type VideoDetailRow = {
   id: string;
@@ -38,8 +39,6 @@ type SnapshotRow = {
   decision_note: string | null;
   round_created_at: string | null;
   round_decided_at: string | null;
-  review_comment_count: number;
-  review_revision_count: number;
 };
 
 type SnapshotVersionRow = {
@@ -107,11 +106,7 @@ export async function GET(
           a.active_base_snapshot_id,
           r.id AS round_id, r.round_number, r.status AS round_status,
           r.reviewer_name, r.decision_note,
-          r.created_at AS round_created_at, r.decided_at AS round_decided_at,
-          COALESCE((SELECT COUNT(*) FROM analysis_comments c
-            WHERE c.review_round_id = r.id AND c.parent_id IS NULL), 0) AS review_comment_count,
-          COALESCE((SELECT COUNT(*) FROM analysis_revision_events e
-            WHERE e.review_round_id = r.id AND e.status = 'DRAFT'), 0) AS review_revision_count
+          r.created_at AS round_created_at, r.decided_at AS round_decided_at
         FROM annotation_snapshots s
         INNER JOIN (
           SELECT author_email, taxonomy_version, MAX(revision) AS latest_revision
@@ -201,6 +196,14 @@ export async function GET(
 
   const canManage = video.created_by_email === user.identityKey;
   const hasSubmittedAnalysis = Boolean(submittedAnalysis);
+  const shared = await loadSharedV03ReadModel(id);
+  const currentSharedSnapshot = shared?.collaboration.currentSnapshotId
+    ? await db.prepare(
+        `SELECT id, content_hash, created_at FROM annotation_snapshots WHERE id = ?`,
+      ).bind(shared.collaboration.currentSnapshotId).first<{
+        id: string; content_hash: string; created_at: string;
+      }>()
+    : null;
 
   return Response.json({
     video: {
@@ -219,9 +222,12 @@ export async function GET(
       createdAt: video.created_at,
       annotationCount: snapshots.results.length,
     },
-    analyses: snapshots.results.filter((snapshot) => !approvedStandards.results.some(
-      (release) => release.status === "ACTIVE" && release.source_snapshot_id === snapshot.id,
-    )).map((snapshot: SnapshotRow) => {
+    analyses: snapshots.results.filter((snapshot) =>
+      !(shared && snapshot.taxonomy_version === "V0.3-PILOT") &&
+      !approvedStandards.results.some(
+        (release) => release.status === "ACTIVE" && release.source_snapshot_id === snapshot.id,
+      ),
+    ).map((snapshot: SnapshotRow) => {
       const versions = snapshotVersions.results
         .filter((version) => version.annotation_id === snapshot.annotation_id)
         .map((version, index) => ({
@@ -270,13 +276,7 @@ export async function GET(
           canReview: finalReviewer && roundIsActive,
           canReturn: finalReviewer && roundIsActive,
           canApprove: finalReviewer && roundIsActive,
-          canWithdraw: Boolean(
-            snapshot.author_email === user.identityKey &&
-            roundIsActive &&
-            snapshot.round_status === "PENDING" &&
-            Number(snapshot.review_comment_count) === 0 &&
-            Number(snapshot.review_revision_count) === 0
-          ),
+          canWithdraw: false,
           activeReleaseNumber: activeRelease
             ? Number(activeRelease.release_number)
             : null,
@@ -314,6 +314,32 @@ export async function GET(
       sourceAuthorName: release.source_author_name,
       sourceSubmittedAt: release.source_submitted_at,
     })),
+    collaboration: shared?.collaboration ?? null,
+    sharedV03MutableAvailable: shared?.mutableAvailable ?? false,
+    sharedV03DisplaySource: shared?.displaySource ?? null,
+    currentPublicV03: shared && currentSharedSnapshot ? {
+      id: currentSharedSnapshot.id,
+      authorName: shared.collaboration.sourceAuthorName,
+      taxonomyVersion: "V0.3-PILOT",
+      revision: shared.annotation.revision,
+      versionNumber: shared.collaboration.roundNumber,
+      createdAt: currentSharedSnapshot.created_at,
+      contentHash: currentSharedSnapshot.content_hash,
+      payload: shared.annotation,
+      versions: [],
+      versionIdentity: "PUBLIC_SUBMISSION" as const,
+      reviewContext: {
+        round: null,
+        isAuthor: false,
+        isFinalReviewer: finalReviewer,
+        canReview: true,
+        canReturn: false,
+        canApprove: false,
+        canWithdraw: false,
+        activeReleaseNumber: shared.collaboration.activeReleaseNumber,
+      },
+    } : null,
+    canFinalizeSharedV03: finalReviewer,
     myAnalysis: myAnnotations.results[0]
       ? {
           id: myAnnotations.results[0].id,

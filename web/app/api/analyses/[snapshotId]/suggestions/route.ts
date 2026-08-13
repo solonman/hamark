@@ -8,7 +8,7 @@ import {
 import { isAppAdmin, isFinalReviewer } from "@/lib/admin";
 import {
   canonicalRevisionValue,
-  ensureReviewRoundForSnapshot,
+  materializeRevisionEvents,
   sha256Text,
 } from "@/lib/review-workflow";
 import { V03_VOCABULARY_VERSION } from "@/lib/taxonomy-v0.3";
@@ -24,6 +24,10 @@ import type {
   RevisionValueType,
   RevisionEditType,
 } from "@/lib/types";
+import {
+  saveSharedV03Draft,
+  V03CollaborationError,
+} from "@/lib/v03-collaboration";
 
 const REVISION_CONTENT_MAX_LENGTH = 50_000;
 
@@ -37,6 +41,14 @@ function parseStoredRevisionValue(value: string | null) {
     }
   } catch {
     return undefined;
+  }
+  return undefined;
+}
+
+function parseJsonRevisionValue(value: unknown): string | string[] | undefined {
+  if (typeof value === "string") return parseStoredRevisionValue(value) ?? value;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
   }
   return undefined;
 }
@@ -116,61 +128,58 @@ export async function GET(
   if (snapshot.taxonomy_version === "V0.3-PILOT") {
     const result = await getDbClient()
       .prepare(
-        `SELECT id, base_snapshot_id AS submission_id, actor_name AS author_name,
-          actor_role, edit_type, target_key, target_label,
-          original_text AS selected_text, anchor_start, anchor_end,
-          replacement_text, COALESCE(reason, '') AS reason, status,
-          applied_revision, linked_comment_id, original_text_hash,
-          value_type, original_value_json, replacement_value_json,
-          vocabulary_version, change_set_id,
-          created_at, updated_at
-        FROM analysis_revision_events
-        WHERE base_snapshot_id = ? AND status <> 'SUPERSEDED'
-        ORDER BY created_at ASC`,
+        `SELECT event.id, event.actor_name AS author_name,
+          event.target_key, event.target_label, event.value_type,
+          event.before_value_json, event.after_value_json,
+          COALESCE(event.reason, '') AS reason, event.applied_revision,
+          event.change_set_id, event.created_at
+        FROM v03_collaboration_revision_events event
+        INNER JOIN v03_collaboration_streams stream ON stream.id = event.stream_id
+        WHERE stream.canonical_annotation_id = ?
+        ORDER BY event.created_at ASC, event.id ASC`,
       )
-      .bind(snapshotId)
+      .bind(snapshot.annotation_id)
       .all<{
-        id: string; submission_id: string; author_name: string;
-        actor_role: "AUTHOR" | "FINAL_REVIEWER";
-        edit_type: "RANGE_REPLACE" | "UNIT_REPLACE" | "INSERT" | "DELETE";
-        target_key: string; target_label: string; selected_text: string;
-        anchor_start: number; anchor_end: number; replacement_text: string;
-        reason: string; status: "DRAFT" | "APPLIED"; applied_revision: number | null;
-        linked_comment_id: string | null; original_text_hash: string;
-        value_type: RevisionValueType;
-        original_value_json: string | null;
-        replacement_value_json: string | null;
-        vocabulary_version: "V0.3.1" | "V0.3.2";
-        change_set_id: string | null;
-        created_at: string; updated_at: string;
+        id: string; author_name: string; target_key: string; target_label: string;
+        value_type: RevisionValueType | "STRUCTURE";
+        before_value_json: unknown; after_value_json: unknown;
+        reason: string; applied_revision: number; change_set_id: string;
+        created_at: string;
       }>();
-    const suggestions: AnalysisRevisionSuggestion[] = result.results.map((row) => ({
-      id: row.id,
-      submissionId: row.submission_id,
-      targetKey: row.target_key,
-      targetLabel: row.target_label,
-      selectedText: row.selected_text,
-      anchorStart: Number(row.anchor_start),
-      anchorEnd: Number(row.anchor_end),
-      replacementText: row.replacement_text,
-      reason: row.reason,
-      authorName: row.author_name,
-      actorRole: row.actor_role,
-      editType: row.edit_type,
-      valueType: row.value_type ?? "TEXT",
-      originalValue: parseStoredRevisionValue(row.original_value_json),
-      replacementValue: parseStoredRevisionValue(row.replacement_value_json),
-      vocabularyVersion: row.vocabulary_version,
-      changeSetId: row.change_set_id,
-      originalTextHash: row.original_text_hash,
-      linkedCommentId: row.linked_comment_id,
-      status: row.status,
-      decidedByName: null,
-      appliedRevision: row.applied_revision == null ? null : Number(row.applied_revision),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      canDecide: false,
-    }));
+    const displayValue = (value: unknown) => {
+      const parsed = typeof value === "string" ? parseStoredRevisionValue(value) ?? value : value;
+      if (Array.isArray(parsed)) return parsed.join(" · ");
+      if (parsed && typeof parsed === "object") return JSON.stringify(parsed);
+      return String(parsed ?? "");
+    };
+    const suggestions: AnalysisRevisionSuggestion[] = result.results.map((row) => {
+      const valueType = row.value_type === "STRUCTURE" ? "TEXT" : row.value_type;
+      return {
+        id: row.id,
+        submissionId: snapshotId,
+        targetKey: row.target_key,
+        targetLabel: row.target_label,
+        selectedText: displayValue(row.before_value_json),
+        anchorStart: -1,
+        anchorEnd: -1,
+        replacementText: displayValue(row.after_value_json),
+        reason: row.reason,
+        authorName: row.author_name,
+        actorRole: "COLLABORATOR",
+        editType: "UNIT_REPLACE",
+        valueType,
+        originalValue: valueType === "TEXT" ? undefined : parseJsonRevisionValue(row.before_value_json),
+        replacementValue: valueType === "TEXT" ? undefined : parseJsonRevisionValue(row.after_value_json),
+        vocabularyVersion: V03_VOCABULARY_VERSION,
+        changeSetId: row.change_set_id,
+        status: "APPLIED",
+        decidedByName: null,
+        appliedRevision: Number(row.applied_revision),
+        createdAt: row.created_at,
+        updatedAt: row.created_at,
+        canDecide: false,
+      };
+    });
     return Response.json({
       suggestions,
       canDecide: false,
@@ -377,40 +386,6 @@ export async function POST(
   }
 
   if (snapshot.taxonomy_version === "V0.3-PILOT") {
-    const finalReviewer = await isFinalReviewer(user);
-    if (!finalReviewer) {
-      return Response.json(
-        { error: "提交后的正文只有终审者可以直接修订；作者请在退回后的草稿中修改。" },
-        { status: 403 },
-      );
-    }
-    const db = getDbClient();
-    const annotationState = await db.prepare(
-      `SELECT review_status, active_base_snapshot_id FROM annotations WHERE id = ?`,
-    ).bind(snapshot.annotation_id).first<{
-      review_status: string; active_base_snapshot_id: string | null;
-    }>();
-    if (
-      annotationState?.review_status === "APPROVED" &&
-      annotationState.active_base_snapshot_id === snapshotId
-    ) {
-      return Response.json(
-        { error: "该版本已经批准入库；请从标准版建立新草稿后再修订。" },
-        { status: 409 },
-      );
-    }
-    const round = await ensureReviewRoundForSnapshot(db, {
-      annotationId: snapshot.annotation_id,
-      videoId: snapshot.video_id,
-      snapshotId,
-    });
-    const roundRow = await db
-      .prepare(`SELECT status FROM analysis_review_rounds WHERE id = ?`)
-      .bind(round.id)
-      .first<{ status: string }>();
-    if (!roundRow || !["PENDING", "IN_REVIEW"].includes(roundRow.status)) {
-      return Response.json({ error: "当前审核轮次已经结束。" }, { status: 409 });
-    }
     const requestedDelete = !structuredRevision && requestedEditType === "DELETE";
     if (!structuredRevision && !requestedDelete && !replacementText!.trim()) {
       return Response.json({ error: "请填写修订后的内容。" }, { status: 400 });
@@ -418,102 +393,63 @@ export async function POST(
     const editType = structuredRevision
       ? "UNIT_REPLACE"
       : requestedEditType;
-    const revisionId = newId("revision_event");
     const originalTextHash = await sha256Text(
       structuredRevision
         ? canonicalRevisionValue(originalStructuredValue!)
         : selectedText,
     );
-    let linkedCommentId = normalizeCommentText(payload.linkedCommentId, 100) || null;
-    if (!linkedCommentId) {
-      const matchingComment = await db.prepare(
-        `SELECT id FROM analysis_comments
-        WHERE review_round_id = ? AND parent_id IS NULL AND target_key = ?
-          AND selected_text = ? AND anchor_start = ? AND anchor_end = ?
-          AND workflow_status <> 'RESOLVED' AND deleted_at IS NULL
-        ORDER BY created_at DESC LIMIT 1`,
-      ).bind(
-        round.id,
-        targetKey,
-        selectedText,
-        effectiveAnchorStart,
-        effectiveAnchorEnd,
-      ).first<{ id: string }>();
-      linkedCommentId = matchingComment?.id ?? null;
-    }
-    const statements = [
-      db.prepare(
-        `UPDATE analysis_revision_events
-        SET status = 'SUPERSEDED', updated_at = CURRENT_TIMESTAMP
-        WHERE review_round_id = ? AND target_key = ? AND status = 'DRAFT'`,
-      ).bind(round.id, targetKey),
-      db.prepare(
-        `INSERT INTO analysis_revision_events (
-          id, annotation_id, video_id, review_round_id, base_snapshot_id,
-          target_key, target_label, edit_type, anchor_start, anchor_end,
-          original_text, original_text_hash, replacement_text, reason,
-          actor_email, actor_name, actor_role, source, linked_comment_id,
-          value_type, original_value_json, replacement_value_json,
-          vocabulary_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-          'FINAL_REVIEWER', 'FINAL_DIRECT_REVISION', ?, ?, ?, ?, ?)`,
-      ).bind(
-        revisionId,
-        snapshot.annotation_id,
-        snapshot.video_id,
-        round.id,
-        snapshotId,
-        targetKey,
-        targetLabel,
-        editType,
-        effectiveAnchorStart,
-        effectiveAnchorEnd,
-        structuredRevision ? "" : selectedText,
-        originalTextHash,
-        structuredRevision
-          ? displayStructuredValue(replacementStructuredValue!)
-          : requestedDelete
-            ? ""
-            : replacementText,
-        reason || null,
-        user.identityKey,
-        user.displayName,
-        linkedCommentId,
-        requestedValueType,
-        structuredRevision ? canonicalRevisionValue(originalStructuredValue!) : null,
-        structuredRevision ? canonicalRevisionValue(replacementStructuredValue!) : null,
-        V03_VOCABULARY_VERSION,
-      ),
-      db.prepare(
-        `UPDATE analysis_review_rounds
-        SET status = 'IN_REVIEW', reviewer_email = ?, reviewer_name = ?,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status IN ('PENDING', 'IN_REVIEW')`,
-      ).bind(user.identityKey, user.displayName, round.id),
-      db.prepare(
-        `INSERT INTO audit_logs (
-          id, actor_email, action, object_type, object_id, detail_json
-        ) VALUES (?, ?, 'FINAL_DIRECT_REVISION_SAVED', 'REVISION_EVENT', ?, ?)`,
-      ).bind(
-        newId("audit"),
-        user.identityKey,
-        revisionId,
-        JSON.stringify({ snapshotId, reviewRoundId: round.id, targetKey, editType }),
-      ),
-    ];
-    if (linkedCommentId) {
-      statements.push(
-        db.prepare(
-          `UPDATE analysis_comments SET linked_revision_event_id = ?,
-            updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        ).bind(revisionId, linkedCommentId),
+    const source = JSON.parse(snapshot.payload_json) as AnnotationDraft;
+    const draftEvent = {
+      id: "shared-inline-revision",
+      target_key: targetKey,
+      target_label: targetLabel,
+      edit_type: editType,
+      anchor_start: effectiveAnchorStart,
+      anchor_end: effectiveAnchorEnd,
+      original_text: structuredRevision ? "" : selectedText,
+      original_text_hash: originalTextHash,
+      replacement_text: structuredRevision
+        ? displayStructuredValue(replacementStructuredValue!)
+        : requestedDelete ? "" : replacementText!,
+      value_type: requestedValueType,
+      original_value_json: structuredRevision
+        ? canonicalRevisionValue(originalStructuredValue!)
+        : null,
+      replacement_value_json: structuredRevision
+        ? canonicalRevisionValue(replacementStructuredValue!)
+        : null,
+    } as const;
+    try {
+      const next = await materializeRevisionEvents(source, [draftEvent]);
+      const saved = await saveSharedV03Draft({
+        videoId: snapshot.video_id,
+        payload: next,
+        actor: user,
+        reason,
+        expectedSnapshotId: snapshotId,
+      });
+      return Response.json(
+        {
+          ok: true,
+          suggestionId: saved.changeSetId,
+          changeSetId: saved.changeSetId,
+          appliedRevision: saved.annotation.revision,
+          currentSnapshotId: saved.collaboration.currentSnapshotId,
+          canDecide: false,
+        },
+        { status: 201 },
       );
+    } catch (error) {
+      if (error instanceof V03CollaborationError) {
+        return Response.json({
+          error: error.message,
+          code: error.code,
+          ...(error.serverRevision == null ? {} : { serverRevision: error.serverRevision }),
+        }, { status: error.status });
+      }
+      console.error("Shared inline revision failed", { snapshotId, targetKey, error });
+      return Response.json({ error: "共享修订未保存，事务已回滚。" }, { status: 500 });
     }
-    await db.batch(statements);
-    return Response.json(
-      { ok: true, suggestionId: revisionId, canDecide: false },
-      { status: 201 },
-    );
   }
 
   const suggestionId = newId("suggestion");

@@ -30,6 +30,17 @@ import AuthorRevisionTasks from "./AuthorRevisionTasks";
 type AnnotationResponse = {
   video?: { id: string; title: string; status: string };
   annotation?: AnnotationDraft;
+  collaboration?: {
+    streamId: string;
+    roundId: string;
+    roundNumber: number;
+    roundStatus: string;
+    sourceAuthorName: string;
+    currentSnapshotId: string | null;
+    activeReleaseNumber: number | null;
+    lastEditorName: string | null;
+    lastEditedAt: string | null;
+  } | null;
   hasPublishedVersion?: boolean;
   publishedVersionCount?: number;
   seededFromV02?: boolean;
@@ -126,11 +137,9 @@ function redirectOnUnauthorized(response: Response) {
 export default function PracticeClient({
   videoId,
   taxonomyVersion,
-  startReleaseId,
 }: {
   videoId: string;
   taxonomyVersion: TaxonomyVersion;
-  startReleaseId?: string;
 }) {
   const [videoTitle, setVideoTitle] = useState("");
   const [videoStatus, setVideoStatus] = useState("");
@@ -140,6 +149,7 @@ export default function PracticeClient({
   const [hasPublishedVersion, setHasPublishedVersion] = useState(false);
   const [publishedVersionCount, setPublishedVersionCount] = useState(0);
   const [seededFromV02, setSeededFromV02] = useState(false);
+  const [collaboration, setCollaboration] = useState<NonNullable<AnnotationResponse["collaboration"]> | null>(null);
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -170,17 +180,8 @@ export default function PracticeClient({
 
   useEffect(() => {
     let active = true;
-    const startFromRelease = taxonomyVersion === "V0.3-PILOT" && Boolean(startReleaseId);
     fetch(`/api/videos/${videoId}/annotation?taxonomy=${encodeURIComponent(taxonomyVersion)}`, {
       cache: "no-store",
-      ...(startFromRelease ? {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "START_FROM_ACTIVE_RELEASE",
-          releaseId: startReleaseId,
-        }),
-      } : {}),
     })
       .then(async (response) => {
         if (redirectOnUnauthorized(response)) return;
@@ -194,6 +195,7 @@ export default function PracticeClient({
           setHasPublishedVersion(Boolean(data.hasPublishedVersion));
           setPublishedVersionCount(Number(data.publishedVersionCount ?? 0));
           setSeededFromV02(Boolean(data.seededFromV02));
+          setCollaboration(data.collaboration ?? null);
           setDraft(
             taxonomyVersion === "V0.3-PILOT"
               ? ensureV03Worksheet(data.annotation)
@@ -201,13 +203,6 @@ export default function PracticeClient({
                 ? data.annotation
                 : { ...data.annotation, shots: [newShot(0)] },
           );
-          if (startFromRelease) {
-            window.history.replaceState(
-              null,
-              "",
-              `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`,
-            );
-          }
         }
       })
       .catch((reason) => {
@@ -222,7 +217,7 @@ export default function PracticeClient({
     return () => {
       active = false;
     };
-  }, [startReleaseId, taxonomyVersion, videoId]);
+  }, [taxonomyVersion, videoId]);
 
   const markChanged = useCallback((next: AnnotationDraft) => {
     editSequence.current += 1;
@@ -449,9 +444,7 @@ export default function PracticeClient({
       setDirty(false);
       setSaveState("saved");
       setNotice(
-        hasPublishedVersion
-          ? "本次修订已经发布，团队看到的公开版本已更新；你可以留在当前页面继续工作。"
-          : "作业已经发布，其他同事现在可以看到这份分析；你可以留在当前页面继续工作。",
+        "当前公共工作稿已提交为专家定稿候选。所有成员仍可查看、批注；如继续修订，系统会保留本候选并以新修订号继续。",
       );
     } catch (reason) {
       setSaveState("error");
@@ -496,25 +489,6 @@ export default function PracticeClient({
     );
   }
 
-  if (
-    draft.reviewStatus === "PENDING_REVIEW" ||
-    draft.reviewStatus === "PENDING_REREVIEW"
-  ) {
-    return (
-      <main className="detail-state v031-review-lock-state">
-        <p className="eyebrow">当前逆向体系 · 审核中</p>
-        <h1>{draft.reviewStatus === "PENDING_REREVIEW" ? "修改版正在复审" : "作业正在终审"}</h1>
-        <p>
-          已提交快照不会被覆盖。当前轮次结束前，作者与终审者不会并行修改同一版本。
-          你可以返回作品查看原位批注、修订痕迹和审核状态。
-        </p>
-        <Link className="button button-accent" href={`/videos/${videoId}`}>
-          查看批注与审核状态
-        </Link>
-      </main>
-    );
-  }
-
   return (
     <main className="practice-shell">
       <header className="practice-topbar">
@@ -534,12 +508,12 @@ export default function PracticeClient({
                 : dirty
                   ? "等待自动保存"
                   : draft.status === "SUBMITTED"
-                    ? "公开版已是最新"
+                    ? "已提交专家候选"
                     : hasPublishedVersion
-                      ? "修订草稿已保存"
+                      ? "公共工作稿已保存"
                       : draft.updatedAt
-                        ? "草稿已自动保存"
-                        : "新作业"}
+                        ? "公共工作稿已自动保存"
+                        : "共享主线"}
           </span>
           <span className={`version-pill ${taxonomyVersion === "V0.3-PILOT" ? "is-pilot" : ""}`}>
             体系 {taxonomyVersion}
@@ -579,20 +553,19 @@ export default function PracticeClient({
             {publishBlockers.length
               ? `还有 ${publishBlockers.length} 项未完成`
               : hasPublishedVersion
-                ? `发布公开版本 V${publishedVersionCount + 1}`
-                : "发布作业"}
+                ? "更新专家定稿候选"
+                : "提交专家定稿候选"}
           </button>
         </div>
       </header>
 
       {hasPublishedVersion && !draft.baseReleaseId && !seededFromV02 ? (
         <div className="revision-context-banner">
-          <strong>正在继续修订公开版本 V{publishedVersionCount}</strong>
+          <strong>正在共同修订公共 V0.3</strong>
           <span>
-            当前内容已完整带入；再次发布将生成 V{publishedVersionCount + 1}，
-            原版本、原评分和原批注都会保留。
+            所有 ACTIVE 成员看到并编辑同一份工作稿；每次保存都会记录修订者、前后值和基础修订号。
           </span>
-          <Link href={`/videos/${videoId}`}>查看公开版本历史 ↗</Link>
+          <Link href={`/videos/${videoId}`}>查看共享修订与历史定稿 ↗</Link>
         </div>
       ) : null}
 
@@ -600,8 +573,7 @@ export default function PracticeClient({
         <div className="revision-context-banner active-standard-baseline-banner">
           <strong>本轮基于活动标准版 R{draft.baseReleaseNumber} 创建</strong>
           <span>
-            发布后将生成公开版本 V{publishedVersionCount + 1}；
-            在新标准版获得终审批准前，R{draft.baseReleaseNumber} 继续作为当前活动标准。
+            当前共享轮以该永久批准版为基线；后续保存只更新公共工作稿，R{draft.baseReleaseNumber} 保持不变。
           </span>
           <Link href={`/videos/${videoId}`}>查看活动标准版与来源 ↗</Link>
         </div>
@@ -631,7 +603,7 @@ export default function PracticeClient({
               )}
             </div>
             <div className="practice-nav">
-              <p className="eyebrow">WORKSHEET</p>
+          <p className="eyebrow">SHARED WORKSPACE</p>
               <a href="#shots">01 逐镜脚本还原</a>
               {draft.taxonomyVersion === "V0.3-PILOT" ? (
                 <>
@@ -659,7 +631,7 @@ export default function PracticeClient({
 
         <div className="worksheet">
           <div className="worksheet-title">
-            <p className="eyebrow">MY REVERSE-ENGINEERING NOTES</p>
+            <p className="eyebrow">CURRENT PUBLIC V0.3</p>
             <input
               value={draft.analysisTitle}
               onChange={(event) =>
@@ -669,10 +641,10 @@ export default function PracticeClient({
               aria-label="分析标题"
             />
             <p>
-              {draft.authorName} 的个人作业 ·{" "}
-              {hasPublishedVersion
-                ? `已发布公开版本 V${publishedVersionCount}`
-                : "尚未发布"}
+              来源署名：{collaboration?.sourceAuthorName ?? draft.authorName} ·{" "}
+              {collaboration
+                ? `共享修订轮 ${collaboration.roundNumber} · 工作稿 rev ${draft.revision}`
+                : "尚未接入共享主线"}
             </p>
           </div>
 
@@ -860,11 +832,11 @@ export default function PracticeClient({
 
           <section className="submit-panel" ref={submitPanelRef}>
             <div>
-              <p className="eyebrow">READY TO SHARE?</p>
-              <h2>把这份作业交给团队</h2>
+              <p className="eyebrow">READY FOR EXPERT FINALIZATION?</p>
+              <h2>提交当前共享状态供专家定稿</h2>
               <p>
-                每一处修改都会自动存入个人草稿；发布时生成不可覆盖的 {taxonomyVersion} 修订快照，
-                不会改写之前的公开版本。
+                每一处修改都已自动存入公共工作稿并保留修订事件；提交时生成不可覆盖的候选快照，
+                专家定稿后形成永久批准版。
               </p>
               {publishBlockers.length ? (
                 <div className="submit-blockers">
@@ -904,8 +876,8 @@ export default function PracticeClient({
                 {publishBlockers.length
                   ? `还有 ${publishBlockers.length} 项未完成`
                   : hasPublishedVersion
-                    ? `发布公开版本 V${publishedVersionCount + 1}`
-                    : "发布并公开"}
+                    ? "更新专家定稿候选"
+                    : "提交专家定稿候选"}
               </button>
             </div>
           </section>

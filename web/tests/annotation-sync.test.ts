@@ -110,17 +110,19 @@ test("the scoring panel recovers from a conflict the same way the worksheet does
   assert.doesNotMatch(review, /!data\.reviewId \|\| data\.revision === undefined/);
 });
 
-test("the autosave counter is never shown as a human revision number", async () => {
+test("the shared worksheet exposes its optimistic-lock revision without relabeling review autosaves", async () => {
   const [practice, review] = await Promise.all([
     readProjectFile("app/videos/[id]/practice/PracticeClient.tsx"),
     readProjectFile("app/videos/[id]/ReviewPanel.tsx"),
   ]);
 
-  // `revision` counts autosaves (hundreds per session); the published version
-  // count is the only number that means anything to a person.
-  assert.doesNotMatch(practice, /修订 \{draft\.revision\}/);
+  // The shared working revision is the concurrency base recorded on every
+  // collaboration event, so collaborators need to see it when resolving 409s.
+  assert.match(practice, /工作稿 rev \$\{draft\.revision\}/);
+  // Scoring remains personal autosave state and must not be presented as a
+  // human-facing content revision.
   assert.doesNotMatch(review, /修订 \$\{review\.revision\}/);
-  assert.match(practice, /已发布公开版本 V\$\{publishedVersionCount\}/);
+  assert.match(practice, /共享修订轮 \$\{collaboration\.roundNumber\}/);
 });
 
 test("a blocked home navigation always tells the user why it stayed", async () => {

@@ -93,6 +93,16 @@ export async function GET(
   const versionNumber =
     versions.find((version) => version.id === snapshot.id)?.versionNumber ?? 1;
   const finalReviewer = await isFinalReviewer(user);
+  const collaboration = await db.prepare(
+    `SELECT stream.active_round_id, collaboration_round.candidate_snapshot_id
+    FROM v03_collaboration_streams stream
+    LEFT JOIN v03_collaboration_rounds collaboration_round
+      ON collaboration_round.id = stream.active_round_id
+    WHERE stream.canonical_annotation_id = ? AND stream.status = 'ACTIVE'`,
+  ).bind(snapshot.annotation_id).first<{
+    active_round_id: string | null;
+    candidate_snapshot_id: string | null;
+  }>();
   const roundIsActive = Boolean(
     snapshot.round_id &&
     snapshot.active_base_snapshot_id === snapshot.id &&
@@ -127,9 +137,12 @@ export async function GET(
         } : null,
         isAuthor: snapshot.author_email === user.identityKey,
         isFinalReviewer: finalReviewer,
-        canReview: finalReviewer && roundIsActive,
-        canReturn: finalReviewer && roundIsActive,
-        canApprove: finalReviewer && roundIsActive,
+        canReview: finalReviewer && roundIsActive &&
+          collaboration?.candidate_snapshot_id === snapshot.id,
+        canReturn: finalReviewer && roundIsActive &&
+          collaboration?.candidate_snapshot_id === snapshot.id,
+        canApprove: finalReviewer && roundIsActive &&
+          collaboration?.candidate_snapshot_id === snapshot.id,
         canWithdraw: Boolean(
           snapshot.author_email === user.identityKey &&
           roundIsActive &&

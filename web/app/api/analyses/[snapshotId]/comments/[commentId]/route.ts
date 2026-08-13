@@ -62,19 +62,13 @@ export async function PATCH(
   ) {
     if (comment.taxonomy_version === "V0.3-PILOT") {
       if (
-        payload.status === "AUTHOR_MARKED_HANDLED" &&
-        comment.submission_author_email !== user.identityKey
-      ) {
-        return Response.json({ error: "只有作业作者可以标记已处理。" }, { status: 403 });
-      }
-      if (
         (payload.status === "RESOLVED" || payload.status === "REOPENED") &&
         !finalReviewer
       ) {
         return Response.json({ error: "只有终审者可以解决或重新打开批注。" }, { status: 403 });
       }
       if (payload.status === "OPEN") {
-        return Response.json({ error: "请使用“作者已处理”或“重新打开”。" }, { status: 400 });
+        return Response.json({ error: "请使用“协作者已处理”或“重新打开”。" }, { status: 400 });
       }
       statements.push(
         db.prepare(

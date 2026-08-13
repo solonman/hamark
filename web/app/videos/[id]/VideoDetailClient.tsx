@@ -6,7 +6,6 @@ import DraggableVideoPlayer from "@/app/components/DraggableVideoPlayer";
 import { formatLongDate } from "@/lib/date-format";
 import type {
   ApprovedAnalysisRelease,
-  MyAnalysisStatus,
   SubmittedAnalysis,
   VideoItem,
 } from "@/lib/types";
@@ -20,6 +19,7 @@ import AnalysisComments from "./AnalysisComments";
 import V03ReviewDecisionBar from "./V03ReviewDecisionBar";
 import { resolveReviewEntry } from "@/lib/review-entry";
 import StandardRevisionHistory from "./StandardRevisionHistory";
+import SharedRevisionHistory from "./SharedRevisionHistory";
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -44,8 +44,24 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
   const [approvedStandards, setApprovedStandards] = useState<ApprovedAnalysisRelease[]>([]);
   const [approvedStandardHistory, setApprovedStandardHistory] = useState<ApprovedAnalysisRelease[]>([]);
-  const [myAnalysis, setMyAnalysis] = useState<MyAnalysisStatus | null>(null);
-  const [myAnalyses, setMyAnalyses] = useState<MyAnalysisStatus[]>([]);
+  const [currentPublicV03, setCurrentPublicV03] = useState<SubmittedAnalysis | null>(null);
+  const [collaboration, setCollaboration] = useState<{
+    streamId: string;
+    initialBaselineId: string;
+    roundId: string;
+    roundNumber: number;
+    roundStatus: string;
+    sourceAuthorName: string;
+    currentSnapshotId: string | null;
+    candidateSnapshotId: string | null;
+    activeReleaseNumber: number | null;
+    lastEditorName: string | null;
+    lastEditedAt: string | null;
+  } | null>(null);
+  const [canFinalizeSharedV03, setCanFinalizeSharedV03] = useState(false);
+  const [sharedV03MutableAvailable, setSharedV03MutableAvailable] = useState(false);
+  const [sharedV03DisplaySource, setSharedV03DisplaySource] = useState<string | null>(null);
+  const [initialBaseline, setInitialBaseline] = useState<SubmittedAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
@@ -73,8 +89,11 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           analyses?: SubmittedAnalysis[];
           approvedStandards?: ApprovedAnalysisRelease[];
           approvedStandardHistory?: ApprovedAnalysisRelease[];
-          myAnalysis?: MyAnalysisStatus | null;
-          myAnalyses?: MyAnalysisStatus[];
+          currentPublicV03?: SubmittedAnalysis | null;
+          collaboration?: typeof collaboration;
+          canFinalizeSharedV03?: boolean;
+          sharedV03MutableAvailable?: boolean;
+          sharedV03DisplaySource?: string | null;
           canManage?: boolean;
           canDeletePermanently?: boolean;
           error?: string;
@@ -85,8 +104,11 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           setAnalyses(data.analyses ?? []);
           setApprovedStandards(data.approvedStandards ?? []);
           setApprovedStandardHistory(data.approvedStandardHistory ?? []);
-          setMyAnalysis(data.myAnalysis ?? null);
-          setMyAnalyses(data.myAnalyses ?? []);
+          setCurrentPublicV03(data.currentPublicV03 ?? null);
+          setCollaboration(data.collaboration ?? null);
+          setCanFinalizeSharedV03(Boolean(data.canFinalizeSharedV03));
+          setSharedV03MutableAvailable(Boolean(data.sharedV03MutableAvailable));
+          setSharedV03DisplaySource(data.sharedV03DisplaySource ?? null);
           setCanManage(Boolean(data.canManage));
           setCanDeletePermanently(Boolean(data.canDeletePermanently));
         }
@@ -139,26 +161,6 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     setEditOpen(false);
   }
 
-  const myV03Analysis =
-    myAnalyses.find((analysis) => analysis.taxonomyVersion === "V0.3-PILOT") ??
-    (myAnalysis?.taxonomyVersion === "V0.3-PILOT" ? myAnalysis : null);
-  const activeStandard = approvedStandards.find((release) => release.status === "ACTIVE") ?? null;
-  const activeStandardStartHref = activeStandard
-    ? `/videos/${videoId}/practice?taxonomy=V0.3-PILOT&start=active-release&releaseId=${encodeURIComponent(activeStandard.id)}`
-    : `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`;
-  const myAnalysisLabel =
-    myV03Analysis?.reviewStatus === "CHANGES_REQUESTED"
-      ? "开始修改我的作业 ↗"
-      : myV03Analysis?.reviewStatus === "APPROVED"
-        ? activeStandard
-          ? `基于活动标准版 R${activeStandard.releaseNumber} 开始新一轮 ↗`
-          : "查看已批准作业 ↗"
-        : myV03Analysis?.reviewStatus === "PENDING_REVIEW" ||
-            myV03Analysis?.reviewStatus === "PENDING_REREVIEW"
-          ? "查看已提交作业 ↗"
-          : myV03Analysis?.status === "DRAFT"
-            ? "编辑／继续修订我的作业 ↗"
-            : "开始 V0.3 试点分析 ↗";
 
   async function showAnalysisVersion(index: number, snapshotId: string) {
     if (analyses[index]?.id === snapshotId) return;
@@ -227,6 +229,92 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     }
   }
 
+  async function restoreHistoricalRelease(releaseId: string, releaseNumber: number) {
+    if (!window.confirm(`确认从永久批准版 R${releaseNumber} 创建新的共享恢复轮？历史版本不会被覆盖。`)) return;
+    setVersionLoading(releaseId);
+    setVersionNotice("");
+    try {
+      const response = await fetch(`/api/approved-standards/${releaseId}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "RESTORE_AS_NEW_ROUND",
+          confirmation: "确认从历史批准版创建新的共享恢复轮",
+        }),
+      });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "恢复轮创建失败");
+      window.location.reload();
+    } catch (reason) {
+      setVersionNotice(reason instanceof Error ? reason.message : "恢复轮创建失败");
+    } finally {
+      setVersionLoading(null);
+    }
+  }
+
+  async function loadInitialBaseline() {
+    if (!collaboration || initialBaseline) return;
+    setVersionLoading(collaboration.streamId);
+    setVersionNotice("");
+    try {
+      const response = await fetch(`/api/v03-baselines/${collaboration.initialBaselineId}`, { cache: "no-store" });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as {
+        baseline?: {
+          id: string;
+          payload: SubmittedAnalysis["payload"];
+          contentHash: string;
+          sourceAuthorName: string;
+          createdAt: string;
+        };
+        error?: string;
+      };
+      if (!response.ok || !data.baseline) throw new Error(data.error || "初始基线读取失败");
+      setInitialBaseline({
+        id: data.baseline.id,
+        authorName: data.baseline.sourceAuthorName,
+        taxonomyVersion: "V0.3-PILOT",
+        revision: data.baseline.payload.revision,
+        versionNumber: 0,
+        createdAt: data.baseline.createdAt,
+        contentHash: data.baseline.contentHash,
+        payload: data.baseline.payload,
+        versions: [],
+        versionIdentity: "HISTORICAL_STANDARD",
+      });
+    } catch (reason) {
+      setVersionNotice(reason instanceof Error ? reason.message : "初始基线读取失败");
+    } finally {
+      setVersionLoading(null);
+    }
+  }
+
+  async function restoreInitialBaseline() {
+    if (!collaboration) return;
+    if (!window.confirm("确认从永久保留的公共初始基线创建新的共享恢复轮？历史版本不会被覆盖。")) return;
+    setVersionLoading(collaboration.initialBaselineId);
+    setVersionNotice("");
+    try {
+      const response = await fetch(`/api/v03-baselines/${collaboration.initialBaselineId}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "RESTORE_BASELINE_AS_NEW_ROUND",
+          confirmation: "确认从公共初始基线创建新的共享恢复轮",
+        }),
+      });
+      if (redirectOnUnauthorized(response)) return;
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "初始基线恢复失败");
+      window.location.reload();
+    } catch (reason) {
+      setVersionNotice(reason instanceof Error ? reason.message : "初始基线恢复失败");
+    } finally {
+      setVersionLoading(null);
+    }
+  }
+
   if (loading) return <main className="detail-state">正在打开作品…</main>;
 
   if (error || !video) {
@@ -253,7 +341,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         <div className="detail-header-actions">
           <span>{analyses.length} 份公开分析</span>
           <Link className="button button-accent" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-            V0.3 练习 / 交作业
+            编辑公共 V0.3
           </Link>
         </div>
       </header>
@@ -370,12 +458,14 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             <h2 id="analysis-title">脚本及创意分析</h2>
           </div>
           <div className="analysis-entry-actions">
-            <Link
-              className="text-button"
-              href={myV03Analysis?.reviewStatus === "APPROVED" ? activeStandardStartHref : `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
-            >
-              {myAnalysisLabel}
-            </Link>
+            {sharedV03MutableAvailable ? (
+              <Link
+                className="text-button"
+                href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
+              >
+                进入共享修订 ↗
+              </Link>
+            ) : null}
             <Link className="text-button muted" href={`/videos/${videoId}/practice?taxonomy=V0.2`}>
               历史体系 V0.2 · 只读查看
             </Link>
@@ -385,6 +475,87 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         {versionNotice ? (
           <div className="review-notice error">{versionNotice}</div>
         ) : null}
+
+        {currentPublicV03 && collaboration ? (
+          <article className="analysis-card reading-surface shared-v03-card">
+            <div className="analysis-card-head">
+              <span className="analysis-index">V03</span>
+              <div>
+                <p>
+                  当前公共 V0.3 · 共享修订轮 {collaboration.roundNumber} · 工作稿 rev {currentPublicV03.revision}
+                </p>
+                <h3>{currentPublicV03.payload.analysisTitle || "未命名公共分析"}</h3>
+                <small>
+                  来源署名 {collaboration.sourceAuthorName}
+                  {collaboration.lastEditorName
+                    ? ` · 最近由 ${collaboration.lastEditorName} 修订`
+                    : ""}
+                </small>
+              </div>
+              <div className="analysis-card-actions">
+                <span className="analysis-version-only">
+                  {sharedV03MutableAvailable ? collaboration.roundStatus : `只读恢复显示 · ${sharedV03DisplaySource}`}
+                </span>
+                {sharedV03MutableAvailable ? (
+                  <Link
+                    className="button button-accent compact"
+                    href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
+                  >
+                    编辑公共 V0.3
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+            {canFinalizeSharedV03 &&
+            collaboration.candidateSnapshotId === currentPublicV03.id ? (
+              <V03ReviewDecisionBar snapshotId={currentPublicV03.id} mode="review" />
+            ) : collaboration.candidateSnapshotId === currentPublicV03.id ? (
+              <p className="review-notice">
+                当前工作稿已提交为专家定稿候选；继续修订会使本候选失效，但不会丢失候选快照。
+              </p>
+            ) : null}
+            <AnalysisComments
+              snapshotId={currentPublicV03.id}
+              taxonomyVersion="V0.3-PILOT"
+              analysis={currentPublicV03}
+              reviewMode={sharedV03MutableAvailable}
+              collaborationMode={sharedV03MutableAvailable}
+            >
+              <SubmittedAnalysisContent analysis={currentPublicV03} forceOpen />
+            </AnalysisComments>
+            <SharedRevisionHistory videoId={videoId} />
+            <details className="standard-history shared-baseline-history">
+              <summary>公共 V0.3 初始基线 · 永久保留</summary>
+              {canFinalizeSharedV03 ? (
+                <button
+                  type="button"
+                  className="button button-accent compact standard-history-loader"
+                  disabled={versionLoading === collaboration.initialBaselineId}
+                  onClick={() => void restoreInitialBaseline()}
+                >
+                  从初始基线创建恢复轮
+                </button>
+              ) : null}
+              {!initialBaseline ? (
+                <button
+                  type="button"
+                  className="button button-ghost compact standard-history-loader"
+                  disabled={versionLoading === collaboration.streamId}
+                  onClick={() => void loadInitialBaseline()}
+                >
+                  {versionLoading === collaboration.streamId ? "读取中…" : "查看初始映射基线"}
+                </button>
+              ) : (
+                <SubmittedAnalysisContent analysis={initialBaseline} forceOpen={false} />
+              )}
+            </details>
+          </article>
+        ) : (
+          <div className="no-analysis">
+            <span>尚未建立公共 V0.3</span>
+            <p>读取页面不会自动创建个人空白稿；请由管理员先完成共享主线接入。</p>
+          </div>
+        )}
 
         {approvedStandards.length ? (
           <div className="standard-case-list">
@@ -420,12 +591,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                     >
                       {sourceAnalysis ? "已加载来源" : versionLoading === release.sourceSnapshotId ? "读取中…" : "查看来源作业"}
                     </button>
-                    <Link
-                      className="button button-ghost compact"
-                      href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT&start=active-release&releaseId=${encodeURIComponent(release.id)}`}
-                    >
-                      基于 R{release.releaseNumber} 开始新一轮
-                    </Link>
+                    <span className="analysis-version-only">永久只读批准版</span>
                   </div>
                   {sourceAnalysis ? (
                     <details className="standard-source-card">
@@ -476,15 +642,40 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                         <small>{release.approvedByName} 终审</small>
                       </summary>
                       {!historical ? (
-                        <button
-                          type="button"
-                          className="button button-ghost compact standard-history-loader"
-                          disabled={versionLoading === release.id}
-                          onClick={() => void loadHistoricalStandard(release.id)}
-                        >
-                          {versionLoading === release.id ? "读取中…" : "按需读取历史正文"}
-                        </button>
+                        <div className="standard-lineage-bar">
+                          <button
+                            type="button"
+                            className="button button-ghost compact standard-history-loader"
+                            disabled={versionLoading === release.id}
+                            onClick={() => void loadHistoricalStandard(release.id)}
+                          >
+                            {versionLoading === release.id ? "读取中…" : "按需读取历史正文"}
+                          </button>
+                          {canFinalizeSharedV03 ? (
+                            <button
+                              type="button"
+                              className="button button-accent compact"
+                              disabled={versionLoading === release.id}
+                              onClick={() => void restoreHistoricalRelease(release.id, release.releaseNumber)}
+                            >
+                              从 R{release.releaseNumber} 创建恢复轮
+                            </button>
+                          ) : null}
+                        </div>
                       ) : <>
+                        {canFinalizeSharedV03 ? (
+                          <div className="standard-lineage-bar">
+                            <span>恢复不会覆盖任何中间版本</span>
+                            <button
+                              type="button"
+                              className="button button-accent compact"
+                              disabled={versionLoading === release.id}
+                              onClick={() => void restoreHistoricalRelease(release.id, release.releaseNumber)}
+                            >
+                              从 R{release.releaseNumber} 创建恢复轮
+                            </button>
+                          </div>
+                        ) : null}
                         <div className="reading-surface">
                           <SubmittedAnalysisContent analysis={historical} forceOpen={false} />
                         </div>
@@ -497,15 +688,15 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           </details>
         ) : null}
 
-        {analyses.length === 0 ? (
+        {!currentPublicV03 && analyses.length === 0 ? (
           <div className="no-analysis">
             <span>还没有人交作业</span>
             <p>第一份公开分析，可以从你开始。</p>
             <Link className="button button-dark" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-              开始 V0.3 逆向
+              查看公共 V0.3
             </Link>
           </div>
-        ) : (
+        ) : analyses.length ? (
           <div className="analysis-list">
             {analyses.map((analysis, index) => {
               const reviewActive = activeReviewId === analysis.id;
@@ -578,17 +769,15 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                           开始修改
                         </Link>
                       ) : entryState === "AUTHOR_NEW_ROUND" ? (
-                        <Link className="button button-ghost compact" href={activeStandardStartHref}>
-                          {activeStandard
-                            ? `基于活动标准版 R${activeStandard.releaseNumber} 开始新一轮修订`
-                            : "查看已批准作业"}
+                        <Link className="button button-ghost compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+                          查看当前公共修订轮
                         </Link>
                       ) : (
                         <span className="analysis-version-only">
                           {entryState === "APPROVED_READ_ONLY"
                             ? "已批准 · 只读"
                             : entryState === "WAITING_AUTHOR"
-                              ? "等待作者提交"
+                              ? "等待共享候选"
                               : entryState === "WAITING_REVIEW"
                                 ? "等待终审"
                                 : "公开作业 · 只读"}
@@ -618,7 +807,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               );
             })}
           </div>
-        )}
+        ) : null}
       </section>
 
       {replaceOpen ? (

@@ -1,7 +1,6 @@
 import { getDbClient, type DbPreparedStatement } from "@/db";
 import {
   loadAnnotation,
-  seedV03FromActiveStandard,
 } from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
 import {
@@ -11,6 +10,11 @@ import {
   V03_WORKFLOW_VERSION,
 } from "@/lib/taxonomy-v0.3";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import {
+  loadSharedV03Annotation,
+  saveSharedV03Draft,
+  V03CollaborationError,
+} from "@/lib/v03-collaboration";
 import type { AnnotationDraft, TaxonomyVersion } from "@/lib/types";
 
 function requestedTaxonomy(request: Request): TaxonomyVersion | null {
@@ -38,13 +42,21 @@ export async function GET(
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
 
-  const annotation = await loadAnnotation(
-    id,
-    user.identityKey,
-    user.displayName,
-    taxonomyVersion,
-  );
-  const published = annotation.id
+  const shared = taxonomyVersion === V03_TAXONOMY_VERSION
+    ? await loadSharedV03Annotation(id)
+    : null;
+  const annotation = taxonomyVersion === V03_TAXONOMY_VERSION
+    ? shared?.annotation ?? null
+    : await loadAnnotation(id, user.identityKey, user.displayName, taxonomyVersion);
+  if (taxonomyVersion === V03_TAXONOMY_VERSION && !shared) {
+    return Response.json({
+      video,
+      annotation: null,
+      collaboration: null,
+      error: "这个作品尚未建立公共 V0.3。读取页面不会自动创建个人空白稿。",
+    }, { status: 404 });
+  }
+  const published = annotation?.id
     ? await getDbClient()
         .prepare(
           `SELECT COUNT(*) AS version_count,
@@ -56,7 +68,7 @@ export async function GET(
         .first<{ version_count: number; latest_version_number: number }>()
     : null;
   const sourceSnapshot =
-    taxonomyVersion === V03_TAXONOMY_VERSION && annotation.sourceSnapshotId
+    taxonomyVersion === V03_TAXONOMY_VERSION && annotation?.sourceSnapshotId
       ? await getDbClient()
           .prepare(
             `SELECT taxonomy_version FROM annotation_snapshots
@@ -68,10 +80,11 @@ export async function GET(
   return Response.json({
     video,
     annotation,
+    collaboration: shared?.collaboration ?? null,
     seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION &&
       sourceSnapshot?.taxonomy_version === "V0.2" &&
-      annotation.reviewStatus === "DRAFT" &&
-      !annotation.baseReleaseId,
+      annotation?.reviewStatus === "DRAFT" &&
+      !annotation?.baseReleaseId,
     hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
     publishedVersionCount: Number(published?.latest_version_number ?? 0),
   });
@@ -94,95 +107,16 @@ export async function POST(
     action?: unknown;
     releaseId?: unknown;
   };
-  if (body.action !== "START_FROM_ACTIVE_RELEASE" || typeof body.releaseId !== "string") {
-    return Response.json({ error: "缺少明确的活动标准版起新轮指令。" }, { status: 400 });
-  }
-  const releaseId = body.releaseId.trim().slice(0, 200);
-  if (!releaseId) {
-    return Response.json({ error: "活动标准版标识不能为空。" }, { status: 400 });
-  }
-  const db = getDbClient();
-  const video = await db.prepare(
-    `SELECT id, title, status FROM videos WHERE id = ? AND deleted_at IS NULL`,
-  ).bind(videoId).first<{ id: string; title: string; status: string }>();
-  if (!video) return Response.json({ error: "视频不存在。" }, { status: 404 });
-
-  const seed = await seedV03FromActiveStandard(videoId, user.displayName, releaseId);
-  if (!seed || seed.baseReleaseId !== releaseId) {
-    return Response.json(
-      { error: "指定标准版不是这个作品当前的活动版本，请刷新作品页后重试。" },
-      { status: 409 },
-    );
-  }
-  const existing = await db.prepare(
-    `SELECT id, status, review_status, revision, base_release_id
-    FROM annotations
-    WHERE video_id = ? AND author_email = ? AND taxonomy_version = 'V0.3-PILOT'
-      AND deleted_at IS NULL`,
-  ).bind(videoId, user.identityKey).first<{
-    id: string;
-    status: "DRAFT" | "SUBMITTED";
-    review_status: string;
-    revision: number;
-    base_release_id: string | null;
-  }>();
-
-  if (existing?.status === "DRAFT" && existing.review_status === "DRAFT") {
-    if (existing.base_release_id !== releaseId) {
-      return Response.json(
-        { error: "你已有一份基于其他版本的未提交草稿，请先完成或处理该草稿。" },
-        { status: 409 },
-      );
-    }
-  } else if (existing && ["PENDING_REVIEW", "PENDING_REREVIEW"].includes(existing.review_status)) {
-    return Response.json({ error: "当前作业正在审核，不能同时建立新一轮。" }, { status: 423 });
-  } else if (existing && existing.review_status !== "APPROVED") {
-    return Response.json(
-      { error: "当前作业尚有未完成的退回或修订任务，不能覆盖为新一轮。" },
-      { status: 409 },
-    );
-  }
-
-  if (!(existing?.status === "DRAFT" && existing.base_release_id === releaseId)) {
-    const startingDraft: AnnotationDraft = {
-      ...seed,
-      id: existing?.id ?? null,
-      revision: existing?.revision ?? 0,
-    };
-    const forwardedHeaders = new Headers(request.headers);
-    forwardedHeaders.set("Content-Type", "application/json");
-    const persisted = await PUT(
-      new Request(request.url, {
-        method: "PUT",
-        headers: forwardedHeaders,
-        body: JSON.stringify(startingDraft),
-      }),
-      { params: Promise.resolve({ id: videoId }) },
-    );
-    if (!persisted.ok) return persisted;
-  }
-
-  const annotation = await loadAnnotation(
-    videoId,
-    user.identityKey,
-    user.displayName,
-    V03_TAXONOMY_VERSION,
+  void user;
+  void videoId;
+  void body;
+  return Response.json(
+    {
+      error: "公共 V0.3 不再创建个人新轮。定稿后由系统开启共享新轮；历史恢复请由专家在批准版本上执行。",
+      code: "PERSONAL_ROUND_DISABLED",
+    },
+    { status: 409 },
   );
-  const published = annotation.id
-    ? await db.prepare(
-        `SELECT COUNT(*) AS version_count,
-          COALESCE(MAX(version_number), 0) AS latest_version_number
-        FROM annotation_snapshots
-        WHERE annotation_id = ? AND workflow_status = 'SUBMITTED'`,
-      ).bind(annotation.id).first<{ version_count: number; latest_version_number: number }>()
-    : null;
-  return Response.json({
-    video,
-    annotation,
-    startedFromActiveRelease: true,
-    hasPublishedVersion: Number(published?.version_count ?? 0) > 0,
-    publishedVersionCount: Number(published?.latest_version_number ?? 0),
-  });
 }
 
 export async function PUT(
@@ -218,6 +152,36 @@ export async function PUT(
     payload.taxonomyVersion !== taxonomyVersion
   ) {
     return Response.json({ error: "视频或标注体系与作业不一致。" }, { status: 400 });
+  }
+
+  if (taxonomyVersion === V03_TAXONOMY_VERSION) {
+    try {
+      const saved = await saveSharedV03Draft({
+        videoId,
+        payload,
+        actor: user,
+      });
+      return Response.json({
+        ok: true,
+        annotationId: saved.annotation.id,
+        revision: saved.annotation.revision,
+        status: "DRAFT",
+        taxonomyVersion,
+        updatedAt: saved.annotation.updatedAt,
+        collaboration: saved.collaboration,
+        changeSetId: saved.changeSetId,
+      });
+    } catch (error) {
+      if (error instanceof V03CollaborationError) {
+        return Response.json({
+          error: error.message,
+          code: error.code,
+          ...(error.serverRevision == null ? {} : { serverRevision: error.serverRevision }),
+        }, { status: error.status });
+      }
+      console.error("Shared V0.3 save failed", { videoId, error });
+      return Response.json({ error: "公共 V0.3 保存失败，事务已回滚。" }, { status: 500 });
+    }
   }
 
   const existing = await db

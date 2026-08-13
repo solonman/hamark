@@ -1,4 +1,4 @@
-import { getDbClient } from "@/db";
+import { getDbClient, type DbClient } from "@/db";
 import { annotationFields } from "./annotation-fields";
 import {
   emptyCreativeStructure,
@@ -318,16 +318,7 @@ export async function seedV03FromActiveStandard(
   } satisfies AnnotationDraft;
 }
 
-export async function loadAnnotation(
-  videoId: string,
-  authorEmail: string,
-  authorName: string,
-  taxonomyVersion: TaxonomyVersion = "V0.2",
-) {
-  const db = getDbClient();
-  const row = await db
-    .prepare(
-      `SELECT id, video_id, author_name, taxonomy_version, workflow_version,
+const annotationRowSql = `SELECT id, video_id, author_name, taxonomy_version, workflow_version,
         source_snapshot_id, status, review_status, active_base_snapshot_id,
         base_release_id, base_snapshot_id, source_public_snapshot_id,
         (SELECT release_number FROM approved_analysis_releases release
@@ -335,23 +326,11 @@ export async function loadAnnotation(
         revision, analysis_title,
         commercial_intent, creative_theme, synopsis, thinking_chain,
         shot_commentary, summary, updated_at
-      FROM annotations
-      WHERE video_id = ? AND author_email = ? AND taxonomy_version = ?
-        AND deleted_at IS NULL`,
-    )
-    .bind(videoId, authorEmail, taxonomyVersion)
-    .first<AnnotationRow>();
+      FROM annotations`;
 
-  if (!row) {
-    if (taxonomyVersion === V03_TAXONOMY_VERSION) {
-      return (await seedV03FromActiveStandard(videoId, authorName)) ??
-        seedV03FromLatestV02(videoId, authorEmail, authorName);
-    }
-    return emptyAnnotation(videoId, authorName, taxonomyVersion);
-  }
-
-  const [shotResult, groupResult, fieldResult, structureRow] = await Promise.all([
-    db
+async function hydrateAnnotationRow(db: DbClient, row: AnnotationRow) {
+  // A transaction-scoped pg client must only execute one query at a time.
+  const shotResult = await db
       .prepare(
         `SELECT id, order_index, group_name, shot_group_id, shot_number,
           start_time, end_time, shot_size, camera_angle, camera_movement,
@@ -360,29 +339,28 @@ export async function loadAnnotation(
         FROM shots WHERE annotation_id = ? ORDER BY order_index ASC`,
       )
       .bind(row.id)
-      .all<ShotRow>(),
-    db
+      .all<ShotRow>();
+  const groupResult = await db
       .prepare(
         `SELECT id, order_index, title, primary_role_name_snapshot,
           auxiliary_roles_json, custom_role, note
         FROM shot_groups WHERE annotation_id = ? ORDER BY order_index ASC`,
       )
       .bind(row.id)
-      .all<ShotGroupRow>(),
-    db
+      .all<ShotGroupRow>();
+  const fieldResult = await db
       .prepare(
         `SELECT field_code, answer, evidence, source
         FROM field_answers WHERE annotation_id = ?`,
       )
       .bind(row.id)
-      .all<FieldRow>(),
-    row.taxonomy_version === V03_TAXONOMY_VERSION
-      ? db
-          .prepare(`SELECT * FROM annotation_creative_structures WHERE annotation_id = ?`)
-          .bind(row.id)
-          .first<CreativeStructureRow>()
-      : Promise.resolve(null),
-  ]);
+      .all<FieldRow>();
+  const structureRow = row.taxonomy_version === V03_TAXONOMY_VERSION
+    ? await db
+        .prepare(`SELECT * FROM annotation_creative_structures WHERE annotation_id = ?`)
+        .bind(row.id)
+        .first<CreativeStructureRow>()
+    : null;
 
   const fieldMap = new Map(
     fieldResult.results.map((field: FieldRow) => [field.field_code, field]),
@@ -456,6 +434,43 @@ export async function loadAnnotation(
         : undefined,
     updatedAt: row.updated_at,
   } satisfies AnnotationDraft;
+}
+
+export async function loadAnnotationById(
+  annotationId: string,
+  db: DbClient = getDbClient(),
+) {
+  const row = await db.prepare(
+    `${annotationRowSql} WHERE id = ? AND deleted_at IS NULL`,
+  ).bind(annotationId).first<AnnotationRow>();
+  return row ? hydrateAnnotationRow(db, row) : null;
+}
+
+export async function loadAnnotation(
+  videoId: string,
+  authorEmail: string,
+  authorName: string,
+  taxonomyVersion: TaxonomyVersion = "V0.2",
+) {
+  const db = getDbClient();
+  const row = await db
+    .prepare(
+      `${annotationRowSql}
+      WHERE video_id = ? AND author_email = ? AND taxonomy_version = ?
+        AND deleted_at IS NULL`,
+    )
+    .bind(videoId, authorEmail, taxonomyVersion)
+    .first<AnnotationRow>();
+
+  if (!row) {
+    if (taxonomyVersion === V03_TAXONOMY_VERSION) {
+      return (await seedV03FromActiveStandard(videoId, authorName)) ??
+        seedV03FromLatestV02(videoId, authorEmail, authorName);
+    }
+    return emptyAnnotation(videoId, authorName, taxonomyVersion);
+  }
+
+  return hydrateAnnotationRow(db, row);
 }
 
 export { validateAnnotation } from "./annotation-validation";

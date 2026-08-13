@@ -62,8 +62,8 @@ export default function V03ReviewDecisionBar({
         action === "APPROVE"
           ? `已批准为活动标准版 R${data.releaseNumber}。`
           : action === "RETURN"
-            ? "已退回作者修改；终审直接修订已进入作者的新草稿。"
-            : "已撤回提交，可以继续修改。",
+            ? "候选已退回共享协作轮；所有成员都可以继续修订。"
+            : "已撤回候选，可以继续共享修订。",
       );
       window.setTimeout(() => window.location.reload(), 900);
     } catch (error) {
@@ -77,9 +77,9 @@ export default function V03ReviewDecisionBar({
   const round = review?.round;
   const active = Boolean(round && ["PENDING", "IN_REVIEW"].includes(round.status));
   return (
-    <section className={`v031-review-bar is-${mode}`} aria-label={mode === "review" ? "终审工作台" : "作者审核状态"}>
+    <section className={`v031-review-bar is-${mode}`} aria-label={mode === "review" ? "专家定稿" : "候选状态"}>
       <div className="v031-review-status">
-        <strong>{round ? `终审轮次 ${round.roundNumber}` : "尚未建立审核轮次"}</strong>
+        <strong>{round ? `专家定稿候选 ${round.roundNumber}` : "尚未建立定稿候选"}</strong>
         <span>{round?.status ?? "—"}</span>
         {review?.activeReleaseNumber ? <span>当前标准版 R{review.activeReleaseNumber}</span> : null}
       </div>
@@ -97,11 +97,11 @@ export default function V03ReviewDecisionBar({
             <input value={qualityGrade} onChange={(event) => setQualityGrade(event.target.value)} placeholder="待量表冻结后规范" />
           </label>
           <label className="wide">
-            <span>终审结论（选填）</span>
+            <span>定稿结论（选填）</span>
             <input value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} placeholder="退回重点或批准说明" />
           </label>
-          <button className="button button-ghost" disabled={busy} onClick={() => void decide("RETURN")}>退回修改</button>
-          <button className="button button-accent" disabled={busy} onClick={() => void decide("APPROVE")}>批准入库</button>
+          <button className="button button-ghost" disabled={busy} onClick={() => void decide("RETURN")}>退回共享修订</button>
+          <button className="button button-accent" disabled={busy} onClick={() => void decide("APPROVE")}>专家定稿</button>
         </div>
       ) : null}
       {mode === "author" && review?.canWithdraw ? (

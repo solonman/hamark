@@ -66,6 +66,13 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 以评审同事进入
               </button>
             </form>
+            <form action="/api/auth/local-demo" method="post">
+              <input type="hidden" name="profile" value="peer" />
+              <input type="hidden" name="return_to" value={returnTo} />
+              <button className="button button-ghost login-action" type="submit">
+                以协作同事进入
+              </button>
+            </form>
             <p className="login-demo-note">仅用于这台电脑的演示与验收，生产环境不会显示此入口。</p>
           </div>
         ) : (

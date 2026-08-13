@@ -248,7 +248,7 @@ export type AnalysisRevisionSuggestion = {
   replacementText: string;
   reason: string;
   authorName: string;
-  actorRole?: "AUTHOR" | "FINAL_REVIEWER";
+  actorRole?: "AUTHOR" | "FINAL_REVIEWER" | "COLLABORATOR";
   editType?: RevisionEditType;
   valueType?: RevisionValueType;
   originalValue?: string | string[];

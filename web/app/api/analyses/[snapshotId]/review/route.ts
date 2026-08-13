@@ -67,18 +67,19 @@ export async function GET(
     WHERE annotation_id = ? AND status = 'ACTIVE' LIMIT 1`,
   ).bind(snapshot.annotation_id).first<{ release_number: number }>();
   const isAuthor = snapshot.author_email === user.identityKey;
-  const activity = round
-    ? await getDbClient().prepare(
-        `SELECT
-          (SELECT COUNT(*) FROM analysis_comments WHERE review_round_id = ? AND parent_id IS NULL) AS comment_count,
-          (SELECT COUNT(*) FROM analysis_revision_events WHERE review_round_id = ? AND status = 'DRAFT') AS revision_count`,
-      ).bind(round.id, round.id).first<{ comment_count: number; revision_count: number }>()
-    : null;
   const roundIsActive = Boolean(
     round &&
     ["PENDING", "IN_REVIEW"].includes(round.status) &&
     annotationState?.active_base_snapshot_id === snapshotId,
   );
+  const collaboration = await getDbClient().prepare(
+    `SELECT collaboration_round.candidate_snapshot_id
+    FROM v03_collaboration_streams stream
+    LEFT JOIN v03_collaboration_rounds collaboration_round
+      ON collaboration_round.id = stream.active_round_id
+    WHERE stream.canonical_annotation_id = ? AND stream.status = 'ACTIVE'`,
+  ).bind(snapshot.annotation_id).first<{ candidate_snapshot_id: string | null }>();
+  const isCurrentCandidate = collaboration?.candidate_snapshot_id === snapshotId;
   const contextValue: AnalysisReviewContext = {
     round: round ? {
       id: round.id,
@@ -92,16 +93,10 @@ export async function GET(
     } : null,
     isAuthor,
     isFinalReviewer: finalReviewer,
-    canReview: finalReviewer && roundIsActive,
-    canReturn: finalReviewer && roundIsActive,
-    canApprove: finalReviewer && roundIsActive,
-    canWithdraw: Boolean(
-      isAuthor &&
-      roundIsActive &&
-      round?.status === "PENDING" &&
-      Number(activity?.comment_count ?? 0) === 0 &&
-      Number(activity?.revision_count ?? 0) === 0,
-    ),
+    canReview: finalReviewer && roundIsActive && isCurrentCandidate,
+    canReturn: finalReviewer && roundIsActive && isCurrentCandidate,
+    canApprove: finalReviewer && roundIsActive && isCurrentCandidate,
+    canWithdraw: false,
     activeReleaseNumber: activeRelease ? Number(activeRelease.release_number) : null,
   };
   return Response.json({ review: contextValue });
@@ -132,9 +127,10 @@ export async function PATCH(
   const action = input.action as "RETURN" | "APPROVE" | "WITHDRAW";
   const finalReviewer = await isFinalReviewer(user);
   if (action === "WITHDRAW") {
-    if (snapshot.author_email !== user.identityKey) {
-      return Response.json({ error: "只有作者可以撤回自己的提交。" }, { status: 403 });
-    }
+    return Response.json(
+      { error: "公共 V0.3 不再由个人撤回；可继续共享修订，或由专家退回本轮候选。" },
+      { status: 409 },
+    );
   } else if (!finalReviewer) {
     return Response.json({ error: "只有终审者可以退回或批准入库。" }, { status: 403 });
   }
@@ -159,35 +155,32 @@ export async function PATCH(
         WHERE submitted_snapshot_id = ? FOR UPDATE`,
       ).bind(snapshotId).first<{ id: string; round_number: number; status: string }>();
       if (!annotation || !round) return { error: "审核轮次不存在。", status: 404 };
+      const collaboration = await db.prepare(
+        `SELECT stream.id AS stream_id, stream.active_round_id,
+          collaboration_round.round_number AS collaboration_round_number,
+          collaboration_round.candidate_snapshot_id
+        FROM v03_collaboration_streams stream
+        INNER JOIN v03_collaboration_rounds collaboration_round
+          ON collaboration_round.id = stream.active_round_id
+        WHERE stream.canonical_annotation_id = ? AND stream.status = 'ACTIVE'
+        FOR UPDATE OF stream, collaboration_round`,
+      ).bind(snapshot.annotation_id).first<{
+        stream_id: string;
+        active_round_id: string;
+        collaboration_round_number: number;
+        candidate_snapshot_id: string | null;
+      }>();
+      if (!collaboration) {
+        return { error: "该作业尚未接入公共 V0.3 主线。", status: 409 };
+      }
+      if (collaboration.candidate_snapshot_id !== snapshotId) {
+        return { error: "当前候选已被后续共享修订替代，请刷新后重新提交候选。", status: 409 };
+      }
       if (!["PENDING", "IN_REVIEW"].includes(round.status)) {
         return { error: "当前审核轮次已经结束。", status: 409 };
       }
       if (annotation.active_base_snapshot_id !== snapshotId) {
         return { error: "当前基础版本已经变化，请刷新后重新审核。", status: 409 };
-      }
-
-      const activity = await db.prepare(
-        `SELECT
-          (SELECT COUNT(*) FROM analysis_comments WHERE review_round_id = ? AND parent_id IS NULL) AS comment_count,
-          (SELECT COUNT(*) FROM analysis_revision_events WHERE review_round_id = ? AND status = 'DRAFT') AS revision_count`,
-      ).bind(round.id, round.id).first<{ comment_count: number; revision_count: number }>();
-      if (action === "WITHDRAW") {
-        if (round.status !== "PENDING" || Number(activity?.comment_count ?? 0) > 0 || Number(activity?.revision_count ?? 0) > 0) {
-          return { error: "终审已经开始，当前提交不能撤回；请等待终审者退回。", status: 409 };
-        }
-        const nextRevision = Number(annotation.revision) + 1;
-        await db.batch([
-          db.prepare(
-            `UPDATE analysis_review_rounds SET status = 'CHANGES_REQUESTED',
-              decision_note = '作者撤回并继续修订', decided_at = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?`,
-          ).bind(new Date().toISOString(), round.id),
-          db.prepare(
-            `UPDATE annotations SET status = 'DRAFT', review_status = 'DRAFT',
-              revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          ).bind(nextRevision, snapshot.annotation_id),
-        ]);
-        return { ok: true, action, nextRevision };
       }
 
       const eventResult = await db.prepare(
@@ -202,10 +195,12 @@ export async function PATCH(
       if (action === "APPROVE") {
         const unresolved = await db.prepare(
           `SELECT COUNT(*) AS count FROM analysis_comments
-          WHERE review_round_id IN (
-            SELECT id FROM analysis_review_rounds WHERE annotation_id = ?
+          WHERE (
+            review_round_id IN (
+              SELECT id FROM analysis_review_rounds WHERE annotation_id = ?
+            ) OR collaboration_round_id = ?
           ) AND parent_id IS NULL AND workflow_status <> 'RESOLVED'`,
-        ).bind(snapshot.annotation_id).first<{ count: number }>();
+        ).bind(snapshot.annotation_id, collaboration.active_round_id).first<{ count: number }>();
         if (Number(unresolved?.count ?? 0) > 0) {
           return { error: "仍有未由终审解决的批注，暂不能批准入库。", status: 409 };
         }
@@ -232,8 +227,8 @@ export async function PATCH(
         await db.batch([
           db.prepare(
             `UPDATE annotations SET status = 'DRAFT', review_status = 'CHANGES_REQUESTED',
-              revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          ).bind(nextRevision, snapshot.annotation_id),
+              active_base_snapshot_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          ).bind(snapshot.annotation_id),
           db.prepare(
             `UPDATE analysis_review_rounds SET status = 'CHANGES_REQUESTED',
               reviewer_email = ?, reviewer_name = ?, decision_note = ?, decided_at = ?,
@@ -242,13 +237,20 @@ export async function PATCH(
           db.prepare(
             `UPDATE analysis_revision_events SET status = 'APPLIED', applied_revision = ?,
               updated_at = CURRENT_TIMESTAMP WHERE review_round_id = ? AND status = 'DRAFT'`,
-          ).bind(nextRevision, round.id),
+          ).bind(Number(annotation.revision), round.id),
           db.prepare(
             `INSERT INTO audit_logs (id, actor_email, action, object_type, object_id, detail_json)
             VALUES (?, ?, 'REVIEW_CHANGES_REQUESTED', 'REVIEW_ROUND', ?, ?)`,
-          ).bind(newId("audit"), user.identityKey, round.id, JSON.stringify({ snapshotId, nextRevision })),
+          ).bind(newId("audit"), user.identityKey, round.id, JSON.stringify({
+            snapshotId,
+            sharedRevision: Number(annotation.revision),
+          })),
+          db.prepare(
+            `UPDATE v03_collaboration_rounds SET candidate_snapshot_id = NULL
+            WHERE id = ? AND status = 'ACTIVE'`,
+          ).bind(collaboration.active_round_id),
         ]);
-        return { ok: true, action, nextRevision, reviewRound: Number(round.round_number) };
+        return { ok: true, action, nextRevision: Number(annotation.revision), reviewRound: Number(round.round_number) };
       }
 
       cleanPayload.revision = nextRevision;
@@ -267,6 +269,7 @@ export async function PATCH(
       ).bind(snapshot.annotation_id).first<{ id: string; release_number: number }>();
       const approvedSnapshotId = newId("snapshot");
       const releaseId = newId("approved_release");
+      const nextCollaborationRoundId = newId("collaboration_round");
       const releaseNumber = Number(release?.release_number ?? 0) + 1;
       const qualityGrade = typeof input.assignmentQualityGrade === "string"
         ? input.assignmentQualityGrade.trim().slice(0, 100) || null
@@ -278,9 +281,9 @@ export async function PATCH(
             id, annotation_id, video_id, author_email, author_name,
             taxonomy_version, revision, payload_json, content_hash,
             base_snapshot_id, version_number, revision_cause,
-            workflow_status, submitted_at
+            workflow_status, submitted_at, snapshot_kind
           ) VALUES (?, ?, ?, ?, ?, 'V0.3-PILOT', ?, ?, ?, ?, ?,
-            'EXPERT_BASE', 'APPROVED', ?)`,
+            'EXPERT_BASE', 'APPROVED', ?, 'APPROVED')`,
         ).bind(
           approvedSnapshotId,
           snapshot.annotation_id,
@@ -314,8 +317,9 @@ export async function PATCH(
             source_snapshot_id, source_review_round_id, payload_json, content_hash,
             approved_by_email, approved_by_name, approved_at,
             expert_creative_grade, assignment_quality_grade,
-            assignment_quality_version, status, replaces_release_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+            assignment_quality_version, status, replaces_release_id,
+            collaboration_stream_id, collaboration_round_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
         ).bind(
           releaseId,
           snapshot.annotation_id,
@@ -333,20 +337,60 @@ export async function PATCH(
           qualityGrade,
           qualityGrade ? "PILOT-UNFROZEN" : null,
           release?.id ?? null,
+          collaboration.stream_id,
+          collaboration.active_round_id,
         ),
         db.prepare(
-          `UPDATE annotations SET status = 'SUBMITTED', review_status = 'APPROVED',
-            revision = ?, active_base_snapshot_id = ?, submitted_at = ?,
+          `UPDATE annotations SET status = 'DRAFT', review_status = 'DRAFT',
+            revision = ?, active_base_snapshot_id = NULL, submitted_at = ?,
             base_release_id = ?, base_snapshot_id = ?, source_public_snapshot_id = ?,
             updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         ).bind(
           nextRevision,
-          approvedSnapshotId,
           decidedAt,
           releaseId,
           approvedSnapshotId,
           snapshotId,
           snapshot.annotation_id,
+        ),
+        db.prepare(
+          `UPDATE v03_collaboration_rounds SET status = 'FINALIZED',
+            candidate_snapshot_id = ?, ended_by_email = ?, ended_by_name = ?,
+            ended_at = ? WHERE id = ? AND status = 'ACTIVE'`,
+        ).bind(
+          snapshotId,
+          user.identityKey,
+          user.displayName,
+          decidedAt,
+          collaboration.active_round_id,
+        ),
+        db.prepare(
+          `INSERT INTO v03_collaboration_rounds (
+            id, stream_id, annotation_id, round_number, status, base_type,
+            base_release_id, base_snapshot_id, starting_revision,
+            created_by_email, created_by_name
+          ) VALUES (?, ?, ?, ?, 'ACTIVE', 'APPROVED_RELEASE', ?, ?, ?, ?, ?)`,
+        ).bind(
+          nextCollaborationRoundId,
+          collaboration.stream_id,
+          snapshot.annotation_id,
+          Number(collaboration.collaboration_round_number) + 1,
+          releaseId,
+          approvedSnapshotId,
+          nextRevision,
+          user.identityKey,
+          user.displayName,
+        ),
+        db.prepare(
+          `UPDATE v03_collaboration_streams SET active_round_id = ?,
+            active_release_id = ?, current_snapshot_id = ?, updated_at = ?
+          WHERE id = ?`,
+        ).bind(
+          nextCollaborationRoundId,
+          releaseId,
+          approvedSnapshotId,
+          decidedAt,
+          collaboration.stream_id,
         ),
         db.prepare(
           `INSERT INTO audit_logs (id, actor_email, action, object_type, object_id, detail_json)
@@ -358,7 +402,14 @@ export async function PATCH(
           WHERE id = ?`,
         ).bind(releaseId, snapshotId, approvedSnapshotId),
       ]);
-      return { ok: true, action, approvedSnapshotId, releaseId, releaseNumber };
+      return {
+        ok: true,
+        action,
+        approvedSnapshotId,
+        releaseId,
+        releaseNumber,
+        nextCollaborationRoundId,
+      };
     });
 
     if ("error" in result) {
