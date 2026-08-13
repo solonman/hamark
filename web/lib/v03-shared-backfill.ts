@@ -98,7 +98,8 @@ async function loadCandidates(db: DbClient) {
       stream.id AS stream_id,
       stream.initial_baseline_id,
       stream.active_round_id,
-      mapped.operation_key AS mapped_operation_key
+      mapped.operation_key AS mapped_operation_key,
+      mapped.operation_type AS mapped_operation_type
       ,current_snapshot.id AS current_revision_snapshot_id
       ,current_snapshot.content_hash AS current_revision_snapshot_hash
       ,current_snapshot.payload_json AS current_revision_snapshot_payload
@@ -113,7 +114,7 @@ async function loadCandidates(db: DbClient) {
     LEFT JOIN v03_collaboration_streams stream
       ON stream.video_id = v03.video_id AND stream.taxonomy_version = 'V0.3-PILOT'
     LEFT JOIN LATERAL (
-      SELECT operation.operation_key
+      SELECT operation.operation_key, operation.operation_type
       FROM admin_data_operations operation
       WHERE operation.target_video_id = v03.video_id
         AND operation.operation_type IN ('V02_TO_V03_AUTHOR_BATCH', 'V02_TO_V03_CASE_MAPPING')
@@ -150,6 +151,12 @@ function sourceType(row: Row): V03SharedBackfillCandidate["sourceType"] {
   return "EXISTING_V03";
 }
 
+function mappingKind(row: Row): V03SharedBackfillCandidate["mappingKind"] {
+  if (row.mapped_operation_type === "V02_TO_V03_AUTHOR_BATCH") return "BATCH";
+  if (row.mapped_operation_type === "V02_TO_V03_CASE_MAPPING") return "SINGLE_CASE";
+  return null;
+}
+
 function contentFingerprint(payload: unknown) {
   if (!payload || typeof payload !== "object") return sha(null);
   const source = structuredClone(payload) as Row;
@@ -174,6 +181,7 @@ function inspectRow(row: Row): V03SharedBackfillCandidate {
     revision: number(row.revision),
     sourceType: sourceType(row),
     mappedOrigin: Boolean(row.mapped_operation_key),
+    mappingKind: mappingKind(row),
     activeReleaseId: text(row.active_release_id),
     counts: immutableCounts(row),
   };
@@ -188,6 +196,7 @@ function inspectRow(row: Row): V03SharedBackfillCandidate {
     status,
     sourceType: sourceType(row),
     mappedOrigin: Boolean(row.mapped_operation_key),
+    mappingKind: mappingKind(row),
     activeReleaseNumber: row.active_release_number == null
       ? null
       : number(row.active_release_number),
@@ -233,7 +242,8 @@ export async function previewV03SharedBackfill(
       ready: candidates.filter((item) => item.status === "READY").length,
       completed: candidates.filter((item) => item.status === "COMPLETED").length,
       blocked: candidates.filter((item) => item.status === "BLOCKED").length,
-      mapped: candidates.filter((item) => item.mappedOrigin).length,
+      batchMapped: candidates.filter((item) => item.mappingKind === "BATCH").length,
+      singleCaseMapped: candidates.filter((item) => item.mappingKind === "SINGLE_CASE").length,
       existingV03: candidates.filter((item) => !item.mappedOrigin).length,
     },
     candidates,

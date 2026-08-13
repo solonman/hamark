@@ -171,7 +171,7 @@ export default function V03SharedBackfillClient() {
           <article data-tone="ready"><strong>{preview.summary.ready}</strong><span>待接入</span></article>
           <article data-tone="skip"><strong>{preview.summary.completed}</strong><span>已接入</span></article>
           <article data-tone="blocked"><strong>{preview.summary.blocked}</strong><span>阻断</span></article>
-          <article><strong>{preview.summary.mapped} / {preview.summary.existingV03}</strong><span>映射 / 既有</span></article>
+          <article><strong>{preview.summary.batchMapped} / {preview.summary.singleCaseMapped} / {preview.summary.existingV03}</strong><span>批量映射 / 单例映射 / 既有</span></article>
         </section>
         <section className={styles.panel}>
           <div className={styles.panelHeader}>
@@ -184,7 +184,7 @@ export default function V03SharedBackfillClient() {
               <tbody>{preview.candidates.map((candidate) => (
                 <tr key={candidate.candidateKey} data-status={candidate.status}>
                   <td><strong>{candidate.videoTitle}</strong><small>{candidate.videoId}</small></td>
-                  <td>{candidate.sourceAuthorName}<small>{candidate.sourceType} · {candidate.mappedOrigin ? "V0.2 映射来源" : "原有 V0.3"} · rev {candidate.currentRevision}</small></td>
+                  <td>{candidate.sourceAuthorName}<small>{candidate.sourceType} · {candidate.mappingKind === "BATCH" ? "V0.2 批量映射" : candidate.mappingKind === "SINGLE_CASE" ? "V0.2 单案例映射" : "原有 V0.3"} · rev {candidate.currentRevision}</small></td>
                   <td>{candidate.counts.groups} 桥段 / {candidate.counts.shots} 镜头 / {candidate.counts.fields} 字段<small>{candidate.counts.snapshots} 快照 / {candidate.counts.releases} 批准版</small></td>
                   <td>{candidate.status}{candidate.reasons.map((reason) => <small key={reason}>{reason}</small>)}
                     {candidate.status === "READY" ? <button

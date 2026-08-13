@@ -14,6 +14,7 @@ export type V03SharedBackfillCandidate = {
   status: "READY" | "COMPLETED" | "BLOCKED";
   sourceType: "V02_MAPPED" | "EXISTING_V03" | "APPROVED_RELEASE";
   mappedOrigin: boolean;
+  mappingKind: "BATCH" | "SINGLE_CASE" | null;
   activeReleaseNumber: number | null;
   counts: {
     annotations: number;
@@ -36,7 +37,8 @@ export type V03SharedBackfillPreview = {
     ready: number;
     completed: number;
     blocked: number;
-    mapped: number;
+    batchMapped: number;
+    singleCaseMapped: number;
     existingV03: number;
   };
   candidates: V03SharedBackfillCandidate[];
