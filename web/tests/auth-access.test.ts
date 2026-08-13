@@ -18,6 +18,7 @@ const businessApiRoutes = [
   "app/api/analyses/[snapshotId]/suggestions/route.ts",
   "app/api/analyses/[snapshotId]/suggestions/[suggestionId]/route.ts",
   "app/api/analyses/[snapshotId]/score/route.ts",
+  "app/api/admin/welcome-home-v02-v03-mapping/route.ts",
 ];
 
 const mutationApiRoutes = [
@@ -33,12 +34,14 @@ const mutationApiRoutes = [
   "app/api/analyses/[snapshotId]/suggestions/route.ts",
   "app/api/analyses/[snapshotId]/suggestions/[suggestionId]/route.ts",
   "app/api/analyses/[snapshotId]/score/route.ts",
+  "app/api/admin/welcome-home-v02-v03-mapping/route.ts",
 ];
 
 const protectedPages = [
   "app/page.tsx",
   "app/videos/[id]/page.tsx",
   "app/videos/[id]/practice/page.tsx",
+  "app/admin/welcome-home-v02-v03-mapping/page.tsx",
 ];
 
 test("every business API route enforces a database-backed authenticated user", async () => {

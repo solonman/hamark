@@ -1,0 +1,103 @@
+.shell {
+  min-height: 100vh;
+  padding: 48px clamp(20px, 5vw, 76px) 80px;
+  color: #e7e4de;
+  background: #0d0d0c;
+}
+
+.header,
+.statusPanel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  max-width: 1320px;
+  margin: 0 auto 28px;
+}
+
+.header h1 {
+  max-width: 920px;
+  margin: 8px 0 10px;
+  font-size: clamp(30px, 4vw, 58px);
+  line-height: 1.05;
+  letter-spacing: -.045em;
+}
+
+.header p,
+.muted { color: #928f88; }
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #c9a976;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.panel,
+.statusPanel {
+  max-width: 1320px;
+  margin: 0 auto 18px;
+  padding: 24px;
+  border: 1px solid #2b2a27;
+  border-radius: 18px;
+  background: #171716;
+}
+
+.statusPanel[data-ready="true"] { border-color: #526b50; }
+.statusPanel[data-applied="true"] { border-color: #8b754d; }
+.statusPanel h2, .panel h2 { margin: 4px 0; font-size: 22px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 18px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.grid .panel { width: auto; margin: 0 0 18px; }
+.facts { margin: 20px 0 0; }
+.facts div { padding: 11px 0; border-top: 1px solid #2b2a27; }
+.facts dt { color: #89867f; font-size: 12px; }
+.facts dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.list { margin: 16px 0 0; padding-left: 20px; color: #bdb9b2; line-height: 1.75; }
+.warning { border-color: #806538; background: #201b13; }
+.error { border-color: #78423c; background: #241514; }
+.success { border-color: #526b50; background: #152016; }
+.confirmationHint { color: #d8c197; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.confirmationField { display: grid; gap: 8px; max-width: 760px; margin: 22px 0 16px; color: #a9a59e; }
+.confirmationField input {
+  width: 100%;
+  padding: 13px 15px;
+  border: 1px solid #4a4741;
+  border-radius: 10px;
+  color: #eeeae2;
+  background: #0f0f0e;
+}
+
+.secondaryButton,
+.applyButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid #46443f;
+  border-radius: 999px;
+  color: #e4e0d9;
+  background: #1b1b19;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.applyButton { border-color: #c9a976; color: #18140e; background: #c9a976; }
+.applyButton:disabled, .secondaryButton:disabled { opacity: .42; cursor: not-allowed; }
+
+@media (max-width: 860px) {
+  .shell { padding: 26px 16px 56px; }
+  .header, .statusPanel { flex-direction: column; }
+  .grid { grid-template-columns: 1fr; }
+  .header h1 { font-size: 34px; }
+}

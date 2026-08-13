@@ -133,6 +133,9 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
         <nav className="header-actions" aria-label="主导航">
           {isAdmin ? (
             <div className="score-ranking-controls">
+              <Link className="ranking-button" href="/admin/welcome-home-v02-v03-mapping">
+                数据操作
+              </Link>
               <label>
                 <span className="sr-only">评分排行起始日期</span>
                 <input type="date" value={rankingStartDate} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => setRankingStartDate(event.target.value)} disabled={rankingLoading} />
