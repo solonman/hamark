@@ -24,6 +24,7 @@
     "fixture:v033:cleanup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/v033-test-fixture.ts cleanup",
     "audit:v033:origins": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/audit-v033-origins.ts",
     "verify:welcome-home-operation": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-welcome-home-production-operation.ts",
+    "verify:v02-v03-batch": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v02-v03-batch-operation.ts",
     "thumbnails:backfill": "tsx scripts/backfill-thumbnails.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },

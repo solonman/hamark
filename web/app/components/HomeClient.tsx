@@ -133,7 +133,7 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
         <nav className="header-actions" aria-label="主导航">
           {isAdmin ? (
             <div className="score-ranking-controls">
-              <Link className="ranking-button" href="/admin/welcome-home-v02-v03-mapping">
+              <Link className="ranking-button" href="/admin/v02-v03-batch-mapping">
                 数据操作
               </Link>
               <label>

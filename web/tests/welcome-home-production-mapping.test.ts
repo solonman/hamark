@@ -115,6 +115,7 @@ test("completed operation ledger permanently blocks a fresh apply preview", () =
 test("admin API is session protected, same-origin protected, fixed scope, and not wired to startup migration", async () => {
   const route = await read("app/api/admin/welcome-home-v02-v03-mapping/route.ts");
   const service = await read("lib/welcome-home-production-mapping.ts");
+  const operationSchema = await read("lib/admin-data-operations.ts");
   const bootstrap = await read("db/bootstrap.ts");
   const packageJson = await read("package.json");
   assert.match(route, /requireApiUser\(request\)/);
@@ -124,9 +125,9 @@ test("admin API is session protected, same-origin protected, fixed scope, and no
   assert.match(service, /WELCOME_HOME_MAPPING_VIDEO_ID/);
   assert.match(service, /pg_advisory_xact_lock/);
   assert.match(service, /FOR UPDATE/);
-  assert.match(service, /backup_json JSONB NOT NULL/);
-  assert.match(service, /ALTER TABLE admin_data_operations ENABLE ROW LEVEL SECURITY/);
-  assert.match(service, /permanently locked/);
+  assert.match(operationSchema, /backup_json JSONB NOT NULL/);
+  assert.match(operationSchema, /ALTER TABLE admin_data_operations ENABLE ROW LEVEL SECURITY/);
+  assert.match(operationSchema, /permanently locked/);
   assert.match(service, /status = 'COMPLETED'/);
   assert.match(service, /SYSTEM_MAPPED/);
   assert.doesNotMatch(bootstrap, /admin_data_operations/);
