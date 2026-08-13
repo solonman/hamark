@@ -193,9 +193,16 @@ async function loadLatestSourceRows(db: DbClient, config: V02V03BatchMappingConf
     FROM submitted
     INNER JOIN videos video ON video.id = submitted.video_id
     LEFT JOIN users author_user ON author_user.identity_key = submitted.author_email
-    LEFT JOIN annotations target ON target.video_id = submitted.video_id
-      AND target.author_email = submitted.author_email
-      AND target.taxonomy_version = 'V0.3-PILOT' AND target.deleted_at IS NULL
+    LEFT JOIN LATERAL (
+      SELECT candidate.id, candidate.status, candidate.review_status, candidate.revision
+      FROM annotations candidate
+      WHERE candidate.video_id = submitted.video_id
+        AND candidate.taxonomy_version = 'V0.3-PILOT' AND candidate.deleted_at IS NULL
+      ORDER BY
+        CASE WHEN candidate.author_email = submitted.author_email THEN 0 ELSE 1 END,
+        candidate.created_at, candidate.id
+      LIMIT 1
+    ) target ON TRUE
     WHERE submitted.latest_rank = 1
     ORDER BY video.created_at DESC, video.title, submitted.author_name`,
     config.dataScope);

@@ -252,7 +252,10 @@ async function prepare(db: DbClient) {
         status, review_status, revision, analysis_title
       ) VALUES (?, ?, ?, ?, 'V0.3-PILOT', 'REVERSE-WORKFLOW-V0.3.3',
         'DRAFT', 'DRAFT', 4, 'TEST_ONLY 已有人工 V0.3')`,
-    ).bind(item.targetId, item.videoId, item.sourceIdentity, item.name).run();
+    ).bind(
+      item.targetId, item.videoId, `${prefix}_existing_other_identity`,
+      "TEST_ONLY 已有 V0.3 的其他用户",
+    ).run();
   });
 }
 
@@ -365,7 +368,11 @@ try {
     `SELECT status FROM admin_data_operations WHERE operation_key LIKE ?`,
   ).bind(`${config.operationKeyPrefix}${rollback.candidateKey}`).first<Row>();
   assert.equal(rollbackLedger, null);
-  assert.equal((await targetState(db, cases.existing))?.analysis_title, "TEST_ONLY 已有人工 V0.3");
+  assert.equal(
+    (await db.prepare(`SELECT analysis_title FROM annotations WHERE id = ?`)
+      .bind(cases.existing.targetId).first<Row>())?.analysis_title,
+    "TEST_ONLY 已有人工 V0.3",
+  );
 } finally {
   await cleanup(db);
 }

@@ -28,7 +28,8 @@ test("generic batch route and service enforce the frozen safety boundary", async
   assert.match(route, /body\.action !== "APPLY_CANDIDATE"/);
   assert.match(service, /author_user\.identity_key = submitted\.author_email/);
   assert.match(service, /author_user\.status AS current_author_status/);
-  assert.match(service, /target\.author_email = submitted\.author_email/);
+  assert.match(service, /candidate\.video_id = submitted\.video_id/);
+  assert.match(service, /candidate\.taxonomy_version = 'V0\.3-PILOT'/);
   assert.match(service, /targetAnnotationId\) status = "SKIP_EXISTING"/);
   assert.match(service, /pg_advisory_xact_lock/);
   assert.match(service, /FOR UPDATE/);
