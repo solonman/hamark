@@ -167,7 +167,7 @@ async function loadLatestSourceRows(db: DbClient, config: V02V03BatchMappingConf
       SELECT s.*,
         ROW_NUMBER() OVER (
           PARTITION BY s.annotation_id
-          ORDER BY s.version_number DESC, s.created_at DESC, s.revision DESC, s.id DESC
+          ORDER BY s.created_at DESC, s.revision DESC, s.id DESC
         ) AS latest_rank,
         COUNT(*) OVER (PARTITION BY s.annotation_id) AS submitted_version_count
       FROM annotation_snapshots s
@@ -181,9 +181,7 @@ async function loadLatestSourceRows(db: DbClient, config: V02V03BatchMappingConf
     )
     SELECT submitted.id AS snapshot_id, submitted.annotation_id AS source_annotation_id,
       submitted.video_id, submitted.author_email, submitted.author_name,
-      submitted.revision AS snapshot_revision,
-      submitted.version_number AS snapshot_version_number,
-      submitted.submitted_version_count,
+      submitted.revision AS snapshot_revision, submitted.submitted_version_count,
       submitted.payload_json, submitted.content_hash, submitted.created_at,
       video.title AS video_title,
       author_user.display_name AS current_author_name,
@@ -279,7 +277,7 @@ function inspectRow(
         activeUserExists,
       },
       source: {
-        snapshotVersionNumber: numberValue(row.snapshot_version_number),
+        snapshotVersionNumber: numberValue(row.submitted_version_count),
         snapshotRevision: numberValue(row.snapshot_revision),
         shots: pkg?.shots.length ?? 0,
         groups: groups.length,
