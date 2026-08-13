@@ -1,11 +1,11 @@
 export const WELCOME_HOME_MAPPING_VIDEO_ID =
-  "video_1329aaab-2c5c-40b2-867e-d30abb325cb1";
+  "video_e2d5dbab-fc35-4e81-9d8e-0ab1a0a90435";
 
 export const WELCOME_HOME_MAPPING_OPERATION_KEY =
-  "WELCOME_HOME_V02_TO_V03_V0_1";
+  "WELCOME_HOME_V02_TO_V03_V0_2";
 
 export const WELCOME_HOME_MAPPING_CONFIRMATION =
-  "确认将《欢迎回家》V0.2当前工作稿映射为老孙V0.3草稿";
+  "确认将《欢迎回家》V0.2公开版本V2映射为老孙V0.3新草稿";
 
 export const WELCOME_HOME_MAPPING_PATH =
   "/admin/welcome-home-v02-v03-mapping";
@@ -33,10 +33,13 @@ export type WelcomeHomeMappingPreview = {
     reviewStatus: string;
     workingRevision: number;
     submittedSnapshotRevision: number | null;
+    submittedSnapshotVersionNumber: number | null;
   };
   target: {
     authorName: string;
     taxonomyVersion: string;
+    mode: "CREATE";
+    exists: boolean;
     status: string;
     reviewStatus: string;
     currentRevision: number;
@@ -50,10 +53,6 @@ export type WelcomeHomeMappingPreview = {
     storyReferenceTypePresent: boolean;
     storyArchetypePresent: boolean;
     explanatoryFieldsRemainBlank: true;
-  };
-  activeStandard: {
-    releaseNumber: number | null;
-    status: string | null;
   };
   preserved: {
     snapshots: number;
@@ -69,6 +68,7 @@ export type WelcomeHomeMappingResult = {
   operationKey: string;
   completedAt: string;
   target: {
+    annotationId: string;
     status: "DRAFT";
     reviewStatus: "DRAFT";
     revision: number;
@@ -78,6 +78,7 @@ export type WelcomeHomeMappingResult = {
     groups: 7;
     legacyFields: 19;
   };
-  preservedActiveRelease: "R5";
+  createdNewTargetDraft: true;
+  preservedExistingReleases: true;
   nonTargetBusinessDataUnchanged: true;
 };

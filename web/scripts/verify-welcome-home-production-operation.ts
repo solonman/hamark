@@ -18,24 +18,22 @@ const ids = {
   video: `${prefix}_video`,
   source: `${prefix}_source`,
   target: `${prefix}_target`,
+  sourceSnapshotV1: `${prefix}_source_snapshot_v1`,
   sourceSnapshot: `${prefix}_source_snapshot`,
-  targetSnapshot: `${prefix}_target_snapshot`,
-  reviewRound: `${prefix}_round`,
-  release: `${prefix}_release`,
 };
 const config: WelcomeHomeMappingConfig = {
   videoId: ids.video,
   operationKey: `TEST_ONLY_WELCOME_HOME_${runId}`,
   sourceAuthorName: `TEST_ONLY 来源 ${runId}`,
   targetAuthorName: `TEST_ONLY 目标 ${runId}`,
-  activeReleaseNumber: 5,
+  sourceSnapshotVersionNumber: 2,
   confirmation: `TEST_ONLY_CONFIRM_${runId}`,
   dataScope: "TEST_ONLY",
 };
 const actor: CurrentUser = {
   id: `${prefix}_actor`,
   identityKey: `${prefix}_admin_identity`,
-  displayName: "TEST_ONLY 管理员",
+  displayName: config.targetAuthorName,
   avatarUrl: null,
   email: null,
   departments: [],
@@ -129,17 +127,30 @@ async function prepare(db: DbClient) {
         'V0.2 原文标题', 'V0.2 商业意图', 'V0.2 创意母题', 'V0.2 故事梗概',
         'V0.2 创意思维链', 'V0.2 镜头点评', 'V0.2 总结')`,
     ).bind(ids.source, ids.video, `${prefix}_source_identity`, config.sourceAuthorName).run();
-    await tx.prepare(
-      `INSERT INTO annotations (
-        id, video_id, author_email, author_name, taxonomy_version, workflow_version,
-        status, review_status, revision, analysis_title
-      ) VALUES (?, ?, ?, ?, 'V0.3-PILOT', 'REVERSE-WORKFLOW-V0.3.3',
-        'SUBMITTED', 'APPROVED', 4, '执行前目标内容')`,
-    ).bind(ids.target, ids.video, `${prefix}_target_identity`, config.targetAuthorName).run();
-
     const groupEnds = [4, 8, 11, 14, 17, 20, 23];
+    const sourceShots: Row[] = [];
     for (let index = 0; index < 23; index += 1) {
       const groupIndex = groupEnds.findIndex((end) => index < end);
+      const creativeComment = index === (groupEnds[groupIndex - 1] ?? 0)
+        ? `桥段作用 ${groupIndex + 1}` : "";
+      sourceShots.push({
+        id: `${prefix}_source_shot_${index}`,
+        orderIndex: index,
+        groupName: `桥段 ${groupIndex + 1}`,
+        shotNumber: String(index + 1),
+        startTime: "",
+        endTime: "",
+        shotSize: "中景",
+        cameraAngle: "平视",
+        cameraMovement: "固定",
+        visualContent: `TEST_ONLY 画面 ${index + 1}`,
+        dialogue: "",
+        voiceover: "",
+        screenText: "",
+        soundEffect: "",
+        music: "",
+        creativeComment,
+      });
       await tx.prepare(
         `INSERT INTO shots (
           id, annotation_id, order_index, group_name, shot_number, start_time,
@@ -149,82 +160,75 @@ async function prepare(db: DbClient) {
       ).bind(
         `${prefix}_source_shot_${index}`, ids.source, index, `桥段 ${groupIndex + 1}`,
         String(index + 1), `TEST_ONLY 画面 ${index + 1}`,
-        index === (groupEnds[groupIndex - 1] ?? 0) ? `桥段作用 ${groupIndex + 1}` : "",
+        creativeComment,
       ).run();
     }
     const codes = [
       ...Array.from({ length: 9 }, (_, index) => `A${index + 1}`),
       ...Array.from({ length: 10 }, (_, index) => `B${index + 1}`),
     ];
+    const sourceFields: Row[] = [];
     for (const code of codes) {
       const answer = code === "B2" ? "归家叙事" : code === "B3" ? "离开与归来" : `${code} TEST_ONLY 答案`;
+      sourceFields.push({ code, answer, evidence: "TEST_ONLY 依据", source: "HUMAN_ORIGINAL" });
       await tx.prepare(
         `INSERT INTO field_answers (id, annotation_id, field_code, answer, evidence, source)
         VALUES (?, ?, ?, ?, 'TEST_ONLY 依据', 'HUMAN_ORIGINAL')`,
       ).bind(`${prefix}_source_field_${code}`, ids.source, code, answer).run();
     }
-    await tx.prepare(
-      `INSERT INTO shot_groups (id, annotation_id, order_index, title, note)
-      VALUES (?, ?, 0, '执行前目标桥段', '需要进入备份')`,
-    ).bind(`${prefix}_target_group`, ids.target).run();
-    await tx.prepare(
-      `INSERT INTO shots (id, annotation_id, order_index, group_name, shot_group_id, shot_number, visual_content)
-      VALUES (?, ?, 0, '执行前目标桥段', ?, '1', '需要进入备份的旧画面')`,
-    ).bind(`${prefix}_target_shot`, ids.target, `${prefix}_target_group`).run();
-    await tx.prepare(
-      `INSERT INTO field_answers (id, annotation_id, field_code, answer, evidence, source)
-      VALUES (?, ?, 'A1', '执行前旧答案', '', 'HUMAN_ORIGINAL')`,
-    ).bind(`${prefix}_target_field`, ids.target).run();
-    await tx.prepare(
-      `INSERT INTO annotation_creative_structures (annotation_id, creative_button)
-      VALUES (?, '执行前旧解释字段')`,
-    ).bind(ids.target).run();
+    const sourcePayload = JSON.stringify({
+      id: ids.source,
+      videoId: ids.video,
+      authorName: config.sourceAuthorName,
+      taxonomyVersion: "V0.2",
+      workflowVersion: "REVERSE-WORKFLOW-V0.2",
+      status: "SUBMITTED",
+      revision: 7,
+      analysisTitle: "V0.2 公开版本 V2 标题",
+      commercialIntent: "V0.2 商业意图",
+      creativeTheme: "V0.2 创意母题",
+      synopsis: "V0.2 故事梗概",
+      thinkingChain: "V0.2 创意思维链",
+      shotCommentary: "V0.2 镜头点评",
+      summary: "V0.2 总结",
+      shots: sourceShots,
+      fields: sourceFields,
+      updatedAt: null,
+    });
+    const v1At = new Date(Date.now() - 60_000).toISOString();
+    const v2At = new Date().toISOString();
     await tx.prepare(
       `INSERT INTO annotation_snapshots (
         id, annotation_id, video_id, author_email, author_name, taxonomy_version,
-        revision, payload_json, content_hash, workflow_status, submitted_at
-      ) VALUES (?, ?, ?, ?, ?, 'V0.2', 7, '{}', ?, 'SUBMITTED', CURRENT_TIMESTAMP)`,
+        revision, version_number, payload_json, content_hash, workflow_status,
+        created_at, submitted_at
+      ) VALUES (?, ?, ?, ?, ?, 'V0.2', 6, 1, ?, ?, 'SUBMITTED', ?, ?)`,
+    ).bind(
+      ids.sourceSnapshotV1, ids.source, ids.video, `${prefix}_source_identity`, config.sourceAuthorName,
+      sourcePayload, `${prefix}_source_hash_v1`, v1At, v1At,
+    ).run();
+    await tx.prepare(
+      `INSERT INTO annotation_snapshots (
+        id, annotation_id, video_id, author_email, author_name, taxonomy_version,
+        revision, version_number, payload_json, content_hash, workflow_status,
+        created_at, submitted_at
+      ) VALUES (?, ?, ?, ?, ?, 'V0.2', 7, 2, ?, ?, 'SUBMITTED', ?, ?)`,
     ).bind(
       ids.sourceSnapshot, ids.source, ids.video, `${prefix}_source_identity`, config.sourceAuthorName,
-      `${prefix}_source_hash`,
-    ).run();
-    await tx.prepare(
-      `INSERT INTO annotation_snapshots (
-        id, annotation_id, video_id, author_email, author_name, taxonomy_version,
-        revision, payload_json, content_hash, workflow_status, submitted_at
-      ) VALUES (?, ?, ?, ?, ?, 'V0.3-PILOT', 4, '{}', ?, 'SUBMITTED', CURRENT_TIMESTAMP)`,
-    ).bind(
-      ids.targetSnapshot, ids.target, ids.video, `${prefix}_target_identity`, config.targetAuthorName,
-      `${prefix}_target_hash`,
-    ).run();
-    await tx.prepare(
-      `INSERT INTO analysis_review_rounds (
-        id, annotation_id, video_id, submitted_snapshot_id, round_number,
-        reviewer_email, reviewer_name, status, decision_note, decided_at
-      ) VALUES (?, ?, ?, ?, 1, ?, 'TEST_ONLY 终审者', 'APPROVED', 'TEST_ONLY 批准', CURRENT_TIMESTAMP)`,
-    ).bind(ids.reviewRound, ids.target, ids.video, ids.targetSnapshot, `${prefix}_reviewer`).run();
-    await tx.prepare(
-      `INSERT INTO approved_analysis_releases (
-        id, annotation_id, video_id, release_number, approved_snapshot_id,
-        source_snapshot_id, source_review_round_id, payload_json, content_hash,
-        approved_by_email, approved_by_name, approved_at, expert_creative_grade, status
-      ) VALUES (?, ?, ?, 5, ?, ?, ?, '{}', ?, ?, 'TEST_ONLY 终审者',
-        CURRENT_TIMESTAMP, 'A', 'ACTIVE')`,
-    ).bind(
-      ids.release, ids.target, ids.video, ids.targetSnapshot, ids.targetSnapshot,
-      ids.reviewRound, `${prefix}_release_hash`, `${prefix}_reviewer`,
+      sourcePayload, `${prefix}_source_hash_v2`, v2At, v2At,
     ).run();
   });
 }
 
 async function targetState(db: DbClient) {
   const row = await db.prepare(
-    `SELECT status, review_status, revision, analysis_title, source_snapshot_id,
-      (SELECT COUNT(*) FROM shots WHERE annotation_id = ?) AS shots,
-      (SELECT COUNT(*) FROM shot_groups WHERE annotation_id = ?) AS groups,
-      (SELECT COUNT(*) FROM field_answers WHERE annotation_id = ?) AS fields
-    FROM annotations WHERE id = ?`,
-  ).bind(ids.target, ids.target, ids.target, ids.target).first<Record<string, unknown>>();
+    `SELECT a.id, a.status, a.review_status, a.revision, a.analysis_title, a.source_snapshot_id,
+      (SELECT COUNT(*) FROM shots WHERE annotation_id = a.id) AS shots,
+      (SELECT COUNT(*) FROM shot_groups WHERE annotation_id = a.id) AS groups,
+      (SELECT COUNT(*) FROM field_answers WHERE annotation_id = a.id) AS fields
+    FROM annotations a
+    WHERE a.video_id = ? AND a.author_email = ? AND a.taxonomy_version = 'V0.3-PILOT'`,
+  ).bind(ids.video, actor.identityKey).first<Record<string, unknown>>();
   return row ?? {};
 }
 
@@ -239,7 +243,7 @@ const businessBefore = await businessFingerprint(db);
 
 try {
   await prepare(db);
-  let preview = await previewWelcomeHomeMapping(db, config);
+  let preview = await previewWelcomeHomeMapping(actor, db, config);
   assert.equal(preview.ready, true, preview.reasons.join("；"));
   assert.deepEqual(preview.mapping, {
     shots: 23,
@@ -252,25 +256,55 @@ try {
   });
 
   await db.prepare(`UPDATE annotations SET author_name = 'TEST_ONLY 错误来源' WHERE id = ?`).bind(ids.source).run();
-  assert.equal((await previewWelcomeHomeMapping(db, config)).ready, false, "跨来源必须被阻断");
+  assert.equal((await previewWelcomeHomeMapping(actor, db, config)).ready, false, "跨来源必须被阻断");
   await db.prepare(`UPDATE annotations SET author_name = ? WHERE id = ?`).bind(config.sourceAuthorName, ids.source).run();
 
-  await db.prepare(`UPDATE annotations SET status = 'DRAFT' WHERE id = ?`).bind(ids.target).run();
-  assert.equal((await previewWelcomeHomeMapping(db, config)).ready, false, "错误目标状态必须被阻断");
-  await db.prepare(`UPDATE annotations SET status = 'SUBMITTED' WHERE id = ?`).bind(ids.target).run();
+  await db.prepare(
+    `INSERT INTO annotations (
+      id, video_id, author_email, author_name, taxonomy_version, workflow_version,
+      status, review_status, revision
+    ) VALUES (?, ?, ?, ?, 'V0.3-PILOT', 'REVERSE-WORKFLOW-V0.3.3', 'DRAFT', 'DRAFT', 1)`,
+  ).bind(ids.target, ids.video, actor.identityKey, actor.displayName).run();
+  assert.equal(
+    (await previewWelcomeHomeMapping(actor, db, config)).ready,
+    false,
+    "已有目标工作稿必须被阻断",
+  );
+  await db.prepare(`DELETE FROM annotations WHERE id = ?`).bind(ids.target).run();
+
+  const sourceSnapshotBefore = await db.prepare(
+    `SELECT payload_json, content_hash FROM annotation_snapshots WHERE id = ?`,
+  ).bind(ids.sourceSnapshot).first<{ payload_json: string; content_hash: string }>();
+  if (!sourceSnapshotBefore) throw new Error("TEST_ONLY 来源快照缺失");
+  const badPayload = JSON.parse(sourceSnapshotBefore.payload_json) as { shots: Row[] };
+  badPayload.shots.push({ orderIndex: 23, groupName: "错误桥段", visualContent: "错误数量" });
+  await db.prepare(`UPDATE annotation_snapshots SET payload_json = ? WHERE id = ?`)
+    .bind(JSON.stringify(badPayload), ids.sourceSnapshot).run();
+  assert.equal(
+    (await previewWelcomeHomeMapping(actor, db, config)).ready,
+    false,
+    "不可变来源快照的错误镜头数必须被阻断",
+  );
+  await db.prepare(`UPDATE annotation_snapshots SET payload_json = ?, content_hash = ? WHERE id = ?`)
+    .bind(sourceSnapshotBefore.payload_json, sourceSnapshotBefore.content_hash, ids.sourceSnapshot).run();
 
   await db.prepare(
-    `INSERT INTO shots (id, annotation_id, order_index, group_name, shot_number, visual_content)
-    VALUES (?, ?, 99, '额外桥段', '24', '错误数量')`,
-  ).bind(`${prefix}_source_shot_extra`, ids.source).run();
-  assert.equal((await previewWelcomeHomeMapping(db, config)).ready, false, "错误镜头数必须被阻断");
-  await db.prepare(`DELETE FROM shots WHERE id = ?`).bind(`${prefix}_source_shot_extra`).run();
+    `INSERT INTO annotation_snapshots (
+      id, annotation_id, video_id, author_email, author_name, taxonomy_version,
+      revision, version_number, payload_json, content_hash, workflow_status, submitted_at
+    ) SELECT ?, annotation_id, video_id, author_email, author_name, taxonomy_version,
+      8, 3, payload_json, ?, workflow_status, CURRENT_TIMESTAMP
+    FROM annotation_snapshots WHERE id = ?`,
+  ).bind(`${prefix}_source_snapshot_v3`, `${prefix}_source_hash_v3`, ids.sourceSnapshot).run();
+  assert.equal(
+    (await previewWelcomeHomeMapping(actor, db, config)).ready,
+    false,
+    "来源出现 V3 时必须被阻断",
+  );
+  await db.prepare(`DELETE FROM annotation_snapshots WHERE id = ?`)
+    .bind(`${prefix}_source_snapshot_v3`).run();
 
-  await db.prepare(`UPDATE approved_analysis_releases SET release_number = 6 WHERE id = ?`).bind(ids.release).run();
-  assert.equal((await previewWelcomeHomeMapping(db, config)).ready, false, "R5 变化必须被阻断");
-  await db.prepare(`UPDATE approved_analysis_releases SET release_number = 5 WHERE id = ?`).bind(ids.release).run();
-
-  preview = await previewWelcomeHomeMapping(db, config);
+  preview = await previewWelcomeHomeMapping(actor, db, config);
   assert.equal(preview.ready, true, preview.reasons.join("；"));
   await expectMappingError(() => applyWelcomeHomeMapping({
     actor, confirmation: "wrong", previewToken: preview.previewToken!, db, config,
@@ -287,13 +321,16 @@ try {
   const mapped = await targetState(db);
   assert.equal(mapped.status, "DRAFT");
   assert.equal(mapped.review_status, "DRAFT");
-  assert.equal(Number(mapped.revision), 5);
+  assert.equal(Number(mapped.revision), 1);
   assert.equal(mapped.source_snapshot_id, ids.sourceSnapshot);
   assert.equal(Number(mapped.shots), 23);
   assert.equal(Number(mapped.groups), 7);
   assert.equal(Number(mapped.fields), 19);
 
-  await db.prepare(`UPDATE annotations SET analysis_title = 'TEST_ONLY 用户后续修订' WHERE id = ?`).bind(ids.target).run();
+  await db.prepare(
+    `UPDATE annotations SET analysis_title = 'TEST_ONLY 用户后续修订'
+    WHERE video_id = ? AND author_email = ? AND taxonomy_version = 'V0.3-PILOT'`,
+  ).bind(ids.video, actor.identityKey).run();
   const replay = await applyWelcomeHomeMapping({
     actor, confirmation: config.confirmation, previewToken: preview.previewToken!, db, config,
   });
@@ -303,7 +340,7 @@ try {
   await cleanup(db);
   const rollbackConfig = { ...config, operationKey: `${config.operationKey}_ROLLBACK` };
   await prepare(db);
-  const rollbackPreview = await previewWelcomeHomeMapping(db, rollbackConfig);
+  const rollbackPreview = await previewWelcomeHomeMapping(actor, db, rollbackConfig);
   const beforeRollback = await targetState(db);
   await expectMappingError(() => applyWelcomeHomeMapping({
     actor,
@@ -328,7 +365,7 @@ console.log(JSON.stringify({
   ok: true,
   runId,
   covered: [
-    "cross-source", "wrong-status", "wrong-count", "R5-change", "wrong-confirmation",
+    "cross-source", "existing-target", "snapshot-count", "source-V3", "wrong-confirmation",
     "stale-preview", "concurrent-replay", "post-edit-replay", "transaction-rollback",
     "business-fingerprint",
   ],

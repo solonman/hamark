@@ -13,9 +13,18 @@ const config: WelcomeHomeMappingConfig = {
   operationKey: "TEST_ONLY_operation",
   sourceAuthorName: "TEST_ONLY 来源",
   targetAuthorName: "TEST_ONLY 目标",
-  activeReleaseNumber: 5,
+  sourceSnapshotVersionNumber: 2,
   confirmation: "TEST_ONLY confirmation",
   dataScope: "TEST_ONLY",
+};
+
+const actor = {
+  id: "TEST_ONLY_actor",
+  identityKey: "TEST_ONLY_target_identity",
+  displayName: config.targetAuthorName,
+  avatarUrl: null,
+  email: null,
+  departments: [],
 };
 
 function field(code: string, answer = `${code} answer`) {
@@ -36,16 +45,31 @@ function validInspection() {
     ...Array.from({ length: 10 }, (_, index) => field(`B${index + 1}`)),
   ];
   const source = { status: "DRAFT", review_status: "DRAFT" };
-  const target = { status: "SUBMITTED", review_status: "APPROVED" };
   return {
+    actor,
     video: { id: config.videoId, data_scope: "TEST_ONLY" },
     sourceCandidates: [source],
-    targetCandidates: [target],
+    targetCandidates: [],
     source,
-    target,
-    sourceSnapshot: { author_name: config.sourceAuthorName, revision: 7 },
-    release: { status: "ACTIVE", release_number: 5 },
-    sourcePackage: { annotation: source, shots, groups: [], fields, structures: [] },
+    target: null,
+    sourceSnapshot: {
+      author_name: config.sourceAuthorName,
+      video_id: config.videoId,
+      taxonomy_version: "V0.2",
+      workflow_status: "SUBMITTED",
+      revision: 7,
+    },
+    sourceSnapshotVersionNumber: 2,
+    sourcePackage: {
+      annotation: {
+        payload_video_id: config.videoId,
+        payload_taxonomy_version: "V0.2",
+      },
+      shots,
+      groups: [],
+      fields,
+      structures: [],
+    },
     derivedGroups: deriveWelcomeHomeGroups(shots),
     sourceFields: fields,
     ledger: null as Record<string, unknown> | null,
@@ -59,7 +83,7 @@ test("contiguous V0.2 group names become seven mapped bridge groups", () => {
   assert.equal(inspection.derivedGroups[0].note, "作用 0");
 });
 
-test("frozen 23/7/19, state, R5, and B2/B3 conditions are all blocking", () => {
+test("frozen V2, target absence, 23/7/19, and B2/B3 conditions are all blocking", () => {
   const valid = validInspection();
   assert.deepEqual(validateWelcomeHomeInspection(valid, config), []);
 
@@ -70,12 +94,12 @@ test("frozen 23/7/19, state, R5, and B2/B3 conditions are all blocking", () => {
   assert.match(validateWelcomeHomeInspection(badCounts, config).join("；"), /23|19/);
 
   const badState = validInspection();
-  badState.target.status = "DRAFT";
-  assert.match(validateWelcomeHomeInspection(badState, config).join("；"), /SUBMITTED\/APPROVED/);
+  badState.targetCandidates.push({ id: "existing" });
+  assert.match(validateWelcomeHomeInspection(badState, config).join("；"), /禁止覆盖/);
 
-  const badRelease = validInspection();
-  badRelease.release.release_number = 6;
-  assert.match(validateWelcomeHomeInspection(badRelease, config).join("；"), /ACTIVE R5/);
+  const badVersion = validInspection();
+  badVersion.sourceSnapshotVersionNumber = 3;
+  assert.match(validateWelcomeHomeInspection(badVersion, config).join("；"), /公开版本不是 V2/);
 
   const missingB2 = validInspection();
   missingB2.sourceFields.find((item) => item.field_code === "B2")!.answer = "";

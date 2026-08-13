@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   const user = await requireAdmin(request);
   if (user instanceof Response) return user;
   try {
-    return noStoreJson({ preview: await previewWelcomeHomeMapping(getDbClient()) });
+    return noStoreJson({ preview: await previewWelcomeHomeMapping(user, getDbClient()) });
   } catch (error) {
     console.error("Welcome Home mapping preview failed", error);
     return noStoreJson({ error: "PREVIEW 读取失败，未执行任何数据修改。" }, { status: 500 });

@@ -110,16 +110,16 @@ export default function WelcomeHomeMappingClient() {
               <h2>{preview.case.title}</h2>
               <dl className={styles.facts}>
                 <div><dt>固定案例</dt><dd>{preview.case.videoId}</dd></div>
-                <div><dt>来源</dt><dd>{preview.source.authorName} · V0.2 · rev {preview.source.workingRevision}</dd></div>
-                <div><dt>来源快照</dt><dd>已提交 rev {preview.source.submittedSnapshotRevision ?? "—"}</dd></div>
-                <div><dt>目标</dt><dd>{preview.target.authorName} · V0.3 · rev {preview.target.currentRevision}</dd></div>
-                <div><dt>活动标准</dt><dd>R{preview.activeStandard.releaseNumber ?? "—"} · {preview.activeStandard.status ?? "—"}</dd></div>
+                <div><dt>来源记录</dt><dd>{preview.source.authorName} · V0.2 · rev {preview.source.workingRevision}</dd></div>
+                <div><dt>不可变来源</dt><dd>公开版本 V{preview.source.submittedSnapshotVersionNumber ?? "—"} · rev {preview.source.submittedSnapshotRevision ?? "—"}</dd></div>
+                <div><dt>目标</dt><dd>{preview.target.authorName} · 新建 V0.3 草稿 · rev {preview.target.nextRevision}</dd></div>
+                <div><dt>现有目标</dt><dd>{preview.target.exists ? "已存在，禁止覆盖" : "不存在，符合新建条件"}</dd></div>
               </dl>
             </article>
             <article className={styles.panel}>
               <p className={styles.eyebrow}>将修改</p>
               <ul className={styles.list}>
-                <li>只替换“老孙”的 V0.3 当前可变工作稿</li>
+                <li>只为“老孙”新建一份 V0.3 可变工作稿</li>
                 <li>{preview.mapping.groups} 个桥段、{preview.mapping.shots} 个镜头</li>
                 <li>{preview.mapping.legacyFields} 项 A/B 字段，标记 SYSTEM_MAPPED</li>
                 <li>主路径 LOVE；B2/B3 确定性映射</li>
@@ -129,7 +129,7 @@ export default function WelcomeHomeMappingClient() {
             <article className={styles.panel}>
               <p className={styles.eyebrow}>明确不会修改</p>
               <ul className={styles.list}>
-                <li>活动 R5 与全部批准版本</li>
+                <li>全部既有公开版本与批准版本</li>
                 <li>{preview.preserved.snapshots} 个历史快照</li>
                 <li>{preview.preserved.reviewRounds} 个审核轮次、{preview.preserved.comments} 条批注</li>
                 <li>{preview.preserved.revisionEvents} 个修订事件及其他案例</li>
@@ -147,7 +147,7 @@ export default function WelcomeHomeMappingClient() {
 
           {result ? (
             <section className={`${styles.panel} ${styles.success}`} role="status">
-              已完成：目标为 DRAFT rev {result.target.revision}，23 镜头／7 桥段／19 字段；R5 与非目标业务数据未变。
+              已完成：已新建 DRAFT rev {result.target.revision}，23 镜头／7 桥段／19 字段；既有版本与非目标业务数据未变。
             </section>
           ) : null}
 

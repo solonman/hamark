@@ -24,7 +24,7 @@ export type WelcomeHomeMappingConfig = {
   operationKey: string;
   sourceAuthorName: string;
   targetAuthorName: string;
-  activeReleaseNumber: number;
+  sourceSnapshotVersionNumber: number;
   confirmation: string;
   dataScope: "BUSINESS" | "TEST_ONLY";
 };
@@ -34,7 +34,7 @@ export const WELCOME_HOME_MAPPING_CONFIG: WelcomeHomeMappingConfig = {
   operationKey: WELCOME_HOME_MAPPING_OPERATION_KEY,
   sourceAuthorName: "演示用户",
   targetAuthorName: "老孙",
-  activeReleaseNumber: 5,
+  sourceSnapshotVersionNumber: 2,
   confirmation: WELCOME_HOME_MAPPING_CONFIRMATION,
   dataScope: "BUSINESS",
 };
@@ -59,13 +59,14 @@ type MutablePackage = {
 };
 
 type Inspection = {
+  actor: CurrentUser;
   video: Row | null;
   sourceCandidates: Row[];
   targetCandidates: Row[];
   source: Row | null;
   target: Row | null;
   sourceSnapshot: Row | null;
-  release: Row | null;
+  sourceSnapshotVersionNumber: number | null;
   sourcePackage: MutablePackage | null;
   targetPackage: MutablePackage | null;
   derivedGroups: MappedGroup[];
@@ -201,6 +202,59 @@ async function loadPackage(db: DbClient, annotationId: string): Promise<MutableP
   return { annotation, shots, groups, fields, structures };
 }
 
+function packageFromSubmittedSnapshot(snapshot: Row | null): MutablePackage | null {
+  if (!snapshot) return null;
+  try {
+    const raw = typeof snapshot.payload_json === "string"
+      ? JSON.parse(snapshot.payload_json) as Row
+      : snapshot.payload_json as Row;
+    if (!raw || typeof raw !== "object") return null;
+    const rawShots = Array.isArray(raw.shots) ? raw.shots as Row[] : [];
+    const rawFields = Array.isArray(raw.fields) ? raw.fields as Row[] : [];
+    return {
+      annotation: {
+        analysis_title: raw.analysisTitle,
+        commercial_intent: raw.commercialIntent,
+        creative_theme: raw.creativeTheme,
+        synopsis: raw.synopsis,
+        thinking_chain: raw.thinkingChain,
+        shot_commentary: raw.shotCommentary,
+        summary: raw.summary,
+        payload_video_id: raw.videoId,
+        payload_taxonomy_version: raw.taxonomyVersion,
+      },
+      shots: rawShots.map((shot, index) => ({
+        id: shot.id,
+        order_index: shot.orderIndex ?? index,
+        group_name: shot.groupName,
+        shot_number: shot.shotNumber,
+        start_time: shot.startTime,
+        end_time: shot.endTime,
+        shot_size: shot.shotSize,
+        camera_angle: shot.cameraAngle,
+        camera_movement: shot.cameraMovement,
+        visual_content: shot.visualContent,
+        dialogue: shot.dialogue,
+        voiceover: shot.voiceover,
+        screen_text: shot.screenText,
+        sound_effect: shot.soundEffect,
+        music: shot.music,
+        creative_comment: shot.creativeComment,
+      })),
+      groups: [],
+      fields: rawFields.map((field) => ({
+        field_code: field.code,
+        answer: field.answer,
+        evidence: field.evidence,
+        source: field.source,
+      })),
+      structures: [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function deriveWelcomeHomeGroups(sourceShots: Row[]): MappedGroup[] {
   const groups: MappedGroup[] = [];
   for (const shot of sourceShots) {
@@ -240,30 +294,28 @@ async function digestQuery(db: DbClient, sql: string, ...values: BindValue[]) {
   return (await db.prepare(sql).bind(...values).first<Row>()) ?? {};
 }
 
-async function nonTargetSummary(db: DbClient, targetAnnotationId: string) {
+async function nonTargetSummary(db: DbClient, targetAnnotationId: string | null) {
   // Each digest covers both row count and content. The target mutable row and its
   // four mutable child tables are the only exclusions; history is never excluded.
+  // Before a CREATE operation there is no target row, so the baseline covers all
+  // existing business rows. After creation the new target is excluded explicitly.
   const summary: Record<string, Row> = {};
-  summary.annotations = await digestQuery(db,
-    `SELECT COUNT(*) AS count,
-      md5(COALESCE(string_agg(md5(row_to_json(a)::text), '' ORDER BY a.id), '')) AS digest
-    FROM annotations a WHERE a.id <> ?`, targetAnnotationId);
-  summary.shots = await digestQuery(db,
-    `SELECT COUNT(*) AS count,
-      md5(COALESCE(string_agg(md5(row_to_json(s)::text), '' ORDER BY s.id), '')) AS digest
-    FROM shots s WHERE s.annotation_id <> ?`, targetAnnotationId);
-  summary.groups = await digestQuery(db,
-    `SELECT COUNT(*) AS count,
-      md5(COALESCE(string_agg(md5(row_to_json(g)::text), '' ORDER BY g.id), '')) AS digest
-    FROM shot_groups g WHERE g.annotation_id <> ?`, targetAnnotationId);
-  summary.fields = await digestQuery(db,
-    `SELECT COUNT(*) AS count,
-      md5(COALESCE(string_agg(md5(row_to_json(f)::text), '' ORDER BY f.id), '')) AS digest
-    FROM field_answers f WHERE f.annotation_id <> ?`, targetAnnotationId);
-  summary.structures = await digestQuery(db,
-    `SELECT COUNT(*) AS count,
-      md5(COALESCE(string_agg(md5(row_to_json(c)::text), '' ORDER BY c.annotation_id), '')) AS digest
-    FROM annotation_creative_structures c WHERE c.annotation_id <> ?`, targetAnnotationId);
+  const exclusion = targetAnnotationId ? " WHERE %s <> ?" : "";
+  const mutableDigests = [
+    ["annotations", "annotations", "a", "a.id", "a.id"],
+    ["shots", "shots", "s", "s.id", "s.annotation_id"],
+    ["groups", "shot_groups", "g", "g.id", "g.annotation_id"],
+    ["fields", "field_answers", "f", "f.id", "f.annotation_id"],
+    ["structures", "annotation_creative_structures", "c", "c.annotation_id", "c.annotation_id"],
+  ] as const;
+  for (const [key, table, alias, order, targetColumn] of mutableDigests) {
+    const where = exclusion.replace("%s", targetColumn);
+    summary[key] = await digestQuery(db,
+      `SELECT COUNT(*) AS count,
+        md5(COALESCE(string_agg(md5(row_to_json(${alias})::text), '' ORDER BY ${order}), '')) AS digest
+      FROM ${table} ${alias}${where}`,
+      ...(targetAnnotationId ? [targetAnnotationId] : []));
+  }
   for (const [key, table, order] of [
     ["videos", "videos", "id"],
     ["snapshots", "annotation_snapshots", "id"],
@@ -283,6 +335,7 @@ async function nonTargetSummary(db: DbClient, targetAnnotationId: string) {
 async function inspect(
   db: DbClient,
   config: WelcomeHomeMappingConfig,
+  actor: CurrentUser,
   lock: boolean,
 ): Promise<Inspection> {
   const lockSuffix = lock ? " FOR UPDATE" : "";
@@ -297,29 +350,28 @@ async function inspect(
     config.videoId, config.sourceAuthorName);
   const targetCandidates = await queryRows(db,
     `SELECT * FROM annotations
-    WHERE video_id = ? AND taxonomy_version = 'V0.3-PILOT' AND author_name = ?
+    WHERE video_id = ? AND taxonomy_version = 'V0.3-PILOT' AND author_email = ?
       AND deleted_at IS NULL ORDER BY created_at${lockSuffix}`,
-    config.videoId, config.targetAuthorName);
+    config.videoId, actor.identityKey);
   const source = sourceCandidates.length === 1 ? sourceCandidates[0] : null;
   const target = targetCandidates.length === 1 ? targetCandidates[0] : null;
   const sourceSnapshot = source
     ? await db.prepare(
-      `SELECT id, annotation_id, author_name, taxonomy_version, revision,
-        workflow_status, content_hash, created_at
+      `SELECT id, annotation_id, video_id, author_name, taxonomy_version, revision,
+        version_number, workflow_status, payload_json, content_hash, created_at,
+        (SELECT COUNT(*) FROM annotation_snapshots submitted
+          WHERE submitted.annotation_id = annotation_snapshots.annotation_id
+            AND submitted.taxonomy_version = 'V0.2'
+            AND submitted.workflow_status = 'SUBMITTED') AS submitted_version_count
       FROM annotation_snapshots
       WHERE annotation_id = ? AND taxonomy_version = 'V0.2'
         AND workflow_status = 'SUBMITTED'
-      ORDER BY revision DESC, created_at DESC LIMIT 1${lockSuffix}`,
+      ORDER BY created_at DESC, revision DESC LIMIT 1${lockSuffix}`,
     ).bind(String(source.id)).first<Row>()
     : null;
-  const release = target
-    ? await db.prepare(
-      `SELECT * FROM approved_analysis_releases
-      WHERE annotation_id = ? AND video_id = ? AND status = 'ACTIVE'
-      ORDER BY release_number DESC LIMIT 1${lockSuffix}`,
-    ).bind(String(target.id), config.videoId).first<Row>()
-    : null;
-  const sourcePackage = source ? await loadPackage(db, String(source.id)) : null;
+  const sourceSnapshotVersionNumber = sourceSnapshot
+    ? numberValue(sourceSnapshot.submitted_version_count) : null;
+  const sourcePackage = packageFromSubmittedSnapshot(sourceSnapshot);
   const targetPackage = target ? await loadPackage(db, String(target.id)) : null;
   const ledgerAvailable = await tableExists(db, "admin_data_operations");
   const ledger = ledgerAvailable
@@ -329,13 +381,14 @@ async function inspect(
     ).bind(config.operationKey).first<Row>()
     : null;
   return {
+    actor,
     video,
     sourceCandidates,
     targetCandidates,
     source,
     target,
     sourceSnapshot,
-    release,
+    sourceSnapshotVersionNumber,
     sourcePackage,
     targetPackage,
     derivedGroups: deriveWelcomeHomeGroups(sourcePackage?.shots ?? []),
@@ -343,14 +396,15 @@ async function inspect(
     ledgerAvailable,
     ledger,
     preservationCounts: await preservationCounts(db, config.videoId),
-    nonTargetSummary: target ? await nonTargetSummary(db, String(target.id)) : {},
+    nonTargetSummary: await nonTargetSummary(db, target ? String(target.id) : null),
   };
 }
 
 export function validateWelcomeHomeInspection(
   inspection: Pick<Inspection,
-    "video" | "sourceCandidates" | "targetCandidates" | "source" | "target" |
-    "sourceSnapshot" | "release" | "sourcePackage" | "derivedGroups" | "sourceFields" | "ledger">,
+    "actor" | "video" | "sourceCandidates" | "targetCandidates" | "source" | "target" |
+    "sourceSnapshot" | "sourceSnapshotVersionNumber" | "sourcePackage" |
+    "derivedGroups" | "sourceFields" | "ledger">,
   config: WelcomeHomeMappingConfig,
 ) {
   const reasons: string[] = [];
@@ -359,26 +413,35 @@ export function validateWelcomeHomeInspection(
     reasons.push(`固定案例的数据范围不是 ${config.dataScope}。`);
   }
   if (inspection.sourceCandidates.length !== 1) {
-    reasons.push(`未唯一识别“${config.sourceAuthorName}”的 V0.2 当前工作稿。`);
+    reasons.push(`未唯一识别“${config.sourceAuthorName}”的 V0.2 当前记录。`);
   }
-  if (inspection.targetCandidates.length !== 1) {
-    reasons.push(`未唯一识别“${config.targetAuthorName}”的 V0.3 当前工作稿。`);
+  if (inspection.actor.displayName !== config.targetAuthorName) {
+    reasons.push(`当前管理员不是目标作者“${config.targetAuthorName}”。`);
   }
-  if (inspection.source && (
-    stringValue(inspection.source.status) !== "DRAFT" ||
-    stringValue(inspection.source.review_status) !== "DRAFT"
-  )) reasons.push("V0.2 来源不再是 DRAFT/DRAFT 当前工作稿。");
-  if (inspection.target && (
-    stringValue(inspection.target.status) !== "SUBMITTED" ||
-    stringValue(inspection.target.review_status) !== "APPROVED"
-  )) reasons.push("V0.3 目标不再是 SUBMITTED/APPROVED 可映射状态。");
+  if (inspection.targetCandidates.length !== 0) {
+    reasons.push(`“${config.targetAuthorName}”已经存在 V0.3 工作稿，禁止覆盖。`);
+  }
   if (!inspection.sourceSnapshot) reasons.push("找不到 V0.2 最近一次已提交不可变快照。");
   if (inspection.sourceSnapshot && stringValue(inspection.sourceSnapshot.author_name) !== config.sourceAuthorName) {
     reasons.push("V0.2 来源快照作者不匹配。");
   }
-  if (!inspection.release || numberValue(inspection.release.release_number) !== config.activeReleaseNumber ||
-    stringValue(inspection.release.status) !== "ACTIVE") {
-    reasons.push(`当前活动标准版不是 ACTIVE R${config.activeReleaseNumber}。`);
+  if (inspection.sourceSnapshot && (
+    stringValue(inspection.sourceSnapshot.video_id) !== config.videoId ||
+    stringValue(inspection.sourceSnapshot.taxonomy_version) !== "V0.2" ||
+    stringValue(inspection.sourceSnapshot.workflow_status) !== "SUBMITTED"
+  )) {
+    reasons.push("V0.2 来源快照的案例、体系或提交状态不匹配。");
+  }
+  if (inspection.sourceSnapshotVersionNumber !== config.sourceSnapshotVersionNumber) {
+    reasons.push(`V0.2 最新公开版本不是 V${config.sourceSnapshotVersionNumber}。`);
+  }
+  if (!inspection.sourcePackage) {
+    reasons.push("V0.2 最新公开版本的快照内容无法解析。");
+  } else if (
+    stringValue(inspection.sourcePackage.annotation.payload_video_id) !== config.videoId ||
+    stringValue(inspection.sourcePackage.annotation.payload_taxonomy_version) !== "V0.2"
+  ) {
+    reasons.push("V0.2 快照载荷的案例或体系标识不匹配。");
   }
   if ((inspection.sourcePackage?.shots.length ?? 0) !== 23) reasons.push("V0.2 来源镜头数不是 23。");
   if (inspection.derivedGroups.length !== 7) reasons.push("V0.2 来源连续桥段数不是 7。");
@@ -400,10 +463,11 @@ function makePreview(inspection: Inspection, config: WelcomeHomeMappingConfig): 
   );
   const tokenPayload = {
     operationKey: config.operationKey,
+    actorIdentity: inspection.actor.identityKey,
     source: inspection.sourcePackage ? sha256(inspection.sourcePackage) : null,
-    target: inspection.targetPackage ? sha256(inspection.targetPackage) : null,
+    targetAbsent: inspection.targetCandidates.length === 0,
     sourceSnapshot: inspection.sourceSnapshot,
-    release: inspection.release,
+    sourceSnapshotVersionNumber: inspection.sourceSnapshotVersionNumber,
     nonTarget: inspection.nonTargetSummary,
   };
   return {
@@ -430,10 +494,13 @@ function makePreview(inspection: Inspection, config: WelcomeHomeMappingConfig): 
       workingRevision: numberValue(inspection.source?.revision),
       submittedSnapshotRevision: inspection.sourceSnapshot
         ? numberValue(inspection.sourceSnapshot.revision) : null,
+      submittedSnapshotVersionNumber: inspection.sourceSnapshotVersionNumber,
     },
     target: {
       authorName: config.targetAuthorName,
       taxonomyVersion: "V0.3-PILOT",
+      mode: "CREATE",
+      exists: Boolean(inspection.target),
       status: stringValue(inspection.target?.status) || "—",
       reviewStatus: stringValue(inspection.target?.review_status) || "—",
       currentRevision: numberValue(inspection.target?.revision),
@@ -448,19 +515,16 @@ function makePreview(inspection: Inspection, config: WelcomeHomeMappingConfig): 
       storyArchetypePresent: Boolean(stringValue(fieldByCode.get("B3")?.answer)),
       explanatoryFieldsRemainBlank: true,
     },
-    activeStandard: {
-      releaseNumber: inspection.release ? numberValue(inspection.release.release_number) : null,
-      status: inspection.release ? stringValue(inspection.release.status) : null,
-    },
     preserved: inspection.preservationCounts,
   };
 }
 
 export async function previewWelcomeHomeMapping(
+  actor: CurrentUser,
   db = getDbClient(),
   config = WELCOME_HOME_MAPPING_CONFIG,
 ) {
-  return makePreview(await inspect(db, config, false), config);
+  return makePreview(await inspect(db, config, actor, false), config);
 }
 
 async function installOperationSchema(db: DbClient) {
@@ -479,28 +543,25 @@ async function writeMappedDraft(
   db: DbClient,
   inspection: Inspection,
 ) {
-  const source = inspection.source!;
-  const target = inspection.target!;
+  const source = inspection.sourcePackage!.annotation;
   const sourceSnapshot = inspection.sourceSnapshot!;
-  const targetId = String(target.id);
-  const nextRevision = numberValue(target.revision) + 1;
+  const targetId = newId("annotation");
+  const nextRevision = 1;
   const fieldByCode = new Map(
     inspection.sourceFields.map((field) => [stringValue(field.field_code), field]),
   );
-  await db.prepare(`DELETE FROM shots WHERE annotation_id = ?`).bind(targetId).run();
-  await db.prepare(`DELETE FROM shot_groups WHERE annotation_id = ?`).bind(targetId).run();
-  await db.prepare(`DELETE FROM field_answers WHERE annotation_id = ?`).bind(targetId).run();
-  await db.prepare(`DELETE FROM annotation_creative_structures WHERE annotation_id = ?`).bind(targetId).run();
-  const update = await db.prepare(
-    `UPDATE annotations SET
-      workflow_version = ?, source_snapshot_id = ?, status = 'DRAFT',
-      review_status = 'DRAFT', active_base_snapshot_id = NULL,
-      base_release_id = NULL, base_snapshot_id = NULL,
-      source_public_snapshot_id = NULL, revision = ?, submitted_at = NULL,
-      analysis_title = ?, commercial_intent = ?, creative_theme = ?, synopsis = ?,
-      thinking_chain = ?, shot_commentary = ?, summary = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ? AND revision = ? AND status = 'SUBMITTED' AND review_status = 'APPROVED'`,
+  const insert = await db.prepare(
+    `INSERT INTO annotations (
+      id, video_id, author_email, author_name, taxonomy_version,
+      workflow_version, source_snapshot_id, status, review_status, revision,
+      analysis_title, commercial_intent, creative_theme, synopsis,
+      thinking_chain, shot_commentary, summary
+    ) VALUES (?, ?, ?, ?, 'V0.3-PILOT', ?, ?, 'DRAFT', 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
+    targetId,
+    String(inspection.video!.id),
+    inspection.actor.identityKey,
+    inspection.actor.displayName,
     V03_WORKFLOW_VERSION,
     String(sourceSnapshot.id),
     nextRevision,
@@ -511,11 +572,9 @@ async function writeMappedDraft(
     stringValue(source.thinking_chain),
     stringValue(source.shot_commentary),
     stringValue(source.summary),
-    targetId,
-    numberValue(target.revision),
   ).run();
-  if (update.meta.rows_written !== 1) {
-    throw new WelcomeHomeMappingError("TARGET_CHANGED", "目标作业在执行前已变化，事务已回滚。");
+  if (insert.meta.rows_written !== 1) {
+    throw new WelcomeHomeMappingError("TARGET_CREATE_FAILED", "V0.3 新草稿未能建立，事务已回滚。");
   }
   for (const [groupIndex, group] of inspection.derivedGroups.entries()) {
     const groupId = newId("group");
@@ -641,7 +700,7 @@ export async function applyWelcomeHomeMapping(args: {
   return db.withTransaction(async (tx) => {
     await tx.prepare(`SELECT pg_advisory_xact_lock(?)`).bind(734025031).run();
     await installOperationSchema(tx);
-    const inspection = await inspect(tx, config, true);
+    const inspection = await inspect(tx, config, args.actor, true);
     if (stringValue(inspection.ledger?.status) === "COMPLETED") {
       return mappedResultFromLedger(inspection.ledger!, config);
     }
@@ -664,18 +723,19 @@ export async function applyWelcomeHomeMapping(args: {
         videoId: config.videoId,
         sourceAuthorName: config.sourceAuthorName,
         targetAuthorName: config.targetAuthorName,
-        activeReleaseNumber: config.activeReleaseNumber,
+        sourceSnapshotVersionNumber: config.sourceSnapshotVersionNumber,
         dataScope: config.dataScope,
       },
+      targetMode: "CREATE",
       targetPackage: inspection.targetPackage,
       source: {
         annotationId: inspection.source?.id,
         workingRevision: inspection.source?.revision,
         snapshotId: inspection.sourceSnapshot?.id,
         snapshotRevision: inspection.sourceSnapshot?.revision,
+        snapshotVersionNumber: inspection.sourceSnapshotVersionNumber,
         packageHash: sourceHash,
       },
-      activeRelease: inspection.release,
       preservationCounts: inspection.preservationCounts,
       nonTargetSummary: inspection.nonTargetSummary,
     };
@@ -690,7 +750,6 @@ export async function applyWelcomeHomeMapping(args: {
       preview.previewToken, sourceHash, targetHash, nonTargetHash,
       JSON.stringify(backup), createdAt,
     ).run();
-    const releaseBeforeHash = sha256(inspection.release);
     const { targetId, nextRevision } = await writeMappedDraft(tx, inspection);
     if (args.failAfterMappingForTest) {
       throw new WelcomeHomeMappingError("TEST_ROLLBACK", "TEST_ONLY 强制回滚。", 409);
@@ -698,12 +757,6 @@ export async function applyWelcomeHomeMapping(args: {
     const mappedPackage = await verifyMappedDraft(
       tx, targetId, nextRevision, String(inspection.sourceSnapshot!.id),
     );
-    const releaseAfter = await tx.prepare(
-      `SELECT * FROM approved_analysis_releases WHERE id = ?`,
-    ).bind(String(inspection.release!.id)).first<Row>();
-    if (sha256(releaseAfter) !== releaseBeforeHash) {
-      throw new WelcomeHomeMappingError("R5_CHANGED", "活动 R5 在事务中发生变化，已回滚。");
-    }
     const afterNonTarget = await nonTargetSummary(tx, targetId);
     if (sha256(afterNonTarget) !== nonTargetHash) {
       throw new WelcomeHomeMappingError("NON_TARGET_CHANGED", "非目标业务数据发生变化，已回滚。");
@@ -713,9 +766,15 @@ export async function applyWelcomeHomeMapping(args: {
       alreadyApplied: false,
       operationKey: config.operationKey,
       completedAt,
-      target: { status: "DRAFT", reviewStatus: "DRAFT", revision: nextRevision },
+      target: {
+        annotationId: targetId,
+        status: "DRAFT",
+        reviewStatus: "DRAFT",
+        revision: nextRevision,
+      },
       mapped: { shots: 23, groups: 7, legacyFields: 19 },
-      preservedActiveRelease: "R5",
+      createdNewTargetDraft: true,
+      preservedExistingReleases: true,
       nonTargetBusinessDataUnchanged: true,
     };
     await tx.prepare(
@@ -729,13 +788,14 @@ export async function applyWelcomeHomeMapping(args: {
         targetAnnotationId: targetId,
         sourceWorkingRevision: inspection.source?.revision,
         sourceSnapshotRevision: inspection.sourceSnapshot?.revision,
-        previousTargetRevision: inspection.target?.revision,
+        sourceSnapshotVersionNumber: inspection.sourceSnapshotVersionNumber,
+        previousTargetRevision: null,
         newTargetRevision: nextRevision,
         sourceHash,
         previousTargetHash: targetHash,
         newTargetHash: sha256(mappedPackage),
         nonTargetHash,
-        activeRelease: `R${config.activeReleaseNumber}`,
+        existingReleasesPreserved: true,
       }),
     ).run();
     const completion = await tx.prepare(
