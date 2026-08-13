@@ -345,8 +345,16 @@ async function inspect(
   ).bind(config.videoId).first<Row>();
   const sourceCandidates = await queryRows(db,
     `SELECT * FROM annotations
-    WHERE video_id = ? AND taxonomy_version = 'V0.2' AND author_name = ?
-      AND deleted_at IS NULL ORDER BY created_at${lockSuffix}`,
+    WHERE video_id = ? AND taxonomy_version = 'V0.2' AND deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM annotation_snapshots source_snapshot
+        WHERE source_snapshot.annotation_id = annotations.id
+          AND source_snapshot.video_id = annotations.video_id
+          AND source_snapshot.taxonomy_version = 'V0.2'
+          AND source_snapshot.workflow_status = 'SUBMITTED'
+          AND source_snapshot.author_name = ?
+      )
+    ORDER BY created_at${lockSuffix}`,
     config.videoId, config.sourceAuthorName);
   const targetCandidates = await queryRows(db,
     `SELECT * FROM annotations
@@ -365,9 +373,9 @@ async function inspect(
             AND submitted.workflow_status = 'SUBMITTED') AS submitted_version_count
       FROM annotation_snapshots
       WHERE annotation_id = ? AND taxonomy_version = 'V0.2'
-        AND workflow_status = 'SUBMITTED'
+        AND workflow_status = 'SUBMITTED' AND video_id = ? AND author_name = ?
       ORDER BY created_at DESC, revision DESC LIMIT 1${lockSuffix}`,
-    ).bind(String(source.id)).first<Row>()
+    ).bind(String(source.id), config.videoId, config.sourceAuthorName).first<Row>()
     : null;
   const sourceSnapshotVersionNumber = sourceSnapshot
     ? numberValue(sourceSnapshot.submitted_version_count) : null;

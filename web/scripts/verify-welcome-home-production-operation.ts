@@ -255,9 +255,11 @@ try {
     explanatoryFieldsRemainBlank: true,
   });
 
-  await db.prepare(`UPDATE annotations SET author_name = 'TEST_ONLY 错误来源' WHERE id = ?`).bind(ids.source).run();
+  await db.prepare(`UPDATE annotation_snapshots SET author_name = 'TEST_ONLY 错误来源' WHERE annotation_id = ?`)
+    .bind(ids.source).run();
   assert.equal((await previewWelcomeHomeMapping(actor, db, config)).ready, false, "跨来源必须被阻断");
-  await db.prepare(`UPDATE annotations SET author_name = ? WHERE id = ?`).bind(config.sourceAuthorName, ids.source).run();
+  await db.prepare(`UPDATE annotation_snapshots SET author_name = ? WHERE annotation_id = ?`)
+    .bind(config.sourceAuthorName, ids.source).run();
 
   await db.prepare(
     `INSERT INTO annotations (
