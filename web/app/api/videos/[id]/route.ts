@@ -197,7 +197,7 @@ export async function GET(
   const canManage = video.created_by_email === user.identityKey;
   const hasSubmittedAnalysis = Boolean(submittedAnalysis);
   const shared = await loadSharedV03ReadModel(id);
-  const currentSharedSnapshot = shared?.collaboration.currentSnapshotId
+  const currentSharedSnapshot = shared?.collaboration?.currentSnapshotId
     ? await db.prepare(
         `SELECT id, content_hash, created_at FROM annotation_snapshots WHERE id = ?`,
       ).bind(shared.collaboration.currentSnapshotId).first<{
@@ -317,14 +317,17 @@ export async function GET(
     collaboration: shared?.collaboration ?? null,
     sharedV03MutableAvailable: shared?.mutableAvailable ?? false,
     sharedV03DisplaySource: shared?.displaySource ?? null,
-    currentPublicV03: shared && currentSharedSnapshot ? {
-      id: currentSharedSnapshot.id,
-      authorName: shared.collaboration.sourceAuthorName,
+    sharedV03PendingBackfill: shared?.pendingSharedBackfill ?? false,
+    sharedV03SourceAuthorName: shared?.sourceAuthorName ?? null,
+    canAdminSharedV03Backfill: finalReviewer,
+    currentPublicV03: shared ? {
+      id: currentSharedSnapshot?.id ?? shared.annotation.id ?? `legacy-v03-${id}`,
+      authorName: shared.sourceAuthorName,
       taxonomyVersion: "V0.3-PILOT",
       revision: shared.annotation.revision,
-      versionNumber: shared.collaboration.roundNumber,
-      createdAt: currentSharedSnapshot.created_at,
-      contentHash: currentSharedSnapshot.content_hash,
+      versionNumber: shared.collaboration?.roundNumber ?? 0,
+      createdAt: currentSharedSnapshot?.created_at ?? shared.sourceUpdatedAt ?? "",
+      contentHash: currentSharedSnapshot?.content_hash ?? shared.contentHash,
       payload: shared.annotation,
       versions: [],
       versionIdentity: "PUBLIC_SUBMISSION" as const,
@@ -332,14 +335,14 @@ export async function GET(
         round: null,
         isAuthor: false,
         isFinalReviewer: finalReviewer,
-        canReview: true,
+        canReview: Boolean(shared.collaboration),
         canReturn: false,
         canApprove: false,
         canWithdraw: false,
-        activeReleaseNumber: shared.collaboration.activeReleaseNumber,
+        activeReleaseNumber: shared.collaboration?.activeReleaseNumber ?? null,
       },
     } : null,
-    canFinalizeSharedV03: finalReviewer,
+    canFinalizeSharedV03: finalReviewer && Boolean(shared?.collaboration),
     myAnalysis: myAnnotations.results[0]
       ? {
           id: myAnnotations.results[0].id,

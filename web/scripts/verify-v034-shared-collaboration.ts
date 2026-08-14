@@ -89,6 +89,17 @@ const businessBefore = JSON.stringify(await db.prepare(businessFingerprintSql())
 
 try {
   await runFixture("prepare");
+  const preApplyFallback = await loadSharedV03ReadModel(videoId, db);
+  assert(preApplyFallback, "schema installed + stream absent must still expose legacy V0.3");
+  assert.equal(preApplyFallback.pendingSharedBackfill, true);
+  assert.equal(preApplyFallback.mutableAvailable, false);
+  assert.equal(preApplyFallback.annotation.id, annotationId);
+  assert(preApplyFallback.annotation.shots.length > 0, "legacy fallback must be nonempty");
+  assert.equal(
+    await loadSharedV03ReadModel(`${prefix}_without_v03`, db),
+    null,
+    "stream absent + no legacy V0.3 must stay an explicit empty model",
+  );
   const preview = await previewV03SharedBackfill(db);
   const candidate = preview.candidates.find((item) => item.videoId === videoId);
   assert(candidate, "TEST_ONLY candidate must be discoverable");
@@ -132,6 +143,9 @@ try {
   ];
   assert(sameForAll.every((item) => item?.annotation.id === annotationId));
   assert(sameForAll.every((item) => item?.annotation.shots.length === 3));
+  const postApplyShared = await loadSharedV03ReadModel(videoId, db);
+  assert(postApplyShared?.collaboration, "applied work must switch to the shared path");
+  assert.equal(postApplyShared.pendingSharedBackfill, false);
 
   const first = sameForAll[0]!;
   const reviewerDraft = structuredClone(first.annotation);

@@ -196,7 +196,7 @@ test("V0.3.4 replaces personal active-release rounds with one shared collaborati
   assert.doesNotMatch(detail, /start=active-release&releaseId=/);
   assert.match(detail, /进入共享修订/);
   assert.match(route, /PERSONAL_ROUND_DISABLED/);
-  assert.match(route, /loadSharedV03Annotation/);
+  assert.match(route, /loadSharedV03ReadModel/);
   assert.match(practice, /CURRENT PUBLIC V0\.3/);
   assert.match(practice, /hasPublishedVersion && !draft\.baseReleaseId/);
 });

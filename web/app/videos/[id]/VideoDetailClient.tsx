@@ -61,6 +61,9 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [canFinalizeSharedV03, setCanFinalizeSharedV03] = useState(false);
   const [sharedV03MutableAvailable, setSharedV03MutableAvailable] = useState(false);
   const [sharedV03DisplaySource, setSharedV03DisplaySource] = useState<string | null>(null);
+  const [sharedV03PendingBackfill, setSharedV03PendingBackfill] = useState(false);
+  const [sharedV03SourceAuthorName, setSharedV03SourceAuthorName] = useState<string | null>(null);
+  const [canAdminSharedV03Backfill, setCanAdminSharedV03Backfill] = useState(false);
   const [initialBaseline, setInitialBaseline] = useState<SubmittedAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -94,6 +97,9 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           canFinalizeSharedV03?: boolean;
           sharedV03MutableAvailable?: boolean;
           sharedV03DisplaySource?: string | null;
+          sharedV03PendingBackfill?: boolean;
+          sharedV03SourceAuthorName?: string | null;
+          canAdminSharedV03Backfill?: boolean;
           canManage?: boolean;
           canDeletePermanently?: boolean;
           error?: string;
@@ -109,6 +115,9 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           setCanFinalizeSharedV03(Boolean(data.canFinalizeSharedV03));
           setSharedV03MutableAvailable(Boolean(data.sharedV03MutableAvailable));
           setSharedV03DisplaySource(data.sharedV03DisplaySource ?? null);
+          setSharedV03PendingBackfill(Boolean(data.sharedV03PendingBackfill));
+          setSharedV03SourceAuthorName(data.sharedV03SourceAuthorName ?? null);
+          setCanAdminSharedV03Backfill(Boolean(data.canAdminSharedV03Backfill));
           setCanManage(Boolean(data.canManage));
           setCanDeletePermanently(Boolean(data.canDeletePermanently));
         }
@@ -341,7 +350,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         <div className="detail-header-actions">
           <span>{analyses.length} 份公开分析</span>
           <Link className="button button-accent" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-            编辑公共 V0.3
+            {sharedV03MutableAvailable ? "编辑公共 V0.3" : currentPublicV03 ? "查看待接入 V0.3" : "查看 V0.3 状态"}
           </Link>
         </div>
       </header>
@@ -465,6 +474,15 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               >
                 进入共享修订 ↗
               </Link>
+            ) : currentPublicV03 ? (
+              <Link className="text-button" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+                查看待接入 V0.3 ↗
+              </Link>
+            ) : null}
+            {canAdminSharedV03Backfill && !collaboration ? (
+              <Link className="text-button" href="/admin/v03-shared-backfill">
+                管理员接入共享主线 ↗
+              </Link>
             ) : null}
             <Link className="text-button muted" href={`/videos/${videoId}/practice?taxonomy=V0.2`}>
               历史体系 V0.2 · 只读查看
@@ -476,25 +494,31 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           <div className="review-notice error">{versionNotice}</div>
         ) : null}
 
-        {currentPublicV03 && collaboration ? (
+        {currentPublicV03 ? (
           <article className="analysis-card reading-surface shared-v03-card">
             <div className="analysis-card-head">
               <span className="analysis-index">V03</span>
               <div>
                 <p>
-                  当前公共 V0.3 · 共享修订轮 {collaboration.roundNumber} · 工作稿 rev {currentPublicV03.revision}
+                  {collaboration
+                    ? `当前公共 V0.3 · 共享修订轮 ${collaboration.roundNumber} · 工作稿 rev ${currentPublicV03.revision}`
+                    : `既有 V0.3 · 待接入共享主线 · rev ${currentPublicV03.revision}`}
                 </p>
                 <h3>{currentPublicV03.payload.analysisTitle || "未命名公共分析"}</h3>
                 <small>
-                  来源署名 {collaboration.sourceAuthorName}
-                  {collaboration.lastEditorName
+                  来源署名 {collaboration?.sourceAuthorName ?? sharedV03SourceAuthorName ?? currentPublicV03.authorName}
+                  {collaboration?.lastEditorName
                     ? ` · 最近由 ${collaboration.lastEditorName} 修订`
                     : ""}
                 </small>
               </div>
               <div className="analysis-card-actions">
                 <span className="analysis-version-only">
-                  {sharedV03MutableAvailable ? collaboration.roundStatus : `只读恢复显示 · ${sharedV03DisplaySource}`}
+                  {sharedV03MutableAvailable && collaboration
+                    ? collaboration.roundStatus
+                    : sharedV03PendingBackfill
+                      ? "只读 · 待管理员接入"
+                      : `只读恢复显示 · ${sharedV03DisplaySource}`}
                 </span>
                 {sharedV03MutableAvailable ? (
                   <Link
@@ -506,15 +530,15 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                 ) : null}
               </div>
             </div>
-            {canFinalizeSharedV03 &&
+            {collaboration && canFinalizeSharedV03 &&
             collaboration.candidateSnapshotId === currentPublicV03.id ? (
               <V03ReviewDecisionBar snapshotId={currentPublicV03.id} mode="review" />
-            ) : collaboration.candidateSnapshotId === currentPublicV03.id ? (
+            ) : collaboration?.candidateSnapshotId === currentPublicV03.id ? (
               <p className="review-notice">
                 当前工作稿已提交为专家定稿候选；继续修订会使本候选失效，但不会丢失候选快照。
               </p>
             ) : null}
-            <AnalysisComments
+            {collaboration ? <AnalysisComments
               snapshotId={currentPublicV03.id}
               taxonomyVersion="V0.3-PILOT"
               analysis={currentPublicV03}
@@ -522,9 +546,14 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               collaborationMode={sharedV03MutableAvailable}
             >
               <SubmittedAnalysisContent analysis={currentPublicV03} forceOpen />
-            </AnalysisComments>
-            <SharedRevisionHistory videoId={videoId} />
-            <details className="standard-history shared-baseline-history">
+            </AnalysisComments> : <>
+              <p className="review-notice">
+                这份既有 V0.3 正在等待管理员接入共享主线；内容保持可见但暂时只读，不会创建个人空白稿。
+              </p>
+              <SubmittedAnalysisContent analysis={currentPublicV03} forceOpen />
+            </>}
+            {collaboration ? <SharedRevisionHistory videoId={videoId} /> : null}
+            {collaboration ? <details className="standard-history shared-baseline-history">
               <summary>公共 V0.3 初始基线 · 永久保留</summary>
               {canFinalizeSharedV03 ? (
                 <button
@@ -548,12 +577,13 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               ) : (
                 <SubmittedAnalysisContent analysis={initialBaseline} forceOpen={false} />
               )}
-            </details>
+            </details> : null}
           </article>
         ) : (
           <div className="no-analysis">
-            <span>尚未建立公共 V0.3</span>
-            <p>读取页面不会自动创建个人空白稿；请由管理员先完成共享主线接入。</p>
+            <span>尚未找到既有 V0.3</span>
+            <p>读取页面不会自动创建个人空白稿；建立内容后再由管理员接入共享主线。</p>
+            {canAdminSharedV03Backfill ? <Link className="text-button" href="/admin/v03-shared-backfill">管理员接入工具 ↗</Link> : null}
           </div>
         )}
 

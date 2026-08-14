@@ -12,6 +12,7 @@ const runId = rawRunId.toLowerCase();
 const prefix = `test_only_v033_${runId}`;
 const ids = {
   video: `${prefix}_video`,
+  emptyVideo: `${prefix}_empty_video`,
   annotation: `${prefix}_annotation`,
   group: `${prefix}_group_1`,
   group2: `${prefix}_group_2`,
@@ -142,10 +143,13 @@ async function businessFingerprint(db: DbClient) {
 }
 
 async function cleanup(db: DbClient) {
-  const video = await db.prepare(`SELECT id, data_scope, test_run_id FROM videos WHERE id = ?`)
-    .bind(ids.video).first<{ id: string; data_scope: string; test_run_id: string | null }>();
-  if (video && (video.data_scope !== "TEST_ONLY" || video.test_run_id !== runId)) {
-    throw new Error("拒绝清理：目标不是当前 run id 的 TEST_ONLY 夹具。");
+  const fixtureVideos = await db.prepare(
+    `SELECT id, data_scope, test_run_id FROM videos WHERE id IN (?, ?)`,
+  ).bind(ids.video, ids.emptyVideo).all<{ id: string; data_scope: string; test_run_id: string | null }>();
+  for (const video of fixtureVideos.results) {
+    if (video.data_scope !== "TEST_ONLY" || video.test_run_id !== runId) {
+      throw new Error("拒绝清理：目标不是当前 run id 的 TEST_ONLY 夹具。");
+    }
   }
   await db.withTransaction(async (transaction) => {
     const streams = await transaction.prepare(
@@ -203,6 +207,7 @@ async function cleanup(db: DbClient) {
     await transaction.prepare(`DELETE FROM shot_groups WHERE annotation_id = ?`).bind(ids.annotation).run();
     await transaction.prepare(`DELETE FROM annotation_creative_structures WHERE annotation_id = ?`).bind(ids.annotation).run();
     await transaction.prepare(`DELETE FROM annotations WHERE id = ? AND video_id = ?`).bind(ids.annotation, ids.video).run();
+    await transaction.prepare(`DELETE FROM videos WHERE id = ? AND data_scope = 'TEST_ONLY' AND test_run_id = ?`).bind(ids.emptyVideo, runId).run();
     await transaction.prepare(`DELETE FROM videos WHERE id = ? AND data_scope = 'TEST_ONLY' AND test_run_id = ?`).bind(ids.video, runId).run();
   });
 }
@@ -234,6 +239,23 @@ async function prepare(db: DbClient) {
         'TEST_ONLY 作者', 'TEST_ONLY', ?)`,
     ).bind(
       ids.video,
+      sourceMedia?.object_key ?? `${prefix}/missing.mp4`,
+      sourceMedia?.thumbnail_key ?? null,
+      sourceMedia?.original_name ?? "test-only.mp4",
+      sourceMedia?.content_type ?? "video/mp4",
+      Number(sourceMedia?.file_size ?? 0),
+      sourceMedia ? "READY" : "FAILED",
+      runId,
+    ).run();
+    await transaction.prepare(
+      `INSERT INTO videos (id, title, brand, description, tags_json, object_key,
+        thumbnail_key, original_name, content_type, file_size, status, rights_confirmed,
+        created_by_email, created_by_name, data_scope, test_run_id)
+      VALUES (?, 'TEST_ONLY 无 V0.3 作品', 'TEST_ONLY', '用于验收明确空状态。',
+        '["TEST_ONLY","EMPTY_V03"]', ?, ?, ?, ?, ?, ?, 1, 'reviewer@reverse.local',
+        'TEST_ONLY 作者', 'TEST_ONLY', ?)`,
+    ).bind(
+      ids.emptyVideo,
       sourceMedia?.object_key ?? `${prefix}/missing.mp4`,
       sourceMedia?.thumbnail_key ?? null,
       sourceMedia?.original_name ?? "test-only.mp4",

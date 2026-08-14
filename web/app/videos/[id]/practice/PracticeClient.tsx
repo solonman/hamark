@@ -26,6 +26,8 @@ import TaxonomyFieldEditor from "./TaxonomyFieldEditor";
 import V03ShotGroupEditor from "./V03ShotGroupEditor";
 import V03AnalysisEditor from "./V03AnalysisEditor";
 import AuthorRevisionTasks from "./AuthorRevisionTasks";
+import SubmittedAnalysisContent from "../SubmittedAnalysisContent";
+import type { SubmittedAnalysis } from "@/lib/types";
 
 type AnnotationResponse = {
   video?: { id: string; title: string; status: string };
@@ -44,6 +46,8 @@ type AnnotationResponse = {
   hasPublishedVersion?: boolean;
   publishedVersionCount?: number;
   seededFromV02?: boolean;
+  pendingSharedBackfill?: boolean;
+  canAdminSharedV03Backfill?: boolean;
   error?: string;
 };
 
@@ -150,6 +154,8 @@ export default function PracticeClient({
   const [publishedVersionCount, setPublishedVersionCount] = useState(0);
   const [seededFromV02, setSeededFromV02] = useState(false);
   const [collaboration, setCollaboration] = useState<NonNullable<AnnotationResponse["collaboration"]> | null>(null);
+  const [pendingSharedBackfill, setPendingSharedBackfill] = useState(false);
+  const [canAdminSharedV03Backfill, setCanAdminSharedV03Backfill] = useState(false);
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -196,6 +202,8 @@ export default function PracticeClient({
           setPublishedVersionCount(Number(data.publishedVersionCount ?? 0));
           setSeededFromV02(Boolean(data.seededFromV02));
           setCollaboration(data.collaboration ?? null);
+          setPendingSharedBackfill(Boolean(data.pendingSharedBackfill));
+          setCanAdminSharedV03Backfill(Boolean(data.canAdminSharedV03Backfill));
           setDraft(
             taxonomyVersion === "V0.3-PILOT"
               ? ensureV03Worksheet(data.annotation)
@@ -485,6 +493,42 @@ export default function PracticeClient({
             查看历史作业
           </Link>
         </div>
+      </main>
+    );
+  }
+
+  if (pendingSharedBackfill) {
+    const readOnlyAnalysis: SubmittedAnalysis = {
+      id: draft.id ?? `legacy-v03-${videoId}`,
+      authorName: draft.authorName,
+      taxonomyVersion: draft.taxonomyVersion,
+      revision: draft.revision,
+      versionNumber: 0,
+      createdAt: draft.updatedAt ?? "",
+      contentHash: "",
+      payload: draft,
+      versions: [],
+      versionIdentity: "PUBLIC_SUBMISSION",
+    };
+    return (
+      <main className="detail-shell">
+        <header className="detail-header">
+          <Link className="wordmark" href="/"><span className="wordmark-mark">R:</span><span>RE:VERSE</span><small>反写</small></Link>
+          <Link className="button button-ghost" href={`/videos/${videoId}`}>返回作品</Link>
+        </header>
+        <section className="analysis-card reading-surface shared-v03-card">
+          <div className="analysis-card-head">
+            <span className="analysis-index">V03</span>
+            <div>
+              <p>既有 V0.3 · 待接入共享主线 · 只读</p>
+              <h1>{draft.analysisTitle || videoTitle || "未命名公共分析"}</h1>
+              <small>来源署名 {draft.authorName} · rev {draft.revision}</small>
+            </div>
+            {canAdminSharedV03Backfill ? <Link className="button button-accent compact" href="/admin/v03-shared-backfill">管理员接入共享主线</Link> : null}
+          </div>
+          <p className="review-notice">原有内容完整保留并可查看；完成受控接入前暂不允许编辑，也不会创建个人空白稿。</p>
+          <SubmittedAnalysisContent analysis={readOnlyAnalysis} forceOpen />
+        </section>
       </main>
     );
   }

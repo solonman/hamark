@@ -166,6 +166,75 @@ export async function loadSharedV03Annotation(
   return { collaboration, annotation };
 }
 
+type LegacyV03FallbackRow = {
+  id: string;
+  author_email: string;
+  author_name: string;
+  revision: number;
+  updated_at: string;
+};
+
+function isNonEmptyV03(draft: AnnotationDraft) {
+  return Boolean(
+    draft.shots.length ||
+    draft.shotGroups?.length ||
+    draft.fields.some((field) => field.answer.trim() || field.evidence.trim()) ||
+    [
+      draft.analysisTitle,
+      draft.commercialIntent,
+      draft.creativeTheme,
+      draft.synopsis,
+      draft.thinkingChain,
+      draft.shotCommentary,
+      draft.summary,
+    ].some((value) => value.trim()),
+  );
+}
+
+/**
+ * Read-only compatibility for the deployment window between installing the
+ * shared schema and applying the controlled per-work backfill. The ordering is
+ * the same deterministic preference used by the backfill preview. It never
+ * creates or updates a row.
+ */
+export async function loadLegacyV03Fallback(
+  videoId: string,
+  db: DbClient = getDbClient(),
+) {
+  const rows = await db.prepare(
+    `SELECT a.id, a.author_email, a.author_name, a.revision, a.updated_at
+    FROM annotations a
+    INNER JOIN videos video ON video.id = a.video_id
+    WHERE a.video_id = ? AND a.taxonomy_version = 'V0.3-PILOT'
+      AND a.deleted_at IS NULL AND video.deleted_at IS NULL
+    ORDER BY
+      CASE WHEN EXISTS (
+        SELECT 1 FROM approved_analysis_releases active_release
+        WHERE active_release.annotation_id = a.id AND active_release.status = 'ACTIVE'
+      ) THEN 0 ELSE 1 END,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM annotation_snapshots submitted
+        WHERE submitted.annotation_id = a.id AND submitted.workflow_status = 'SUBMITTED'
+      ) THEN 0 ELSE 1 END,
+      a.updated_at DESC, a.revision DESC, a.id`,
+  ).bind(videoId).all<LegacyV03FallbackRow>();
+  for (const row of rows.results) {
+    const annotation = await loadAnnotationById(row.id, db);
+    if (!annotation || annotation.taxonomyVersion !== V03_TAXONOMY_VERSION || !isNonEmptyV03(annotation)) {
+      continue;
+    }
+    return {
+      annotation,
+      annotationId: row.id,
+      sourceAuthorEmail: row.author_email,
+      sourceAuthorName: row.author_name,
+      revision: Number(row.revision),
+      updatedAt: row.updated_at,
+    };
+  }
+  return null;
+}
+
 async function loadSnapshotDraft(
   snapshotId: string | null,
   db: DbClient,
@@ -185,7 +254,20 @@ export async function loadSharedV03ReadModel(
   db: DbClient = getDbClient(),
 ) {
   const collaboration = await loadV03CollaborationContext(videoId, db);
-  if (!collaboration) return null;
+  if (!collaboration) {
+    const fallback = await loadLegacyV03Fallback(videoId, db);
+    if (!fallback) return null;
+    return {
+      collaboration: null,
+      annotation: fallback.annotation,
+      mutableAvailable: false,
+      displaySource: "LEGACY_V03_FALLBACK" as const,
+      pendingSharedBackfill: true,
+      sourceAuthorName: fallback.sourceAuthorName,
+      sourceUpdatedAt: fallback.updatedAt,
+      contentHash: jsonHash(fallback.annotation),
+    };
+  }
   const live = await loadAnnotationById(collaboration.annotationId, db);
   if (live?.taxonomyVersion === V03_TAXONOMY_VERSION) {
     return {
@@ -193,6 +275,10 @@ export async function loadSharedV03ReadModel(
       annotation: live,
       mutableAvailable: true,
       displaySource: "WORKING" as const,
+      pendingSharedBackfill: false,
+      sourceAuthorName: collaboration.sourceAuthorName,
+      sourceUpdatedAt: live.updatedAt,
+      contentHash: jsonHash(live),
     };
   }
   const currentSnapshot = await loadSnapshotDraft(collaboration.currentSnapshotId, db);
@@ -202,6 +288,10 @@ export async function loadSharedV03ReadModel(
       annotation: currentSnapshot,
       mutableAvailable: false,
       displaySource: "IMMUTABLE_SNAPSHOT" as const,
+      pendingSharedBackfill: false,
+      sourceAuthorName: collaboration.sourceAuthorName,
+      sourceUpdatedAt: currentSnapshot.updatedAt,
+      contentHash: jsonHash(currentSnapshot),
     };
   }
   if (collaboration.activeReleaseId) {
@@ -219,6 +309,10 @@ export async function loadSharedV03ReadModel(
         annotation: payload,
         mutableAvailable: false,
         displaySource: "APPROVED_RELEASE" as const,
+        pendingSharedBackfill: false,
+        sourceAuthorName: collaboration.sourceAuthorName,
+        sourceUpdatedAt: payload.updatedAt,
+        contentHash: jsonHash(payload),
       };
     }
   }
@@ -236,6 +330,10 @@ export async function loadSharedV03ReadModel(
     annotation: payload,
     mutableAvailable: false,
     displaySource: "INITIAL_BASELINE" as const,
+    pendingSharedBackfill: false,
+    sourceAuthorName: collaboration.sourceAuthorName,
+    sourceUpdatedAt: payload.updatedAt,
+    contentHash: jsonHash(payload),
   };
 }
 

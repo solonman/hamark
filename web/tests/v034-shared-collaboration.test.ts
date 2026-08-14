@@ -66,14 +66,18 @@ test("shared GET cannot seed a personal draft and writes use optimistic locking"
     readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(route, /loadSharedV03Annotation/);
-  assert.match(route, /读取页面不会自动创建个人空白稿/);
+  assert.match(route, /loadSharedV03ReadModel/);
+  assert.match(route, /不会自动创建个人空白稿/);
   assert.doesNotMatch(route.slice(route.indexOf("export async function GET"), route.indexOf("export async function POST")), /seedV03From/);
   assert.match(service, /FOR UPDATE OF stream/);
   assert.match(service, /REVISION_CONFLICT/);
   assert.match(service, /v03_collaboration_revision_events/);
   assert.match(practice, /CURRENT PUBLIC V0\.3/);
   assert.match(detail, /当前公共 V0\.3/);
+  assert.match(service, /loadLegacyV03Fallback/);
+  assert.match(service, /LEGACY_V03_FALLBACK/);
+  assert.match(practice, /待接入共享主线 · 只读/);
+  assert.match(detail, /既有 V0\.3 · 待接入共享主线/);
   assert.match(detail, /!currentPublicV03 && analyses\.length === 0/);
   assert.doesNotMatch(practice, /MY REVERSE-ENGINEERING NOTES/);
 });

@@ -10,8 +10,9 @@ import {
   V03_WORKFLOW_VERSION,
 } from "@/lib/taxonomy-v0.3";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import { isFinalReviewer } from "@/lib/admin";
 import {
-  loadSharedV03Annotation,
+  loadSharedV03ReadModel,
   saveSharedV03Draft,
   V03CollaborationError,
 } from "@/lib/v03-collaboration";
@@ -43,7 +44,7 @@ export async function GET(
   }
 
   const shared = taxonomyVersion === V03_TAXONOMY_VERSION
-    ? await loadSharedV03Annotation(id)
+    ? await loadSharedV03ReadModel(id)
     : null;
   const annotation = taxonomyVersion === V03_TAXONOMY_VERSION
     ? shared?.annotation ?? null
@@ -53,7 +54,9 @@ export async function GET(
       video,
       annotation: null,
       collaboration: null,
-      error: "这个作品尚未建立公共 V0.3。读取页面不会自动创建个人空白稿。",
+      pendingSharedBackfill: false,
+      canAdminSharedV03Backfill: await isFinalReviewer(user),
+      error: "这个作品尚未找到既有 V0.3；读取页面不会自动创建个人空白稿。",
     }, { status: 404 });
   }
   const published = annotation?.id
@@ -81,6 +84,8 @@ export async function GET(
     video,
     annotation,
     collaboration: shared?.collaboration ?? null,
+    pendingSharedBackfill: shared?.pendingSharedBackfill ?? false,
+    canAdminSharedV03Backfill: await isFinalReviewer(user),
     seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION &&
       sourceSnapshot?.taxonomy_version === "V0.2" &&
       annotation?.reviewStatus === "DRAFT" &&
