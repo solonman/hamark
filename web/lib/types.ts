@@ -33,6 +33,7 @@ export type VideoItem = {
   createdByName: string;
   createdAt: string;
   annotationCount: number;
+  hasV03Content?: boolean;
 };
 
 export type ShotDraft = {

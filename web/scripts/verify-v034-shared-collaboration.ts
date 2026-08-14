@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { applySchema } from "../db/bootstrap.ts";
 import { getDbClient } from "../db/index.ts";
 import { isFinalReviewer } from "../lib/admin.ts";
+import { emptyAnnotation } from "../lib/annotation-server.ts";
 import {
   applyV03SharedBackfillCandidate,
   previewV03SharedBackfill,
@@ -24,6 +25,7 @@ const runId = `shared_${Date.now().toString(36)}`;
 process.env.V033_TEST_RUN_ID = runId;
 const prefix = `test_only_v033_${runId}`;
 const videoId = `${prefix}_video`;
+const emptyVideoId = `${prefix}_empty_video`;
 const annotationId = `${prefix}_annotation`;
 const reviewer = {
   id: "test_reviewer",
@@ -89,6 +91,119 @@ const businessBefore = JSON.stringify(await db.prepare(businessFingerprintSql())
 
 try {
   await runFixture("prepare");
+  const emptyCounts = async () => db.prepare(
+    `SELECT
+      (SELECT COUNT(*) FROM annotations WHERE video_id = ?) AS annotations,
+      (SELECT COUNT(*) FROM v03_collaboration_streams WHERE video_id = ?) AS streams,
+      (SELECT COUNT(*) FROM v03_collaboration_rounds round
+        INNER JOIN v03_collaboration_streams stream ON stream.id = round.stream_id
+        WHERE stream.video_id = ?) AS rounds,
+      (SELECT COUNT(*) FROM v03_collaboration_baselines baseline
+        INNER JOIN v03_collaboration_streams stream ON stream.id = baseline.stream_id
+        WHERE stream.video_id = ?) AS baselines`,
+  ).bind(emptyVideoId, emptyVideoId, emptyVideoId, emptyVideoId)
+    .first<Record<string, number>>();
+  const beforeEmptyGet = JSON.stringify(await emptyCounts());
+  assert.equal(
+    await loadSharedV03ReadModel(emptyVideoId, db),
+    null,
+    "a new video must expose a logical empty workspace without materializing data",
+  );
+  assert.equal(
+    JSON.stringify(await emptyCounts()),
+    beforeEmptyGet,
+    "reading the logical empty workspace must write zero rows",
+  );
+
+  const initialDraft = (actor: CurrentUser, commercialIntent: string) => {
+    const payload = emptyAnnotation(emptyVideoId, actor.displayName, "V0.3-PILOT");
+    const groupId = `${prefix}_empty_group`;
+    payload.analysisTitle = "TEST_ONLY 新案例公共反写";
+    payload.commercialIntent = commercialIntent;
+    payload.shotGroups = [{
+      id: groupId,
+      orderIndex: 0,
+      title: "桥段 1",
+      primaryRole: "",
+      auxiliaryRoles: [],
+      customRole: "",
+      note: "",
+    }];
+    payload.shots = [{
+      id: `${prefix}_empty_shot`,
+      orderIndex: 0,
+      groupName: "桥段 1",
+      shotNumber: "1",
+      startTime: "",
+      endTime: "",
+      shotSize: "",
+      cameraAngle: "",
+      cameraMovement: "",
+      visualContent: "TEST_ONLY 首次填写画面",
+      dialogue: "",
+      voiceover: "",
+      screenText: "",
+      soundEffect: "",
+      music: "",
+      creativeComment: "",
+      shotGroupId: groupId,
+    }];
+    return payload;
+  };
+  const simultaneous = await Promise.allSettled([
+    saveSharedV03Draft({
+      videoId: emptyVideoId,
+      payload: initialDraft(reviewer, "普通成员一首次填写。"),
+      actor: reviewer,
+    }),
+    saveSharedV03Draft({
+      videoId: emptyVideoId,
+      payload: initialDraft(peer, "普通成员二并发首次填写。"),
+      actor: peer,
+    }),
+  ]);
+  const firstSuccesses = simultaneous.filter(
+    (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof saveSharedV03Draft>>> =>
+      result.status === "fulfilled",
+  );
+  const firstConflicts = simultaneous.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  assert.equal(firstSuccesses.length, 1, "concurrent first saves must have one winner");
+  assert.equal(firstConflicts.length, 1, "concurrent first saves must return one conflict");
+  assert(
+    firstConflicts[0].reason instanceof V03CollaborationError &&
+      firstConflicts[0].reason.code === "REVISION_CONFLICT",
+    "the losing first save must get the existing optimistic-lock conflict",
+  );
+  const createdCounts = await emptyCounts();
+  assert.deepEqual(
+    {
+      annotations: Number(createdCounts?.annotations ?? 0),
+      streams: Number(createdCounts?.streams ?? 0),
+      rounds: Number(createdCounts?.rounds ?? 0),
+      baselines: Number(createdCounts?.baselines ?? 0),
+    },
+    { annotations: 1, streams: 1, rounds: 1, baselines: 1 },
+    "first save must atomically materialize exactly one canonical workspace",
+  );
+  const emptyShared = await loadSharedV03Annotation(emptyVideoId, db);
+  assert(emptyShared, "the materialized workspace must be readable by every member");
+  assert.equal(emptyShared.collaboration.roundBaseType, "EMPTY_INITIAL");
+  assert.equal(emptyShared.annotation.revision, 1);
+  const peerContinuation = structuredClone(emptyShared.annotation);
+  peerContinuation.synopsis = "第二位普通成员继续填写同一份公共工作稿。";
+  const continuedByPeer = await saveSharedV03Draft({
+    videoId: emptyVideoId,
+    payload: peerContinuation,
+    actor: peer,
+  });
+  assert.equal(continuedByPeer.annotation.revision, 2);
+  assert.equal(
+    (await loadSharedV03Annotation(emptyVideoId, db))?.annotation.synopsis,
+    peerContinuation.synopsis,
+  );
+
   const preApplyFallback = await loadSharedV03ReadModel(videoId, db);
   assert(preApplyFallback, "schema installed + stream absent must still expose legacy V0.3");
   assert.equal(preApplyFallback.pendingSharedBackfill, true);
@@ -230,6 +345,9 @@ try {
     reviewerRevision: savedByReviewer.annotation.revision,
     peerRevision: savedByPeer.annotation.revision,
     conflictProtected: true,
+    logicalEmptyGetWrites: 0,
+    concurrentFirstSaveUnique: true,
+    secondMemberContinuedRevision: continuedByPeer.annotation.revision,
     expertOnly: true,
     immutableReleasePreserved: true,
     immutableInitialBaselinePreserved: true,

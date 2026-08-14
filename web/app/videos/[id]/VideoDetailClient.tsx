@@ -63,7 +63,6 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [sharedV03DisplaySource, setSharedV03DisplaySource] = useState<string | null>(null);
   const [sharedV03PendingBackfill, setSharedV03PendingBackfill] = useState(false);
   const [sharedV03SourceAuthorName, setSharedV03SourceAuthorName] = useState<string | null>(null);
-  const [canAdminSharedV03Backfill, setCanAdminSharedV03Backfill] = useState(false);
   const [initialBaseline, setInitialBaseline] = useState<SubmittedAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -99,7 +98,6 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           sharedV03DisplaySource?: string | null;
           sharedV03PendingBackfill?: boolean;
           sharedV03SourceAuthorName?: string | null;
-          canAdminSharedV03Backfill?: boolean;
           canManage?: boolean;
           canDeletePermanently?: boolean;
           error?: string;
@@ -117,7 +115,6 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           setSharedV03DisplaySource(data.sharedV03DisplaySource ?? null);
           setSharedV03PendingBackfill(Boolean(data.sharedV03PendingBackfill));
           setSharedV03SourceAuthorName(data.sharedV03SourceAuthorName ?? null);
-          setCanAdminSharedV03Backfill(Boolean(data.canAdminSharedV03Backfill));
           setCanManage(Boolean(data.canManage));
           setCanDeletePermanently(Boolean(data.canDeletePermanently));
         }
@@ -350,7 +347,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         <div className="detail-header-actions">
           <span>{analyses.length} 份公开分析</span>
           <Link className="button button-accent" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-            {sharedV03MutableAvailable ? "编辑公共 V0.3" : currentPublicV03 ? "查看待接入 V0.3" : "查看 V0.3 状态"}
+            {currentPublicV03 ? "继续 V0.3 逆向工程" : "开始 V0.3 逆向工程"}
           </Link>
         </div>
       </header>
@@ -467,23 +464,12 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             <h2 id="analysis-title">脚本及创意分析</h2>
           </div>
           <div className="analysis-entry-actions">
-            {sharedV03MutableAvailable ? (
-              <Link
-                className="text-button"
-                href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
-              >
-                进入共享修订 ↗
-              </Link>
-            ) : currentPublicV03 ? (
-              <Link className="text-button" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-                查看待接入 V0.3 ↗
-              </Link>
-            ) : null}
-            {canAdminSharedV03Backfill && !collaboration ? (
-              <Link className="text-button" href="/admin/v03-shared-backfill">
-                管理员接入共享主线 ↗
-              </Link>
-            ) : null}
+            <Link
+              className="text-button"
+              href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
+            >
+              {currentPublicV03 ? "继续 V0.3 逆向工程 ↗" : "开始 V0.3 逆向工程 ↗"}
+            </Link>
             <Link className="text-button muted" href={`/videos/${videoId}/practice?taxonomy=V0.2`}>
               历史体系 V0.2 · 只读查看
             </Link>
@@ -517,7 +503,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                   {sharedV03MutableAvailable && collaboration
                     ? collaboration.roundStatus
                     : sharedV03PendingBackfill
-                      ? "只读 · 待管理员接入"
+                      ? "既有内容 · 兼容只读"
                       : `只读恢复显示 · ${sharedV03DisplaySource}`}
                 </span>
                 {sharedV03MutableAvailable ? (
@@ -525,7 +511,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                     className="button button-accent compact"
                     href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
                   >
-                    编辑公共 V0.3
+                    编辑公共 V0.3 · 进入共享修订
                   </Link>
                 ) : null}
               </div>
@@ -548,7 +534,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               <SubmittedAnalysisContent analysis={currentPublicV03} forceOpen />
             </AnalysisComments> : <>
               <p className="review-notice">
-                这份既有 V0.3 正在等待管理员接入共享主线；内容保持可见但暂时只读，不会创建个人空白稿。
+                这份既有 V0.3 正在通过兼容读取保留显示；内容不会消失，也不会创建个人空白稿。
               </p>
               <SubmittedAnalysisContent analysis={currentPublicV03} forceOpen />
             </>}
@@ -572,7 +558,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
                   disabled={versionLoading === collaboration.streamId}
                   onClick={() => void loadInitialBaseline()}
                 >
-                  {versionLoading === collaboration.streamId ? "读取中…" : "查看初始映射基线"}
+                  {versionLoading === collaboration.streamId ? "读取中…" : "查看公共初始基线"}
                 </button>
               ) : (
                 <SubmittedAnalysisContent analysis={initialBaseline} forceOpen={false} />
@@ -581,9 +567,11 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           </article>
         ) : (
           <div className="no-analysis">
-            <span>尚未找到既有 V0.3</span>
-            <p>读取页面不会自动创建个人空白稿；建立内容后再由管理员接入共享主线。</p>
-            {canAdminSharedV03Backfill ? <Link className="text-button" href="/admin/v03-shared-backfill">管理员接入工具 ↗</Link> : null}
+            <span>尚未开始 V0.3 逆向工程</span>
+            <p>打开完整空白工作区即可开始填写；读取页面不写数据，第一次保存时才建立唯一的公共工作稿。</p>
+            <Link className="button button-accent compact" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+              开始 V0.3 逆向工程
+            </Link>
           </div>
         )}
 

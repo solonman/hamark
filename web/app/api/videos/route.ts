@@ -15,6 +15,7 @@ type VideoRow = {
   created_by_name: string;
   created_at: string;
   annotation_count: number;
+  has_v03_content: boolean;
 };
 
 function tagsFromJson(value: string) {
@@ -36,7 +37,12 @@ export async function GET(request: Request) {
         to_jsonb(v)->>'thumbnail_key' AS thumbnail_key,
         v.original_name, v.content_type, v.file_size, v.status,
         v.created_by_name, v.created_at,
-        (SELECT COUNT(*) FROM annotation_snapshots s WHERE s.video_id = v.id) AS annotation_count
+        (SELECT COUNT(*) FROM annotation_snapshots s WHERE s.video_id = v.id) AS annotation_count,
+        EXISTS (
+          SELECT 1 FROM annotations a
+          WHERE a.video_id = v.id AND a.taxonomy_version = 'V0.3-PILOT'
+            AND a.deleted_at IS NULL
+        ) AS has_v03_content
       FROM videos v
       WHERE v.deleted_at IS NULL
         AND COALESCE(v.data_scope, 'BUSINESS') = 'BUSINESS'
@@ -66,6 +72,7 @@ export async function GET(request: Request) {
       createdByName: row.created_by_name,
       createdAt: row.created_at,
       annotationCount: Number(row.annotation_count || 0),
+      hasV03Content: Boolean(row.has_v03_content),
     })),
   );
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { getDbClient, withDbTransaction, type DbClient } from "@/db";
 import { annotationFields } from "@/lib/annotation-fields";
-import { loadAnnotationById } from "@/lib/annotation-server";
+import { emptyAnnotation, loadAnnotationById } from "@/lib/annotation-server";
 import type { CurrentUser } from "@/lib/auth/types";
 import {
   emptyCreativeStructure,
@@ -1088,13 +1088,154 @@ export async function saveSharedV03Draft(input: {
   expectedSnapshotId?: string;
 }) {
   return withDbTransaction(async (db) => {
-    const collaboration = await loadV03CollaborationContext(input.videoId, db, true);
+    await db.prepare(
+      `SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`,
+    ).bind(`v03-logical-workspace:${input.videoId}`).run();
+    let collaboration = await loadV03CollaborationContext(input.videoId, db, true);
     if (!collaboration) {
-      throw new V03CollaborationError(
-        "SHARED_STREAM_MISSING",
-        "这个作品尚未建立公共 V0.3，请联系管理员完成共享主线接入。",
-        409,
+      const legacy = await loadLegacyV03Fallback(input.videoId, db);
+      if (legacy) {
+        throw new V03CollaborationError(
+          "SHARED_STREAM_PENDING_BACKFILL",
+          "这份既有 V0.3 尚未接入公共主线，原文保持只读；请稍后重试。",
+          409,
+        );
+      }
+      const video = await db.prepare(
+        `SELECT id FROM videos WHERE id = ? AND deleted_at IS NULL FOR UPDATE`,
+      ).bind(input.videoId).first<{ id: string }>();
+      if (!video) {
+        throw new V03CollaborationError("VIDEO_MISSING", "视频不存在。", 404);
+      }
+      if (Number(input.payload.revision) !== 0 || input.payload.id) {
+        throw new V03CollaborationError(
+          "INITIAL_REVISION_CONFLICT",
+          "公共工作区状态已经变化；本页内容仍保留，请刷新后重试。",
+          409,
+          0,
+        );
+      }
+
+      const createdAt = new Date().toISOString();
+      const annotationId = newId("annotation");
+      const streamId = newId("collaboration_stream");
+      const baselineId = newId("collaboration_baseline");
+      const roundId = newId("collaboration_round");
+      const blank = emptyAnnotation(
+        input.videoId,
+        input.actor.displayName,
+        V03_TAXONOMY_VERSION,
       );
+      blank.id = annotationId;
+      blank.updatedAt = createdAt;
+
+      await db.prepare(
+        `INSERT INTO annotations (
+          id, video_id, author_email, author_name, taxonomy_version,
+          workflow_version, status, review_status, revision,
+          analysis_title, commercial_intent, creative_theme, synopsis,
+          thinking_chain, shot_commentary, summary, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'V0.3-PILOT', ?, 'DRAFT', 'DRAFT', 0,
+          '', '', '', '', '', '', '', ?, ?)`,
+      ).bind(
+        annotationId,
+        input.videoId,
+        input.actor.identityKey,
+        input.actor.displayName,
+        V03_WORKFLOW_VERSION,
+        createdAt,
+        createdAt,
+      ).run();
+      await db.prepare(
+        `INSERT INTO v03_collaboration_streams (
+          id, video_id, taxonomy_version, canonical_annotation_id,
+          initial_baseline_id, active_round_id, active_release_id,
+          current_snapshot_id, source_author_email, source_author_name,
+          status, created_by_email, created_by_name, created_at, updated_at
+        ) VALUES (?, ?, 'V0.3-PILOT', ?, NULL, NULL, NULL, NULL,
+          ?, ?, 'ACTIVE', ?, ?, ?, ?)`,
+      ).bind(
+        streamId,
+        input.videoId,
+        annotationId,
+        input.actor.identityKey,
+        input.actor.displayName,
+        input.actor.identityKey,
+        input.actor.displayName,
+        createdAt,
+        createdAt,
+      ).run();
+      await db.prepare(
+        `INSERT INTO v03_collaboration_sources (
+          id, stream_id, annotation_id, relation_type,
+          source_author_email, source_author_name
+        ) VALUES (?, ?, ?, 'CANONICAL', ?, ?)`,
+      ).bind(
+        newId("collaboration_source"),
+        streamId,
+        annotationId,
+        input.actor.identityKey,
+        input.actor.displayName,
+      ).run();
+      await db.prepare(
+        `INSERT INTO v03_collaboration_baselines (
+          id, stream_id, annotation_id, source_type, source_snapshot_id,
+          source_operation_key, payload_json, content_hash,
+          source_author_email, source_author_name, created_by_email, created_by_name
+        ) VALUES (?, ?, ?, 'EXISTING_V03', NULL, 'EMPTY_INITIAL', ?::jsonb, ?, ?, ?, ?, ?)`,
+      ).bind(
+        baselineId,
+        streamId,
+        annotationId,
+        JSON.stringify(blank),
+        jsonHash(blank),
+        input.actor.identityKey,
+        input.actor.displayName,
+        input.actor.identityKey,
+        input.actor.displayName,
+      ).run();
+      await db.prepare(
+        `INSERT INTO v03_collaboration_rounds (
+          id, stream_id, annotation_id, round_number, status, base_type,
+          base_baseline_id, base_release_id, base_snapshot_id,
+          starting_revision, created_by_email, created_by_name
+        ) VALUES (?, ?, ?, 1, 'ACTIVE', 'EMPTY_INITIAL', ?, NULL, NULL, 0, ?, ?)`,
+      ).bind(
+        roundId,
+        streamId,
+        annotationId,
+        baselineId,
+        input.actor.identityKey,
+        input.actor.displayName,
+      ).run();
+      await db.prepare(
+        `UPDATE v03_collaboration_streams SET initial_baseline_id = ?,
+          active_round_id = ?, updated_at = ? WHERE id = ?`,
+      ).bind(baselineId, roundId, createdAt, streamId).run();
+      await db.prepare(
+        `INSERT INTO audit_logs (id, actor_email, action, object_type, object_id, detail_json)
+        VALUES (?, ?, 'SHARED_V03_INITIALIZED', 'V03_COLLABORATION_STREAM', ?, ?)`,
+      ).bind(
+        newId("audit"),
+        input.actor.identityKey,
+        streamId,
+        JSON.stringify({
+          videoId: input.videoId,
+          annotationId,
+          baselineId,
+          roundId,
+          baseType: "EMPTY_INITIAL",
+          initialRevision: 0,
+        }),
+      ).run();
+      collaboration = await loadV03CollaborationContext(input.videoId, db, true);
+      if (!collaboration) {
+        throw new V03CollaborationError(
+          "INITIALIZATION_FAILED",
+          "公共 V0.3 工作区初始化失败，事务已回滚。",
+          500,
+        );
+      }
     }
     if (collaboration.roundStatus !== "ACTIVE") {
       throw new V03CollaborationError("ROUND_NOT_ACTIVE", "当前共享修订轮不可写。", 423);
@@ -1224,7 +1365,12 @@ export async function saveSharedV03Draft(input: {
     ).run();
     return {
       annotation: next,
-      collaboration: { ...collaboration, currentSnapshotId: snapshotId },
+      collaboration: {
+        ...collaboration,
+        currentSnapshotId: snapshotId,
+        lastEditorName: input.actor.displayName,
+        lastEditedAt: updatedAt,
+      },
       changeSetId,
       snapshotId,
     };

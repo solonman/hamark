@@ -47,7 +47,7 @@ type AnnotationResponse = {
   publishedVersionCount?: number;
   seededFromV02?: boolean;
   pendingSharedBackfill?: boolean;
-  canAdminSharedV03Backfill?: boolean;
+  logicalWorkspaceEmpty?: boolean;
   error?: string;
 };
 
@@ -154,8 +154,8 @@ export default function PracticeClient({
   const [publishedVersionCount, setPublishedVersionCount] = useState(0);
   const [seededFromV02, setSeededFromV02] = useState(false);
   const [collaboration, setCollaboration] = useState<NonNullable<AnnotationResponse["collaboration"]> | null>(null);
+  const [logicalWorkspaceEmpty, setLogicalWorkspaceEmpty] = useState(false);
   const [pendingSharedBackfill, setPendingSharedBackfill] = useState(false);
-  const [canAdminSharedV03Backfill, setCanAdminSharedV03Backfill] = useState(false);
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -202,8 +202,8 @@ export default function PracticeClient({
           setPublishedVersionCount(Number(data.publishedVersionCount ?? 0));
           setSeededFromV02(Boolean(data.seededFromV02));
           setCollaboration(data.collaboration ?? null);
+          setLogicalWorkspaceEmpty(Boolean(data.logicalWorkspaceEmpty));
           setPendingSharedBackfill(Boolean(data.pendingSharedBackfill));
-          setCanAdminSharedV03Backfill(Boolean(data.canAdminSharedV03Backfill));
           setDraft(
             taxonomyVersion === "V0.3-PILOT"
               ? ensureV03Worksheet(data.annotation)
@@ -260,6 +260,7 @@ export default function PracticeClient({
       if (redirectOnUnauthorized(response)) return null;
       const data = (await response.json().catch(() => ({}))) as SaveResponseBody & {
         annotationId?: string;
+        collaboration?: AnnotationResponse["collaboration"];
       };
       const outcome = interpretSaveResponse(
         response.status,
@@ -277,6 +278,8 @@ export default function PracticeClient({
         throw new Error(outcome.message);
       }
       setConflict(null);
+      if (data.collaboration) setCollaboration(data.collaboration);
+      setLogicalWorkspaceEmpty(false);
       const saved = {
         ...current,
         id: outcome.id,
@@ -524,7 +527,7 @@ export default function PracticeClient({
               <h1>{draft.analysisTitle || videoTitle || "未命名公共分析"}</h1>
               <small>来源署名 {draft.authorName} · rev {draft.revision}</small>
             </div>
-            {canAdminSharedV03Backfill ? <Link className="button button-accent compact" href="/admin/v03-shared-backfill">管理员接入共享主线</Link> : null}
+            <Link className="button button-ghost compact" href={`/videos/${videoId}`}>返回作品</Link>
           </div>
           <p className="review-notice">原有内容完整保留并可查看；完成受控接入前暂不允许编辑，也不会创建个人空白稿。</p>
           <SubmittedAnalysisContent analysis={readOnlyAnalysis} forceOpen />
@@ -613,6 +616,15 @@ export default function PracticeClient({
         </div>
       ) : null}
 
+      {logicalWorkspaceEmpty ? (
+        <div className="revision-context-banner">
+          <strong>开始公共 V0.3 逆向工程</strong>
+          <span>
+            这是该作品唯一的团队工作区。打开页面不会写入数据；第一次实际保存时才建立公共工作稿，之后所有 ACTIVE 成员继续维护同一份内容。
+          </span>
+        </div>
+      ) : null}
+
       {draft.baseReleaseNumber ? (
         <div className="revision-context-banner active-standard-baseline-banner">
           <strong>本轮基于活动标准版 R{draft.baseReleaseNumber} 创建</strong>
@@ -688,7 +700,7 @@ export default function PracticeClient({
               来源署名：{collaboration?.sourceAuthorName ?? draft.authorName} ·{" "}
               {collaboration
                 ? `共享修订轮 ${collaboration.roundNumber} · 工作稿 rev ${draft.revision}`
-                : "尚未接入共享主线"}
+                : "尚未保存 · 首次保存时建立公共工作稿"}
             </p>
           </div>
 

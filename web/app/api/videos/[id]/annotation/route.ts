@@ -1,5 +1,6 @@
 import { getDbClient, type DbPreparedStatement } from "@/db";
 import {
+  emptyAnnotation,
   loadAnnotation,
 } from "@/lib/annotation-server";
 import { annotationFields } from "@/lib/annotation-fields";
@@ -47,18 +48,8 @@ export async function GET(
     ? await loadSharedV03ReadModel(id)
     : null;
   const annotation = taxonomyVersion === V03_TAXONOMY_VERSION
-    ? shared?.annotation ?? null
+    ? shared?.annotation ?? emptyAnnotation(id, user.displayName, V03_TAXONOMY_VERSION)
     : await loadAnnotation(id, user.identityKey, user.displayName, taxonomyVersion);
-  if (taxonomyVersion === V03_TAXONOMY_VERSION && !shared) {
-    return Response.json({
-      video,
-      annotation: null,
-      collaboration: null,
-      pendingSharedBackfill: false,
-      canAdminSharedV03Backfill: await isFinalReviewer(user),
-      error: "这个作品尚未找到既有 V0.3；读取页面不会自动创建个人空白稿。",
-    }, { status: 404 });
-  }
   const published = annotation?.id
     ? await getDbClient()
         .prepare(
@@ -84,6 +75,8 @@ export async function GET(
     video,
     annotation,
     collaboration: shared?.collaboration ?? null,
+    logicalWorkspaceEmpty:
+      taxonomyVersion === V03_TAXONOMY_VERSION && !shared,
     pendingSharedBackfill: shared?.pendingSharedBackfill ?? false,
     canAdminSharedV03Backfill: await isFinalReviewer(user),
     seededFromV02: taxonomyVersion === V03_TAXONOMY_VERSION &&

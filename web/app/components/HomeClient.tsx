@@ -300,8 +300,10 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
                   </div>
                   <div className="card-actions">
                     <Link href={`/videos/${video.id}`}>看片与分析</Link>
-                    <Link href={`/videos/${video.id}/practice`}>
-                      开始练习 <span aria-hidden="true">↗</span>
+                    <Link href={`/videos/${video.id}/practice?taxonomy=V0.3-PILOT`}>
+                      {video.hasV03Content
+                        ? "继续 V0.3 逆向工程"
+                        : "开始 V0.3 逆向工程"} <span aria-hidden="true">↗</span>
                     </Link>
                   </div>
                 </div>

@@ -59,26 +59,40 @@ test("V0.3 shared schema is additive and enforces one active stream and round", 
   assert.doesNotMatch(migration, /DROP|TRUNCATE|DELETE\s+FROM|UPDATE\s+annotations/i);
 });
 
-test("shared GET cannot seed a personal draft and writes use optimistic locking", async () => {
-  const [route, service, practice, detail] = await Promise.all([
+test("logical workspace GET stays read-only and first save materializes one shared stream", async () => {
+  const [route, service, practice, detail, home, videosRoute] = await Promise.all([
     readFile(new URL("../app/api/videos/[id]/annotation/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/v03-collaboration.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/practice/PracticeClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/[id]/VideoDetailClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/HomeClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/route.ts", import.meta.url), "utf8"),
   ]);
   assert.match(route, /loadSharedV03ReadModel/);
-  assert.match(route, /不会自动创建个人空白稿/);
+  assert.match(route, /emptyAnnotation\(id, user\.displayName, V03_TAXONOMY_VERSION\)/);
+  assert.match(route, /logicalWorkspaceEmpty/);
   assert.doesNotMatch(route.slice(route.indexOf("export async function GET"), route.indexOf("export async function POST")), /seedV03From/);
+  assert.doesNotMatch(route.slice(route.indexOf("export async function GET"), route.indexOf("export async function POST")), /INSERT INTO|UPDATE\s+annotations|DELETE FROM/i);
+  assert.match(service, /pg_advisory_xact_lock\(hashtextextended/);
+  assert.match(service, /SHARED_V03_INITIALIZED/);
+  assert.match(service, /'EMPTY_INITIAL'/);
   assert.match(service, /FOR UPDATE OF stream/);
   assert.match(service, /REVISION_CONFLICT/);
   assert.match(service, /v03_collaboration_revision_events/);
   assert.match(practice, /CURRENT PUBLIC V0\.3/);
+  assert.match(practice, /开始公共 V0\.3 逆向工程/);
+  assert.match(practice, /首次保存时建立公共工作稿/);
   assert.match(detail, /当前公共 V0\.3/);
+  assert.match(detail, /开始 V0\.3 逆向工程/);
+  assert.match(detail, /继续 V0\.3 逆向工程/);
   assert.match(service, /loadLegacyV03Fallback/);
   assert.match(service, /LEGACY_V03_FALLBACK/);
   assert.match(practice, /待接入共享主线 · 只读/);
   assert.match(detail, /既有 V0\.3 · 待接入共享主线/);
-  assert.match(detail, /!currentPublicV03 && analyses\.length === 0/);
+  assert.doesNotMatch(detail, /管理员接入共享主线/);
+  assert.match(home, /开始 V0\.3 逆向工程/);
+  assert.match(home, /继续 V0\.3 逆向工程/);
+  assert.match(videosRoute, /has_v03_content/);
   assert.doesNotMatch(practice, /MY REVERSE-ENGINEERING NOTES/);
 });
 

@@ -153,8 +153,59 @@ async function cleanup(db: DbClient) {
   }
   await db.withTransaction(async (transaction) => {
     const streams = await transaction.prepare(
-      `SELECT id FROM v03_collaboration_streams WHERE video_id = ?`,
-    ).bind(ids.video).all<{ id: string }>();
+      `SELECT id FROM v03_collaboration_streams WHERE video_id IN (?, ?)`,
+    ).bind(ids.video, ids.emptyVideo).all<{ id: string }>();
+    await transaction.prepare(
+      `DELETE FROM audit_logs WHERE
+        object_id IN (
+          SELECT event.change_set_id FROM v03_collaboration_revision_events event
+          INNER JOIN v03_collaboration_streams stream ON stream.id = event.stream_id
+          WHERE stream.video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT id FROM v03_collaboration_streams WHERE video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT baseline.id FROM v03_collaboration_baselines baseline
+          INNER JOIN v03_collaboration_streams stream ON stream.id = baseline.stream_id
+          WHERE stream.video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT round.id FROM v03_collaboration_rounds round
+          INNER JOIN v03_collaboration_streams stream ON stream.id = round.stream_id
+          WHERE stream.video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT id FROM annotations WHERE video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT id FROM analysis_revision_events WHERE video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT change_set_id FROM analysis_revision_events
+          WHERE video_id IN (?, ?) AND change_set_id IS NOT NULL
+        )
+        OR object_id IN (
+          SELECT id FROM analysis_review_rounds WHERE video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT id FROM approved_analysis_releases WHERE video_id IN (?, ?)
+        )
+        OR object_id IN (
+          SELECT id FROM annotation_snapshots WHERE video_id IN (?, ?)
+        )`,
+    ).bind(
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+      ids.video, ids.emptyVideo,
+    ).run();
     for (const stream of streams.results) {
       await transaction.prepare(
         `DELETE FROM v03_collaboration_revision_events WHERE stream_id = ?`,
@@ -179,34 +230,42 @@ async function cleanup(db: DbClient) {
     }
     await transaction.prepare(
       `DELETE FROM admin_data_operations
-      WHERE target_video_id = ? AND operation_key LIKE 'TEST_ONLY_%'`,
-    ).bind(ids.video).run();
-    await transaction.prepare(
-      `DELETE FROM audit_logs WHERE
-        object_id IN (SELECT id FROM analysis_revision_events WHERE video_id = ?)
-        OR object_id IN (SELECT change_set_id FROM analysis_revision_events WHERE video_id = ? AND change_set_id IS NOT NULL)
-        OR object_id IN (SELECT id FROM analysis_review_rounds WHERE video_id = ?)
-        OR object_id IN (SELECT id FROM approved_analysis_releases WHERE video_id = ?)
-        OR object_id IN (SELECT id FROM annotation_snapshots WHERE video_id = ?)
-        OR object_id IN (?, ?)`,
-    ).bind(ids.video, ids.video, ids.video, ids.video, ids.video, ids.video, ids.annotation).run();
-    await transaction.prepare(`DELETE FROM analysis_comments WHERE video_id = ?`).bind(ids.video).run();
-    await transaction.prepare(`DELETE FROM analysis_revision_events WHERE video_id = ?`).bind(ids.video).run();
+      WHERE target_video_id IN (?, ?) AND operation_key LIKE 'TEST_ONLY_%'`,
+    ).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(`DELETE FROM analysis_comments WHERE video_id IN (?, ?)`).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(`DELETE FROM analysis_revision_events WHERE video_id IN (?, ?)`).bind(ids.video, ids.emptyVideo).run();
     await transaction.prepare(
       `UPDATE annotations SET base_release_id = NULL, base_snapshot_id = NULL,
-        source_public_snapshot_id = NULL, active_base_snapshot_id = NULL WHERE id = ?`,
-    ).bind(ids.annotation).run();
+        source_public_snapshot_id = NULL, active_base_snapshot_id = NULL
+      WHERE video_id IN (?, ?)`,
+    ).bind(ids.video, ids.emptyVideo).run();
     await transaction.prepare(
-      `UPDATE annotation_snapshots SET base_release_id = NULL WHERE video_id = ?`,
-    ).bind(ids.video).run();
-    await transaction.prepare(`DELETE FROM approved_analysis_releases WHERE video_id = ?`).bind(ids.video).run();
-    await transaction.prepare(`DELETE FROM analysis_review_rounds WHERE video_id = ?`).bind(ids.video).run();
-    await transaction.prepare(`DELETE FROM annotation_snapshots WHERE video_id = ?`).bind(ids.video).run();
-    await transaction.prepare(`DELETE FROM field_answers WHERE annotation_id = ?`).bind(ids.annotation).run();
-    await transaction.prepare(`DELETE FROM shots WHERE annotation_id = ?`).bind(ids.annotation).run();
-    await transaction.prepare(`DELETE FROM shot_groups WHERE annotation_id = ?`).bind(ids.annotation).run();
-    await transaction.prepare(`DELETE FROM annotation_creative_structures WHERE annotation_id = ?`).bind(ids.annotation).run();
-    await transaction.prepare(`DELETE FROM annotations WHERE id = ? AND video_id = ?`).bind(ids.annotation, ids.video).run();
+      `UPDATE annotation_snapshots SET base_release_id = NULL WHERE video_id IN (?, ?)`,
+    ).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(`DELETE FROM approved_analysis_releases WHERE video_id IN (?, ?)`).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(`DELETE FROM analysis_review_rounds WHERE video_id IN (?, ?)`).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(`DELETE FROM annotation_snapshots WHERE video_id IN (?, ?)`).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(
+      `DELETE FROM field_answers WHERE annotation_id IN (
+        SELECT id FROM annotations WHERE video_id IN (?, ?)
+      )`,
+    ).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(
+      `DELETE FROM shots WHERE annotation_id IN (
+        SELECT id FROM annotations WHERE video_id IN (?, ?)
+      )`,
+    ).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(
+      `DELETE FROM shot_groups WHERE annotation_id IN (
+        SELECT id FROM annotations WHERE video_id IN (?, ?)
+      )`,
+    ).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(
+      `DELETE FROM annotation_creative_structures WHERE annotation_id IN (
+        SELECT id FROM annotations WHERE video_id IN (?, ?)
+      )`,
+    ).bind(ids.video, ids.emptyVideo).run();
+    await transaction.prepare(`DELETE FROM annotations WHERE video_id IN (?, ?)`).bind(ids.video, ids.emptyVideo).run();
     await transaction.prepare(`DELETE FROM videos WHERE id = ? AND data_scope = 'TEST_ONLY' AND test_run_id = ?`).bind(ids.emptyVideo, runId).run();
     await transaction.prepare(`DELETE FROM videos WHERE id = ? AND data_scope = 'TEST_ONLY' AND test_run_id = ?`).bind(ids.video, runId).run();
   });
