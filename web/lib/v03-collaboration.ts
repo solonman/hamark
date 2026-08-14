@@ -85,6 +85,48 @@ function jsonHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+// 提交前判断"这份快照是否就是当前工作稿"时，只能比内容，不能比字节。
+// 工作快照的 payload 是把客户端传来的对象展开拼装出来的，键序随客户端；
+// 重新读库得到的对象走的是库内固定键序。同一份内容在两边序列化成不同的字节，
+// 直接比 content_hash 会判成不一致，而提示里的"刷新后重试"永远修不好它 ——
+// 刷新只会重新读库，改变不了已经冻结在快照里的键序。
+const VOLATILE_CONTENT_KEYS = new Set([
+  "status",
+  "reviewStatus",
+  "activeBaseSnapshotId",
+  "updatedAt",
+]);
+
+function canonicalizeContent(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeContent);
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const canonical: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) {
+      canonical[key] = canonicalizeContent(source[key]);
+    }
+    return canonical;
+  }
+  return value;
+}
+
+/**
+ * 内容指纹：键序无关，且忽略提交动作本身就会改写的流转字段
+ * （status / reviewStatus / activeBaseSnapshotId / updatedAt）。
+ * 仅用于一致性判定，不用来替代 annotation_snapshots.content_hash 的存储值。
+ */
+export function sharedContentFingerprint(draft: unknown) {
+  if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
+    return jsonHash(canonicalizeContent(draft));
+  }
+  const content: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(draft as Record<string, unknown>)) {
+    if (VOLATILE_CONTENT_KEYS.has(key)) continue;
+    content[key] = value;
+  }
+  return jsonHash(canonicalizeContent(content));
+}
+
 function parseJsonValue(value: unknown) {
   if (typeof value !== "string") return value;
   try {
