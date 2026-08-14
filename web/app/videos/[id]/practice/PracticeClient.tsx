@@ -138,6 +138,51 @@ function redirectOnUnauthorized(response: Response) {
   return false;
 }
 
+// 断网或休眠时 fetch 可以长时间挂着不返回。没有这个上限，那次保存永远不结束，
+// saveInFlight 不会释放、saveState 停在 saving，自动保存就此彻底停摆，
+// 而界面还一直显示"正在自动保存"。必须让它超时失败，好让重试跑起来。
+const SAVE_TIMEOUT_MS = 15000;
+
+function localDraftKey(videoId: string, taxonomyVersion: TaxonomyVersion) {
+  return `hamark:practice-draft:${videoId}:${taxonomyVersion}`;
+}
+
+// 服务端存不进去时至少在本机留一份，避免整段内容只存在于页面内存里。
+function writeLocalDraft(
+  videoId: string,
+  taxonomyVersion: TaxonomyVersion,
+  draft: AnnotationDraft,
+) {
+  try {
+    window.localStorage.setItem(
+      localDraftKey(videoId, taxonomyVersion),
+      JSON.stringify({ savedAt: new Date().toISOString(), draft }),
+    );
+  } catch {
+    // 隐私模式或配额满，本地副本只是兜底，失败不影响正常保存。
+  }
+}
+
+function readLocalDraft(videoId: string, taxonomyVersion: TaxonomyVersion) {
+  try {
+    const raw = window.localStorage.getItem(localDraftKey(videoId, taxonomyVersion));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: string; draft?: AnnotationDraft };
+    if (!parsed?.draft) return null;
+    return { savedAt: parsed.savedAt ?? "", draft: parsed.draft };
+  } catch {
+    return null;
+  }
+}
+
+function clearLocalDraft(videoId: string, taxonomyVersion: TaxonomyVersion) {
+  try {
+    window.localStorage.removeItem(localDraftKey(videoId, taxonomyVersion));
+  } catch {
+    // 同上，忽略。
+  }
+}
+
 export default function PracticeClient({
   videoId,
   taxonomyVersion,
@@ -171,6 +216,11 @@ export default function PracticeClient({
   const saveStateRef = useRef<"idle" | "saving" | "saved" | "error">("idle");
   const submitPanelRef = useRef<HTMLElement | null>(null);
   const saveInFlight = useRef<Promise<AnnotationDraft | null> | null>(null);
+  // 本机还留着副本，说明上一次保存自始至终没被服务端确认过。
+  const [localRecovery, setLocalRecovery] = useState<{
+    savedAt: string;
+    draft: AnnotationDraft;
+  } | null>(null);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -211,6 +261,8 @@ export default function PracticeClient({
                 ? data.annotation
                 : { ...data.annotation, shots: [newShot(0)] },
           );
+          // 保存成功会清掉本机副本，所以这里还能读到就意味着上次有内容没落库。
+          setLocalRecovery(readLocalDraft(videoId, taxonomyVersion));
         }
       })
       .catch((reason) => {
@@ -251,11 +303,16 @@ export default function PracticeClient({
     const operation = (async () => {
       setSaveState("saving");
       setNotice("");
+      // 网络断了也要把这一份留在本机，服务器这次存不存得进去都不影响。
+      writeLocalDraft(videoId, taxonomyVersion, current);
+      const abort = new AbortController();
+      const timeoutId = window.setTimeout(() => abort.abort(), SAVE_TIMEOUT_MS);
       try {
       const response = await fetch(`/api/videos/${videoId}/annotation?taxonomy=${encodeURIComponent(taxonomyVersion)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(current),
+        signal: abort.signal,
       });
       if (redirectOnUnauthorized(response)) return null;
       const data = (await response.json().catch(() => ({}))) as SaveResponseBody & {
@@ -303,15 +360,26 @@ export default function PracticeClient({
         setDirty(false);
         dirtyRef.current = false;
         setSaveState("saved");
+        // 服务端已经收下这一版，本地兜底副本就没有存在意义了。
+        clearLocalDraft(videoId, taxonomyVersion);
       } else {
         setSaveState("idle");
       }
       return merged;
       } catch (reason) {
         setSaveState("error");
-        setNotice(reason instanceof Error ? reason.message : "保存失败");
+        const aborted =
+          reason instanceof DOMException && reason.name === "AbortError";
+        setNotice(
+          aborted
+            ? "保存超时，可能是网络中断。内容已存在本机，恢复网络后会自动重试。"
+            : reason instanceof Error
+              ? reason.message
+              : "保存失败",
+        );
         return null;
       } finally {
+        window.clearTimeout(timeoutId);
         saveInFlight.current = null;
       }
     })();
@@ -359,6 +427,42 @@ export default function PracticeClient({
     }, 2500);
     return () => window.clearTimeout(timer);
   }, [conflict, dirty, editVersion, saveDraft, saveState]);
+
+  useEffect(() => {
+    // 关标签页、切后台、系统休眠都走不到自动保存的定时器。这里同步写一份本机副本，
+    // 让"页面一关内容就只剩内存里那一份"不再成立。
+    function persistLocally() {
+      if (!dirtyRef.current) return;
+      const current = draftRef.current;
+      if (current) writeLocalDraft(videoId, taxonomyVersion, current);
+    }
+    window.addEventListener("pagehide", persistLocally);
+    document.addEventListener("visibilitychange", persistLocally);
+    return () => {
+      window.removeEventListener("pagehide", persistLocally);
+      document.removeEventListener("visibilitychange", persistLocally);
+    };
+  }, [taxonomyVersion, videoId]);
+
+  const restoreLocalDraft = useCallback(() => {
+    if (!localRecovery) return;
+    const server = draftRef.current;
+    // 内容用本机那份，身份和修订号跟着服务端走，否则下一次保存会撞上修订冲突。
+    markChanged({
+      ...localRecovery.draft,
+      id: server?.id ?? localRecovery.draft.id,
+      revision: server?.revision ?? localRecovery.draft.revision,
+      status: server?.status ?? localRecovery.draft.status,
+      reviewStatus: server?.reviewStatus ?? localRecovery.draft.reviewStatus,
+      updatedAt: server?.updatedAt ?? localRecovery.draft.updatedAt,
+    });
+    setLocalRecovery(null);
+  }, [localRecovery, markChanged]);
+
+  const discardLocalDraft = useCallback(() => {
+    clearLocalDraft(videoId, taxonomyVersion);
+    setLocalRecovery(null);
+  }, [taxonomyVersion, videoId]);
 
   const completion = useMemo(() => {
     if (!draft) return { done: 0, total: 24 };
@@ -729,6 +833,34 @@ export default function PracticeClient({
                   onClick={() => window.location.reload()}
                 >
                   放弃本页修改，载入另一份
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {localRecovery && !conflict ? (
+            <div className="conflict-panel" role="alert">
+              <strong>本机还留着一份没有存进服务器的内容</strong>
+              <p>
+                上次编辑（{localRecovery.savedAt
+                  ? new Date(localRecovery.savedAt).toLocaleString("zh-CN")
+                  : "时间未知"}
+                ）有内容没能保存成功。可以把它恢复到本页，确认无误后会照常自动保存。
+              </p>
+              <div className="conflict-actions">
+                <button
+                  className="button button-accent"
+                  type="button"
+                  onClick={restoreLocalDraft}
+                >
+                  恢复本机内容
+                </button>
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  onClick={discardLocalDraft}
+                >
+                  丢弃，使用服务器版本
                 </button>
               </div>
             </div>
