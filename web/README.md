@@ -236,6 +236,34 @@ npm run verify:v04-workflow
 完整的 1B 本机证据和明确边界见
 [`docs/V04_STAGE1_BATCH1B_EVIDENCE.md`](docs/V04_STAGE1_BATCH1B_EVIDENCE.md)。
 
+### V0.4 阶段1批次1C本地只读PREVIEW验证
+
+1C 只读地把 V0.2／V0.3 历史映射为 V0.4 兼容展示对象：不修改旧 payload、
+snapshot、release 或 audit，旧镜头的 `subtitleEffect` 固定为空字符串。旧固定值只在
+批准 alias 唯一时映射 option ID；开放值、待形成值和无法确定的值分别保留在
+`customText`、`advancedText`、`legacyRawValue` 或结构化异常中。
+
+本机真实 PostgreSQL 纵切继续使用显式 TEST_ONLY 守卫，不会回退读取通用
+`DATABASE_URL`：
+
+```bash
+NODE_ENV=test \
+V04_TEST_RUN_ID=stage1c_0819 \
+V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+npm run verify:v04-preview
+```
+
+验证器只在 `test_only_v04_preview_<runId>` 隔离 schema 内生成历史组合，使用随机
+cleanup token 和 marker 精确清理，并比对 `public` catalog/业务指纹。它覆盖冻结的
+11项 PREVIEW、重复/并行 token 稳定、事实变化后 `STALE_PREVIEW`、schema drift 只报告不修复、
+稳定 `SYSTEM_ADMIN` 授权和 GET 零业务写。
+
+部署后的只读路由为 `/api/admin/v04-migration/preview`，默认关闭，只有服务端显式设置
+`V04_MIGRATION_PREVIEW_ENABLED=true` 才响应；它没有 POST 或 APPLY 路径，不写 preview 账本。
+本机验证只属于 1C “门 A”证据，不代表生产只读 PREVIEW、1C 通过或合同激活。
+完整证据与双门边界见
+[`docs/V04_STAGE1_BATCH1C_EVIDENCE.md`](docs/V04_STAGE1_BATCH1C_EVIDENCE.md)。
+
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；
