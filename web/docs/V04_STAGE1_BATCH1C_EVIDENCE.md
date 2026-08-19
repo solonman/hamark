@@ -49,25 +49,28 @@ token绑定环境、合同版本、schema fingerprint、三类hash、稳定actor
 - request URL、可选Origin与`sec-fetch-site`共同实施same-origin边界。
 - 会话需对应ACTIVE稳定user；服务二次校验`app_role_memberships.SYSTEM_ADMIN/ACTIVE`。
 - `EXPERT`、MEMBER、UPLOADER均不可调用；display name/email只是PREVIEW匹配证据，不授权。
-- 成功与错误响应均`Cache-Control: no-store`；旧token与当前事实不符时返回
-  `STALE_PREVIEW`/409。
+- 成功与错误响应均`Cache-Control: no-store`。token绑定固定30分钟时间窗口的
+  `expiresAt`：同窗口同事实稳定，到期瞬间／过期、跨窗口或事实变化均返回
+  `STALE_PREVIEW`/409，无需写入型token账本。
+- P07相对冻结DDL比较所有相关表的非约束index、非内部trigger与policy；
+  任意命名的多余对象、缺失对象及同名定义漂移均进入结构化drift，PK/UNIQUE/FK
+  约束支撑索引不误报。
 
 ## TEST_ONLY真实PostgreSQL证据
 
 最近一次本机回环PostgreSQL验证器输出：
 
 - `preview11=true`；冻结11项字段全部存在。
-- `repeatedTokenStable=true`、`parallelPreviewStable=true`。
-- 最后定向证据运行的`previewToken=v04_preview_65e524c4...c0921d`；同一隔离事实重复/并行值一致。
-- `schemaFingerprint=6ae11ee6...79a0cf`。
-- `sourceHash=2a9d134d...516e0`、`targetHash=8e5f9ab7...3223b`、
-  `nonTargetHash=e17b0011...436ed3`；新建isolated schema的合同`created_at`也是非目标事实，因此跨运行值可不同。
-- P11脱敏结果：旧snapshot 2、旧approved release 0、V0.3 baseline 1；
-  `totalContentHash=9978a262...367b8f`。
+- `repeatedTokenStable=true`、`parallelPreviewStable=true`；同窗口重复／并行事实稳定。
+- `expiryBoundaryRejected=true`、`crossWindowTokenChanged=true`；过期前接受，到期边界和跨窗口旧token均拒绝。
 - 增加TEST_ONLY历史事实后token改变，旧token返回`STALE_PREVIEW`。
 - 覆盖异常：snapshot version、原位提升current、参照不一致、legacy choice组合、
   管理员歧义/停用、物理删除audit、DB orphan。
-- 人为添加TEST_ONLY schema列后`ready=false`且报告drift；列仍存在，证明PREVIEW未自动修复。
+- 任意命名extra index/trigger、同名index/trigger定义变化、对象缺失、
+  policy缺失／额外／定义变化的真实PG负向矩阵全部使`ready=false`；每项精确清理后恢复`ready=true`。
+- 同名定义对账包含index key、`INCLUDE`列、predicate与access method，以及trigger timing、
+  event、`UPDATE OF`列、ROW/STATEMENT orientation、function和WHEN条件；不依赖对象名模式。
+- 人为添加TEST_ONLY schema列后`ready=false`且报告drift；列仍存在，证明PREVIEW只报告、不自动修复。
 - `zeroWrite=true`；重复/并行PREVIEW前后隔离schema业务指纹不变。
 - `publicFingerprintUnchanged=true`；本轮未改公共/生产业务数据。
 - `testSchemaCleaned=true`；run id、随机cleanup token和marker匹配后只清理本次schema。
@@ -76,18 +79,21 @@ token绑定环境、合同版本、schema fingerprint、三类hash、稳定actor
 命令：
 
 ```bash
+export V04_TEST_RUN_ID="stage1c_<unique>"
+# V04_TEST_DATABASE_URL 由受控的本机 TEST_ONLY 环境注入，文档不记录凭据值。
 NODE_ENV=test \
-V04_TEST_RUN_ID=stage1c_0819 \
-V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+V04_TEST_RUN_ID="${V04_TEST_RUN_ID:?set a unique guarded run id}" \
+V04_TEST_DATABASE_URL="${V04_TEST_DATABASE_URL:?inject a loopback test database URL}" \
 npm run verify:v04-preview
 ```
 
 未提供三个显式TEST_ONLY条件时，真实PG测试明确跳过，绝不回退使用通用
-`DATABASE_URL`。
+`DATABASE_URL`。连接配置必须由受控环境注入，数据库主机必须是loopback、库名必须包含
+`test`；本文档不记录用户名、口令或完整连接串。
 
 ## 完整回归
 
-- 显式TEST_ONLY环境下`npm test`：Next生产构建通过；230项测试全部通过，0失败、0跳过。
+- 显式TEST_ONLY环境下`npm test`：Next生产构建通过；231项测试全部通过，0失败、0跳过。
 - 同一次完整回归实际执行1A schema、1B workflow和1C PREVIEW三套真实PostgreSQL矩阵。
 - `npm run lint`：通过，0警告。
 - `npm run build -- --webpack`：构建、TypeScript和路由收集通过；PREVIEW暗路由可编译。

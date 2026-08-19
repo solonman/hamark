@@ -191,9 +191,11 @@ npm test
 `V04_TEST_DATABASE_URL`。它不会回退读取通用 `DATABASE_URL`，也不会连接生产库。
 
 ```bash
+export V04_TEST_RUN_ID="stage1a_<unique>"
+# V04_TEST_DATABASE_URL 由受控的本机 TEST_ONLY 环境注入，文档不记录凭据值。
 NODE_ENV=test \
-V04_TEST_RUN_ID=stage1a_0819 \
-V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+V04_TEST_RUN_ID="${V04_TEST_RUN_ID:?set a unique guarded run id}" \
+V04_TEST_DATABASE_URL="${V04_TEST_DATABASE_URL:?inject a loopback test database URL}" \
 npm run verify:v04-schema
 ```
 
@@ -217,9 +219,11 @@ V0.4 合同、不会回填历史上传者、不会创建生产 V0.4 工作区，
 `test_only_v04_<runId>_workflow` schema 内运行。命令中的账号、密码只应是本机一次性测试值：
 
 ```bash
+export V04_TEST_RUN_ID="stage1b_<unique>"
+# V04_TEST_DATABASE_URL 由受控的本机 TEST_ONLY 环境注入，文档不记录凭据值。
 NODE_ENV=test \
-V04_TEST_RUN_ID=stage1b_0819 \
-V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+V04_TEST_RUN_ID="${V04_TEST_RUN_ID:?set a unique guarded run id}" \
+V04_TEST_DATABASE_URL="${V04_TEST_DATABASE_URL:?inject a loopback test database URL}" \
 npm run verify:v04-workflow
 ```
 
@@ -247,16 +251,20 @@ snapshot、release 或 audit，旧镜头的 `subtitleEffect` 固定为空字符�
 `DATABASE_URL`：
 
 ```bash
+export V04_TEST_RUN_ID="stage1c_<unique>"
+# V04_TEST_DATABASE_URL 由受控的本机 TEST_ONLY 环境注入，文档不记录凭据值。
 NODE_ENV=test \
-V04_TEST_RUN_ID=stage1c_0819 \
-V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+V04_TEST_RUN_ID="${V04_TEST_RUN_ID:?set a unique guarded run id}" \
+V04_TEST_DATABASE_URL="${V04_TEST_DATABASE_URL:?inject a loopback test database URL}" \
 npm run verify:v04-preview
 ```
 
 验证器只在 `test_only_v04_preview_<runId>` 隔离 schema 内生成历史组合，使用随机
 cleanup token 和 marker 精确清理，并比对 `public` catalog/业务指纹。它覆盖冻结的
-11项 PREVIEW、重复/并行 token 稳定、事实变化后 `STALE_PREVIEW`、schema drift 只报告不修复、
-稳定 `SYSTEM_ADMIN` 授权和 GET 零业务写。
+11项 PREVIEW、同一30分钟窗口的重复/并行 token 稳定、到期/跨窗口/事实变化后
+`STALE_PREVIEW`、index/trigger/policy的缺失、额外及同名定义漂移、schema drift
+只报告不修复、稳定 `SYSTEM_ADMIN` 授权和 GET 零业务写。测试连接信息只由受控环境注入，
+文档不保存口令或完整连接串。
 
 部署后的只读路由为 `/api/admin/v04-migration/preview`，默认关闭，只有服务端显式设置
 `V04_MIGRATION_PREVIEW_ENABLED=true` 才响应；它没有 POST 或 APPLY 路径，不写 preview 账本。

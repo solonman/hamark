@@ -28,7 +28,46 @@ type CatalogColumnRow = QueryResultRow & {
   is_nullable: string;
   column_default: string | null;
 };
-type CatalogNamedRow = QueryResultRow & { table_name: string; object_name: string; definition?: string };
+type CatalogIndexRow = QueryResultRow & {
+  table_name: string;
+  object_name: string;
+  is_unique: boolean;
+  access_method: string;
+  key_columns: string;
+  include_columns: string;
+  predicate: string;
+};
+type CatalogTriggerRow = QueryResultRow & {
+  table_name: string;
+  object_name: string;
+  timing: string;
+  events: string;
+  orientation: string;
+  update_columns: string;
+  function_name: string;
+  when_clause: string;
+};
+type CatalogPolicyRow = QueryResultRow & {
+  table_name: string;
+  object_name: string;
+  permissive: string;
+  command: string;
+  role_names: string;
+  using_expression: string;
+  check_expression: string;
+};
+
+type CatalogObject = {
+  tableName: string;
+  objectName: string;
+  signature: string;
+};
+
+export type V04SchemaObjectExpectation = {
+  indexes: CatalogObject[];
+  triggers: CatalogObject[];
+  policies: CatalogObject[];
+};
 
 export type V04MigrationPreviewAnomaly = {
   type: string;
@@ -71,8 +110,13 @@ export type V04MigrationPreview = {
       extraColumns: string[];
       missingTriggers: string[];
       extraTriggers: string[];
+      changedTriggers: string[];
       missingIndexes: string[];
       extraIndexes: string[];
+      changedIndexes: string[];
+      missingPolicies: string[];
+      extraPolicies: string[];
+      changedPolicies: string[];
       unexpectedPolicies: string[];
       rlsDisabledTables: string[];
     };
@@ -174,35 +218,153 @@ function expectedColumnsFromFrozenDdl() {
 
 const EXPECTED_COLUMN_MAP = expectedColumnsFromFrozenDdl();
 
-const EXPECTED_INDEXES = [
-  "collaboration_rounds_one_active_idx",
-  "collaboration_revision_events_round_idx",
-  "collaboration_revision_events_target_idx",
-  "collaboration_edit_leases_one_active_idx",
-  "expert_analysis_releases_one_active_idx",
-].sort();
+const FROZEN_SCHEMA_STATEMENTS = [
+  ...V04_SCHEMA_STATEMENTS,
+  ...V04_WORKFLOW_SCHEMA_STATEMENTS,
+  ...ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS,
+];
 
-const EXPECTED_TRIGGERS = [
-  "admin_data_operations_immutable",
-  "annotation_choice_values_validate",
-  "collaboration_workspaces_relation_guard",
-  "collaboration_baselines_relation_guard",
-  "collaboration_rounds_relation_guard",
-  "annotation_submission_snapshots_relation_guard",
-  "collaboration_revision_events_relation_guard",
-  "collaboration_edit_leases_relation_guard",
-  "expert_analysis_releases_relation_guard",
-  "collaboration_baselines_immutable",
-  "annotation_submission_snapshots_immutable",
-  "collaboration_revision_events_immutable",
-  "annotation_snapshots_v04_working_immutable",
-  "expert_analysis_releases_immutable",
-  "schema_migration_operations_immutable",
-  "annotation_taxonomy_versions_v04_immutable",
-  "annotation_vocabulary_versions_immutable",
-  "workflow_contract_versions_immutable",
-  "annotation_vocabulary_options_immutable",
-].sort();
+function stripBalancedOuterParentheses(value: string) {
+  let result = value.trim();
+  while (result.startsWith("(") && result.endsWith(")")) {
+    let depth = 0;
+    let wrapsWholeValue = true;
+    for (let index = 0; index < result.length; index += 1) {
+      if (result[index] === "(") depth += 1;
+      if (result[index] === ")") depth -= 1;
+      if (depth === 0 && index < result.length - 1) {
+        wrapsWholeValue = false;
+        break;
+      }
+    }
+    if (!wrapsWholeValue) break;
+    result = result.slice(1, -1).trim();
+  }
+  return result;
+}
+
+function normalizeCatalogExpression(value: string) {
+  return stripBalancedOuterParentheses(value)
+    .replace(/::(?:text|character varying|bpchar)\b/gi, "")
+    .replace(/"/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([(),=])\s*/g, "$1")
+    .trim()
+    .toLowerCase();
+}
+
+function catalogKey(object: Pick<CatalogObject, "tableName" | "objectName">) {
+  return `${object.tableName}.${object.objectName}`;
+}
+
+function indexSignature(input: {
+  unique: boolean;
+  accessMethod: string;
+  keyColumns: readonly string[];
+  includeColumns: readonly string[];
+  predicate: string;
+}) {
+  return canonicalV04PreviewValue({
+    unique: input.unique,
+    accessMethod: input.accessMethod.toLowerCase(),
+    keyColumns: input.keyColumns.map(normalizeCatalogExpression),
+    includeColumns: input.includeColumns.map(normalizeCatalogExpression),
+    predicate: normalizeCatalogExpression(input.predicate),
+  });
+}
+
+function triggerSignature(input: {
+  timing: string;
+  events: readonly string[];
+  orientation: string;
+  updateColumns: readonly string[];
+  functionName: string;
+  whenClause: string;
+}) {
+  return canonicalV04PreviewValue({
+    timing: input.timing.toUpperCase(),
+    events: [...input.events].map((event) => event.toUpperCase()).sort(),
+    orientation: input.orientation.toUpperCase(),
+    updateColumns: [...input.updateColumns].map(normalizeCatalogExpression).sort(),
+    functionName: input.functionName.replace(/^.*\./, "").toLowerCase(),
+    whenClause: normalizeCatalogExpression(input.whenClause),
+  });
+}
+
+function policySignature(input: {
+  permissive: string;
+  command: string;
+  roles: readonly string[];
+  usingExpression: string;
+  checkExpression: string;
+}) {
+  return canonicalV04PreviewValue({
+    permissive: input.permissive.toUpperCase(),
+    command: input.command.toUpperCase(),
+    roles: [...input.roles].map((role) => role.toLowerCase()).sort(),
+    usingExpression: normalizeCatalogExpression(input.usingExpression),
+    checkExpression: normalizeCatalogExpression(input.checkExpression),
+  });
+}
+
+function expectedSchemaObjectsFromFrozenDdl(): V04SchemaObjectExpectation {
+  const indexes: CatalogObject[] = [];
+  const triggers: CatalogObject[] = [];
+  const policies: CatalogObject[] = [];
+  for (const statement of FROZEN_SCHEMA_STATEMENTS) {
+    const index = statement.match(/CREATE\s+(UNIQUE\s+)?INDEX\s+IF NOT EXISTS\s+([a-z0-9_]+)\s+ON\s+([a-z0-9_]+)\s*\(([\s\S]*?)\)(?:\s+WHERE\s+([\s\S]+))?\s*$/i);
+    if (index) {
+      indexes.push({
+        tableName: index[3],
+        objectName: index[2],
+        signature: indexSignature({
+          unique: Boolean(index[1]),
+          accessMethod: "btree",
+          keyColumns: splitSqlDefinitions(index[4]),
+          includeColumns: [],
+          predicate: index[5] ?? "",
+        }),
+      });
+    }
+    const trigger = statement.match(/CREATE TRIGGER\s+([a-z0-9_]+)\s+(BEFORE|AFTER|INSTEAD OF)\s+([\s\S]+?)\s+ON\s+([a-z0-9_]+)\s+FOR EACH\s+(ROW|STATEMENT)\s+EXECUTE FUNCTION\s+([a-z0-9_.]+)\s*\(\s*\)/i);
+    if (trigger) {
+      const eventParts = trigger[3].split(/\s+OR\s+/i);
+      triggers.push({
+        tableName: trigger[4],
+        objectName: trigger[1],
+        signature: triggerSignature({
+          timing: trigger[2],
+          events: eventParts.map((event) => event.replace(/\s+OF\s+[\s\S]*$/i, "")),
+          orientation: trigger[5],
+          updateColumns: eventParts.flatMap((event) =>
+            event.match(/^UPDATE\s+OF\s+([\s\S]+)$/i)?.[1].split(",").map((column) => column.trim()) ?? []),
+          functionName: trigger[6],
+          whenClause: "",
+        }),
+      });
+    }
+    const policy = statement.match(/CREATE POLICY\s+([a-z0-9_]+)\s+ON\s+([a-z0-9_]+)([\s\S]*)$/i);
+    if (policy) {
+      const tail = policy[3];
+      const roles = tail.match(/\bTO\s+([\s\S]+?)(?=\s+USING\b|\s+WITH CHECK\b|$)/i)?.[1]
+        .split(",").map((role) => role.trim()) ?? ["public"];
+      policies.push({
+        tableName: policy[2],
+        objectName: policy[1],
+        signature: policySignature({
+          permissive: tail.match(/\bAS\s+(PERMISSIVE|RESTRICTIVE)\b/i)?.[1] ?? "PERMISSIVE",
+          command: tail.match(/\bFOR\s+(ALL|SELECT|INSERT|UPDATE|DELETE)\b/i)?.[1] ?? "ALL",
+          roles,
+          usingExpression: tail.match(/\bUSING\s*\(([\s\S]*?)\)(?=\s+WITH CHECK\b|$)/i)?.[1] ?? "",
+          checkExpression: tail.match(/\bWITH CHECK\s*\(([\s\S]*?)\)\s*$/i)?.[1] ?? "",
+        }),
+      });
+    }
+  }
+  return { indexes, triggers, policies };
+}
+
+export const V04_FROZEN_SCHEMA_OBJECT_EXPECTATION = expectedSchemaObjectsFromFrozenDdl();
 
 const V04_TABLE_PREFIXES = [
   "annotation_vocabulary_",
@@ -329,20 +491,128 @@ async function loadCatalog(db: DbClient) {
   const columns = (await db.prepare(`SELECT table_name,column_name,data_type,is_nullable,column_default
     FROM information_schema.columns WHERE table_schema=current_schema()
     ORDER BY table_name,ordinal_position`).all<CatalogColumnRow>()).results;
-  const indexes = (await db.prepare(`SELECT tablename AS table_name,indexname AS object_name,indexdef AS definition
-    FROM pg_indexes WHERE schemaname=current_schema() ORDER BY tablename,indexname`)
-    .all<CatalogNamedRow>()).results;
-  const triggers = (await db.prepare(`SELECT c.relname AS table_name,t.tgname AS object_name,
-      pg_get_triggerdef(t.oid) AS definition
-    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname=current_schema() AND NOT t.tgisinternal
-    ORDER BY c.relname,t.tgname`).all<CatalogNamedRow>()).results;
+  const indexes = (await db.prepare(`SELECT table_class.relname AS table_name,
+      index_class.relname AS object_name,
+      idx.indisunique AS is_unique,
+      access_method.amname AS access_method,
+      COALESCE((
+        SELECT string_agg(pg_get_indexdef(idx.indexrelid, key_number, TRUE), E'\\x1f'
+          ORDER BY key_number)
+        FROM generate_series(1, idx.indnkeyatts) key_number
+      ), '') AS key_columns,
+      COALESCE((
+        SELECT string_agg(pg_get_indexdef(idx.indexrelid, include_number, TRUE), E'\\x1f'
+          ORDER BY include_number)
+        FROM generate_series(idx.indnkeyatts + 1, idx.indnatts) include_number
+      ), '') AS include_columns,
+      COALESCE(pg_get_expr(idx.indpred, idx.indrelid, TRUE), '') AS predicate
+    FROM pg_index idx
+    JOIN pg_class index_class ON index_class.oid=idx.indexrelid
+    JOIN pg_class table_class ON table_class.oid=idx.indrelid
+    JOIN pg_namespace namespace ON namespace.oid=table_class.relnamespace
+    JOIN pg_am access_method ON access_method.oid=index_class.relam
+    WHERE namespace.nspname=current_schema()
+      AND NOT EXISTS (SELECT 1 FROM pg_constraint constraint_row
+        WHERE constraint_row.conindid=idx.indexrelid)
+    ORDER BY table_class.relname,index_class.relname`).all<CatalogIndexRow>()).results;
+  const triggers = (await db.prepare(`SELECT table_class.relname AS table_name,
+      trigger_row.tgname AS object_name,
+      CASE WHEN (trigger_row.tgtype & 2) <> 0 THEN 'BEFORE'
+           WHEN (trigger_row.tgtype & 64) <> 0 THEN 'INSTEAD OF'
+           ELSE 'AFTER' END AS timing,
+      concat_ws(E'\\x1f',
+        CASE WHEN (trigger_row.tgtype & 4) <> 0 THEN 'INSERT' END,
+        CASE WHEN (trigger_row.tgtype & 8) <> 0 THEN 'DELETE' END,
+        CASE WHEN (trigger_row.tgtype & 16) <> 0 THEN 'UPDATE' END,
+        CASE WHEN (trigger_row.tgtype & 32) <> 0 THEN 'TRUNCATE' END) AS events,
+      CASE WHEN (trigger_row.tgtype & 1) <> 0 THEN 'ROW' ELSE 'STATEMENT' END AS orientation,
+      COALESCE((
+        SELECT string_agg(attribute_row.attname, E'\\x1f' ORDER BY update_column.ordinality)
+        FROM unnest(trigger_row.tgattr::smallint[]) WITH ORDINALITY update_column(attnum, ordinality)
+        JOIN pg_attribute attribute_row
+          ON attribute_row.attrelid=trigger_row.tgrelid AND attribute_row.attnum=update_column.attnum
+      ), '') AS update_columns,
+      procedure_row.proname AS function_name,
+      COALESCE(pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid, TRUE), '') AS when_clause
+    FROM pg_trigger trigger_row
+    JOIN pg_class table_class ON table_class.oid=trigger_row.tgrelid
+    JOIN pg_namespace namespace ON namespace.oid=table_class.relnamespace
+    JOIN pg_proc procedure_row ON procedure_row.oid=trigger_row.tgfoid
+    WHERE namespace.nspname=current_schema() AND NOT trigger_row.tgisinternal
+    ORDER BY table_class.relname,trigger_row.tgname`).all<CatalogTriggerRow>()).results;
   const policies = (await db.prepare(`SELECT tablename AS table_name,policyname AS object_name,
-      COALESCE(cmd,'') || ':' || COALESCE(qual,'') || ':' || COALESCE(with_check,'') AS definition
+      permissive,cmd AS command,array_to_string(roles,E'\\x1f') AS role_names,
+      COALESCE(qual,'') AS using_expression,COALESCE(with_check,'') AS check_expression
     FROM pg_policies WHERE schemaname=current_schema() ORDER BY tablename,policyname`)
-    .all<CatalogNamedRow>()).results;
+    .all<CatalogPolicyRow>()).results;
   return { tables, columns, indexes, triggers, policies };
+}
+
+function actualSchemaObjects(catalog: Awaited<ReturnType<typeof loadCatalog>>): V04SchemaObjectExpectation {
+  return {
+    indexes: catalog.indexes.map((row) => ({
+      tableName: row.table_name,
+      objectName: row.object_name,
+      signature: indexSignature({
+        unique: row.is_unique,
+        accessMethod: row.access_method,
+        keyColumns: row.key_columns ? row.key_columns.split("\x1f") : [],
+        includeColumns: row.include_columns ? row.include_columns.split("\x1f") : [],
+        predicate: row.predicate,
+      }),
+    })),
+    triggers: catalog.triggers.map((row) => ({
+      tableName: row.table_name,
+      objectName: row.object_name,
+      signature: triggerSignature({
+        timing: row.timing,
+        events: row.events ? row.events.split("\x1f") : [],
+        orientation: row.orientation,
+        updateColumns: row.update_columns ? row.update_columns.split("\x1f") : [],
+        functionName: row.function_name,
+        whenClause: row.when_clause,
+      }),
+    })),
+    policies: catalog.policies.map((row) => ({
+      tableName: row.table_name,
+      objectName: row.object_name,
+      signature: policySignature({
+        permissive: row.permissive,
+        command: row.command,
+        roles: row.role_names ? row.role_names.split("\x1f") : [],
+        usingExpression: row.using_expression,
+        checkExpression: row.check_expression,
+      }),
+    })),
+  };
+}
+
+export async function inspectV04SchemaObjects(db: DbClient) {
+  return actualSchemaObjects(await loadCatalog(db));
+}
+
+function compareCatalogObjects(actual: readonly CatalogObject[], expected: readonly CatalogObject[]) {
+  const actualMap = new Map(actual.map((object) => [catalogKey(object), object]));
+  const expectedMap = new Map(expected.map((object) => [catalogKey(object), object]));
+  return {
+    missing: [...expectedMap.keys()].filter((key) => !actualMap.has(key)).sort(),
+    extra: [...actualMap.keys()].filter((key) => !expectedMap.has(key)).sort(),
+    changed: [...expectedMap.keys()].filter((key) => {
+      const actualObject = actualMap.get(key);
+      return actualObject && actualObject.signature !== expectedMap.get(key)?.signature;
+    }).sort(),
+  };
+}
+
+export function compareV04SchemaObjects(
+  actual: V04SchemaObjectExpectation,
+  expected: V04SchemaObjectExpectation = V04_FROZEN_SCHEMA_OBJECT_EXPECTATION,
+) {
+  return {
+    indexes: compareCatalogObjects(actual.indexes, expected.indexes),
+    triggers: compareCatalogObjects(actual.triggers, expected.triggers),
+    policies: compareCatalogObjects(actual.policies, expected.policies),
+  };
 }
 
 function schemaDrift(catalog: Awaited<ReturnType<typeof loadCatalog>>) {
@@ -358,21 +628,25 @@ function schemaDrift(catalog: Awaited<ReturnType<typeof loadCatalog>>) {
     const expected = EXPECTED_COLUMN_MAP.get(row.table_name);
     return expected && !expected.has(row.column_name);
   }).map((row) => `${row.table_name}.${row.column_name}`);
-  const relevantIndexes = catalog.indexes.filter((row) => EXPECTED_TABLES.includes(row.table_name as typeof EXPECTED_TABLES[number]));
-  const actualIndexNames = relevantIndexes.map((row) => row.object_name);
-  const missingIndexes = EXPECTED_INDEXES.filter((name) => !actualIndexNames.includes(name));
-  const extraIndexes = actualIndexNames.filter((name) =>
-    (name.endsWith("_idx") || name.includes("_one_active_")) && !EXPECTED_INDEXES.includes(name));
-  const relevantTriggers = catalog.triggers.filter((row) =>
-    EXPECTED_TABLES.includes(row.table_name as typeof EXPECTED_TABLES[number]) || row.table_name === "annotation_snapshots" || row.table_name === "annotation_taxonomy_versions");
-  const actualTriggerNames = relevantTriggers.map((row) => row.object_name);
-  const missingTriggers = EXPECTED_TRIGGERS.filter((name) => !actualTriggerNames.includes(name));
-  const extraTriggers = actualTriggerNames.filter((name) =>
-    (name.includes("v04") || name.includes("collaboration") || name.includes("schema_migration") || name.includes("vocabulary") || name === "admin_data_operations_immutable") &&
-    !EXPECTED_TRIGGERS.includes(name));
-  const unexpectedPolicies = catalog.policies
-    .filter((row) => EXPECTED_TABLES.includes(row.table_name as typeof EXPECTED_TABLES[number]))
-    .map((row) => `${row.table_name}.${row.object_name}`);
+  const expectedObjects = V04_FROZEN_SCHEMA_OBJECT_EXPECTATION;
+  const relatedIndexTables = new Set([
+    ...EXPECTED_TABLES,
+    ...expectedObjects.indexes.map((object) => object.tableName),
+  ]);
+  const relatedTriggerTables = new Set([
+    ...EXPECTED_TABLES,
+    ...expectedObjects.triggers.map((object) => object.tableName),
+  ]);
+  const relatedPolicyTables = new Set([
+    ...EXPECTED_TABLES,
+    ...expectedObjects.policies.map((object) => object.tableName),
+  ]);
+  const actualObjects = actualSchemaObjects(catalog);
+  const objectDrift = compareV04SchemaObjects({
+    indexes: actualObjects.indexes.filter((object) => relatedIndexTables.has(object.tableName)),
+    triggers: actualObjects.triggers.filter((object) => relatedTriggerTables.has(object.tableName)),
+    policies: actualObjects.policies.filter((object) => relatedPolicyTables.has(object.tableName)),
+  }, expectedObjects);
   const rlsDisabledTables = catalog.tables
     .filter((row) => EXPECTED_TABLES.includes(row.table_name as typeof EXPECTED_TABLES[number]) && !row.rls_enabled)
     .map((row) => row.table_name);
@@ -381,11 +655,16 @@ function schemaDrift(catalog: Awaited<ReturnType<typeof loadCatalog>>) {
     extraTables: sortedUnique(extraTables),
     missingColumns: sortedUnique(missingColumns),
     extraColumns,
-    missingTriggers: sortedUnique(missingTriggers),
-    extraTriggers: sortedUnique(extraTriggers),
-    missingIndexes: sortedUnique(missingIndexes),
-    extraIndexes: sortedUnique(extraIndexes),
-    unexpectedPolicies: sortedUnique(unexpectedPolicies),
+    missingTriggers: objectDrift.triggers.missing,
+    extraTriggers: objectDrift.triggers.extra,
+    changedTriggers: objectDrift.triggers.changed,
+    missingIndexes: objectDrift.indexes.missing,
+    extraIndexes: objectDrift.indexes.extra,
+    changedIndexes: objectDrift.indexes.changed,
+    missingPolicies: objectDrift.policies.missing,
+    extraPolicies: objectDrift.policies.extra,
+    changedPolicies: objectDrift.policies.changed,
+    unexpectedPolicies: objectDrift.policies.extra,
     rlsDisabledTables: sortedUnique(rlsDisabledTables),
   };
 }
@@ -407,10 +686,28 @@ function stableEnvironmentKey() {
   return process.env.VERCEL_ENV || process.env.NODE_ENV || "unknown";
 }
 
-export function assertV04PreviewToken(current: V04MigrationPreview, suppliedToken: string) {
-  if (!suppliedToken || suppliedToken !== current.previewToken) {
+export function v04PreviewTimeWindow(now: Date) {
+  const timestamp = now.getTime();
+  if (!Number.isFinite(timestamp)) throw new TypeError("PREVIEW time must be valid");
+  const startsAtMs = Math.floor(timestamp / V04_MIGRATION_PREVIEW_TTL_MS) * V04_MIGRATION_PREVIEW_TTL_MS;
+  return {
+    startsAt: new Date(startsAtMs).toISOString(),
+    expiresAt: new Date(startsAtMs + V04_MIGRATION_PREVIEW_TTL_MS).toISOString(),
+  };
+}
+
+export function assertV04PreviewToken(
+  current: V04MigrationPreview,
+  suppliedToken: string,
+  now: Date = new Date(),
+) {
+  const expiresAtMs = Date.parse(current.expiresAt);
+  const expired = !Number.isFinite(expiresAtMs) || now.getTime() >= expiresAtMs;
+  if (expired || !suppliedToken || suppliedToken !== current.previewToken) {
     throw new V04ServiceError("STALE_PREVIEW", "PREVIEW 事实已变化，请重新执行只读 PREVIEW。", {
       currentPreviewToken: current.previewToken,
+      expiresAt: current.expiresAt,
+      reason: expired ? "EXPIRED" : "FACTS_CHANGED",
     });
   }
 }
@@ -437,6 +734,7 @@ export async function previewV04Migration(
   if (!admin) throw new V04ServiceError("ADMIN_REQUIRED", "仅稳定系统管理员可查看 V0.4 迁移 PREVIEW。");
 
   const now = options.now ?? new Date();
+  const previewWindow = v04PreviewTimeWindow(now);
   const environmentKey = options.environmentKey ?? stableEnvironmentKey();
   const catalog = await loadCatalog(db);
   const catalogTableSet = new Set(catalog.tables.map((row) => row.table_name));
@@ -473,12 +771,13 @@ export async function previewV04Migration(
       contract,
       schemaFingerprint,
       drift,
+      previewWindow,
     })}`;
     return {
       previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,
       scope: V04_MIGRATION_PREVIEW_SCOPE,
       generatedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + V04_MIGRATION_PREVIEW_TTL_MS).toISOString(),
+      expiresAt: previewWindow.expiresAt,
       environmentKey,
       actorUserId: actor.userId,
       contract,
@@ -672,6 +971,7 @@ export async function previewV04Migration(
     sourceHash: source.hash,
     targetHash: target.hash,
     nonTargetHash: nonTarget.hash,
+    previewWindow,
     p01, p02, snapshotKinds, versionAnomalyIds, promotedStreamIds, referenceIds,
     ledgerRows, ledgerAnomalyIds, drift, p08, p09, physicalDeleteIds, orphanIds, objectKeyIds,
     p11Counts, totalContentHash,
@@ -681,7 +981,7 @@ export async function previewV04Migration(
     previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,
     scope: V04_MIGRATION_PREVIEW_SCOPE,
     generatedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + V04_MIGRATION_PREVIEW_TTL_MS).toISOString(),
+    expiresAt: previewWindow.expiresAt,
     environmentKey,
     actorUserId: actor.userId,
     contract: tokenFacts.contract,

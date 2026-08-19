@@ -16,6 +16,12 @@ test("V0.4 migration PREVIEW real PostgreSQL matrix is explicit and opt-in", {
   const evidence = await runV04MigrationPreviewVerification(process.env);
   assert.equal(evidence.preview11, true);
   assert.equal(evidence.zeroWrite, true);
+  assert.equal(evidence.expiryBoundaryRejected, true);
+  assert.equal(evidence.crossWindowTokenChanged, true);
   assert.equal(evidence.stalePreviewRejected, true);
+  assert.equal(evidence.arbitraryIndexAndTriggerDetected, true);
+  assert.equal(evidence.sameNameIndexAndTriggerDriftDetected, true);
+  assert.equal(evidence.indexIncludeTriggerOrientationAndUpdateColumnsDetected, true);
+  assert.equal(evidence.policyExtraMissingChangedDetected, true);
   assert.equal(evidence.publicFingerprintUnchanged, true);
 });

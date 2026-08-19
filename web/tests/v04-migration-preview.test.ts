@@ -5,8 +5,11 @@ import { V04ServiceError, v04ErrorResponse } from "../lib/v04-errors.ts";
 import {
   assertV04PreviewToken,
   canonicalV04PreviewValue,
+  compareV04SchemaObjects,
   hashV04PreviewValue,
   isV04PreviewSameOrigin,
+  V04_FROZEN_SCHEMA_OBJECT_EXPECTATION,
+  v04PreviewTimeWindow,
   type V04MigrationPreview,
 } from "../lib/v04-migration-preview.ts";
 
@@ -18,18 +21,101 @@ test("preview canonical hashing is stable across object insertion order", () => 
   assert.notEqual(hashV04PreviewValue(left), hashV04PreviewValue({ ...right, z: 2 }));
 });
 
-test("preview token mismatch fails with stable STALE_PREVIEW semantics", async () => {
-  const preview = { previewToken: "v04_preview_current" } as V04MigrationPreview;
-  assert.doesNotThrow(() => assertV04PreviewToken(preview, "v04_preview_current"));
-  assert.throws(() => assertV04PreviewToken(preview, "v04_preview_old"), (error) => {
+test("preview token enforces the fixed 30-minute window and stable STALE_PREVIEW semantics", async () => {
+  const startsAt = new Date("2026-08-19T12:30:00.000Z");
+  const window = v04PreviewTimeWindow(startsAt);
+  assert.deepEqual(window, {
+    startsAt: "2026-08-19T12:30:00.000Z",
+    expiresAt: "2026-08-19T13:00:00.000Z",
+  });
+  assert.deepEqual(v04PreviewTimeWindow(new Date("2026-08-19T12:59:59.999Z")), window);
+  assert.deepEqual(v04PreviewTimeWindow(new Date(window.expiresAt)), {
+    startsAt: "2026-08-19T13:00:00.000Z",
+    expiresAt: "2026-08-19T13:30:00.000Z",
+  });
+
+  const preview = {
+    previewToken: "v04_preview_current",
+    expiresAt: window.expiresAt,
+  } as V04MigrationPreview;
+  assert.doesNotThrow(() => assertV04PreviewToken(
+    preview,
+    "v04_preview_current",
+    new Date("2026-08-19T12:59:59.999Z"),
+  ));
+  for (const now of [new Date(window.expiresAt), new Date("2026-08-19T13:00:00.001Z")]) {
+    assert.throws(() => assertV04PreviewToken(preview, "v04_preview_current", now), (error) => {
+      assert(error instanceof V04ServiceError);
+      assert.equal(error.code, "STALE_PREVIEW");
+      assert.equal(error.details.reason, "EXPIRED");
+      return true;
+    });
+  }
+  assert.throws(() => assertV04PreviewToken(
+    preview,
+    "v04_preview_old",
+    new Date("2026-08-19T12:45:00.000Z"),
+  ), (error) => {
     assert(error instanceof V04ServiceError);
     assert.equal(error.code, "STALE_PREVIEW");
     assert.equal(error.status, 409);
+    assert.equal(error.details.reason, "FACTS_CHANGED");
     return true;
   });
   const response = v04ErrorResponse(new V04ServiceError("STALE_PREVIEW", "stale"), "request-stale");
   assert.equal(response.status, 409);
   assert.equal((await response.json() as { error: { code: string } }).error.code, "STALE_PREVIEW");
+});
+
+test("schema object comparison detects arbitrary names, same-name definition drift and policy lifecycle", () => {
+  const frozen = structuredClone(V04_FROZEN_SCHEMA_OBJECT_EXPECTATION);
+  assert.equal(frozen.indexes.length, 5);
+  assert.equal(frozen.triggers.length, 19);
+  assert.equal(frozen.policies.length, 0, "the frozen bootstrap intentionally uses implicit deny RLS");
+
+  const extraIndex = { tableName: "collaboration_workspaces", objectName: "anything_goes", signature: "extra" };
+  const extraTrigger = { tableName: "app_role_memberships", objectName: "totally_custom", signature: "extra" };
+  const drifted = compareV04SchemaObjects({
+    indexes: [
+      ...frozen.indexes.slice(1),
+      { ...frozen.indexes[0], signature: "changed" },
+      extraIndex,
+    ],
+    triggers: [
+      ...frozen.triggers.slice(1),
+      { ...frozen.triggers[0], signature: "changed" },
+      extraTrigger,
+    ],
+    policies: [{ tableName: "collaboration_workspaces", objectName: "unexpected", signature: "extra" }],
+  }, frozen);
+  assert.deepEqual(drifted.indexes.changed, [
+    `${frozen.indexes[0].tableName}.${frozen.indexes[0].objectName}`,
+  ]);
+  assert.deepEqual(drifted.indexes.extra, ["collaboration_workspaces.anything_goes"]);
+  assert.deepEqual(drifted.triggers.changed, [
+    `${frozen.triggers[0].tableName}.${frozen.triggers[0].objectName}`,
+  ]);
+  assert.deepEqual(drifted.triggers.extra, ["app_role_memberships.totally_custom"]);
+  assert.deepEqual(drifted.policies.extra, ["collaboration_workspaces.unexpected"]);
+
+  const expectedPolicy = {
+    tableName: "collaboration_workspaces",
+    objectName: "future_frozen_policy",
+    signature: "using-false",
+  };
+  const missingPolicy = compareV04SchemaObjects(frozen, {
+    ...frozen,
+    policies: [expectedPolicy],
+  });
+  assert.deepEqual(missingPolicy.policies.missing, ["collaboration_workspaces.future_frozen_policy"]);
+  const changedPolicy = compareV04SchemaObjects({
+    ...frozen,
+    policies: [{ ...expectedPolicy, signature: "using-true" }],
+  }, {
+    ...frozen,
+    policies: [expectedPolicy],
+  });
+  assert.deepEqual(changedPolicy.policies.changed, ["collaboration_workspaces.future_frozen_policy"]);
 });
 
 test("preview GET same-origin boundary accepts omitted Origin only on configured host", () => {
