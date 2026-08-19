@@ -125,8 +125,8 @@ export async function POST(request: Request) {
         `INSERT INTO videos (
           id, title, brand, description, tags_json, object_key, thumbnail_key,
           original_name, content_type, file_size, status, rights_confirmed,
-          created_by_email, created_by_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPLOADING', 1, ?, ?)`,
+          created_by_email, created_by_name, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPLOADING', 1, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -141,18 +141,22 @@ export async function POST(request: Request) {
         Math.max(0, Number(body.fileSize) || 0),
         user.identityKey,
         user.displayName,
+        user.id,
       ),
     db
       .prepare(
         `INSERT INTO audit_logs (
-          id, actor_email, action, object_type, object_id, detail_json
-        ) VALUES (?, ?, 'VIDEO_CREATED', 'VIDEO', ?, ?)`,
+          id, actor_email, action, object_type, object_id, detail_json,
+          actor_user_id, request_id
+        ) VALUES (?, ?, 'VIDEO_CREATED', 'VIDEO', ?, ?, ?, ?)`,
       )
       .bind(
         newId("audit"),
         user.identityKey,
         id,
         JSON.stringify({ title, originalName }),
+        user.id,
+        request.headers.get("x-request-id")?.trim() || newId("request"),
       ),
   ]);
 

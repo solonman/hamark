@@ -1,7 +1,9 @@
-import { getDbClient, getVideoBucket, withDbTransaction } from "@/db";
+import { getDbClient, getVideoBucket } from "@/db";
 import { isFinalReviewer } from "@/lib/admin";
-import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import { requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import { loadSharedV03ReadModel } from "@/lib/v03-collaboration";
+import { v04IdempotencyKey, v04Route } from "@/lib/v04-api";
+import { trashVideo } from "@/lib/v04-video-lifecycle";
 
 type VideoDetailRow = {
   id: string;
@@ -16,6 +18,7 @@ type VideoDetailRow = {
   file_size: number;
   status: string;
   created_by_email: string;
+  created_by_user_id: string | null;
   created_by_name: string;
   created_at: string;
 };
@@ -75,7 +78,7 @@ export async function GET(
     .prepare(
       `SELECT v.id, v.title, v.brand, v.description, v.tags_json, v.object_key,
         to_jsonb(v)->>'thumbnail_key' AS thumbnail_key, v.original_name,
-        v.content_type, v.file_size, v.status, v.created_by_email,
+        v.content_type, v.file_size, v.status, v.created_by_email, v.created_by_user_id,
         v.created_by_name, v.created_at
       FROM videos v
       WHERE v.id = ? AND v.deleted_at IS NULL`,
@@ -93,7 +96,6 @@ export async function GET(
     snapshotVersions,
     myAnnotations,
     approvedStandards,
-    submittedAnalysis,
     playbackUrl,
     thumbnailUrl,
   ] = await Promise.all([
@@ -169,12 +171,6 @@ export async function GET(
         source_author_name: string;
         source_submitted_at: string;
       }>(),
-    db
-      .prepare(
-        `SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`,
-      )
-      .bind(id)
-      .first(),
     video.status === "READY"
       ? getVideoBucket().createPresignedGetUrl(video.object_key, {
           expiresInSeconds: 3 * 60 * 60,
@@ -194,8 +190,7 @@ export async function GET(
     tags = [];
   }
 
-  const canManage = video.created_by_email === user.identityKey;
-  const hasSubmittedAnalysis = Boolean(submittedAnalysis);
+  const canManage = video.created_by_user_id === user.id;
   const shared = await loadSharedV03ReadModel(id);
   const currentSharedSnapshot = shared?.collaboration?.currentSnapshotId
     ? await db.prepare(
@@ -370,7 +365,7 @@ export async function GET(
       sourcePublicSnapshotId: annotation.source_public_snapshot_id,
     })),
     canManage,
-    canDeletePermanently: canManage && !hasSubmittedAnalysis,
+    canTrash: canManage,
     canReplaceOriginal: canManage,
   });
 }
@@ -402,14 +397,14 @@ export async function PATCH(
   const db = getDbClient();
   const video = await db
     .prepare(
-      `SELECT id, created_by_email FROM videos WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT id, created_by_user_id FROM videos WHERE id = ? AND deleted_at IS NULL`,
     )
     .bind(id)
-    .first<{ id: string; created_by_email: string }>();
+    .first<{ id: string; created_by_user_id: string | null }>();
   if (!video) {
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
-  if (video.created_by_email !== user.identityKey) {
+  if (video.created_by_user_id !== user.id) {
     return Response.json({ error: "只有原上传者可以编辑视频信息。" }, { status: 403 });
   }
 
@@ -420,9 +415,9 @@ export async function PATCH(
       `UPDATE videos
       SET title = ?, brand = ?, description = ?, tags_json = ?,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND created_by_email = ? AND deleted_at IS NULL`,
+      WHERE id = ? AND created_by_user_id = ? AND deleted_at IS NULL`,
     )
-    .bind(title, brand, description, JSON.stringify(tags), id, user.identityKey)
+    .bind(title, brand, description, JSON.stringify(tags), id, user.id)
     .run();
   if (updateResult.meta.rows_written !== 1) {
     return Response.json({ error: "视频状态已变化，请刷新后重试。" }, { status: 409 });
@@ -435,98 +430,12 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  const originError = requireSameOriginMutation(request);
-  if (originError) return originError;
-  const user = await requireApiUser(request);
-  if (user instanceof Response) return user;
-  const { id } = await context.params;
-  const db = getDbClient();
-
-  const video = await db
-    .prepare(
-      `SELECT id, created_by_email, object_key,
-        to_jsonb(videos)->>'thumbnail_key' AS thumbnail_key
-      FROM videos WHERE id = ? AND deleted_at IS NULL`,
-    )
-    .bind(id)
-    .first<{
-      id: string;
-      created_by_email: string;
-      object_key: string;
-      thumbnail_key: string | null;
-    }>();
-  if (!video) {
-    return Response.json({ error: "视频不存在。" }, { status: 404 });
-  }
-  if (video.created_by_email !== user.identityKey) {
-    return Response.json({ error: "只有原上传者可以删除视频。" }, { status: 403 });
-  }
-
-  const submittedAnalysis = await db
-    .prepare(`SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`)
-    .bind(id)
-    .first();
-  if (submittedAnalysis) {
-    return Response.json({ error: "已有作业提交，无法删除视频。" }, { status: 409 });
-  }
-
-  const bucket = getVideoBucket();
-  try {
-    await bucket.delete(video.object_key);
-    await (video.thumbnail_key ? bucket.delete(video.thumbnail_key) : Promise.resolve());
-  } catch (error) {
-    const requestId = newId("delete_error");
-    console.error("Video asset deletion failed", { requestId, videoId: id, error });
-    return Response.json({ error: "视频文件删除失败，请稍后重试。", requestId }, { status: 500 });
-  }
-
-  const result = await withDbTransaction(async (transaction) => {
-    const current = await transaction
-      .prepare(
-        `SELECT id, created_by_email FROM videos WHERE id = ? AND deleted_at IS NULL`,
-      )
-      .bind(id)
-      .first<{ id: string; created_by_email: string }>();
-    if (!current || current.created_by_email !== user.identityKey) return "changed";
-
-    const latestSubmission = await transaction
-      .prepare(`SELECT 1 FROM annotation_snapshots WHERE video_id = ? LIMIT 1`)
-      .bind(id)
-      .first();
-    if (latestSubmission) return "submitted";
-
-    await transaction.batch([
-      transaction
-        .prepare(
-          `DELETE FROM field_answers WHERE annotation_id IN (SELECT id FROM annotations WHERE video_id = ?)`,
-        )
-        .bind(id),
-      transaction
-        .prepare(
-          `DELETE FROM shots WHERE annotation_id IN (SELECT id FROM annotations WHERE video_id = ?)`,
-        )
-        .bind(id),
-      transaction.prepare(`DELETE FROM annotations WHERE video_id = ?`).bind(id),
-      transaction
-        .prepare(`DELETE FROM videos WHERE id = ? AND created_by_email = ?`)
-        .bind(id, user.identityKey),
-      transaction
-        .prepare(
-          `INSERT INTO audit_logs (
-            id, actor_email, action, object_type, object_id, detail_json
-          ) VALUES (?, ?, 'VIDEO_PERMANENTLY_DELETED', 'VIDEO', ?, '{}')`,
-        )
-        .bind(newId("audit"), user.identityKey, id),
-    ]);
-    return "deleted";
+  return v04Route(request, { mutation: true, requireFeature: false }, async (actor) => {
+    const { id } = await context.params;
+    const result = await trashVideo(getDbClient(), id, actor, {
+      reason: "用户移入回收站",
+      idempotencyKey: v04IdempotencyKey(request, actor.requestId),
+    });
+    return Response.json(result);
   });
-
-  if (result === "submitted") {
-    return Response.json({ error: "已有作业提交，无法删除视频。" }, { status: 409 });
-  }
-  if (result === "changed") {
-    return Response.json({ error: "视频状态已变化，请刷新后重试。" }, { status: 409 });
-  }
-
-  return Response.json({ ok: true });
 }

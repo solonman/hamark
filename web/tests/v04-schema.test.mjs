@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { V04_SCHEMA_STATEMENTS } from "../db/v04-schema.ts";
+import { V04_WORKFLOW_SCHEMA_STATEMENTS } from "../db/v04-workflow-schema.ts";
 
 const read = (relativePath) => readFileSync(
   fileURLToPath(new URL(relativePath, import.meta.url)),
@@ -14,6 +15,8 @@ const schema = read("../db/v04-schema.ts");
 const migration = read("../db/migrations/2026-08-19-v04-contract-foundation.sql");
 const adminSchema = read("../db/admin-data-operation-schema.ts");
 const adminInstaller = read("../lib/admin-data-operations.ts");
+const workflowSchema = read("../db/v04-workflow-schema.ts");
+const workflowMigration = read("../db/migrations/2026-08-19-v04-workflow-transactions.sql");
 
 const v04Tables = [
   "annotation_vocabulary_versions",
@@ -32,13 +35,37 @@ const v04Tables = [
   "video_asset_cleanup_jobs",
 ];
 
-test("bootstrap composes the two isolated schema sources", () => {
+test("bootstrap composes the three isolated schema sources", () => {
   assert.match(bootstrap, /ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS/);
   assert.match(bootstrap, /V04_SCHEMA_STATEMENTS/);
+  assert.match(bootstrap, /V04_WORKFLOW_SCHEMA_STATEMENTS/);
   assert.match(adminInstaller, /ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS/);
   assert.doesNotMatch(adminInstaller, /CREATE TABLE IF NOT EXISTS admin_data_operations/);
   assert.match(adminSchema, /target_video_id TEXT NOT NULL/);
   assert.doesNotMatch(schema, /target_video_id/);
+});
+
+test("1B choice slot compatibility is additive and migration/source stay equivalent", () => {
+  for (const text of [workflowSchema, workflowMigration]) {
+    assert.match(text, /ADD COLUMN IF NOT EXISTS value_slot TEXT NOT NULL DEFAULT 'PRIMARY'/);
+    assert.match(text, /CHECK \(value_slot IN \('PRIMARY', 'AUXILIARY'\)\)/);
+    assert.match(text, /UNIQUE \(annotation_id, target_type, target_id, field_key, value_slot\)/);
+    assert.doesNotMatch(text, /UPDATE annotation_choice_values/);
+  }
+  assert.match(workflowSchema, /annotation_choice_values_annotation_id_target_type_target_i_key/);
+  const expectedMigration = [
+    "-- Stage 1 batch 1B compatibility: a vocabulary field can occur in distinct",
+    "-- primary and auxiliary semantic slots on the same annotation/shot group.",
+    "-- The DRAFT contract has not been activated, so this is schema-only and does",
+    "-- not rewrite any V0.2/V0.3 or V0.4 business payload.",
+    "BEGIN;",
+    "",
+    V04_WORKFLOW_SCHEMA_STATEMENTS.join(";\n\n") + ";",
+    "",
+    "COMMIT;",
+    "",
+  ].join("\n");
+  assert.equal(workflowMigration, expectedMigration, "1B migration and schema source drifted");
 });
 
 test("V0.4 migration and bootstrap schema expose all RLS-protected tables", () => {

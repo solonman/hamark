@@ -74,32 +74,33 @@ test("every business mutation route rejects cross-origin requests", async () => 
     const source = await readProjectFile(route);
     assert.match(
       source,
-      /requireSameOriginMutation\(request\)/,
-      `${route} must call requireSameOriginMutation`,
+      /requireSameOriginMutation\(request\)|v04Route\(request, \{ mutation: true/,
+      `${route} must call a same-origin mutation guard`,
     );
   }
 });
 
-test("permanent video deletion is restricted to the original uploader and blocked after submission", async () => {
-  const source = await readProjectFile("app/api/videos/[id]/route.ts");
+test("default video deletion is stable-uploader soft trash and never deletes DB or COS", async () => {
+  const [route, lifecycle] = await Promise.all([
+    readProjectFile("app/api/videos/[id]/route.ts"),
+    readProjectFile("lib/v04-video-lifecycle.ts"),
+  ]);
 
-  assert.match(source, /created_by_email !== user\.identityKey/);
-  assert.match(source, /SELECT 1 FROM annotation_snapshots WHERE video_id = \? LIMIT 1/);
-  assert.match(source, /已有作业提交，无法删除视频/);
-  assert.match(source, /await bucket\.delete\(video\.object_key\)/);
-  assert.match(source, /video\.thumbnail_key \? bucket\.delete\(video\.thumbnail_key\)/);
-  assert.match(source, /DELETE FROM field_answers WHERE annotation_id IN \(SELECT id FROM annotations WHERE video_id = \?\)/);
-  assert.match(source, /DELETE FROM shots WHERE annotation_id IN \(SELECT id FROM annotations WHERE video_id = \?\)/);
-  assert.match(source, /DELETE FROM annotations WHERE video_id = \?/);
-  assert.match(source, /DELETE FROM videos WHERE id = \? AND created_by_email = \?/);
+  assert.match(route, /trashVideo\(/);
+  assert.match(lifecycle, /created_by_user_id !== actor\.userId/);
+  assert.match(lifecycle, /restore_until = \?::timestamptz/);
+  assert.match(lifecycle, /deletion_state = 'TRASHED'/);
+  assert.match(lifecycle, /assetAction: "NONE"/);
+  assert.doesNotMatch(route, /bucket\.delete\(/);
+  assert.doesNotMatch(route, /DELETE FROM videos/);
+  assert.doesNotMatch(route, /DELETE FROM annotations/);
 });
 
-test("video management exposes uploader permission and blocks deletion after a submission", async () => {
+test("video management derives uploader permission from stable user id", async () => {
   const source = await readProjectFile("app/api/videos/[id]/route.ts");
 
-  assert.match(source, /const canManage = video\.created_by_email === user\.identityKey/);
-  assert.match(source, /SELECT 1 FROM annotation_snapshots WHERE video_id = \? LIMIT 1/);
-  assert.match(source, /canDeletePermanently: canManage && !hasSubmittedAnalysis/);
+  assert.match(source, /const canManage = video\.created_by_user_id === user\.id/);
+  assert.match(source, /canTrash: canManage/);
 });
 
 test("video metadata updates require the original uploader and normalize tags", async () => {

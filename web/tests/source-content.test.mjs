@@ -285,7 +285,8 @@ test("video management dialogs use protected edit and delete mutations", async (
   assert.match(editDialog, /method: "PATCH"/);
   assert.match(editDialog, /编辑作品信息/);
   assert.match(deleteDialog, /method: "DELETE"/);
-  assert.match(deleteDialog, /永久删除后无法恢复/);
+  assert.match(deleteDialog, /90 天内可恢复/);
+  assert.match(deleteDialog, /不会删除 COS 对象/);
 });
 
 test("video detail exposes management controls only from server-provided permissions", async () => {
@@ -295,9 +296,9 @@ test("video detail exposes management controls only from server-provided permiss
   );
 
   assert.match(detail, /canManage/);
-  assert.match(detail, /canDeletePermanently/);
+  assert.match(detail, /canTrash/);
   assert.match(detail, /编辑信息/);
-  assert.match(detail, /永久删除/);
+  assert.match(detail, /移入回收站/);
   assert.match(detail, /<EditVideoDialog/);
   assert.match(detail, /<DeleteVideoDialog/);
   assert.match(detail, /window\.location\.assign\("\/"\)/);

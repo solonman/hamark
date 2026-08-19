@@ -27,11 +27,12 @@ export default function DeleteVideoDialog({ videoId, onClose, onDeleted }: Props
     try {
       const response = await fetch(`/api/videos/${videoId}`, { method: "DELETE" });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(data.error || "视频删除失败，请重试。");
+      const data = (await response.json()) as { error?: string | { message?: string } };
+      const message = typeof data.error === "string" ? data.error : data.error?.message;
+      if (!response.ok) throw new Error(message || "移入回收站失败，请重试。");
       onDeleted();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "视频删除失败，请重试。");
+      setError(reason instanceof Error ? reason.message : "移入回收站失败，请重试。");
       setBusy(false);
     }
   }
@@ -41,19 +42,19 @@ export default function DeleteVideoDialog({ videoId, onClose, onDeleted }: Props
       <section className="upload-dialog delete-video-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="dialog-head">
           <div>
-            <p className="eyebrow">PERMANENT DELETION</p>
-            <h2 id={titleId}>永久删除视频</h2>
+            <p className="eyebrow">MOVE TO TRASH</p>
+            <h2 id={titleId}>移入回收站</h2>
           </div>
           <button className="close-button" type="button" onClick={onClose} disabled={busy} aria-label="关闭删除确认窗口">×</button>
         </div>
         <div className="delete-video-warning">
-          <strong>永久删除后无法恢复</strong>
-          <p>原视频、封面和未提交的作业草稿都会被清除。已有任何作业提交的视频不能删除。</p>
+          <strong>90 天内可恢复</strong>
+          <p>原视频、封面、工作稿、提交版和审计历史都会保留；本操作不会删除 COS 对象。</p>
         </div>
         {error ? <p className="form-error">{error}</p> : null}
         <div className="dialog-actions">
           <button className="button button-ghost" type="button" onClick={onClose} disabled={busy}>取消</button>
-          <button className="button delete-video-button" type="button" onClick={() => void removeVideo()} disabled={busy}>{busy ? "正在删除…" : "永久删除"}</button>
+          <button className="button delete-video-button" type="button" onClick={() => void removeVideo()} disabled={busy}>{busy ? "正在移入…" : "移入回收站"}</button>
         </div>
       </section>
     </div>

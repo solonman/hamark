@@ -1,8 +1,9 @@
 import { getDbClient } from "./index";
 import { ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS } from "./admin-data-operation-schema";
 import { V04_SCHEMA_STATEMENTS } from "./v04-schema";
+import { V04_WORKFLOW_SCHEMA_STATEMENTS } from "./v04-workflow-schema";
 
-const statements = [
+export const BOOTSTRAP_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS app_admins (
     display_name TEXT PRIMARY KEY,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -550,6 +551,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS audit_logs_object_idx ON audit_logs(object_type, object_id)`,
   ...ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS,
   ...V04_SCHEMA_STATEMENTS,
+  ...V04_WORKFLOW_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only
   // happens server-side through the BYPASSRLS pooler role, so RLS with no
   // policies closes the anon/authenticated path without affecting any query.
@@ -596,5 +598,5 @@ const statements = [
 
 export async function applySchema() {
   const db = getDbClient();
-  await db.batch(statements.map((statement) => db.prepare(statement)));
+  await db.batch(BOOTSTRAP_STATEMENTS.map((statement) => db.prepare(statement)));
 }

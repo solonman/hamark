@@ -69,7 +69,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
   const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
   const [playerDocked, setPlayerDocked] = useState(false);
   const [canManage, setCanManage] = useState(false);
-  const [canDeletePermanently, setCanDeletePermanently] = useState(false);
+  const [canTrash, setCanTrash] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -99,7 +99,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           sharedV03PendingBackfill?: boolean;
           sharedV03SourceAuthorName?: string | null;
           canManage?: boolean;
-          canDeletePermanently?: boolean;
+          canTrash?: boolean;
           error?: string;
         };
         if (!response.ok) throw new Error(data.error || "作品读取失败");
@@ -116,7 +116,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           setSharedV03PendingBackfill(Boolean(data.sharedV03PendingBackfill));
           setSharedV03SourceAuthorName(data.sharedV03SourceAuthorName ?? null);
           setCanManage(Boolean(data.canManage));
-          setCanDeletePermanently(Boolean(data.canDeletePermanently));
+          setCanTrash(Boolean(data.canTrash));
         }
       })
       .catch((reason) => {
@@ -384,13 +384,13 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
               >
                 替换原视频
               </button>
-              {canDeletePermanently ? (
+              {canTrash ? (
                 <button
                   type="button"
                   className="replace-video-button delete-video-button"
                   onClick={() => setDeleteOpen(true)}
                 >
-                  永久删除
+                  移入回收站
                 </button>
               ) : null}
             </div>

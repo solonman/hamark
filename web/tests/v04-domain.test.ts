@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyV04ChangeSet,
+  canonicalV04ChangeSet,
   decideV04ChangeSet,
   deriveV04WorkflowState,
   emptyV04DraftPayload,
@@ -99,4 +100,6 @@ test("change-set rebases only disjoint stable targets and applies exact before v
   assert.equal(next.factsAndCoreJudgement.commercialIntent, "新意图");
   assert.notEqual(hashV04Payload(payload), hashV04Payload(next));
   assert.throws(() => applyV04ChangeSet(next, local), /REVISION_CONFLICT/);
+  assert.equal(canonicalV04ChangeSet(local), canonicalV04ChangeSet([...local].reverse()));
+  assert.throws(() => canonicalV04ChangeSet([...local, { ...local[0] }]), /DUPLICATE_CHANGE_TARGET/);
 });

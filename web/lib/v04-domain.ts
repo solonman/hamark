@@ -374,3 +374,18 @@ export function applyV04ChangeSet(payload: V04DraftPayloadV1, changes: readonly 
 }
 
 const canonicalJson = (value: unknown) => JSON.stringify(stableValue(value));
+
+export function canonicalV04ChangeSet(changes: readonly V04Change[]) {
+  const targets = changes.map((change) => change.targetKey);
+  if (new Set(targets).size !== targets.length) {
+    throw new Error("DUPLICATE_CHANGE_TARGET");
+  }
+  return canonicalJson(changes.map((change) => ({
+    targetKey: change.targetKey,
+    targetLabel: change.targetLabel,
+    valueType: change.valueType,
+    beforeValue: change.beforeValue ?? null,
+    afterValue: change.afterValue ?? null,
+    reason: change.reason ?? null,
+  })).toSorted((left, right) => left.targetKey.localeCompare(right.targetKey, "en")));
+}
