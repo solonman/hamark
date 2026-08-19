@@ -53,6 +53,75 @@ export type V04ShotPayload = Record<V04ShotFieldKey, string> & {
   orderIndex: number;
 };
 
+export type V04PerceptionType = "LOVE" | "FUN" | "PERCEPTION";
+export type V04CreativeGrade = "S" | "A" | "B" | "C";
+
+export type V04ShotGroupPayload = {
+  id: string;
+  orderIndex: number;
+  bridgeName: string;
+  primaryCreativeRole: V04ChoiceValue;
+  auxiliaryCreativeRole: V04ChoiceValue;
+  keyCreativeDescription: string;
+  shots: V04ShotPayload[];
+};
+
+export type V04FactsAndCoreJudgement = {
+  commercialIntent: string;
+  storySynopsis: string;
+  creativeMotif: string;
+  tensionButton: string;
+  mainMechanism: V04ChoiceValue;
+  auxiliaryMechanism: V04ChoiceValue;
+  creativeThinkingChain: string;
+  storyReference: V04ChoiceValue;
+  creativeCarriers: Array<"STORY" | "COPY" | "AUDIOVISUAL_RULE">;
+  carrierExplanation: string;
+  acceptanceContract: string;
+  overallCreativeRating: V04CreativeGrade | "";
+  ratingReason: string;
+};
+
+export type V04AuxiliaryPerceptionPath = {
+  type: V04PerceptionType;
+  description: string;
+  creativeRole: string;
+};
+
+export type V04PerceptionPath = {
+  primaryType: V04PerceptionType | "";
+  primaryDetails: Record<string, string>;
+  auxiliaryTypes: V04AuxiliaryPerceptionPath[];
+};
+
+export type V04DraftPayloadV1 = {
+  contract: Omit<typeof V04_VERSION_CONTRACT, "status">;
+  script: { shotGroups: V04ShotGroupPayload[] };
+  factsAndCoreJudgement: V04FactsAndCoreJudgement;
+  perceptionPath: V04PerceptionPath;
+  metadata: {
+    source: "HUMAN" | "SYSTEM_MIGRATION" | "HISTORY_RESTORE";
+    legacySource?: { workflowVersion: string; objectId: string };
+    restoredFrom?: { objectType: string; objectId: string };
+  };
+};
+
+export type V04RevisionValueType =
+  | "TEXT"
+  | "SINGLE_SELECT"
+  | "MULTI_SELECT"
+  | "CHOICE_WITH_CUSTOM"
+  | "STRUCTURE";
+
+export type V04Change = {
+  targetKey: string;
+  targetLabel: string;
+  valueType: V04RevisionValueType;
+  beforeValue: unknown;
+  afterValue: unknown;
+  reason?: string;
+};
+
 export const V04_VERSION_CONTRACT = {
   productVersion: V04_PRODUCT_VERSION,
   taxonomyVersion: V04_TAXONOMY_VERSION,
