@@ -1,4 +1,6 @@
 import { getDbClient } from "./index";
+import { ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS } from "./admin-data-operation-schema";
+import { V04_SCHEMA_STATEMENTS } from "./v04-schema";
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS app_admins (
@@ -546,6 +548,8 @@ const statements = [
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE INDEX IF NOT EXISTS audit_logs_object_idx ON audit_logs(object_type, object_id)`,
+  ...ADMIN_DATA_OPERATION_SCHEMA_STATEMENTS,
+  ...V04_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only
   // happens server-side through the BYPASSRLS pooler role, so RLS with no
   // policies closes the anon/authenticated path without affecting any query.
