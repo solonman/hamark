@@ -206,6 +206,36 @@ catalog 和业务指纹。普通 `npm test` 未提供上述变量时会明确跳
 V0.4 合同、不会回填历史上传者、不会创建生产 V0.4 工作区，也不得在 build/start/deploy
 过程中自动运行。生产 schema APPLY 和业务迁移仍须分别经过受控 PREVIEW 与单独批准。
 
+### V0.4 阶段1批次1B本机工作流验证
+
+1B 在 1A 的 DRAFT 合同上增加工作区、租约、保存、提交、专家优选、非破坏恢复、只读模型
+和回收站事务。所有 V0.4 API 仍是暗路由：默认关闭，只有服务端显式设置
+`V04_WORKFLOW_API_ENABLED=true` 才响应；本批次不激活合同、不切换正式入口，也不包含 1C
+历史适配或生产 PREVIEW/APPLY。
+
+真实 PostgreSQL 纵切沿用 1A 的 TEST_ONLY 守卫，并在独立的
+`test_only_v04_<runId>_workflow` schema 内运行。命令中的账号、密码只应是本机一次性测试值：
+
+```bash
+NODE_ENV=test \
+V04_TEST_RUN_ID=stage1b_0819 \
+V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+npm run verify:v04-workflow
+```
+
+验证覆盖两个用户、同用户双标签页、30秒心跳／120秒TTL、change-set重放与冲突、首次和
+二次提交编号、幂等重试、事务失败回滚、专家优选、非破坏恢复、读模型零写、90天软删除／
+恢复、RLS拒绝以及`public`目录指纹不变。清理只允许删除本次随机cleanup token和marker
+同时匹配的精确隔离schema；验证器不会读取通用`DATABASE_URL`，不会物理删除视频或COS
+对象，也不会创建清理任务。
+
+自动保存采用约2.5秒防抖和15秒超时。离线恢复键绑定用户、工作区、轮次、标签页和payload
+版本五个维度；写入前会按运行时白名单重建记录，不保存会话、租约或凭据字段。自动／手动
+保存只更新当前草稿，不生成提交快照、不修改专家优选，也不释放租约。
+
+完整的 1B 本机证据和明确边界见
+[`docs/V04_STAGE1_BATCH1B_EVIDENCE.md`](docs/V04_STAGE1_BATCH1B_EVIDENCE.md)。
+
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；
