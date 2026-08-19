@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   hasV04MemberCapability,
   hasV04UploaderCapability,
+  previewV04AdminMappings,
   previewV04UploaderMappings,
   type V04LegacyUploaderReference,
   type V04StableUserIdentity,
@@ -53,4 +54,27 @@ test("MEMBER and UPLOADER remain derived capabilities instead of persisted membe
   assert.equal(hasV04UploaderCapability("user-active", { createdByUserId: "user-active" }), true);
   assert.equal(hasV04UploaderCapability("user-active", { createdByUserId: "someone-else" }), false);
   assert.equal(hasV04UploaderCapability("user-active", { createdByUserId: null }), false);
+});
+
+test("legacy administrator names only produce stable read-only candidates", () => {
+  const adminUsers: V04StableUserIdentity[] = [
+    { id: "user-one", email: null, displayName: "老孙", status: "ACTIVE" },
+    { id: "user-dup-a", email: null, displayName: "同名", status: "ACTIVE" },
+    { id: "user-dup-b", email: null, displayName: "同名", status: "DISABLED" },
+    { id: "user-off", email: null, displayName: "停用管理员", status: "DISABLED" },
+  ];
+  const preview = previewV04AdminMappings(adminUsers, [
+    { stableReferenceId: "legacy-admin-1", displayName: " 老孙 " },
+    { stableReferenceId: "legacy-admin-2", displayName: "同名" },
+    { stableReferenceId: "legacy-admin-3", displayName: "停用管理员" },
+    { stableReferenceId: "legacy-admin-4", displayName: "不存在" },
+  ]);
+  assert.deepEqual(preview.map((item) => item.classification), [
+    "UNIQUE", "AMBIGUOUS", "DISABLED", "MISSING",
+  ]);
+  assert.deepEqual(preview[0].candidateUserIds, ["user-one"]);
+  const serialized = JSON.stringify(preview);
+  assert(!serialized.includes("老孙"));
+  assert(!serialized.includes("同名"));
+  assert(!serialized.includes("停用管理员"));
 });

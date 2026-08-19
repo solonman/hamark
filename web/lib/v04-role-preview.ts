@@ -3,6 +3,7 @@ export type V04StableUserStatus = "ACTIVE" | "DISABLED";
 export type V04StableUserIdentity = {
   id: string;
   email: string | null;
+  displayName?: string | null;
   status: V04StableUserStatus;
 };
 
@@ -19,6 +20,17 @@ export type V04UploaderMappingClassification =
 
 export type V04UploaderMappingPreview = {
   videoId: string;
+  classification: V04UploaderMappingClassification;
+  candidateUserIds: string[];
+};
+
+export type V04LegacyAdminReference = {
+  stableReferenceId: string;
+  displayName: string;
+};
+
+export type V04AdminMappingPreview = {
+  stableReferenceId: string;
   classification: V04UploaderMappingClassification;
   candidateUserIds: string[];
 };
@@ -65,6 +77,38 @@ export function previewV04UploaderMappings(
       videoId: reference.videoId,
       classification,
       candidateUserIds,
+    };
+  });
+}
+
+/**
+ * Produces read-only evidence for old display-name administrator rows. Names are
+ * normalized solely to classify existing references; they are never returned
+ * and never grant a membership.
+ */
+export function previewV04AdminMappings(
+  users: readonly V04StableUserIdentity[],
+  references: readonly V04LegacyAdminReference[],
+): V04AdminMappingPreview[] {
+  const usersByName = new Map<string, V04StableUserIdentity[]>();
+  for (const user of users) {
+    const normalized = normalizeLegacyIdentity(user.displayName ?? null);
+    if (!normalized) continue;
+    usersByName.set(normalized, [...(usersByName.get(normalized) ?? []), user]);
+  }
+  return references.map((reference) => {
+    const normalized = normalizeLegacyIdentity(reference.displayName);
+    const matches = normalized ? usersByName.get(normalized) ?? [] : [];
+    const activeMatches = matches.filter((user) => user.status === "ACTIVE");
+    let classification: V04UploaderMappingClassification;
+    if (matches.length === 0) classification = "MISSING";
+    else if (activeMatches.length === 0) classification = "DISABLED";
+    else if (matches.length > 1 || activeMatches.length > 1) classification = "AMBIGUOUS";
+    else classification = "UNIQUE";
+    return {
+      stableReferenceId: reference.stableReferenceId,
+      classification,
+      candidateUserIds: matches.map((user) => user.id).sort(),
     };
   });
 }
