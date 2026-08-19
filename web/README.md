@@ -184,6 +184,28 @@ npx tsc --noEmit
 npm test
 ```
 
+### V0.4 阶段1批次1A本机 schema 验证
+
+1A 的 PostgreSQL 验证器只接受显式的专用测试环境：`NODE_ENV=test`、符合
+`[a-z0-9_-]{8,40}` 的 `V04_TEST_RUN_ID`、回环地址且数据库名包含 `test` 的
+`V04_TEST_DATABASE_URL`。它不会回退读取通用 `DATABASE_URL`，也不会连接生产库。
+
+```bash
+NODE_ENV=test \
+V04_TEST_RUN_ID=stage1a_0819 \
+V04_TEST_DATABASE_URL=postgresql://test_user:test_password@127.0.0.1:55432/hamark_v04_test \
+npm run verify:v04-schema
+```
+
+验证器只在 `test_only_v04_<runId>` 隔离 schema 内写入 TEST_ONLY fixture，使用随机
+cleanup token 与 marker 校验后仅删除该精确 schema；执行前后还会比对 `public` 的
+catalog 和业务指纹。普通 `npm test` 未提供上述变量时会明确跳过真实 PostgreSQL 矩阵，
+不会隐式连接数据库。
+
+该命令验证的是 1A 的 DRAFT 合同和 schema 安全底座，不是生产业务数据 APPLY：不会激活
+V0.4 合同、不会回填历史上传者、不会创建生产 V0.4 工作区，也不得在 build/start/deploy
+过程中自动运行。生产 schema APPLY 和业务迁移仍须分别经过受控 PREVIEW 与单独批准。
+
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；

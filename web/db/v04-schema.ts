@@ -446,9 +446,10 @@ export const V04_SCHEMA_STATEMENTS = [
       RAISE EXCEPTION 'collaboration object requires an existing workspace';
     END IF;
     IF TG_TABLE_NAME IN ('collaboration_baselines', 'collaboration_rounds',
-      'annotation_submission_snapshots', 'collaboration_revision_events')
-      AND NEW.annotation_id <> workspace_annotation_id THEN
-      RAISE EXCEPTION 'collaboration object annotation must match workspace canonical annotation';
+      'annotation_submission_snapshots', 'collaboration_revision_events') THEN
+      IF NEW.annotation_id <> workspace_annotation_id THEN
+        RAISE EXCEPTION 'collaboration object annotation must match workspace canonical annotation';
+      END IF;
     END IF;
     IF TG_TABLE_NAME = 'annotation_submission_snapshots' THEN
       IF NEW.video_id <> workspace_video_id OR NEW.workflow_version <> workspace_workflow_version THEN
@@ -468,17 +469,21 @@ export const V04_SCHEMA_STATEMENTS = [
       END IF;
     END IF;
     IF TG_TABLE_NAME IN ('annotation_submission_snapshots', 'collaboration_revision_events',
-      'collaboration_edit_leases') AND NOT EXISTS (
-      SELECT 1 FROM collaboration_rounds r
-      WHERE r.id = NEW.round_id AND r.workspace_id = NEW.workspace_id
-    ) THEN
-      RAISE EXCEPTION 'collaboration round must belong to workspace';
+      'collaboration_edit_leases') THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM collaboration_rounds r
+        WHERE r.id = NEW.round_id AND r.workspace_id = NEW.workspace_id
+      ) THEN
+        RAISE EXCEPTION 'collaboration round must belong to workspace';
+      END IF;
     END IF;
-    IF TG_TABLE_NAME = 'expert_analysis_releases' AND NOT EXISTS (
-      SELECT 1 FROM annotation_submission_snapshots s
-      WHERE s.id = NEW.submission_snapshot_id AND s.workspace_id = NEW.workspace_id
-    ) THEN
-      RAISE EXCEPTION 'expert release must reference workspace submission';
+    IF TG_TABLE_NAME = 'expert_analysis_releases' THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM annotation_submission_snapshots s
+        WHERE s.id = NEW.submission_snapshot_id AND s.workspace_id = NEW.workspace_id
+      ) THEN
+        RAISE EXCEPTION 'expert release must reference workspace submission';
+      END IF;
     END IF;
     RETURN NEW;
   END;
