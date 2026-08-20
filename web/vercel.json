@@ -1,8 +1,5 @@
 {
   "framework": "nextjs",
-  "env": {
-    "V04_MIGRATION_PREVIEW_ENABLED": "true"
-  },
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "regions": ["syd1"]
