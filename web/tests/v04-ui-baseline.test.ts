@@ -6,6 +6,7 @@ import test from "node:test";
 import { V04_SHOT_FIELD_KEYS } from "../lib/v04-contract.ts";
 import { V04_VOCABULARY_OPTIONS } from "../lib/v04-vocabulary.ts";
 import { V04_UI_CASES, V04_UI_PROTOTYPE_HASHES } from "../lib/v04-ui-fixture.ts";
+import { V04_WORKSPACE_TARGETS } from "../lib/v04-ui-client-state.ts";
 import { V04_UI_MODULES, V04_UI_SHOT_FIELDS } from "../lib/v04-ui-model.ts";
 
 const runtimeFiles = [
@@ -46,9 +47,12 @@ test("tracked shadow runtime is fixture-only and contains no production API or d
 });
 
 test("detail and workspace preserve V1.9 structural interaction contracts", async () => {
-  const [detail, workspace, shot, css] = await Promise.all([
+  const [detail, workspace, navigation, comments, clientState, shot, css] = await Promise.all([
     readFile(new URL("../components/v04/V04DetailClient.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04WorkspaceNavigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04CommentDrawer.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/v04-ui-client-state.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/v04/V04ShotEditor.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8"),
   ]);
@@ -62,6 +66,24 @@ test("detail and workspace preserve V1.9 structural interaction contracts", asyn
   assert.doesNotMatch(shot, /<article[^>]*draggable/);
   assert.match(workspace, /onDrop=/);
   assert.match(workspace, /moveShotTo/);
+  assert.match(workspace, /label="本桥段关键创意描述"[\s\S]*required=\{false\}/);
+  assert.doesNotMatch(workspace, /locateMissing/);
+  assert.match(navigation, /locateV04Target/);
+  assert.match(comments, /locateV04Target/);
+  assert.match(clientState, /focus\(\{ preventScroll: true \}\)/);
+  assert.match(clientState, /data-v04-fixed-header/);
+  assert.match(css, /\.surface \[data-v04-located="true"\]/);
+  assert.match(css, /\.navChildren \{ display: flex; flex: none;/);
+  for (const targetId of Object.values(V04_WORKSPACE_TARGETS)) {
+    assert.ok(
+      workspace.includes(`id="${targetId}"`)
+        || workspace.includes(`V04_WORKSPACE_TARGETS.${Object.entries(V04_WORKSPACE_TARGETS).find(([, value]) => value === targetId)?.[0]}`),
+      `${targetId} must be rendered by the workspace`,
+    );
+  }
+  assert.match(workspace, /id=\{v04GroupTitleTargetId\(group\.id\)\}/);
+  assert.match(workspace, /targetId=\{v04GroupPrimaryRoleTargetId\(group\.id\)\}/);
+  assert.match(shot, /id=\{v04ShotFieldTargetId\(shot\.id, key\)\}/);
   assert.match(css, /@media \(max-width: 620px\)/);
   assert.match(css, /\.readingThree \{ grid-template-columns: repeat\(3/);
   assert.match(css, /\.readingTwo \{ grid-template-columns: repeat\(2/);

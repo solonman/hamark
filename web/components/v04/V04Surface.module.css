@@ -197,7 +197,7 @@
 .missingPanel > header span { color: var(--v04-muted); font-size: 11px; }
 .missingPanel > button { display: grid; width: 100%; gap: 3px; border: 0; border-bottom: 1px solid var(--v04-line); background: transparent; color: var(--v04-ink); padding: 11px 13px; text-align: left; }
 .missingPanel > button span { color: var(--v04-muted); font-size: 9px; }
-.located { animation: locatedPulse 1.5s ease; }
+.surface [data-v04-located="true"] { scroll-margin-block: 110px 24px; animation: locatedPulse 1.8s ease; }
 @keyframes locatedPulse { 0%, 100% { box-shadow: none; } 30%, 70% { box-shadow: 0 0 0 3px var(--v04-accent); } }
 .submitCard { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 16px; border-radius: 13px; background: #26281e; padding: 20px; }
 .submitCard h3, .submitCard p { margin: 0; }
@@ -223,9 +223,11 @@
 @media (max-width: 920px) {
   .caseGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspaceGrid { grid-template-columns: 1fr; }
-  .workspaceNav { position: relative; top: auto; display: flex; max-height: none; overflow-x: auto; }
+  .workspaceNav { position: relative; top: auto; display: flex; max-height: none; align-items: center; gap: 6px; overflow-x: auto; }
   .workspaceNav > button { min-width: 160px; }
-  .navChildren { display: none; }
+  .navChildren { display: flex; flex: none; padding: 0; }
+  .navChildren > div { display: flex; }
+  .navChildren button { flex: none; max-width: 132px; }
   .shotFields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shotField:nth-child(3n) { border-right: 1px solid var(--v04-line); }
   .shotField:nth-child(2n), .shotFieldWide { border-right: 0; }

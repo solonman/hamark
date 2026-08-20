@@ -49,6 +49,103 @@ export const V04_REPEATABLE_SHOT_FIELDS = [
   "music",
 ] as const;
 
+export const V04_WORKSPACE_TARGETS = {
+  commercialIntent: "field-commercialIntent",
+  storySummary: "field-storySummary",
+  creativeMotif: "field-creativeMotif",
+  tensionButton: "field-tensionButton",
+  primaryMechanism: "field-primaryMechanism",
+  primaryMechanismAdvanced: "field-primaryMechanism-advanced",
+  creativeThinkingChain: "field-creativeThinkingChain",
+  storyReference: "field-storyReference",
+  carriers: "field-carriers",
+  carrierExplanation: "field-carrierExplanation",
+  creativeContract: "field-creativeContract",
+  overallGrade: "field-overallGrade",
+  gradeReason: "field-gradeReason",
+} as const;
+
+export function v04GroupTitleTargetId(groupId: string) {
+  return `group-${groupId}-title`;
+}
+
+export function v04GroupPrimaryRoleTargetId(groupId: string) {
+  return `group-${groupId}-primary`;
+}
+
+export function v04ShotFieldTargetId(shotId: string, field: string) {
+  return `shot-${shotId}-${field}`;
+}
+
+export function listV04WorkspaceTargetIds(draft: V04UiDraft) {
+  return new Set([
+    "module-1", "module-2", "module-3", "module-4",
+    ...Object.values(V04_WORKSPACE_TARGETS),
+    ...draft.shotGroups.flatMap((group) => [
+      `group-${group.id}`,
+      v04GroupTitleTargetId(group.id),
+      v04GroupPrimaryRoleTargetId(group.id),
+      ...group.shots.flatMap((shot) => [
+        `shot-${shot.id}`,
+        ...V04_UI_SHOT_FIELDS.map(({ key }) => v04ShotFieldTargetId(shot.id, key)),
+      ]),
+    ]),
+    ...draft.primaryPathAnswers[draft.primaryPath].map((_, index) => `field-path-${index}`),
+  ]);
+}
+
+let locateSequence = 0;
+
+function afterV04Layout() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+function v04VisibleBounds() {
+  const header = document.querySelector<HTMLElement>("[data-v04-fixed-header]");
+  return {
+    top: Math.max(12, (header?.getBoundingClientRect().bottom ?? 0) + 16),
+    bottom: window.innerHeight - 24,
+  };
+}
+
+function ensureV04Visible(element: HTMLElement) {
+  const bounds = v04VisibleBounds();
+  const rect = element.getBoundingClientRect();
+  const available = bounds.bottom - bounds.top;
+  if (rect.height > available || rect.top < bounds.top) {
+    window.scrollBy({ top: rect.top - bounds.top, behavior: "auto" });
+  } else if (rect.bottom > bounds.bottom) {
+    window.scrollBy({ top: rect.bottom - bounds.bottom, behavior: "auto" });
+  }
+}
+
+export async function locateV04Target(id: string) {
+  if (typeof document === "undefined" || typeof window === "undefined") return false;
+  const sequence = ++locateSequence;
+  await afterV04Layout();
+  if (sequence !== locateSequence) return false;
+  const target = document.getElementById(id);
+  if (!target) return false;
+  const focusTarget = target.matches("input,textarea,select,button,[tabindex]:not([tabindex='-1'])")
+    ? target
+    : target.querySelector<HTMLElement>("[data-v04-primary-focus]")
+      ?? target.querySelector<HTMLElement>("input,textarea,select,button,[tabindex]:not([tabindex='-1'])");
+  const anchor = focusTarget ?? target;
+  anchor.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
+  await afterV04Layout();
+  if (sequence !== locateSequence) return false;
+  ensureV04Visible(anchor);
+  await afterV04Layout();
+  if (sequence !== locateSequence) return false;
+  focusTarget?.focus({ preventScroll: true });
+  target.setAttribute("data-v04-located", "true");
+  ensureV04Visible(anchor);
+  window.setTimeout(() => {
+    if (target.isConnected) target.removeAttribute("data-v04-located");
+  }, 1800);
+  return true;
+}
+
 export function moveV04Shot(
   groups: V04UiShotGroup[],
   shotId: string,
@@ -76,11 +173,11 @@ export function evaluateV04FixturePublication(draft: V04UiDraft) {
   };
   draft.shotGroups.forEach((group, index) => {
     const scope = `桥段${String(index + 1).padStart(2, "0")}`;
-    requireText(group.title, `group-${group.id}-title`, V04_UI_MODULES[0], scope, "桥段名称");
+    requireText(group.title, v04GroupTitleTargetId(group.id), V04_UI_MODULES[0], scope, "桥段名称");
     if (!group.primaryRole.selectedOptionIds.length && !group.primaryRole.customText.trim())
-      missing.push({ id: `group-${group.id}-primary`, module: V04_UI_MODULES[0], scope, label: "桥段主创意作用" });
+      missing.push({ id: v04GroupPrimaryRoleTargetId(group.id), module: V04_UI_MODULES[0], scope, label: "桥段主创意作用" });
     if (!group.shots.some((shot) => shot.visualContent.trim()))
-      missing.push({ id: `shot-${group.shots[0]?.id ?? group.id}-visualContent`, module: V04_UI_MODULES[0], scope, label: "至少一个镜头的画面内容" });
+      missing.push({ id: v04ShotFieldTargetId(group.shots[0]?.id ?? group.id, "visualContent"), module: V04_UI_MODULES[0], scope, label: "至少一个镜头的画面内容" });
   });
   const core: Array<[keyof V04UiDraft, string]> = [
     ["commercialIntent", "商业意图"], ["storySummary", "故事梗概"], ["creativeMotif", "创意母题"],
@@ -89,9 +186,9 @@ export function evaluateV04FixturePublication(draft: V04UiDraft) {
   ];
   core.forEach(([key, label]) => requireText(String(draft[key]), `field-${String(key)}`, V04_UI_MODULES[1], "全片", label));
   if (!draft.primaryMechanism.selectedOptionIds.length && !draft.primaryMechanism.customText.trim())
-    missing.push({ id: "field-primaryMechanism", module: V04_UI_MODULES[1], scope: "全片", label: "创意主导手法及机制" });
+    missing.push({ id: V04_WORKSPACE_TARGETS.primaryMechanism, module: V04_UI_MODULES[1], scope: "全片", label: "创意主导手法及机制" });
   if (draft.primaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM") && !draft.primaryMechanism.advancedText?.trim())
-    missing.push({ id: "field-primaryMechanism-advanced", module: V04_UI_MODULES[1], scope: "全片", label: "待形成新机制｜进阶机制层" });
+    missing.push({ id: V04_WORKSPACE_TARGETS.primaryMechanismAdvanced, module: V04_UI_MODULES[1], scope: "全片", label: "待形成新机制｜进阶机制层" });
   if (!draft.storyReference.selectedOptionIds.length && !draft.storyReference.customText.trim())
     missing.push({ id: "field-storyReference", module: V04_UI_MODULES[1], scope: "全片", label: "故事参照类型" });
   if (!draft.carriers.length) missing.push({ id: "field-carriers", module: V04_UI_MODULES[1], scope: "全片", label: "创意承重载体" });

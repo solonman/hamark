@@ -2,7 +2,7 @@
 
 import type { V04ShotFieldKey } from "@/lib/v04-contract";
 import { V04_UI_SHOT_FIELDS, type V04UiShot } from "@/lib/v04-ui-model";
-import { V04_REPEATABLE_SHOT_FIELDS } from "@/lib/v04-ui-client-state";
+import { V04_REPEATABLE_SHOT_FIELDS, v04ShotFieldTargetId } from "@/lib/v04-ui-client-state";
 import styles from "./V04Surface.module.css";
 
 export default function V04ShotEditor({ shot, number, groupId, groupTargets, previousShot, disabled, onChange, onMoveUp, onMoveDown, onMoveTo, onDragStart, onDragEnd }: {
@@ -30,12 +30,12 @@ export default function V04ShotEditor({ shot, number, groupId, groupTargets, pre
           const repeatable = V04_REPEATABLE_SHOT_FIELDS.includes(key as (typeof V04_REPEATABLE_SHOT_FIELDS)[number]);
           const canRepeat = repeatable && Boolean(previousShot?.[key]);
           return (
-            <label key={key} className={`${styles.shotField} ${key === "visualContent" ? styles.shotFieldWide : ""}`}>
+            <label key={key} id={v04ShotFieldTargetId(shot.id, key)} className={`${styles.shotField} ${key === "visualContent" ? styles.shotFieldWide : ""}`}>
               <span>{label}{repeatable && number > 1 && <button type="button" disabled={disabled || !canRepeat} onClick={() => previousShot && onChange(key, previousShot[key])}>同上</button>}</span>
               {key === "visualContent" || key === "screenCopy" || key === "subtitleEffect" || key === "dialogue" || key === "voiceOver" ? (
-                <textarea value={shot[key]} disabled={disabled} onChange={(event) => onChange(key, event.target.value)} />
+                <textarea data-v04-primary-focus value={shot[key]} disabled={disabled} onChange={(event) => onChange(key, event.target.value)} />
               ) : (
-                <input value={shot[key]} disabled={disabled} onChange={(event) => onChange(key, event.target.value)} />
+                <input data-v04-primary-focus value={shot[key]} disabled={disabled} onChange={(event) => onChange(key, event.target.value)} />
               )}
             </label>
           );

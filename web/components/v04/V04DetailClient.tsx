@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { V04UiCase, V04UiDraft, V04UiShot } from "@/lib/v04-ui-model";
 import { V04_UI_SHOT_FIELDS, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
-import { numberedV04Shots } from "@/lib/v04-ui-client-state";
+import { numberedV04Shots, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_STORY_OPTIONS } from "@/lib/v04-ui-fixture";
 import { useV04VideoSession } from "./V04VideoSessionProvider";
 import V04VideoPlayer from "./V04VideoPlayer";
@@ -34,9 +34,9 @@ function ReadonlyShots({ draft }: { draft: V04UiDraft }) {
 
 function ReadonlyCore({ draft }: { draft: V04UiDraft }) {
   return <div className={styles.readingCore}>{[
-    ["商业意图", draft.commercialIntent], ["故事梗概", draft.storySummary], ["创意母题", draft.creativeMotif], ["张力按钮", draft.tensionButton],
-    ["创意主导手法及机制", choiceText(draft.primaryMechanism.selectedOptionIds, mechanismLabel, draft.primaryMechanism.customText)], ["创意辅助手法及机制", choiceText(draft.auxiliaryMechanism.selectedOptionIds, mechanismLabel, draft.auxiliaryMechanism.customText)], ["创意思维链", draft.creativeThinkingChain], ["故事参照类型", choiceText(draft.storyReference.selectedOptionIds, storyLabel, draft.storyReference.customText)], ["创意承重载体", draft.carriers.join("、")], ["创意承重载体具体说明", draft.carrierExplanation], ["创意成立契约", draft.creativeContract], ["整体创意评价", draft.overallGrade], ["评价理由", draft.gradeReason],
-  ].map(([label, value]) => <div key={label}><small>{label}</small><p>{value || "—"}</p></div>)}</div>;
+    [V04_WORKSPACE_TARGETS.commercialIntent, "商业意图", draft.commercialIntent], [V04_WORKSPACE_TARGETS.storySummary, "故事梗概", draft.storySummary], [V04_WORKSPACE_TARGETS.creativeMotif, "创意母题", draft.creativeMotif], [V04_WORKSPACE_TARGETS.tensionButton, "张力按钮", draft.tensionButton],
+    [V04_WORKSPACE_TARGETS.primaryMechanism, "创意主导手法及机制", choiceText(draft.primaryMechanism.selectedOptionIds, mechanismLabel, draft.primaryMechanism.customText)], ["field-auxiliaryMechanism", "创意辅助手法及机制", choiceText(draft.auxiliaryMechanism.selectedOptionIds, mechanismLabel, draft.auxiliaryMechanism.customText)], [V04_WORKSPACE_TARGETS.creativeThinkingChain, "创意思维链", draft.creativeThinkingChain], [V04_WORKSPACE_TARGETS.storyReference, "故事参照类型", choiceText(draft.storyReference.selectedOptionIds, storyLabel, draft.storyReference.customText)], [V04_WORKSPACE_TARGETS.carriers, "创意承重载体", draft.carriers.join("、")], [V04_WORKSPACE_TARGETS.carrierExplanation, "创意承重载体具体说明", draft.carrierExplanation], [V04_WORKSPACE_TARGETS.creativeContract, "创意成立契约", draft.creativeContract], [V04_WORKSPACE_TARGETS.overallGrade, "整体创意评价", draft.overallGrade], [V04_WORKSPACE_TARGETS.gradeReason, "评价理由", draft.gradeReason],
+  ].map(([id, label, value]) => <div key={id} id={id}><small>{label}</small><p>{value || "—"}</p></div>)}</div>;
 }
 
 export default function V04DetailClient({ item, viewerName }: { item: V04UiCase; viewerName: string }) {
@@ -48,7 +48,7 @@ export default function V04DetailClient({ item, viewerName }: { item: V04UiCase;
   const draft = submission?.draft ?? drafts[item.id] ?? null;
   const toggle = (number: number) => setCollapsed((current) => { const next = new Set(current); if (next.has(number)) next.delete(number); else next.add(number); return next; });
   return <main className={styles.surface} data-v04-page="detail">
-    <header className={styles.productHeader}><Link href="/v04-shadow" className={styles.wordmark}>← 案例库</Link><nav><Link href={`/v04-shadow/videos/${item.id}`}>只读成果</Link><Link href={`/v04-shadow/videos/${item.id}/workspace`}>编辑工作稿</Link><button onClick={() => setHistory(true)}>历史版本</button></nav><span>{viewerName}</span></header>
+    <header className={styles.productHeader} data-v04-fixed-header><Link href="/v04-shadow" className={styles.wordmark}>← 案例库</Link><nav><Link href={`/v04-shadow/videos/${item.id}`}>只读成果</Link><Link href={`/v04-shadow/videos/${item.id}/workspace`}>编辑工作稿</Link><button onClick={() => setHistory(true)}>历史版本</button></nav><span>{viewerName}</span></header>
     <section className={styles.detailIntro}><p>案例分析</p><h1>{item.title}</h1><div><span>{item.brand}</span><span>{item.duration}</span><span>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade && <b>专家优选 {item.expertGrade}</b>}</div><p>{item.description}</p></section>
     <V04VideoPlayer caseId={item.id} title={item.title} surface="detail" />
     {!draft ? <section className={styles.emptyState}><h2>尚无已提交成果</h2><p>此页仅查看提交成果，不展示填写控件、固定选项或条件交互。</p><Link href={`/v04-shadow/videos/${item.id}/workspace`}>开始公共工作稿</Link></section> : <div className={styles.readingBody}>

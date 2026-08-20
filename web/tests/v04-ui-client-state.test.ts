@@ -3,7 +3,7 @@ import test from "node:test";
 import { cloneV04UiDraft } from "../lib/v04-ui-model.ts";
 import { V04_UI_CASES } from "../lib/v04-ui-fixture.ts";
 import { V04_VOCABULARY_VERSION } from "../lib/v04-contract.ts";
-import { deriveV04UiWorkState, evaluateV04FixturePublication, matchesV04LibraryQuery, moveV04Shot, nextV04Timecode, numberedV04Shots } from "../lib/v04-ui-client-state.ts";
+import { deriveV04UiWorkState, evaluateV04FixturePublication, listV04WorkspaceTargetIds, matchesV04LibraryQuery, moveV04Shot, nextV04Timecode, numberedV04Shots } from "../lib/v04-ui-client-state.ts";
 
 test("five workflow labels derive only from draft and immutable submission facts", () => {
   assert.equal(deriveV04UiWorkState({ hasAnyDraftData: false, successfulSubmissionCount: 0, hasUnsubmittedChanges: false }), "NOT_STARTED");
@@ -42,4 +42,15 @@ test("fixed-only, custom-only, combined and pending mechanism publication rules"
   const result = evaluateV04FixturePublication(pending);
   assert.equal(result.ready, false);
   assert.ok(result.missing.some((item) => item.id === "field-primaryMechanism-advanced"));
+  const workspaceTargets = listV04WorkspaceTargetIds(pending);
+  assert.ok(result.missing.every((item) => workspaceTargets.has(item.id)), "every missing item points to a rendered workspace target");
+});
+
+test("bridge creative description remains optional and does not enter publication count", () => {
+  const draft = cloneV04UiDraft(V04_UI_CASES[0].draft);
+  const before = evaluateV04FixturePublication(draft);
+  draft.shotGroups.forEach((group) => { group.creativeDescription = ""; });
+  const after = evaluateV04FixturePublication(draft);
+  assert.equal(after.ready, before.ready);
+  assert.deepEqual(after.missing, before.missing);
 });
