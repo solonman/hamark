@@ -274,6 +274,25 @@ cleanup token 和 marker 精确清理，并比对 `public` catalog/业务指纹�
 完整证据与双门边界见
 [`docs/V04_STAGE1_BATCH1C_EVIDENCE.md`](docs/V04_STAGE1_BATCH1C_EVIDENCE.md)。
 
+### V0.4 R5 增强 PREVIEW 与受控 schema APPLY（TEST_ONLY）
+
+R5 新增同源管理员页 `/admin/v04-schema`、增强 pre-1A PREVIEW 和默认关闭的
+POST-only schema APPLY。普通页面加载、build、start、GET 与部署不会安装 schema；合同和
+V0.4 正式 UI/API 也不会被激活。真实数据库验证只允许显式 TEST_ONLY 环境：
+
+```bash
+NODE_ENV=test \
+V04_TEST_RUN_ID="r5_apply_<unique>" \
+V04_TEST_DATABASE_URL="${V04_TEST_DATABASE_URL:?inject a loopback test database URL}" \
+npm run verify:v04-schema-apply
+```
+
+验证器覆盖 pre-1A 完整 P01—P11、GET 零写、token/目标 SHA/bundle 绑定、并发唯一
+APPLY、15/15 RLS、DRAFT 合同、唯一 stable SYSTEM_ADMIN、幂等重放、savepoint 失败
+回滚、FAILED 留账、超时 APPLYING 补偿、partial drift 拒绝和 public 指纹不变。生产
+PREVIEW/APPLY 开关均不写入 `vercel.json`；本机通过不代表生产 APPLY 获准或已执行。
+详见 [`docs/V04_R5_SCHEMA_APPLY_EVIDENCE.md`](docs/V04_R5_SCHEMA_APPLY_EVIDENCE.md)。
+
 ### V0.4 V1.9 现有系统增量优化 R1 本机验证
 
 R1 在现有系统上补齐 V0.4 暗 API、读模型和 TEST_ONLY PostgreSQL 纵链。现有 `/api/videos`

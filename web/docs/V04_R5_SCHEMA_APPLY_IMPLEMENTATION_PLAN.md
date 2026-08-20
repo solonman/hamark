@@ -1,6 +1,6 @@
 # V0.4 R5｜受控 schema APPLY 工具实施方案
 
-状态：工程安全方案已形成；尚未实施工具，尚未执行生产 schema APPLY。
+状态：增强 PREVIEW 与受控 APPLY 已完成 TEST_ONLY 实现和验证；生产开关关闭，尚未执行生产 PREVIEW／schema APPLY。
 形成日期：2026-08-20（Asia/Shanghai）
 审计基线：`025bf771b7cde049104ac32bf153c7f2befe4be6`（临时 PREVIEW 开关已经关闭）
 
@@ -14,9 +14,9 @@
 4. 现有业务 hash 多处使用 `SELECT *`。新增 nullable/default 列会改变物理 JSON，即使 V0.2/V0.3 正文完全未变；必须先升级为版本化语义指纹。
 5. pre-1A 没有 `schema_migration_operations`。如果在单一事务中同时建表、写账本和执行全部 DDL，失败时 FAILED 行也会回滚；必须使用“控制平面前缀＋savepoint”。
 6. 应用内 catalog/hash 不是可恢复备份。APPLY 前必须已有外部 provider restore point，并提供不含凭据的 opaque reference 与 verifiedAt。
-7. 存在管理员自锁停线项：pre-1A 可用唯一 legacy admin→stable user 的严格过渡鉴权；schema 安装后 `app_role_memberships` 表存在但为空，常规逻辑会拒绝所有人。实现前必须冻结“同事务只为本次唯一 actor 种一条 SYSTEM_ADMIN 安全配置”或“先执行独立角色 bootstrap operation”之一；不得继续依赖 display_name，也不得一般性放宽授权。
+7. 管理员自锁口径已冻结并实现：APPLY 同事务只为本次已认证、ACTIVE、唯一稳定映射的 actor 写一条 `SYSTEM_ADMIN`；安装后立即改用 stable membership 复核，不继续依赖 `display_name`，不批量授权。
 
-当前停止点：先补齐增强 PRE-APPLY PREVIEW 和受控工具，在 TEST_ONLY PostgreSQL 通过完整矩阵；再次短期开启生产 PREVIEW 后，只有真实 P01—P11、完整 catalog、三类语义 hash、管理员方案和外部恢复点全部满足，才可进入生产 APPLY。
+当前停止点：工具已通过 TEST_ONLY 矩阵并部署前验证；生产 PREVIEW／APPLY 开关仍关闭。下一步是门 T 产品复验，之后再使用同源管理员页面短期开启生产 PREVIEW。生产 PREVIEW 未完成前仍不得执行生产 APPLY。
 
 ## 2. 精确文件白名单
 
@@ -87,8 +87,8 @@
 
 ### 5.1 事务
 
-1. 开启 `SERIALIZABLE` 事务，设置本地 `lock_timeout` 和 `statement_timeout`。
-2. 获取固定 key 的 `pg_advisory_xact_lock`，保证全局只有一个 schema APPLY。
+1. 开启事务并设置本地 `lock_timeout` 和 `statement_timeout`。
+2. 获取固定 key 的 transaction advisory lock，作为 schema APPLY 的全局串行边界；事务使用 `READ COMMITTED`，使等待者取得锁后能看到前一事务已提交的 catalog，避免 SERIALIZABLE 在等待前固定旧 catalog 快照。
 3. 锁内重新运行增强 PREVIEW；验证 token 未过期且 actor/environment/bundle/catalog/P01—P11/三类语义 hash 完全一致。
 4. 只允许 `PRE_1A_EXACT` 或 `CONTROL_LEDGER_ONLY_EXACT`。
 5. 安装最小控制平面：只包含 `schema_migration_operations` 表、guard、RLS、REVOKE；写 `PREVIEWED→APPLYING`。
@@ -157,11 +157,8 @@
 - 需要直接执行 `npm run db:migrate`、一般性放宽RLS/姓名授权、业务回填、合同激活或UI/API开关；
 - 涉及凭据、隐私、费用、不可恢复删除或生产权限弱化。
 
-## 9. 待统筹冻结的一项安全配置选择
+## 9. 已冻结的安全配置
 
-在工具编码前需明确且仅需明确以下一项，不涉及业务正文：
+采用方案A：schema APPLY 同事务只为本次唯一稳定 actor 写一条 ACTIVE `SYSTEM_ADMIN` membership，并将 actor、bundle、target code SHA、PREVIEW token/hash 和审批／恢复点引用绑定到账本。安装后禁止 `display_name` 授权回退；普通 MEMBER/UPLOADER 仍按冻结规则派生，不持久化为 membership。
 
-- **方案A**：schema APPLY 同事务为本次 P09=UNIQUE 且 stable actor ID 完全相同的管理员种一条 ACTIVE SYSTEM_ADMIN membership；作为安全配置写入 target hash 和账本。
-- **方案B**：先开发并批准独立 role bootstrap operation，成功后再进行 schema APPLY／安装后复核。
-
-无论选择哪项，schema 安装后都禁止 display_name 授权回退；普通 MEMBER/UPLOADER 仍按冻结规则派生，不持久化为 membership。
+TEST_ONLY 实施证据见 `web/docs/V04_R5_SCHEMA_APPLY_EVIDENCE.md`。

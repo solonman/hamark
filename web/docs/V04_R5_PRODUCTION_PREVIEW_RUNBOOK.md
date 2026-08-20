@@ -1,6 +1,6 @@
 # V0.4 R5｜生产 PREVIEW 实施预备与停线清单
 
-状态：只读工程预备完成；待 R3／R4 产品真实路径复验 A 后执行生产只读 PREVIEW。
+状态：R1—R4 产品复验 A；增强 PREVIEW／受控 APPLY 已完成 TEST_ONLY 工程，待门 T 复验后执行新的生产只读 PREVIEW。
 形成日期：2026-08-20（Asia/Shanghai）
 代码基线：`917f7cf14f37c8187cadceee309aa27c3d5d89fc`
 GitHub／Vercel：目标 SHA 一致，Vercel 已报告 Deployment has completed。
@@ -209,3 +209,43 @@ R5 PREVIEW 的首个产品前置是 R3、R4 均取得 A。未满足时不打开�
 - 受控 APPLY 的工程审计发现：当前 pre-1A PREVIEW 的 P01—P11 多数为占位、catalog 覆盖和语义 hash 尚不足、首次安装账本失败留痕需要 control-plane savepoint、管理员 membership 存在安装后自锁风险、应用内 hash 不可冒充可恢复备份。精确实施方案见 `web/docs/V04_R5_SCHEMA_APPLY_IMPLEMENTATION_PLAN.md`。
 
 当前停止点：**临时 PREVIEW 已关闭；首次调用未发生。必须先补齐增强 PREVIEW 与受控 schema APPLY 工具，在 TEST_ONLY PostgreSQL 完成验证后，再进行下一次短期生产 PREVIEW。不能直接运行 `npm run db:migrate`。**
+
+## 11. 增强实现后的唯一生产 PREVIEW 步骤（覆盖第5—8节旧预备口径）
+
+第5—8节保留首次尝试前的历史审计。本节是门 T 复验后的最新版执行口径：生产 PREVIEW 尚未执行，生产 schema APPLY 尚未获执行授权。
+
+### 11.1 暗代码与操作面
+
+- 管理页：`/admin/v04-schema`；复用现有登录、stable user 和管理员体系，不建立第二套身份。
+- PREVIEW：`GET /api/admin/v04-migration/preview`，默认关闭、same-origin、no-store、零写。
+- APPLY：`POST /api/admin/v04-migration/apply`，默认关闭；页面加载、build、start、GET 都不会调用。
+- `web/vercel.json` 当前不含任何 V0.4 开关；合同激活、workflow UI/API、detail/library/shadow 正式入口均关闭。
+
+### 11.2 版本化短期开启 PREVIEW
+
+1. 记录 main、GitHub、Vercel SHA，三者必须一致；复跑全量门禁和 `verify:v04-schema-apply`。
+2. 建立只修改 `web/vercel.json` 及对应配置断言的短期提交，只设置 `V04_MIGRATION_PREVIEW_ENABLED=true`；不得设置 APPLY、ACTIVATE 或 UI/API 开关。
+3. 推送后等待 Vercel 部署同 SHA；使用负责人现有已登录会话打开同源 `/admin/v04-schema`。不得复制 cookie、凭据或数据库 URL。
+4. 点击“运行只读 PREVIEW”。页面只展示脱敏事实：`schemaState`、ready、stopReasons、目标代码 SHA、bundle/catalog/source/target/non-target hash、有效期与 P01—P11。
+5. 在同一30分钟窗口点击“使用当前 token 再次零写核验”；token、各 hash、P01—P11 和 stopReasons 必须稳定，`zeroWrite.unchanged=true`。
+6. 保存证据后，无论结果成功或失败，都以第二笔独立提交关闭 PREVIEW 并核对 Vercel 同 SHA、端点恢复默认关闭、V0.3 主链正常。
+
+### 11.3 PRE_1A_EXACT 的 READY 规则
+
+增强版不再把合法的 pre-1A 缺表当成异常 drift。满足以下条件时应返回 `schemaState=PRE_1A_EXACT`、`contract.status=MISSING`、`contract.expectedStatus=DRAFT` 且 `ready=true`：
+
+- 既有 V0.2/V0.3 基线表完整；V0.4 target 表／additive列尚未安装；没有部分安装、额外或同名定义变化；
+- 当前 actor 是 ACTIVE stable user，且 pre-1A 过渡映射对当前 actor 唯一；
+- P01—P11 都是真实只读结果，V0.4业务行预期为0，三类语义 hash 非占位；
+- target code SHA 和 DDL bundle hash 与部署版本一致；GET 前后指纹不变。
+
+P09 仍完整报告全部旧管理员 UNIQUE/AMBIGUOUS/MISSING/DISABLED 分布；只有当前执行 actor 的映射决定 PREVIEW 授权，不会据此批量授予角色。APPLY 只会写当前 actor 的唯一 SYSTEM_ADMIN membership。
+
+### 11.4 本轮停止点
+
+门 T 产品复验通过后才能短期开启生产 PREVIEW。生产 PREVIEW 返回 READY 并完成第二次稳定核验，也只形成生产 schema APPLY 的新决策输入；本轮部署不打开 APPLY，不执行生产写入。真实恢复点引用、审批引用、未过期 token、目标 SHA、bundle 与全部指纹必须在后续 APPLY 前再次锁内复核。
+
+工程实现与 TEST_ONLY 证据见：
+
+- `web/docs/V04_R5_SCHEMA_APPLY_IMPLEMENTATION_PLAN.md`
+- `web/docs/V04_R5_SCHEMA_APPLY_EVIDENCE.md`
