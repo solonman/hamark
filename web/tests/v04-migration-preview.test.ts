@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import type { DbClient } from "../db/index.ts";
 import { V04ServiceError, v04ErrorResponse } from "../lib/v04-errors.ts";
 import {
   assertV04PreviewToken,
@@ -9,8 +10,11 @@ import {
   hashV04PreviewValue,
   isV04PreviewSameOrigin,
   V04_FROZEN_SCHEMA_OBJECT_EXPECTATION,
+  V04_MIGRATION_PREVIEW_STAGES,
   v04PreviewTimeWindow,
+  previewV04Migration,
   type V04MigrationPreview,
+  type V04MigrationPreviewStage,
 } from "../lib/v04-migration-preview.ts";
 
 test("preview canonical hashing is stable across object insertion order", () => {
@@ -130,6 +134,94 @@ test("preview GET same-origin boundary accepts omitted Origin only on configured
   }), appUrl), false);
 });
 
+test("preview database failures expose only a fixed diagnostic stage and never write", async () => {
+  const secret = "password=do-not-leak SELECT private_customer_data";
+
+  function diagnosticDb(failingStage: V04MigrationPreviewStage) {
+    let writes = 0;
+    const db = {
+      prepare(sql: string) {
+        const statement = {
+          bind() {
+            return statement;
+          },
+          async first() {
+            if (sql.includes("role_memberships_available")) {
+              if (failingStage === "ADMIN_CAPABILITY") throw new Error(secret);
+              return {
+                role_memberships_available: true,
+                users_available: true,
+                legacy_admins_available: true,
+              };
+            }
+            if (sql.includes("FROM app_role_memberships")) {
+              if (failingStage === "ADMIN_LEGACY_MAPPING") throw new Error(secret);
+              return { allowed: 1 };
+            }
+            return null;
+          },
+          async all() {
+            const stage = sql.includes("FROM pg_class c JOIN pg_namespace")
+              ? "CATALOG_TABLES"
+              : sql.includes("FROM information_schema.columns")
+                ? "CATALOG_COLUMNS"
+                : sql.includes("FROM pg_index")
+                  ? "CATALOG_INDEXES"
+                  : sql.includes("FROM pg_trigger")
+                    ? "CATALOG_TRIGGERS"
+                    : sql.includes("FROM pg_policies")
+                      ? "CATALOG_POLICIES"
+                      : null;
+            if (stage === failingStage) throw new Error(secret);
+            if (stage === "CATALOG_TABLES" && failingStage === "SCHEMA_DRIFT") {
+              return { results: [{ table_name: null, rls_enabled: true }] };
+            }
+            return { results: [] };
+          },
+          async run() {
+            writes += 1;
+            throw new Error("PREVIEW must never write");
+          },
+        };
+        return statement;
+      },
+    } as unknown as DbClient;
+    return { db, writes: () => writes };
+  }
+
+  assert.deepEqual(V04_MIGRATION_PREVIEW_STAGES, [
+    "ADMIN_CAPABILITY",
+    "ADMIN_LEGACY_MAPPING",
+    "CATALOG_TABLES",
+    "CATALOG_COLUMNS",
+    "CATALOG_INDEXES",
+    "CATALOG_TRIGGERS",
+    "CATALOG_POLICIES",
+    "SCHEMA_DRIFT",
+  ]);
+  for (const stage of V04_MIGRATION_PREVIEW_STAGES) {
+    const fixture = diagnosticDb(stage);
+    let caught: unknown;
+    try {
+      await previewV04Migration(fixture.db, { userId: "user_test_admin", displayName: "Test Admin" });
+      assert.fail(`expected ${stage} to fail`);
+    } catch (error) {
+      caught = error;
+    }
+    assert(caught instanceof V04ServiceError);
+    assert.equal(caught.code, "INTERNAL_ERROR");
+    assert.equal(caught.message, "只读 PREVIEW 暂时无法完成，请稍后重试。");
+    assert.deepEqual(caught.details, { stage });
+    assert.doesNotMatch(JSON.stringify(caught.details), /password|SELECT|customer/i);
+    const response = v04ErrorResponse(caught, "request-diagnostic");
+    const serialized = JSON.stringify(await response.json());
+    assert.match(serialized, new RegExp(`\\"stage\\":\\"${stage}\\"`));
+    assert.match(serialized, /request-diagnostic/);
+    assert.doesNotMatch(serialized, /password|SELECT|customer|stack/i);
+    assert.equal(fixture.writes(), 0);
+  }
+});
+
 test("preview route is default closed, read-only, stable-admin protected and exposes no APPLY", () => {
   const route = readFileSync(new URL("../app/api/admin/v04-migration/preview/route.ts", import.meta.url), "utf8");
   const featureGuard = route.indexOf('process.env.V04_MIGRATION_PREVIEW_ENABLED !== "true"');
@@ -151,6 +243,10 @@ test("preview route is default closed, read-only, stable-admin protected and exp
   assert.match(service, /authorizationMode: "PRE_1A_PREVIEW_ONLY"/);
   assert.match(service, /active_name_count/);
   assert.match(service, /unique_active_user_id !== actor\.userId/);
+  assert.match(service, /"CATALOG_TABLES"/);
+  assert.match(service, /"CATALOG_POLICIES"/);
+  assert.match(service, /"SCHEMA_DRIFT"/);
+  assert.match(service, /\{ stage \}/);
   assert.match(service, /catalogColumnSet\.has\("workflow_contract_versions\.status"\)/);
   assert.doesNotMatch(service, /\.run\(\)|INSERT INTO|UPDATE\s+[a-z_]+\s+SET|DELETE FROM/);
   for (const key of Array.from({ length: 11 }, (_, index) => `P${String(index + 1).padStart(2, "0")}`)) {

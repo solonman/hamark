@@ -18,6 +18,19 @@ export const V04_MIGRATION_PREVIEW_SCHEMA_VERSION = "V04_MIGRATION_PREVIEW_V1" a
 export const V04_MIGRATION_PREVIEW_SCOPE = "GLOBAL_V04_LEGACY_READ_PREVIEW" as const;
 export const V04_MIGRATION_PREVIEW_TTL_MS = 30 * 60 * 1000;
 
+export const V04_MIGRATION_PREVIEW_STAGES = [
+  "ADMIN_CAPABILITY",
+  "ADMIN_LEGACY_MAPPING",
+  "CATALOG_TABLES",
+  "CATALOG_COLUMNS",
+  "CATALOG_INDEXES",
+  "CATALOG_TRIGGERS",
+  "CATALOG_POLICIES",
+  "SCHEMA_DRIFT",
+] as const;
+
+export type V04MigrationPreviewStage = typeof V04_MIGRATION_PREVIEW_STAGES[number];
+
 type CountRow = QueryResultRow & { count: number | string };
 type HashRow = QueryResultRow & { row_count: number | string; aggregate_hash: string };
 type PreviewAdminCapabilityRow = QueryResultRow & {
@@ -464,6 +477,22 @@ function sortedUnique(values: readonly string[]) {
   return [...new Set(values.filter(Boolean))].sort();
 }
 
+async function inPreviewStage<T>(
+  stage: V04MigrationPreviewStage,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof V04ServiceError) throw error;
+    throw new V04ServiceError(
+      "INTERNAL_ERROR",
+      "只读 PREVIEW 暂时无法完成，请稍后重试。",
+      { stage },
+    );
+  }
+}
+
 function tableFromQuery(query: string) {
   return query.match(/\bFROM\s+([a-z0-9_]+)/i)?.[1] ?? "";
 }
@@ -494,15 +523,15 @@ async function scopedHash(
 }
 
 async function loadCatalog(db: DbClient) {
-  const tables = (await db.prepare(`SELECT c.relname AS table_name,
+  const tables = await inPreviewStage("CATALOG_TABLES", async () => (await db.prepare(`SELECT c.relname AS table_name,
       c.relrowsecurity AS rls_enabled
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname=current_schema() AND c.relkind IN ('r','p')
-    ORDER BY c.relname`).all<CatalogTableRow>()).results;
-  const columns = (await db.prepare(`SELECT table_name,column_name,data_type,is_nullable,column_default
+    ORDER BY c.relname`).all<CatalogTableRow>()).results);
+  const columns = await inPreviewStage("CATALOG_COLUMNS", async () => (await db.prepare(`SELECT table_name,column_name,data_type,is_nullable,column_default
     FROM information_schema.columns WHERE table_schema=current_schema()
-    ORDER BY table_name,ordinal_position`).all<CatalogColumnRow>()).results;
-  const indexes = (await db.prepare(`SELECT table_class.relname AS table_name,
+    ORDER BY table_name,ordinal_position`).all<CatalogColumnRow>()).results);
+  const indexes = await inPreviewStage("CATALOG_INDEXES", async () => (await db.prepare(`SELECT table_class.relname AS table_name,
       index_class.relname AS object_name,
       idx.indisunique AS is_unique,
       access_method.amname AS access_method,
@@ -525,8 +554,8 @@ async function loadCatalog(db: DbClient) {
     WHERE namespace.nspname=current_schema()
       AND NOT EXISTS (SELECT 1 FROM pg_constraint constraint_row
         WHERE constraint_row.conindid=idx.indexrelid)
-    ORDER BY table_class.relname,index_class.relname`).all<CatalogIndexRow>()).results;
-  const triggers = (await db.prepare(`SELECT table_class.relname AS table_name,
+    ORDER BY table_class.relname,index_class.relname`).all<CatalogIndexRow>()).results);
+  const triggers = await inPreviewStage("CATALOG_TRIGGERS", async () => (await db.prepare(`SELECT table_class.relname AS table_name,
       trigger_row.tgname AS object_name,
       CASE WHEN (trigger_row.tgtype & 2) <> 0 THEN 'BEFORE'
            WHEN (trigger_row.tgtype & 64) <> 0 THEN 'INSTEAD OF'
@@ -550,12 +579,12 @@ async function loadCatalog(db: DbClient) {
     JOIN pg_namespace namespace ON namespace.oid=table_class.relnamespace
     JOIN pg_proc procedure_row ON procedure_row.oid=trigger_row.tgfoid
     WHERE namespace.nspname=current_schema() AND NOT trigger_row.tgisinternal
-    ORDER BY table_class.relname,trigger_row.tgname`).all<CatalogTriggerRow>()).results;
-  const policies = (await db.prepare(`SELECT tablename AS table_name,policyname AS object_name,
+    ORDER BY table_class.relname,trigger_row.tgname`).all<CatalogTriggerRow>()).results);
+  const policies = await inPreviewStage("CATALOG_POLICIES", async () => (await db.prepare(`SELECT tablename AS table_name,policyname AS object_name,
       permissive,cmd AS command,array_to_string(roles,E'\\x1f') AS role_names,
       COALESCE(qual,'') AS using_expression,COALESCE(with_check,'') AS check_expression
     FROM pg_policies WHERE schemaname=current_schema() ORDER BY tablename,policyname`)
-    .all<CatalogPolicyRow>()).results;
+    .all<CatalogPolicyRow>()).results);
   return { tables, columns, indexes, triggers, policies };
 }
 
@@ -739,20 +768,20 @@ export async function assertV04PreviewAdmin(
   db: DbClient,
   actor: { userId: string; displayName?: string },
 ) {
-  const capabilities = await db.prepare(`SELECT
+  const capabilities = await inPreviewStage("ADMIN_CAPABILITY", () => db.prepare(`SELECT
     to_regclass(current_schema() || '.app_role_memberships') IS NOT NULL
       AS role_memberships_available,
     to_regclass(current_schema() || '.users') IS NOT NULL AS users_available,
     to_regclass(current_schema() || '.app_admins') IS NOT NULL AS legacy_admins_available`)
-    .first<PreviewAdminCapabilityRow>();
+    .first<PreviewAdminCapabilityRow>());
   if (!capabilities) {
     throw new V04ServiceError("ADMIN_REQUIRED", "仅稳定系统管理员可查看 V0.4 迁移 PREVIEW。");
   }
 
   if (capabilities.role_memberships_available) {
-    const stableAdmin = await db.prepare(`SELECT 1 FROM app_role_memberships
+    const stableAdmin = await inPreviewStage("ADMIN_LEGACY_MAPPING", () => db.prepare(`SELECT 1 FROM app_role_memberships
       WHERE user_id=? AND role_key='SYSTEM_ADMIN' AND status='ACTIVE'`)
-      .bind(actor.userId).first();
+      .bind(actor.userId).first());
     if (!stableAdmin) {
       throw new V04ServiceError("ADMIN_REQUIRED", "仅稳定系统管理员可查看 V0.4 迁移 PREVIEW。", {
         authorizationMode: "STABLE_MEMBERSHIP_REQUIRED",
@@ -768,7 +797,7 @@ export async function assertV04PreviewAdmin(
       classification: "MISSING",
     });
   }
-  const transitional = await db.prepare(`SELECT
+  const transitional = await inPreviewStage("ADMIN_LEGACY_MAPPING", () => db.prepare(`SELECT
     EXISTS (
       SELECT 1 FROM users
       WHERE id=? AND status='ACTIVE' AND display_name=?
@@ -785,7 +814,7 @@ export async function assertV04PreviewAdmin(
       WHERE status='ACTIVE' AND display_name=?
     ) AS unique_active_user_id`)
     .bind(actor.userId, displayName, displayName, displayName, displayName)
-    .first<TransitionalPreviewAdminRow>();
+    .first<TransitionalPreviewAdminRow>());
   const activeNameCount = numeric(transitional?.active_name_count);
   const classification = !transitional?.actor_active
     ? "DISABLED"
@@ -817,23 +846,27 @@ export async function previewV04Migration(
   const environmentKey = options.environmentKey ?? stableEnvironmentKey();
   const catalog = await loadCatalog(db);
   const catalogTableSet = new Set(catalog.tables.map((row) => row.table_name));
-  const drift = schemaDrift(catalog);
-  const schemaFingerprint = hashV04PreviewValue({
-    tables: catalog.tables,
-    columns: catalog.columns,
-    indexes: catalog.indexes,
-    triggers: catalog.triggers,
-    policies: catalog.policies,
-  });
+  const { drift, schemaFingerprint } = await inPreviewStage("SCHEMA_DRIFT", () => ({
+    drift: schemaDrift(catalog),
+    schemaFingerprint: hashV04PreviewValue({
+      tables: catalog.tables,
+      columns: catalog.columns,
+      indexes: catalog.indexes,
+      triggers: catalog.triggers,
+      policies: catalog.policies,
+    }),
+  }));
   const schemaDriftCount = Object.values(drift).reduce((sum, values) => sum + values.length, 0);
   if (schemaDriftCount > 0) {
     const catalogColumnSet = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
-    const contractStatus = catalogTableSet.has("workflow_contract_versions")
-      && catalogColumnSet.has("workflow_contract_versions.workflow_version")
-      && catalogColumnSet.has("workflow_contract_versions.status")
-      ? (await db.prepare(`SELECT status FROM workflow_contract_versions WHERE workflow_version=?`)
-        .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>())?.status ?? "MISSING"
-      : "MISSING";
+    const contractStatus = await inPreviewStage("SCHEMA_DRIFT", async () => (
+      catalogTableSet.has("workflow_contract_versions")
+        && catalogColumnSet.has("workflow_contract_versions.workflow_version")
+        && catalogColumnSet.has("workflow_contract_versions.status")
+        ? (await db.prepare(`SELECT status FROM workflow_contract_versions WHERE workflow_version=?`)
+          .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>())?.status ?? "MISSING"
+        : "MISSING"
+    ));
     const unavailableHash = hashV04PreviewValue({ schemaFingerprint, status: "SCHEMA_DRIFT" });
     const driftIds = sortedUnique(Object.entries(drift).flatMap(([kind, values]) =>
       values.map((value) => `${kind}:${value}`)));
