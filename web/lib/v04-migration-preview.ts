@@ -13,6 +13,14 @@ import {
 } from "./v04-contract";
 import { V04ServiceError } from "./v04-errors";
 import { previewV04AdminMappings } from "./v04-role-preview";
+import {
+  V04_ADDITIVE_LEGACY_COLUMNS,
+  V04_REQUIRED_PRE1A_TABLES,
+  V04_SCHEMA_BUNDLE_HASH,
+  type V04SchemaState,
+  v04ExpectedTargetDataFingerprint,
+  v04TargetCodeSha,
+} from "./v04-schema-catalog";
 
 export const V04_MIGRATION_PREVIEW_SCHEMA_VERSION = "V04_MIGRATION_PREVIEW_V1" as const;
 export const V04_MIGRATION_PREVIEW_SCOPE = "GLOBAL_V04_LEGACY_READ_PREVIEW" as const;
@@ -27,6 +35,8 @@ export const V04_MIGRATION_PREVIEW_STAGES = [
   "CATALOG_TRIGGERS",
   "CATALOG_POLICIES",
   "SCHEMA_DRIFT",
+  "BUSINESS_FACTS",
+  "ZERO_WRITE_CHECK",
 ] as const;
 
 export type V04MigrationPreviewStage = typeof V04_MIGRATION_PREVIEW_STAGES[number];
@@ -106,6 +116,10 @@ export type V04MigrationPreview = {
   expiresAt: string;
   environmentKey: string;
   actorUserId: string;
+  targetCodeSha: string;
+  bundleHash: string;
+  schemaState: V04SchemaState;
+  stopReasons: string[];
   contract: {
     productVersion: typeof V04_PRODUCT_VERSION;
     taxonomyVersion: typeof V04_TAXONOMY_VERSION;
@@ -113,6 +127,7 @@ export type V04MigrationPreview = {
     vocabularyVersion: typeof V04_VOCABULARY_VERSION;
     payloadSchemaVersion: typeof V04_PAYLOAD_SCHEMA_VERSION;
     status: string;
+    expectedStatus: "DRAFT";
   };
   ready: boolean;
   previewToken: string;
@@ -128,10 +143,26 @@ export type V04MigrationPreview = {
     P05: { referenceAnomalyCount: number; stableObjectIds: string[] };
     P06: { ledgerRows: Record<string, number>; ledgerAnomalies: number };
     P07: {
+      expected: {
+        tables: string[];
+        columns: string[];
+        indexes: string[];
+        triggers: string[];
+        policies: string[];
+      };
+      absent: {
+        tables: string[];
+        columns: string[];
+        indexes: string[];
+        triggers: string[];
+        policies: string[];
+      };
+      drift: string[];
       missingTables: string[];
       extraTables: string[];
       missingColumns: string[];
       extraColumns: string[];
+      changedColumns: string[];
       missingTriggers: string[];
       extraTriggers: string[];
       changedTriggers: string[];
@@ -167,10 +198,19 @@ export type V04MigrationPreview = {
     };
     P11: { objectCounts: Record<string, number>; totalContentHash: string };
   };
+  zeroWrite: {
+    beforeHash: string;
+    afterHash: string;
+    unchanged: boolean;
+  };
   anomalies: V04MigrationPreviewAnomaly[];
 };
 
 const EXPECTED_TABLES = [...V04_SCHEMA_TABLES, "admin_data_operations"].sort();
+const ALL_REQUIRED_TABLES = sortedUnique([
+  ...EXPECTED_TABLES,
+  ...V04_REQUIRED_PRE1A_TABLES,
+]);
 const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   annotation_vocabulary_versions: ["vocabulary_version", "taxonomy_version", "content_hash", "status"],
   annotation_vocabulary_options: ["vocabulary_version", "field_key", "option_id", "legacy_aliases_json"],
@@ -212,7 +252,6 @@ function splitSqlDefinitions(body: string) {
 function expectedColumnsFromFrozenDdl() {
   const result = new Map<string, Set<string>>();
   const add = (table: string, column: string) => {
-    if (!EXPECTED_TABLES.includes(table as typeof EXPECTED_TABLES[number])) return;
     result.set(table, result.get(table) ?? new Set());
     result.get(table)!.add(column);
   };
@@ -276,6 +315,64 @@ function normalizeCatalogExpression(value: string) {
     .trim()
     .toLowerCase();
 }
+
+function normalizeColumnType(value: string) {
+  const normalized = value.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalized === "timestamptz") return "timestamp with time zone";
+  if (normalized === "int" || normalized === "int4") return "integer";
+  if (normalized === "bool") return "boolean";
+  return normalized;
+}
+
+function normalizeColumnDefault(value: string | null | undefined) {
+  const withoutTextCast = stripBalancedOuterParentheses(value ?? "")
+    .replace(/::(?:text|character varying|bpchar)\b/gi, "");
+  return stripBalancedOuterParentheses(withoutTextCast)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function columnSignature(input: {
+  dataType: string;
+  nullable: boolean;
+  defaultValue: string | null | undefined;
+}) {
+  return canonicalV04PreviewValue({
+    dataType: normalizeColumnType(input.dataType),
+    nullable: input.nullable,
+    defaultValue: normalizeColumnDefault(input.defaultValue),
+  });
+}
+
+function expectedColumnSignaturesFromFrozenDdl() {
+  const signatures = new Map<string, string>();
+  const add = (table: string, column: string, definition: string) => {
+    const dataType = definition.trim().match(/^([a-z]+(?:\s+with\s+time\s+zone)?)/i)?.[1] ?? "";
+    const defaultValue = definition.match(/\bDEFAULT\s+([\s\S]+?)(?=\s+(?:NOT\s+NULL|NULL|REFERENCES|CHECK|PRIMARY|UNIQUE)\b|$)/i)?.[1] ?? "";
+    signatures.set(`${table}.${column}`, columnSignature({
+      dataType,
+      nullable: !/\bNOT\s+NULL\b|\bPRIMARY\s+KEY\b/i.test(definition),
+      defaultValue,
+    }));
+  };
+  for (const statement of FROZEN_SCHEMA_STATEMENTS) {
+    const create = statement.match(/^CREATE TABLE IF NOT EXISTS\s+([a-z0-9_]+)\s*\(([\s\S]*)\)$/i);
+    if (create) {
+      for (const definition of splitSqlDefinitions(create[2])) {
+        const normalized = definition.trim();
+        if (/^(PRIMARY|UNIQUE|CHECK|FOREIGN|CONSTRAINT)\b/i.test(normalized)) continue;
+        const match = normalized.match(/^([a-z_][a-z0-9_]*)\s+([\s\S]+)$/i);
+        if (match) add(create[1], match[1], match[2]);
+      }
+    }
+    const alter = statement.match(/^ALTER TABLE\s+([a-z0-9_]+)\s+ADD COLUMN IF NOT EXISTS\s+([a-z0-9_]+)\s+([\s\S]+)$/i);
+    if (alter) add(alter[1], alter[2], alter[3]);
+  }
+  return signatures;
+}
+
+const EXPECTED_COLUMN_SIGNATURES = expectedColumnSignaturesFromFrozenDdl();
 
 function catalogKey(object: Pick<CatalogObject, "tableName" | "objectName">) {
   return `${object.tableName}.${object.objectName}`;
@@ -404,9 +501,12 @@ const V04_TABLE_PREFIXES = [
 ];
 
 const SOURCE_HASH_QUERIES: Array<[string, string]> = [
-  ["annotations:legacy", `SELECT * FROM annotations WHERE COALESCE(workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
-  ["annotation_snapshots:legacy", `SELECT * FROM annotation_snapshots WHERE COALESCE(workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
-  ["shots:legacy", `SELECT s.* FROM shots s JOIN annotations a ON a.id=s.annotation_id WHERE COALESCE(a.workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
+  ["annotations:legacy", `SELECT to_jsonb(a) - ARRAY['vocabulary_version','payload_schema_version','content_hash','updated_by_user_id'] AS row
+    FROM annotations a WHERE COALESCE(workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
+  ["annotation_snapshots:legacy", `SELECT to_jsonb(s) - ARRAY['workflow_version','vocabulary_version','payload_schema_version','created_by_user_id'] AS row
+    FROM annotation_snapshots s WHERE COALESCE(to_jsonb(s)->>'workflow_version', '') <> '${V04_WORKFLOW_VERSION}'`],
+  ["shots:legacy", `SELECT to_jsonb(s) - 'subtitle_effect' AS row FROM shots s
+    JOIN annotations a ON a.id=s.annotation_id WHERE COALESCE(a.workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
   ["shot_groups:legacy", `SELECT g.* FROM shot_groups g JOIN annotations a ON a.id=g.annotation_id WHERE COALESCE(a.workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
   ["field_answers:legacy", `SELECT f.* FROM field_answers f JOIN annotations a ON a.id=f.annotation_id WHERE COALESCE(a.workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
   ["annotation_creative_structures:legacy", `SELECT c.* FROM annotation_creative_structures c JOIN annotations a ON a.id=c.annotation_id WHERE COALESCE(a.workflow_version, '') <> '${V04_WORKFLOW_VERSION}'`],
@@ -424,7 +524,8 @@ const SOURCE_HASH_QUERIES: Array<[string, string]> = [
 
 const TARGET_HASH_QUERIES: Array<[string, string]> = [
   ["annotations:v04", `SELECT * FROM annotations WHERE workflow_version='${V04_WORKFLOW_VERSION}'`],
-  ["annotation_snapshots:v04", `SELECT * FROM annotation_snapshots WHERE workflow_version='${V04_WORKFLOW_VERSION}'`],
+  ["annotation_snapshots:v04", `SELECT * FROM annotation_snapshots s
+    WHERE COALESCE(to_jsonb(s)->>'workflow_version', '')='${V04_WORKFLOW_VERSION}'`],
   ["annotation_choice_values:v04", `SELECT c.* FROM annotation_choice_values c JOIN annotations a ON a.id=c.annotation_id WHERE a.workflow_version='${V04_WORKFLOW_VERSION}'`],
   ["collaboration_workspaces", "SELECT * FROM collaboration_workspaces"],
   ["collaboration_baselines", "SELECT * FROM collaboration_baselines"],
@@ -437,17 +538,14 @@ const TARGET_HASH_QUERIES: Array<[string, string]> = [
 ];
 
 const NON_TARGET_HASH_QUERIES: Array<[string, string]> = [
-  ["videos", "SELECT * FROM videos"],
-  ["users", "SELECT id,status,identity_key,display_name,email FROM users"],
+  ["videos", `SELECT to_jsonb(v) - ARRAY['created_by_user_id','deleted_by_user_id','delete_reason',
+    'restore_until','deletion_state','restored_at','restored_by_user_id'] AS row FROM videos v`],
+  ["users", `SELECT id,status,to_jsonb(u)->>'identity_key' AS identity_key,
+    display_name,to_jsonb(u)->>'email' AS email FROM users u`],
   ["app_admins", "SELECT * FROM app_admins"],
-  ["audit_logs", "SELECT * FROM audit_logs"],
-  ["admin_data_operations", "SELECT * FROM admin_data_operations"],
-  ["schema_migration_operations", "SELECT * FROM schema_migration_operations"],
-  ["annotation_taxonomy_versions", "SELECT * FROM annotation_taxonomy_versions"],
-  ["annotation_vocabulary_versions", "SELECT * FROM annotation_vocabulary_versions"],
-  ["annotation_vocabulary_options", "SELECT * FROM annotation_vocabulary_options"],
-  ["workflow_contract_versions", "SELECT * FROM workflow_contract_versions"],
-  ["app_role_memberships", "SELECT * FROM app_role_memberships"],
+  ["audit_logs", `SELECT to_jsonb(a) - ARRAY['actor_user_id','request_id','workflow_version'] AS row FROM audit_logs a`],
+  ["annotation_taxonomy_versions", `SELECT * FROM annotation_taxonomy_versions
+    WHERE taxonomy_version<>'${V04_TAXONOMY_VERSION}'`],
 ];
 
 function stableValue(value: unknown): unknown {
@@ -509,12 +607,17 @@ async function scopedHash(
   db: DbClient,
   catalogTables: Set<string>,
   queries: Array<[string, string]>,
+  options: { missingAsEmpty?: boolean } = {},
 ) {
   const rows: Array<{ scope: string; count: number; hash: string }> = [];
   for (const [scope, query] of queries) {
     const table = tableFromQuery(query);
     if (!catalogTables.has(table)) {
-      rows.push({ scope, count: 0, hash: "MISSING_TABLE" });
+      rows.push({
+        scope,
+        count: 0,
+        hash: options.missingAsEmpty ? "d41d8cd98f00b204e9800998ecf8427e" : "MISSING_TABLE",
+      });
       continue;
     }
     rows.push({ scope, ...(await tableHash(db, query)) });
@@ -659,12 +762,13 @@ function schemaDrift(catalog: Awaited<ReturnType<typeof loadCatalog>>) {
   const existingTables = new Set(catalog.tables.map((row) => row.table_name));
   const relevantTables = catalog.tables.map((row) => row.table_name)
     .filter((name) => V04_TABLE_PREFIXES.some((prefix) => name.startsWith(prefix)));
-  const missingTables = EXPECTED_TABLES.filter((name) => !existingTables.has(name));
+  const missingTables = ALL_REQUIRED_TABLES.filter((name) => !existingTables.has(name));
   const extraTables = relevantTables.filter((name) => !EXPECTED_TABLES.includes(name as typeof EXPECTED_TABLES[number]));
   const columnNames = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
   const missingColumns = [...EXPECTED_COLUMN_MAP].flatMap(([table, columns]) =>
     [...columns].filter((column) => !columnNames.has(`${table}.${column}`)).map((column) => `${table}.${column}`));
   const extraColumns = catalog.columns.filter((row) => {
+    if (!EXPECTED_TABLES.includes(row.table_name as typeof EXPECTED_TABLES[number])) return false;
     const expected = EXPECTED_COLUMN_MAP.get(row.table_name);
     return expected && !expected.has(row.column_name);
   }).map((row) => `${row.table_name}.${row.column_name}`);
@@ -690,11 +794,53 @@ function schemaDrift(catalog: Awaited<ReturnType<typeof loadCatalog>>) {
   const rlsDisabledTables = catalog.tables
     .filter((row) => EXPECTED_TABLES.includes(row.table_name as typeof EXPECTED_TABLES[number]) && !row.rls_enabled)
     .map((row) => row.table_name);
+  const expected = {
+    tables: ALL_REQUIRED_TABLES,
+    columns: sortedUnique([...EXPECTED_COLUMN_MAP].flatMap(([table, columns]) =>
+      [...columns].map((column) => `${table}.${column}`))),
+    indexes: expectedObjects.indexes.map(catalogKey).sort(),
+    triggers: expectedObjects.triggers.map(catalogKey).sort(),
+    policies: expectedObjects.policies.map(catalogKey).sort(),
+  };
+  const absent = {
+    tables: sortedUnique(missingTables),
+    columns: sortedUnique(missingColumns),
+    indexes: objectDrift.indexes.missing,
+    triggers: objectDrift.triggers.missing,
+    policies: objectDrift.policies.missing,
+  };
+  const actualColumnSignatures = new Map(catalog.columns.map((row) => [
+    `${row.table_name}.${row.column_name}`,
+    columnSignature({
+      dataType: row.data_type,
+      nullable: row.is_nullable === "YES",
+      defaultValue: row.column_default,
+    }),
+  ]));
+  const changedColumns = sortedUnique([...EXPECTED_COLUMN_SIGNATURES].flatMap(([key, expectedSignature]) => {
+    const actualSignature = actualColumnSignatures.get(key);
+    return actualSignature && actualSignature !== expectedSignature ? [key] : [];
+  }));
+  const driftItems = sortedUnique([
+    ...extraTables.map((value) => `EXTRA_TABLE:${value}`),
+    ...extraColumns.map((value) => `EXTRA_COLUMN:${value}`),
+    ...changedColumns.map((value) => `CHANGED_COLUMN:${value}`),
+    ...objectDrift.indexes.extra.map((value) => `EXTRA_INDEX:${value}`),
+    ...objectDrift.indexes.changed.map((value) => `CHANGED_INDEX:${value}`),
+    ...objectDrift.triggers.extra.map((value) => `EXTRA_TRIGGER:${value}`),
+    ...objectDrift.triggers.changed.map((value) => `CHANGED_TRIGGER:${value}`),
+    ...objectDrift.policies.extra.map((value) => `EXTRA_POLICY:${value}`),
+    ...objectDrift.policies.changed.map((value) => `CHANGED_POLICY:${value}`),
+  ]);
   return {
+    expected,
+    absent,
+    drift: driftItems,
     missingTables: sortedUnique(missingTables),
     extraTables: sortedUnique(extraTables),
     missingColumns: sortedUnique(missingColumns),
     extraColumns,
+    changedColumns,
     missingTriggers: objectDrift.triggers.missing,
     extraTriggers: objectDrift.triggers.extra,
     changedTriggers: objectDrift.triggers.changed,
@@ -709,6 +855,55 @@ function schemaDrift(catalog: Awaited<ReturnType<typeof loadCatalog>>) {
   };
 }
 
+function v04SchemaDriftCount(drift: ReturnType<typeof schemaDrift>) {
+  return [
+    drift.missingTables,
+    drift.extraTables,
+    drift.missingColumns,
+    drift.extraColumns,
+    drift.changedColumns,
+    drift.missingTriggers,
+    drift.extraTriggers,
+    drift.changedTriggers,
+    drift.missingIndexes,
+    drift.extraIndexes,
+    drift.changedIndexes,
+    drift.missingPolicies,
+    drift.extraPolicies,
+    drift.changedPolicies,
+    drift.rlsDisabledTables,
+  ].reduce((sum, values) => sum + values.length, 0);
+}
+
+function classifyV04SchemaState(
+  catalog: Awaited<ReturnType<typeof loadCatalog>>,
+  drift: ReturnType<typeof schemaDrift>,
+): V04SchemaState {
+  const tables = new Set(catalog.tables.map((row) => row.table_name));
+  const columns = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
+  const presentV04Tables = V04_SCHEMA_TABLES.filter((table) => tables.has(table));
+  const additiveColumnsPresent = V04_ADDITIVE_LEGACY_COLUMNS.some((column) => columns.has(column));
+  const baselineComplete = V04_REQUIRED_PRE1A_TABLES.every((table) => tables.has(table));
+  if (baselineComplete && presentV04Tables.length === 0 && !additiveColumnsPresent
+    && drift.extraTables.length === 0 && drift.drift.length === 0) {
+    return "PRE_1A_EXACT";
+  }
+  if (baselineComplete && presentV04Tables.length === 1
+    && presentV04Tables[0] === "schema_migration_operations"
+    && !additiveColumnsPresent
+    && !drift.rlsDisabledTables.includes("schema_migration_operations")
+    && drift.missingColumns.every((column) => !column.startsWith("schema_migration_operations."))
+    && drift.extraColumns.every((column) => !column.startsWith("schema_migration_operations."))
+    && drift.changedColumns.every((column) => !column.startsWith("schema_migration_operations."))
+    && drift.missingTriggers.every((trigger) => !trigger.startsWith("schema_migration_operations."))
+    && drift.changedTriggers.every((trigger) => !trigger.startsWith("schema_migration_operations."))
+    && drift.drift.length === 0) {
+    return "CONTROL_LEDGER_ONLY_EXACT";
+  }
+  if (v04SchemaDriftCount(drift) === 0) return "TARGET_APPLIED_EXACT";
+  return "DRIFT_OR_PARTIAL";
+}
+
 function anomaly(type: string, stableIds: string[]): V04MigrationPreviewAnomaly {
   const ids = sortedUnique(stableIds);
   return { type, count: ids.length, stableIds: ids };
@@ -720,6 +915,28 @@ async function ids(db: DbClient, query: string): Promise<string[]> {
 
 async function count(db: DbClient, query: string) {
   return numeric((await db.prepare(query).first<CountRow>())?.count);
+}
+
+function hasCatalogTables(catalogTables: Set<string>, required: readonly string[]) {
+  return required.every((table) => catalogTables.has(table));
+}
+
+async function countIf(
+  db: DbClient,
+  catalogTables: Set<string>,
+  required: readonly string[],
+  query: string,
+) {
+  return hasCatalogTables(catalogTables, required) ? count(db, query) : 0;
+}
+
+async function idsIf(
+  db: DbClient,
+  catalogTables: Set<string>,
+  required: readonly string[],
+  query: string,
+) {
+  return hasCatalogTables(catalogTables, required) ? ids(db, query) : [];
 }
 
 function stableEnvironmentKey() {
@@ -837,7 +1054,7 @@ export async function assertV04PreviewAdmin(
 export async function previewV04Migration(
   db: DbClient,
   actor: { userId: string; displayName?: string },
-  options: { now?: Date; environmentKey?: string } = {},
+  options: { now?: Date; environmentKey?: string; targetCodeSha?: string } = {},
 ): Promise<V04MigrationPreview> {
   await assertV04PreviewAdmin(db, actor);
 
@@ -856,78 +1073,42 @@ export async function previewV04Migration(
       policies: catalog.policies,
     }),
   }));
-  const schemaDriftCount = Object.values(drift).reduce((sum, values) => sum + values.length, 0);
-  if (schemaDriftCount > 0) {
-    const catalogColumnSet = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
-    const contractStatus = await inPreviewStage("SCHEMA_DRIFT", async () => (
-      catalogTableSet.has("workflow_contract_versions")
-        && catalogColumnSet.has("workflow_contract_versions.workflow_version")
-        && catalogColumnSet.has("workflow_contract_versions.status")
-        ? (await db.prepare(`SELECT status FROM workflow_contract_versions WHERE workflow_version=?`)
-          .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>())?.status ?? "MISSING"
-        : "MISSING"
-    ));
-    const unavailableHash = hashV04PreviewValue({ schemaFingerprint, status: "SCHEMA_DRIFT" });
-    const driftIds = sortedUnique(Object.entries(drift).flatMap(([kind, values]) =>
-      values.map((value) => `${kind}:${value}`)));
-    const contract = {
-      productVersion: V04_PRODUCT_VERSION,
-      taxonomyVersion: V04_TAXONOMY_VERSION,
-      workflowVersion: V04_WORKFLOW_VERSION,
-      vocabularyVersion: V04_VOCABULARY_VERSION,
-      payloadSchemaVersion: V04_PAYLOAD_SCHEMA_VERSION,
-      status: contractStatus,
-    };
-    const previewToken = `v04_preview_${hashV04PreviewValue({
-      previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,
-      scope: V04_MIGRATION_PREVIEW_SCOPE,
-      environmentKey,
-      actorUserId: actor.userId,
-      contract,
-      schemaFingerprint,
-      drift,
-      previewWindow,
-    })}`;
-    return {
-      previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,
-      scope: V04_MIGRATION_PREVIEW_SCOPE,
-      generatedAt: now.toISOString(),
-      expiresAt: previewWindow.expiresAt,
-      environmentKey,
-      actorUserId: actor.userId,
-      contract,
-      ready: false,
-      previewToken,
-      schemaFingerprint,
-      sourceHash: unavailableHash,
-      targetHash: unavailableHash,
-      nonTargetHash: unavailableHash,
-      facts: {
-        P01: { businessVideos: 0, v02Annotations: 0, v03Annotations: 0, v04Annotations: 0 },
-        P02: { v03Streams: 0, v04Workspaces: 0, canonicalAnnotations: 0, activeRounds: 0, logicalEmptyBusinessVideos: 0 },
-        P03: { snapshotKinds: {}, versionAnomalies: 0 },
-        P04: { promotedCurrentSnapshotCount: 0, stableStreamIds: [] },
-        P05: { referenceAnomalyCount: 0, stableObjectIds: [] },
-        P06: { ledgerRows: {}, ledgerAnomalies: 0 },
-        P07: drift,
-        P08: { legacyCustomMarkers: 0, pendingMechanisms: 0, customTextPresent: 0, structuredLegacyRawValues: 0, stableAnnotationIds: [] },
-        P09: { classifications: { UNIQUE: 0, AMBIGUOUS: 0, MISSING: 0, DISABLED: 0 }, mappings: [] },
-        P10: { physicalDeleteAuditCount: 0, databaseOrphanCount: 0, objectKeyAnomalyCount: 0, cosOrphanStatus: "NOT_CONFIRMABLE_FROM_DATABASE" },
-        P11: { objectCounts: {}, totalContentHash: hashV04PreviewValue([]) },
-      },
-      anomalies: [{ type: "SCHEMA_DRIFT", count: driftIds.length, stableIds: driftIds }],
-    };
-  }
-  const source = await scopedHash(db, catalogTableSet, SOURCE_HASH_QUERIES);
-  const target = await scopedHash(db, catalogTableSet, TARGET_HASH_QUERIES);
-  const nonTarget = await scopedHash(db, catalogTableSet, NON_TARGET_HASH_QUERIES);
+  const schemaState = classifyV04SchemaState(catalog, drift);
+  const targetCodeSha = v04TargetCodeSha(options.targetCodeSha);
+  const catalogColumnSet = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
+  const contractStatus = await inPreviewStage("SCHEMA_DRIFT", async () => (
+    catalogTableSet.has("workflow_contract_versions")
+      && catalogColumnSet.has("workflow_contract_versions.workflow_version")
+      && catalogColumnSet.has("workflow_contract_versions.status")
+      ? (await db.prepare(`SELECT status FROM workflow_contract_versions WHERE workflow_version=?`)
+        .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>())?.status ?? "MISSING"
+      : "MISSING"
+  ));
+  const source = await inPreviewStage("BUSINESS_FACTS", () =>
+    scopedHash(db, catalogTableSet, SOURCE_HASH_QUERIES));
+  const targetBusiness = await inPreviewStage("BUSINESS_FACTS", () =>
+    scopedHash(db, catalogTableSet, TARGET_HASH_QUERIES, { missingAsEmpty: true }));
+  const targetHash = v04ExpectedTargetDataFingerprint({
+    actorUserId: actor.userId,
+    targetBusinessHash: targetBusiness.hash,
+  });
+  const nonTarget = await inPreviewStage("BUSINESS_FACTS", () =>
+    scopedHash(db, catalogTableSet, NON_TARGET_HASH_QUERIES));
+  const beforeReadHash = hashV04PreviewValue({
+    sourceHash: source.hash,
+    targetBusinessHash: targetBusiness.hash,
+    nonTargetHash: nonTarget.hash,
+  });
 
-  const businessVideos = await count(db, "SELECT COUNT(*) AS count FROM videos WHERE data_scope='BUSINESS'");
-  const annotationRows = (await db.prepare(`SELECT COALESCE(a.workflow_version,'UNKNOWN') AS key,
+  const businessVideos = await countIf(db, catalogTableSet, ["videos"],
+    "SELECT COUNT(*) AS count FROM videos WHERE data_scope='BUSINESS'");
+  const annotationRows = !hasCatalogTables(catalogTableSet, ["annotations", "videos"])
+    ? []
+    : (await db.prepare(`SELECT COALESCE(a.workflow_version,'UNKNOWN') AS key,
       COUNT(*)::bigint AS count FROM annotations a JOIN videos v ON v.id=a.video_id
       WHERE v.data_scope='BUSINESS'
       GROUP BY COALESCE(a.workflow_version,'UNKNOWN') ORDER BY key`)
-    .all<{ key: string; count: number | string } & QueryResultRow>()).results;
+      .all<{ key: string; count: number | string } & QueryResultRow>()).results;
   const p01: Record<string, number> = { businessVideos, v02Annotations: 0, v03Annotations: 0, v04Annotations: 0 };
   for (const row of annotationRows) {
     if (row.key === V04_WORKFLOW_VERSION) p01.v04Annotations += numeric(row.count);
@@ -936,47 +1117,61 @@ export async function previewV04Migration(
   }
 
   const p02 = {
-    v03Streams: await count(db, "SELECT COUNT(*) AS count FROM v03_collaboration_streams"),
-    v04Workspaces: await count(db, "SELECT COUNT(*) AS count FROM collaboration_workspaces"),
-    canonicalAnnotations: await count(db, "SELECT COUNT(DISTINCT canonical_annotation_id) AS count FROM collaboration_workspaces"),
-    activeRounds: await count(db, "SELECT COUNT(*) AS count FROM collaboration_rounds WHERE status='ACTIVE'"),
-    logicalEmptyBusinessVideos: await count(db, `SELECT COUNT(*) AS count FROM videos v
+    v03Streams: await countIf(db, catalogTableSet, ["v03_collaboration_streams"],
+      "SELECT COUNT(*) AS count FROM v03_collaboration_streams"),
+    v04Workspaces: await countIf(db, catalogTableSet, ["collaboration_workspaces"],
+      "SELECT COUNT(*) AS count FROM collaboration_workspaces"),
+    canonicalAnnotations: await countIf(db, catalogTableSet, ["collaboration_workspaces"],
+      "SELECT COUNT(DISTINCT canonical_annotation_id) AS count FROM collaboration_workspaces"),
+    activeRounds: await countIf(db, catalogTableSet, ["collaboration_rounds"],
+      "SELECT COUNT(*) AS count FROM collaboration_rounds WHERE status='ACTIVE'"),
+    logicalEmptyBusinessVideos: await countIf(db, catalogTableSet, ["videos"], `SELECT COUNT(*) AS count FROM videos v
       WHERE v.data_scope='BUSINESS' AND v.deleted_at IS NULL AND NOT EXISTS (
-        SELECT 1 FROM collaboration_workspaces w WHERE w.video_id=v.id AND w.workflow_version='${V04_WORKFLOW_VERSION}'
+        SELECT 1 FROM ${catalogTableSet.has("collaboration_workspaces") ? "collaboration_workspaces" : "videos"} w
+        WHERE ${catalogTableSet.has("collaboration_workspaces") ? "w.video_id=v.id AND w.workflow_version='" + V04_WORKFLOW_VERSION + "'" : "FALSE"}
       )`),
   };
 
-  const snapshotRows = (await db.prepare(`SELECT COALESCE(snapshot_kind,'UNKNOWN') AS key,
+  const snapshotRows = !catalogTableSet.has("annotation_snapshots")
+    ? []
+    : (await db.prepare(`SELECT COALESCE(snapshot_kind,'UNKNOWN') AS key,
       COUNT(*)::bigint AS count FROM annotation_snapshots GROUP BY COALESCE(snapshot_kind,'UNKNOWN') ORDER BY key`)
-    .all<{ key: string; count: number | string } & QueryResultRow>()).results;
+      .all<{ key: string; count: number | string } & QueryResultRow>()).results;
   const snapshotKinds = Object.fromEntries(snapshotRows.map((row) => [row.key, numeric(row.count)]));
-  const versionAnomalyIds = await ids(db, `SELECT id FROM annotation_snapshots s WHERE
+  const versionAnomalyIds = await idsIf(db, catalogTableSet, ["annotation_snapshots"], `SELECT id FROM annotation_snapshots s WHERE
       (s.version_number IS NOT NULL AND s.version_number <= 0)
       OR (s.version_number IS NOT NULL AND EXISTS (
         SELECT 1 FROM annotation_snapshots x WHERE x.annotation_id=s.annotation_id
           AND x.version_number=s.version_number AND x.id<>s.id
       )) ORDER BY id`);
-  const promotedStreamIds = await ids(db, `SELECT stream.id FROM v03_collaboration_streams stream
+  const promotedStreamIds = await idsIf(db, catalogTableSet,
+    ["v03_collaboration_streams", "annotation_snapshots"], `SELECT stream.id FROM v03_collaboration_streams stream
     JOIN annotation_snapshots snapshot ON snapshot.id=stream.current_snapshot_id
     WHERE snapshot.snapshot_kind IN ('CANDIDATE','APPROVED','SUBMISSION')
       OR snapshot.workflow_status IN ('APPROVED','CANDIDATE') ORDER BY stream.id`);
 
   const referenceIds = sortedUnique([
-    ...(await ids(db, `SELECT 'release:'||r.id AS id FROM approved_analysis_releases r
+    ...(await idsIf(db, catalogTableSet,
+      ["approved_analysis_releases", "annotation_snapshots", "analysis_review_rounds"],
+      `SELECT 'release:'||r.id AS id FROM approved_analysis_releases r
       LEFT JOIN annotation_snapshots approved ON approved.id=r.approved_snapshot_id
       LEFT JOIN annotation_snapshots source ON source.id=r.source_snapshot_id
       LEFT JOIN analysis_review_rounds review ON review.id=r.source_review_round_id
       WHERE approved.id IS NULL OR source.id IS NULL OR review.id IS NULL
         OR approved.annotation_id<>r.annotation_id OR source.annotation_id<>r.annotation_id
         OR review.annotation_id<>r.annotation_id`)),
-    ...(await ids(db, `SELECT 'stream:'||s.id AS id FROM v03_collaboration_streams s
+    ...(await idsIf(db, catalogTableSet,
+      ["v03_collaboration_streams", "annotations", "v03_collaboration_rounds", "approved_analysis_releases"],
+      `SELECT 'stream:'||s.id AS id FROM v03_collaboration_streams s
       LEFT JOIN annotations a ON a.id=s.canonical_annotation_id
       LEFT JOIN v03_collaboration_rounds round ON round.id=s.active_round_id
       LEFT JOIN approved_analysis_releases release ON release.id=s.active_release_id
       WHERE a.id IS NULL OR a.video_id<>s.video_id
         OR (s.active_round_id IS NOT NULL AND (round.id IS NULL OR round.stream_id<>s.id))
         OR (s.active_release_id IS NOT NULL AND (release.id IS NULL OR release.video_id<>s.video_id))`)),
-    ...(await ids(db, `SELECT 'workspace:'||w.id AS id FROM collaboration_workspaces w
+    ...(await idsIf(db, catalogTableSet,
+      ["collaboration_workspaces", "annotations", "collaboration_rounds", "annotation_submission_snapshots", "expert_analysis_releases"],
+      `SELECT 'workspace:'||w.id AS id FROM collaboration_workspaces w
       LEFT JOIN annotations a ON a.id=w.canonical_annotation_id
       LEFT JOIN collaboration_rounds round ON round.id=w.active_round_id
       LEFT JOIN annotation_submission_snapshots submission ON submission.id=w.latest_submission_snapshot_id
@@ -987,35 +1182,47 @@ export async function previewV04Migration(
         OR (w.active_expert_release_id IS NOT NULL AND (release.id IS NULL OR release.workspace_id<>w.id))`)),
   ]);
 
-  const ledgerRows = Object.fromEntries((await db.prepare(`SELECT 'admin:'||status AS key,COUNT(*)::bigint AS count
-      FROM admin_data_operations GROUP BY status
-      UNION ALL SELECT 'schema:'||operation_type||':'||status AS key,COUNT(*)::bigint
-      FROM schema_migration_operations GROUP BY operation_type,status ORDER BY key`)
-    .all<{ key: string; count: number | string } & QueryResultRow>()).results
+  const ledgerSummaryRows: Array<{ key: string; count: number | string }> = [];
+  if (catalogTableSet.has("admin_data_operations")) {
+    ledgerSummaryRows.push(...(await db.prepare(`SELECT 'admin:'||status AS key,COUNT(*)::bigint AS count
+      FROM admin_data_operations GROUP BY status ORDER BY key`)
+      .all<{ key: string; count: number | string } & QueryResultRow>()).results);
+  }
+  if (catalogTableSet.has("schema_migration_operations")) {
+    ledgerSummaryRows.push(...(await db.prepare(`SELECT 'schema:'||operation_type||':'||status AS key,
+      COUNT(*)::bigint AS count FROM schema_migration_operations
+      GROUP BY operation_type,status ORDER BY key`)
+      .all<{ key: string; count: number | string } & QueryResultRow>()).results);
+  }
+  const ledgerRows = Object.fromEntries(ledgerSummaryRows
+    .sort((left, right) => left.key.localeCompare(right.key))
     .map((row) => [row.key, numeric(row.count)]));
-  const ledgerAnomalyIds = await ids(db, `SELECT id FROM schema_migration_operations
+  const ledgerAnomalyIds = await idsIf(db, catalogTableSet, ["schema_migration_operations"], `SELECT id FROM schema_migration_operations
     WHERE (operation_type='SCHEMA_PREVIEW' AND status<>'PREVIEWED')
       OR (operation_type IN ('SCHEMA_APPLY','CONTRACT_ACTIVATE') AND status NOT IN ('PREVIEWED','APPLYING','APPLIED','FAILED'))
     ORDER BY id`);
 
-  const p08Ids = await ids(db, `SELECT annotation_id AS id FROM annotation_creative_structures
+  const p08Ids = await idsIf(db, catalogTableSet, ["annotation_creative_structures"], `SELECT annotation_id AS id FROM annotation_creative_structures
     WHERE mechanism_primary IN ('__CUSTOM__','其他','其他（自定义机制）')
       OR story_reference_type IN ('__CUSTOM__','其他','其他（自定义参照类型）')
       OR mechanism_auxiliary_json LIKE '%待形成新机制%'
       OR mechanism_custom<>''`);
   const p08 = {
-    legacyCustomMarkers: await count(db, `SELECT COUNT(*) AS count FROM annotation_creative_structures
+    legacyCustomMarkers: await countIf(db, catalogTableSet, ["annotation_creative_structures"], `SELECT COUNT(*) AS count FROM annotation_creative_structures
       WHERE mechanism_primary IN ('__CUSTOM__','其他','其他（自定义机制）')
         OR story_reference_type IN ('__CUSTOM__','其他','其他（自定义参照类型）')`),
-    pendingMechanisms: await count(db, `SELECT COUNT(*) AS count FROM annotation_creative_structures
+    pendingMechanisms: await countIf(db, catalogTableSet, ["annotation_creative_structures"], `SELECT COUNT(*) AS count FROM annotation_creative_structures
       WHERE mechanism_primary='现有词表不适用／待形成新机制'
         OR mechanism_auxiliary_json LIKE '%待形成新机制%'`),
-    customTextPresent: await count(db, "SELECT COUNT(*) AS count FROM annotation_creative_structures WHERE mechanism_custom<>''"),
-    structuredLegacyRawValues: await count(db, "SELECT COUNT(*) AS count FROM annotation_choice_values WHERE legacy_raw_value IS NOT NULL"),
+    customTextPresent: await countIf(db, catalogTableSet, ["annotation_creative_structures"],
+      "SELECT COUNT(*) AS count FROM annotation_creative_structures WHERE mechanism_custom<>''"),
+    structuredLegacyRawValues: await countIf(db, catalogTableSet, ["annotation_choice_values"],
+      "SELECT COUNT(*) AS count FROM annotation_choice_values WHERE legacy_raw_value IS NOT NULL"),
     stableAnnotationIds: p08Ids,
   };
 
-  const users = (await db.prepare("SELECT id,email,display_name,status FROM users ORDER BY id")
+  const users = (await db.prepare(`SELECT id,to_jsonb(u)->>'email' AS email,
+      display_name,status FROM users u ORDER BY id`)
     .all<{ id: string; email: string | null; display_name: string; status: "ACTIVE" | "DISABLED" } & QueryResultRow>()).results;
   const admins = (await db.prepare("SELECT display_name FROM app_admins ORDER BY display_name")
     .all<{ display_name: string } & QueryResultRow>()).results;
@@ -1034,23 +1241,54 @@ export async function previewV04Migration(
     mappings: adminMappings,
   };
 
-  const physicalDeleteIds = await ids(db, `SELECT id FROM audit_logs WHERE
+  const physicalDeleteIds = await idsIf(db, catalogTableSet, ["audit_logs"], `SELECT id FROM audit_logs WHERE
     action ILIKE '%PHYSICAL%DELETE%' OR action ILIKE '%PURGE%' OR action ILIKE '%ASSET%DELETE%' ORDER BY id`);
   const orphanIds = sortedUnique([
-    ...(await ids(db, "SELECT 'annotation:'||a.id AS id FROM annotations a LEFT JOIN videos v ON v.id=a.video_id WHERE v.id IS NULL")),
-    ...(await ids(db, "SELECT 'snapshot:'||s.id AS id FROM annotation_snapshots s LEFT JOIN annotations a ON a.id=s.annotation_id LEFT JOIN videos v ON v.id=s.video_id WHERE a.id IS NULL OR v.id IS NULL")),
-    ...(await ids(db, "SELECT 'shot:'||s.id AS id FROM shots s LEFT JOIN annotations a ON a.id=s.annotation_id WHERE a.id IS NULL")),
-    ...(await ids(db, "SELECT 'audit-video:'||a.id AS id FROM audit_logs a LEFT JOIN videos v ON v.id=a.object_id WHERE a.object_type='VIDEO' AND v.id IS NULL")),
+    ...(await idsIf(db, catalogTableSet, ["annotations", "videos"],
+      "SELECT 'annotation:'||a.id AS id FROM annotations a LEFT JOIN videos v ON v.id=a.video_id WHERE v.id IS NULL")),
+    ...(await idsIf(db, catalogTableSet, ["annotation_snapshots", "annotations", "videos"],
+      "SELECT 'snapshot:'||s.id AS id FROM annotation_snapshots s LEFT JOIN annotations a ON a.id=s.annotation_id LEFT JOIN videos v ON v.id=s.video_id WHERE a.id IS NULL OR v.id IS NULL")),
+    ...(await idsIf(db, catalogTableSet, ["shots", "annotations"],
+      "SELECT 'shot:'||s.id AS id FROM shots s LEFT JOIN annotations a ON a.id=s.annotation_id WHERE a.id IS NULL")),
+    ...(await idsIf(db, catalogTableSet, ["audit_logs", "videos"],
+      "SELECT 'audit-video:'||a.id AS id FROM audit_logs a LEFT JOIN videos v ON v.id=a.object_id WHERE a.object_type='VIDEO' AND v.id IS NULL")),
   ]);
-  const objectKeyIds = await ids(db, `SELECT id FROM videos WHERE object_key='' OR object_key IS NULL
+  const objectKeyIds = await idsIf(db, catalogTableSet, ["videos"], `SELECT id FROM videos WHERE object_key='' OR object_key IS NULL
     OR EXISTS (SELECT 1 FROM videos other WHERE other.id<>videos.id AND other.object_key=videos.object_key)
     OR thumbnail_key=object_key ORDER BY id`);
 
   const historyScopes = source.rows.filter((row) => [
     "annotation_snapshots:legacy", "approved_analysis_releases", "v03_collaboration_baselines",
   ].includes(row.scope));
-  const p11Counts = Object.fromEntries(historyScopes.map((row) => [row.scope, row.count]));
-  const totalContentHash = hashV04PreviewValue(historyScopes);
+  const contractCounts = {
+    taxonomyDraft: await countIf(db, catalogTableSet, ["annotation_taxonomy_versions"],
+      `SELECT COUNT(*) AS count FROM annotation_taxonomy_versions
+        WHERE taxonomy_version='${V04_TAXONOMY_VERSION}' AND status='DRAFT'`),
+    vocabularyDraft: await countIf(db, catalogTableSet, ["annotation_vocabulary_versions"],
+      `SELECT COUNT(*) AS count FROM annotation_vocabulary_versions
+        WHERE vocabulary_version='${V04_VOCABULARY_VERSION}' AND status='DRAFT'`),
+    vocabularyOptions: await countIf(db, catalogTableSet, ["annotation_vocabulary_options"],
+      `SELECT COUNT(*) AS count FROM annotation_vocabulary_options
+        WHERE vocabulary_version='${V04_VOCABULARY_VERSION}'`),
+    workflowDraft: await countIf(db, catalogTableSet, ["workflow_contract_versions"],
+      `SELECT COUNT(*) AS count FROM workflow_contract_versions
+        WHERE workflow_version='${V04_WORKFLOW_VERSION}' AND status='DRAFT'`),
+    actorSystemAdmin: catalogTableSet.has("app_role_memberships")
+      ? numeric((await db.prepare(`SELECT COUNT(*) AS count FROM app_role_memberships
+          WHERE user_id=? AND role_key='SYSTEM_ADMIN' AND status='ACTIVE'`)
+        .bind(actor.userId).first<CountRow>())?.count)
+      : 0,
+  };
+  const p11Counts = {
+    ...Object.fromEntries(historyScopes.map((row) => [row.scope, row.count])),
+    ...Object.fromEntries(targetBusiness.rows.map((row) => [`target:${row.scope}`, row.count])),
+    ...Object.fromEntries(Object.entries(contractCounts).map(([key, value]) => [`contract:${key}`, value])),
+  };
+  const totalContentHash = hashV04PreviewValue({
+    historyScopes,
+    targetBusinessRows: targetBusiness.rows,
+    contractCounts,
+  });
 
   const anomalies = [
     anomaly("SNAPSHOT_VERSION_ANOMALY", versionAnomalyIds),
@@ -1066,30 +1304,77 @@ export async function previewV04Migration(
     anomaly("OBJECT_KEY_ANOMALY", objectKeyIds),
   ].filter((item) => item.count > 0);
 
-  const contract = await db.prepare(`SELECT status FROM workflow_contract_versions
-    WHERE workflow_version=?`).bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>();
-  const blockingCount = schemaDriftCount + versionAnomalyIds.length + referenceIds.length + ledgerAnomalyIds.length;
+  const afterSource = await inPreviewStage("ZERO_WRITE_CHECK", () =>
+    scopedHash(db, catalogTableSet, SOURCE_HASH_QUERIES));
+  const afterTargetBusiness = await inPreviewStage("ZERO_WRITE_CHECK", () =>
+    scopedHash(db, catalogTableSet, TARGET_HASH_QUERIES, { missingAsEmpty: true }));
+  const afterNonTarget = await inPreviewStage("ZERO_WRITE_CHECK", () =>
+    scopedHash(db, catalogTableSet, NON_TARGET_HASH_QUERIES));
+  const afterReadHash = hashV04PreviewValue({
+    sourceHash: afterSource.hash,
+    targetBusinessHash: afterTargetBusiness.hash,
+    nonTargetHash: afterNonTarget.hash,
+  });
+  const zeroWrite = {
+    beforeHash: beforeReadHash,
+    afterHash: afterReadHash,
+    unchanged: beforeReadHash === afterReadHash,
+  };
+  const targetBusinessRowCount = targetBusiness.rows.reduce((sum, row) => sum + row.count, 0);
+  const stopReasons = sortedUnique([
+    ...(schemaState === "DRIFT_OR_PARTIAL" ? ["SCHEMA_DRIFT_OR_PARTIAL"] : []),
+    ...(versionAnomalyIds.length ? ["SNAPSHOT_VERSION_ANOMALY"] : []),
+    ...(referenceIds.length ? ["REFERENCE_INCONSISTENCY"] : []),
+    ...(ledgerAnomalyIds.length ? ["SCHEMA_LEDGER_STATE_ANOMALY"] : []),
+    ...(targetBusinessRowCount ? ["V04_BUSINESS_ROWS_PRESENT"] : []),
+    ...(!zeroWrite.unchanged ? ["PREVIEW_NOT_ZERO_WRITE"] : []),
+    ...(schemaState === "TARGET_APPLIED_EXACT" && contractStatus !== "DRAFT"
+      ? ["WORKFLOW_CONTRACT_NOT_DRAFT"] : []),
+    ...(schemaState === "TARGET_APPLIED_EXACT" && (
+      contractCounts.taxonomyDraft !== 1
+      || contractCounts.vocabularyDraft !== 1
+      || contractCounts.vocabularyOptions !== 60
+      || contractCounts.workflowDraft !== 1
+      || contractCounts.actorSystemAdmin !== 1
+    ) ? ["TARGET_SECURITY_OR_CONTRACT_DRIFT"] : []),
+  ]);
+  const driftIds = schemaState === "DRIFT_OR_PARTIAL"
+    ? sortedUnique([
+      ...drift.missingTables.map((value) => `missingTable:${value}`),
+      ...drift.missingColumns.map((value) => `missingColumn:${value}`),
+      ...drift.missingIndexes.map((value) => `missingIndex:${value}`),
+      ...drift.missingTriggers.map((value) => `missingTrigger:${value}`),
+      ...drift.missingPolicies.map((value) => `missingPolicy:${value}`),
+      ...drift.drift,
+    ])
+    : [];
+  if (driftIds.length) anomalies.unshift(anomaly("SCHEMA_DRIFT", driftIds));
+  const contract = {
+    productVersion: V04_PRODUCT_VERSION,
+    taxonomyVersion: V04_TAXONOMY_VERSION,
+    workflowVersion: V04_WORKFLOW_VERSION,
+    vocabularyVersion: V04_VOCABULARY_VERSION,
+    payloadSchemaVersion: V04_PAYLOAD_SCHEMA_VERSION,
+    status: contractStatus,
+    expectedStatus: "DRAFT" as const,
+  };
   const tokenFacts = {
     previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,
     scope: V04_MIGRATION_PREVIEW_SCOPE,
     environmentKey,
     actorUserId: actor.userId,
-    contract: {
-      productVersion: V04_PRODUCT_VERSION,
-      taxonomyVersion: V04_TAXONOMY_VERSION,
-      workflowVersion: V04_WORKFLOW_VERSION,
-      vocabularyVersion: V04_VOCABULARY_VERSION,
-      payloadSchemaVersion: V04_PAYLOAD_SCHEMA_VERSION,
-      status: contract?.status ?? "MISSING",
-    },
+    targetCodeSha,
+    bundleHash: V04_SCHEMA_BUNDLE_HASH,
+    schemaState,
+    contract,
     schemaFingerprint,
     sourceHash: source.hash,
-    targetHash: target.hash,
+    targetHash,
     nonTargetHash: nonTarget.hash,
     previewWindow,
     p01, p02, snapshotKinds, versionAnomalyIds, promotedStreamIds, referenceIds,
     ledgerRows, ledgerAnomalyIds, drift, p08, p09, physicalDeleteIds, orphanIds, objectKeyIds,
-    p11Counts, totalContentHash,
+    p11Counts, totalContentHash, zeroWrite, stopReasons,
   };
   const previewToken = `v04_preview_${hashV04PreviewValue(tokenFacts)}`;
   return {
@@ -1099,12 +1384,16 @@ export async function previewV04Migration(
     expiresAt: previewWindow.expiresAt,
     environmentKey,
     actorUserId: actor.userId,
-    contract: tokenFacts.contract,
-    ready: blockingCount === 0 && contract?.status === "DRAFT",
+    targetCodeSha,
+    bundleHash: V04_SCHEMA_BUNDLE_HASH,
+    schemaState,
+    stopReasons,
+    contract,
+    ready: stopReasons.length === 0,
     previewToken,
     schemaFingerprint,
     sourceHash: source.hash,
-    targetHash: target.hash,
+    targetHash,
     nonTargetHash: nonTarget.hash,
     facts: {
       P01: p01,
@@ -1124,6 +1413,7 @@ export async function previewV04Migration(
       },
       P11: { objectCounts: p11Counts, totalContentHash },
     },
+    zeroWrite,
     anomalies,
   };
 }

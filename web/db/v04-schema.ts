@@ -111,8 +111,39 @@ export const V04_SCHEMA_STATEMENTS = [
     CHECK (operation_type IN ('SCHEMA_PREVIEW', 'SCHEMA_APPLY', 'CONTRACT_ACTIVATE')),
     CHECK (status IN ('PREVIEWED', 'APPLYING', 'APPLIED', 'FAILED')),
     CHECK (operation_type <> 'SCHEMA_PREVIEW' OR status = 'PREVIEWED'),
+    CHECK (
+      (status = 'PREVIEWED' AND started_at IS NULL AND completed_at IS NULL
+        AND result_json IS NULL AND error_json IS NULL)
+      OR (status = 'APPLYING' AND started_at IS NOT NULL AND completed_at IS NULL
+        AND result_json IS NULL AND error_json IS NULL)
+      OR (status = 'APPLIED' AND started_at IS NOT NULL AND completed_at IS NOT NULL
+        AND result_json IS NOT NULL AND error_json IS NULL)
+      OR (status = 'FAILED' AND completed_at IS NOT NULL
+        AND result_json IS NULL AND error_json IS NOT NULL)
+    ),
     CHECK (jsonb_typeof(contract_codes_json) = 'object')
   )`,
+  `DO $v04_schema_operation_evidence_check$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'schema_migration_operation_status_evidence_check'
+        AND conrelid = 'schema_migration_operations'::regclass
+    ) THEN
+      ALTER TABLE schema_migration_operations
+        ADD CONSTRAINT schema_migration_operation_status_evidence_check CHECK (
+          (status = 'PREVIEWED' AND started_at IS NULL AND completed_at IS NULL
+            AND result_json IS NULL AND error_json IS NULL)
+          OR (status = 'APPLYING' AND started_at IS NOT NULL AND completed_at IS NULL
+            AND result_json IS NULL AND error_json IS NULL)
+          OR (status = 'APPLIED' AND started_at IS NOT NULL AND completed_at IS NOT NULL
+            AND result_json IS NOT NULL AND error_json IS NULL)
+          OR (status = 'FAILED' AND completed_at IS NOT NULL
+            AND result_json IS NULL AND error_json IS NOT NULL)
+        );
+    END IF;
+  END
+  $v04_schema_operation_evidence_check$`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS created_by_user_id TEXT REFERENCES users(id)`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS deleted_by_user_id TEXT REFERENCES users(id)`,
   `ALTER TABLE videos ADD COLUMN IF NOT EXISTS delete_reason TEXT`,
@@ -615,6 +646,19 @@ export const V04_SCHEMA_STATEMENTS = [
     ELSIF OLD.status IN ('APPLIED', 'FAILED') THEN
       RAISE EXCEPTION 'completed schema migration operation is permanently locked';
     END IF;
+    IF NEW.status = 'APPLYING'
+      AND (NEW.started_at IS NULL OR NEW.completed_at IS NOT NULL
+        OR NEW.result_json IS NOT NULL OR NEW.error_json IS NOT NULL) THEN
+      RAISE EXCEPTION 'applying schema operation requires only a start time';
+    ELSIF NEW.status = 'APPLIED'
+      AND (NEW.started_at IS NULL OR NEW.completed_at IS NULL
+        OR NEW.result_json IS NULL OR NEW.error_json IS NOT NULL) THEN
+      RAISE EXCEPTION 'applied schema operation requires result and completion time';
+    ELSIF NEW.status = 'FAILED'
+      AND (NEW.completed_at IS NULL OR NEW.result_json IS NOT NULL
+        OR NEW.error_json IS NULL) THEN
+      RAISE EXCEPTION 'failed schema operation requires error and completion time';
+    END IF;
     RETURN NEW;
   END;
   $schema_operation_guard$ LANGUAGE plpgsql`,
@@ -785,4 +829,19 @@ export const V04_SCHEMA_STATEMENTS = [
     END IF;
   END
   $v04_revoke_public_roles$`,
+] as const;
+
+function requiredV04SchemaStatement(prefix: string) {
+  const statement = V04_SCHEMA_STATEMENTS.find((item) => item.startsWith(prefix));
+  if (!statement) throw new Error(`missing V0.4 schema statement: ${prefix}`);
+  return statement;
+}
+
+export const V04_SCHEMA_CONTROL_PLANE_STATEMENTS = [
+  requiredV04SchemaStatement("CREATE TABLE IF NOT EXISTS schema_migration_operations"),
+  requiredV04SchemaStatement("DO $v04_schema_operation_evidence_check$"),
+  requiredV04SchemaStatement("CREATE OR REPLACE FUNCTION protect_schema_migration_operation"),
+  requiredV04SchemaStatement("DROP TRIGGER IF EXISTS schema_migration_operations_immutable"),
+  requiredV04SchemaStatement("CREATE TRIGGER schema_migration_operations_immutable"),
+  requiredV04SchemaStatement("ALTER TABLE schema_migration_operations ENABLE ROW LEVEL SECURITY"),
 ] as const;

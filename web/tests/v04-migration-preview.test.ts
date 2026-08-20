@@ -139,6 +139,7 @@ test("preview database failures expose only a fixed diagnostic stage and never w
 
   function diagnosticDb(failingStage: V04MigrationPreviewStage) {
     let writes = 0;
+    let scopedHashReads = 0;
     const db = {
       prepare(sql: string) {
         const statement = {
@@ -158,6 +159,16 @@ test("preview database failures expose only a fixed diagnostic stage and never w
               if (failingStage === "ADMIN_LEGACY_MAPPING") throw new Error(secret);
               return { allowed: 1 };
             }
+            if (sql.includes("scope_row")) {
+              scopedHashReads += 1;
+              if (failingStage === "BUSINESS_FACTS" && scopedHashReads === 1) {
+                throw new Error(secret);
+              }
+              if (failingStage === "ZERO_WRITE_CHECK" && scopedHashReads === 3) {
+                throw new Error(secret);
+              }
+              return { row_count: 0, aggregate_hash: "d41d8cd98f00b204e9800998ecf8427e" };
+            }
             return null;
           },
           async all() {
@@ -175,6 +186,10 @@ test("preview database failures expose only a fixed diagnostic stage and never w
             if (stage === failingStage) throw new Error(secret);
             if (stage === "CATALOG_TABLES" && failingStage === "SCHEMA_DRIFT") {
               return { results: [{ table_name: null, rls_enabled: true }] };
+            }
+            if (stage === "CATALOG_TABLES"
+              && ["BUSINESS_FACTS", "ZERO_WRITE_CHECK"].includes(failingStage)) {
+              return { results: [{ table_name: "annotations", rls_enabled: true }] };
             }
             return { results: [] };
           },
@@ -198,6 +213,8 @@ test("preview database failures expose only a fixed diagnostic stage and never w
     "CATALOG_TRIGGERS",
     "CATALOG_POLICIES",
     "SCHEMA_DRIFT",
+    "BUSINESS_FACTS",
+    "ZERO_WRITE_CHECK",
   ]);
   for (const stage of V04_MIGRATION_PREVIEW_STAGES) {
     const fixture = diagnosticDb(stage);
