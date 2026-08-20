@@ -277,21 +277,22 @@ test("preview route is default closed, read-only, stable-admin protected and exp
   }
 });
 
-test("Gate P short-lived deployment enables only the read-only V0.4 PREVIEW switch", () => {
+test("Gate B closure removes the temporary V0.4 PREVIEW deployment switch", () => {
   const vercel = JSON.parse(
     readFileSync(new URL("../vercel.json", import.meta.url), "utf8"),
   ) as { env?: Record<string, string> };
-  assert.deepEqual(vercel.env, { V04_MIGRATION_PREVIEW_ENABLED: "true" });
+  assert.equal(vercel.env?.V04_MIGRATION_PREVIEW_ENABLED, undefined);
   for (const forbidden of [
-    "V04_SCHEMA_APPLY_ENABLED",
-    "V04_CONTRACT_ACTIVATE_ENABLED",
-    "V04_WORKFLOW_UI_ENABLED",
-    "V04_WORKFLOW_API_ENABLED",
-    "V04_DETAIL_UI_ENABLED",
-    "V04_LIBRARY_UI_ENABLED",
-    "V04_UI_SHADOW_ENABLED",
+    "PREVIEW",
+    "APPLY",
+    "ACTIVATE",
+    "WORKFLOW_API_ENABLED",
+    "MATERIALIZE",
   ]) {
-    assert.equal(vercel.env?.[forbidden], undefined);
+    assert.equal(
+      Object.keys(vercel.env ?? {}).some((key) => key.includes(forbidden)),
+      false,
+    );
   }
 
   const route = readFileSync(
