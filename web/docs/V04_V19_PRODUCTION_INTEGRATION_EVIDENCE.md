@@ -179,3 +179,33 @@ R1 只形成共享底座代码：`V04_UI_SHADOW_ENABLED` 与 `V04_WORKFLOW_API_E
 - 静态契约：`v04-ui-baseline.test.ts` 新增旁观态断言，禁止整页 disabled fieldset 回退，验证 readOnly／mutation disabled／函数守卫／统一定位／只读历史与批注边界。完整 `npm test` 为 267 项（262 通过、5 项显式 opt-in 跳过），`npm run lint`、Turbopack production build、Webpack production build 与 `git diff --check` 均通过。
 - TEST_ONLY 服务证据：同一稳定用户、两个 tab token 读取同一 `test_v04_video`；tab A 持租约时 `canEdit=true`，tab B 为 `canEdit=false` 且仍有读取／批注能力；tab B 申请租约返回 HTTP 423 `LEASE_HELD_BY_OTHER`。tab A 精确释放后，tab B 取得租约并变为 `canEdit=true`，最后精确释放；工作稿 revision 始终为 2，本轮未保存、提交、恢复、优选或修改正文。
 - 浏览器限制：代码工程任务尝试在已连接的应用内浏览器刷新本机 `localhost:3000` 验收页时，被浏览器自身 URL 安全策略拒绝；未使用其他浏览器或自动化绕过。因此 1280／1440／390 的定向点击项必须由产品真实路径复验补齐，工程回报不得把本节写成产品 PASS。
+
+## 10. R3／R4｜现有详情与片库增量接入
+
+### 10.1 R3 现有详情
+
+- 现有 `/videos/[id]` 仍负责登录、视频元数据、播放器、V0.3 公共工作稿、批准版和历史；没有新增第二详情路由。
+- `V04DetailClient` 增加可嵌入模式：复用 V1.9 四模块只读成果，但不再渲染第二个页头或播放器。
+- 只有服务端 `V04_DETAIL_UI_ENABLED=true` 时才挂载嵌入区；无 V0.4 提交时显示空成果态，有提交时默认显示 latest，有专家优选时可与 latest 显式切换。
+- 该区只调用 `detail` GET，不保存、提交、恢复或物化；现有 V0.3 历史仍在同页原位呈现。
+
+### 10.2 R4 现有片库
+
+- `/` 与 `GET /api/videos` 仍是唯一片库和视频元数据真相源；搜索、上传、标签、原卡片和 V0.3 入口均保留。
+- `V04_LIBRARY_UI_ENABLED=true` 时，客户端仅用当前 `video_id` 批量读取 V0.4 投影，附加五态、专家优选、查看成果与工作稿入口；不返回、不复制第二套视频列表。
+- 投影读取失败时只降级 V0.4 附加信息，既有片库继续可见可用，避免暗能力影响正式主链。
+
+### 10.3 开关、回退与禁改证据
+
+- `V04_DETAIL_UI_ENABLED` 与 `V04_LIBRARY_UI_ENABLED` 都不在 `vercel.json` 中，生产默认关闭；关闭时详情与首页不发起 V0.4 请求，回退为不配置开关。
+- `PracticeClient.tsx` SHA-256 仍为 `80689400bd930b8f6bd0dfc565a01b7a238cc60dcb973f138060a8ca3ee053d7`；`app/api/videos/route.ts` SHA-256 仍为 `df2ecde0ca38ce307d651f639fbe43e3a9cf13a9b7f7d00d2ca0a82917f7984f`。
+- R3 和 R4 分别形成独立本地提交；R2 获得产品 A 前不合并、不推送 `main`，不执行 schema APPLY、合同激活、生产写入或正式开关。
+
+### 10.4 TEST_ONLY 真实浏览器证据
+
+- 1280×720 现有首页：6 张原案例卡与 6 个 V0.4 投影一一对应，`innerWidth=scrollWidth=1280`；搜索 `v04` 后只保留 1 张原卡和其 1 个投影，现有搜索与卡片源没有被替换。
+- 1280×720 现有详情：V0.4 嵌入区宽 1216px，页面 `scrollWidth=innerWidth=1280`；同页仍有 1 个逻辑播放器、V0.2／V0.3 历史和 V0.4 空提交态，V0.4 嵌入区写控件为 0。
+- 390×844 现有首页：6 张卡片与 6 个投影均在 16—374px 安全边界内，`innerWidth=scrollWidth=390`。
+- 390×844 现有详情：V0.4 嵌入区位于 16—374px，`innerWidth=scrollWidth=390`，视频实例为 1，V0.3 历史仍在，空成果文案和 V0.4 工作稿入口可见。
+- 无 taxonomy 的现有 V0.3 工作页仍显示 `体系 V0.3-PILOT`，V0.4 页面标记为 0；成功验收 tab 的 console error／warn 为 0。
+- 页面读取全部使用 loopback TEST_ONLY PostgreSQL；未保存、提交、恢复、优选或写入真实案例。latest／expert 双版本选择由服务端 read model 与组件契约测试覆盖，本轮真实浏览器使用现有空提交样本验收，不为补画面而制造新业务版本。

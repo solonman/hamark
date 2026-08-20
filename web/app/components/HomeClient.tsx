@@ -6,6 +6,10 @@ import { formatShortDate } from "@/lib/date-format";
 import { readJsonResponse } from "@/lib/http-json";
 import type { ScoreRankingItem } from "@/lib/score-ranking";
 import type { VideoItem } from "@/lib/types";
+import type { V04ServerCardModel } from "@/lib/v04-ui-model";
+import { V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
+import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
+import v04Styles from "@/components/v04/V04Surface.module.css";
 import ScoreRankingDialog from "./ScoreRankingDialog";
 import UploadDialog from "./UploadDialog";
 import UserMenu, { type UserMenuUser } from "./UserMenu";
@@ -20,8 +24,43 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
 }
 
-export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAdmin: boolean }) {
+function V04CardProjection({ videoId, projection }: { videoId: string; projection?: V04ServerCardModel }) {
+  if (!projection) return null;
+  const encodedId = encodeURIComponent(videoId);
+  return (
+    <div className={v04Styles.existingCardProjection} data-v04-card-projection={videoId}>
+      <div>
+        <span className={v04Styles.existingWorkStatus}>{V04_UI_STATE_LABELS[projection.state]}</span>
+        {projection.expertPreference ? (
+          <span className={v04Styles.existingExpertGrade}>
+            专家优选 {projection.expertPreference.grade}
+          </span>
+        ) : null}
+      </div>
+      <div className={v04Styles.existingCardActions}>
+        <Link href={`/videos/${encodedId}#v04-analysis`}>
+          {projection.submissionCount > 0 ? "查看 V0.4 成果" : "查看 V0.4"}
+        </Link>
+        <Link href={`/videos/${encodedId}/practice?taxonomy=V0.4`}>
+          {projection.state === "NOT_STARTED" ? "开始 V0.4 逆向工程" : "继续 V0.4 逆向工程"}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export default function HomeClient({
+  user,
+  isAdmin,
+  v04LibraryEnabled = false,
+}: {
+  user: UserMenuUser;
+  isAdmin: boolean;
+  v04LibraryEnabled?: boolean;
+}) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [v04Projections, setV04Projections] = useState<Record<string, V04ServerCardModel>>({});
+  const [v04ProjectionError, setV04ProjectionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [loginRequired, setLoginRequired] = useState(false);
@@ -35,6 +74,7 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
   const [rankingLoading, setRankingLoading] = useState(false);
   const [showRanking, setShowRanking] = useState(false);
   const rankingRequestId = useRef(0);
+  const v04TabToken = useRef(`v04-existing-library-${crypto.randomUUID()}`);
 
   useEffect(() => {
     let active = true;
@@ -52,10 +92,37 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
           error?: string;
         }>(response, "片库读取");
         if (!response.ok) throw new Error(data.error || "片库读取失败");
+        const nextVideos = data.videos ?? [];
         if (active) {
-          setVideos(data.videos ?? []);
+          setVideos(nextVideos);
           setError("");
           setLoginRequired(false);
+        }
+        if (v04LibraryEnabled && nextVideos.length) {
+          try {
+            const { projections } = await v04UiApi.cards(
+              nextVideos.map((video) => video.id),
+              v04TabToken.current,
+            );
+            if (active) {
+              setV04Projections(Object.fromEntries(
+                (projections as V04ServerCardModel[]).map((projection) => [projection.videoId, projection]),
+              ));
+              setV04ProjectionError("");
+            }
+          } catch (reason) {
+            if (active) {
+              setV04Projections({});
+              setV04ProjectionError(
+                reason instanceof V04UiApiError
+                  ? reason.message
+                  : "V0.4 状态暂时无法读取，片库仍可正常使用。",
+              );
+            }
+          }
+        } else if (active) {
+          setV04Projections({});
+          setV04ProjectionError("");
         }
       })
       .catch((reason) => {
@@ -69,7 +136,7 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
     return () => {
       active = false;
     };
-  }, [refreshKey]);
+  }, [refreshKey, v04LibraryEnabled]);
 
   const filteredVideos = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -254,6 +321,10 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
             </span>
           </button>
         ) : (
+          <>
+          {v04LibraryEnabled && v04ProjectionError ? (
+            <div className="review-notice" role="status">{v04ProjectionError}</div>
+          ) : null}
           <div className="video-grid">
             {filteredVideos.map((video, index) => (
               <article className="video-card" key={video.id}>
@@ -310,10 +381,14 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
                         : "开始 V0.3 逆向工程"} <span aria-hidden="true">↗</span>
                     </Link>
                   </div>
+                  {v04LibraryEnabled ? (
+                    <V04CardProjection videoId={video.id} projection={v04Projections[video.id]} />
+                  ) : null}
                 </div>
               </article>
             ))}
           </div>
+          </>
         )}
       </section>
 

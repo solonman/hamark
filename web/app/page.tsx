@@ -22,6 +22,7 @@ export default async function Home() {
           null,
       }}
       isAdmin={isAdmin}
+      v04LibraryEnabled={process.env.V04_LIBRARY_UI_ENABLED === "true"}
     />
   );
 }

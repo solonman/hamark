@@ -37,6 +37,15 @@
 .embeddedSurface .readingBody { padding: 22px 24px 24px; }
 .embeddedSurface .emptyState { margin: 0; border: 0; border-radius: 0 0 18px 18px; }
 
+.existingCardProjection { display: grid; gap: 9px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.existingCardProjection > div { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.existingWorkStatus, .existingExpertGrade { border-radius: 999px; padding: 5px 8px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.existingWorkStatus { background: #2e302a; color: #e1e2da; }
+.existingExpertGrade { border: 1px solid #899c34; color: #536118; }
+.existingCardActions { gap: 15px !important; }
+.existingCardActions a { border-bottom: 1px solid currentColor; color: var(--ink); font-size: 11px; font-weight: 800; }
+.existingCardActions a:last-child { color: #536118; }
+
 .productHeader {
   position: sticky; top: 0; z-index: 30;
   display: grid; grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
