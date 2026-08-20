@@ -21,6 +21,7 @@ import V03ReviewDecisionBar from "./V03ReviewDecisionBar";
 import { resolveReviewEntry } from "@/lib/review-entry";
 import StandardRevisionHistory from "./StandardRevisionHistory";
 import SharedRevisionHistory from "./SharedRevisionHistory";
+import V04DetailClient from "@/components/v04/V04DetailClient";
 
 function formatBytes(value: number) {
   if (!value) return "0 B";
@@ -40,7 +41,15 @@ function redirectOnUnauthorized(response: Response) {
   return false;
 }
 
-export default function VideoDetailClient({ videoId }: { videoId: string }) {
+export default function VideoDetailClient({
+  videoId,
+  viewerName,
+  v04DetailEnabled = false,
+}: {
+  videoId: string;
+  viewerName: string;
+  v04DetailEnabled?: boolean;
+}) {
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
   const [approvedStandards, setApprovedStandards] = useState<ApprovedAnalysisRelease[]>([]);
@@ -471,6 +480,11 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
             <h2 id="analysis-title">脚本及创意分析</h2>
           </div>
           <div className="analysis-entry-actions">
+            {v04DetailEnabled ? (
+              <a className="text-button" href="#v04-analysis">
+                查看 V0.4 成果
+              </a>
+            ) : null}
             <Link
               className="text-button"
               href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
@@ -485,6 +499,24 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
 
         {versionNotice ? (
           <div className="review-notice error">{versionNotice}</div>
+        ) : null}
+
+        {v04DetailEnabled ? (
+          <div id="v04-analysis">
+            <V04DetailClient
+              videoId={videoId}
+              viewerName={viewerName}
+              embedded
+              showVideo={false}
+              navigation={{
+                libraryHref: "/",
+                detailHref: `/videos/${encodeURIComponent(videoId)}`,
+                workspaceHref: `/videos/${encodeURIComponent(videoId)}/practice?taxonomy=V0.4`,
+                detailLabel: "V0.4 成果",
+                workspaceLabel: "V0.4 工作稿",
+              }}
+            />
+          </div>
         ) : null}
 
         {currentPublicV03 ? (

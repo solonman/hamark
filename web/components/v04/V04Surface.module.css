@@ -18,6 +18,25 @@
 .surface button, .surface a { -webkit-tap-highlight-color: transparent; }
 .surface button:focus-visible, .surface a:focus-visible, .surface input:focus-visible, .surface textarea:focus-visible { outline: 2px solid var(--v04-accent); outline-offset: 3px; }
 
+.embeddedSurface {
+  min-height: 0;
+  margin: 0 0 34px;
+  overflow: visible;
+  border: 1px solid var(--v04-line);
+  border-radius: 18px;
+}
+.embeddedIntro { padding: 22px 24px; border-bottom: 1px solid var(--v04-line); }
+.embeddedIntro > p { margin: 0 0 7px; color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.embeddedIntro h2 { margin: 0; font-size: clamp(24px, 3vw, 36px); letter-spacing: -.04em; }
+.embeddedIntro > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 13px; }
+.embeddedIntro > div > span, .embeddedIntro > div > b { border: 1px solid var(--v04-line); border-radius: 999px; padding: 6px 10px; font-size: 10px; }
+.embeddedIntro > div > b { color: var(--v04-accent); }
+.embeddedActions a, .embeddedActions button { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 12px; font-size: 11px; }
+.embeddedActions a:first-child { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
+.embeddedSurface .readingBody, .embeddedSurface .emptyState { width: 100%; }
+.embeddedSurface .readingBody { padding: 22px 24px 24px; }
+.embeddedSurface .emptyState { margin: 0; border: 0; border-radius: 0 0 18px 18px; }
+
 .productHeader {
   position: sticky; top: 0; z-index: 30;
   display: grid; grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);

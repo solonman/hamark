@@ -39,7 +39,35 @@ function ReadonlyCore({ draft }: { draft: V04UiDraft }) {
   ].map(([id, label, value]) => <div key={id} id={id}><small>{label}</small><p>{value || "—"}</p></div>)}</div>;
 }
 
-export default function V04DetailClient({ videoId, viewerName }: { videoId: string; viewerName: string }) {
+export type V04DetailNavigation = {
+  libraryHref: string;
+  detailHref: string;
+  workspaceHref: string;
+  detailLabel?: string;
+  workspaceLabel?: string;
+};
+
+const shadowNavigation = (videoId: string): V04DetailNavigation => ({
+  libraryHref: "/v04-shadow",
+  detailHref: `/v04-shadow/videos/${encodeURIComponent(videoId)}`,
+  workspaceHref: `/v04-shadow/videos/${encodeURIComponent(videoId)}/workspace`,
+  detailLabel: "只读成果",
+  workspaceLabel: "编辑工作稿",
+});
+
+export default function V04DetailClient({
+  videoId,
+  viewerName,
+  embedded = false,
+  showVideo = true,
+  navigation = shadowNavigation(videoId),
+}: {
+  videoId: string;
+  viewerName: string;
+  embedded?: boolean;
+  showVideo?: boolean;
+  navigation?: V04DetailNavigation;
+}) {
   const tabToken = useRef(`v04-detail-${crypto.randomUUID()}`);
   const [model, setModel] = useState<V04ServerDetailModel | null>(null);
   const [error, setError] = useState("");
@@ -62,20 +90,24 @@ export default function V04DetailClient({ videoId, viewerName }: { videoId: stri
     : model?.latestSubmission;
   const draft = selectedSubmission ? v04PayloadToUiDraft(selectedSubmission.payload) : null;
   const toggle = (number: number) => setCollapsed((current) => { const next = new Set(current); if (next.has(number)) next.delete(number); else next.add(number); return next; });
-  if (error) return <main className={styles.surface} data-v04-page="detail"><section className={styles.emptyState}><h2>成果读取失败</h2><p>{error}</p><Link href="/v04-shadow">返回案例库</Link></section></main>;
-  if (!item || !model) return <main className={styles.surface} data-v04-page="detail"><section className={styles.emptyState}><h2>正在读取案例成果…</h2></section></main>;
-  return <main className={styles.surface} data-v04-page="detail">
-    <header className={styles.productHeader} data-v04-fixed-header><Link href="/v04-shadow" className={styles.wordmark}>← 案例库</Link><nav><Link href={`/v04-shadow/videos/${item.id}`}>只读成果</Link><Link href={`/v04-shadow/videos/${item.id}/workspace`}>编辑工作稿</Link><button onClick={() => setHistory(true)}>历史版本</button></nav><span>{viewerName}</span></header>
-    <section className={styles.detailIntro}><p>案例分析</p><h1>{item.title}</h1><div><span>{item.brand}</span><span>{item.duration}</span><span>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade && <b>专家优选 {item.expertGrade}</b>}</div><p>{item.description}</p>{model.expertPreferredSubmission && model.latestSubmission && <div><button type="button" onClick={() => setVersionView("LATEST")} disabled={versionView === "LATEST"}>最新提交 V{model.latestSubmission.submissionNumber}</button><button type="button" onClick={() => setVersionView("EXPERT")} disabled={versionView === "EXPERT"}>专家优选 V{model.expertPreferredSubmission.submissionNumber}</button></div>}</section>
-    <V04VideoPlayer caseId={item.id} title={item.title} surface="detail" media={item.media ?? null} />
-    {!draft ? <section className={styles.emptyState}><h2>尚无已提交成果</h2><p>此页仅查看提交成果，不展示填写控件、固定选项或条件交互。</p><Link href={`/v04-shadow/videos/${item.id}/workspace`}>开始公共工作稿</Link></section> : <div className={styles.readingBody}>
+  const shellClassName = `${styles.surface} ${embedded ? styles.embeddedSurface : ""}`.trim();
+  if (error) return <section className={shellClassName} data-v04-page="detail" data-v04-embedded={embedded || undefined}><section className={styles.emptyState}><h2>成果读取失败</h2><p>{error}</p><Link href={navigation.libraryHref}>返回案例库</Link></section></section>;
+  if (!item || !model) return <section className={shellClassName} data-v04-page="detail" data-v04-embedded={embedded || undefined}><section className={styles.emptyState}><h2>正在读取案例成果…</h2></section></section>;
+  const content = <>
+    {!embedded ? <header className={styles.productHeader} data-v04-fixed-header><Link href={navigation.libraryHref} className={styles.wordmark}>← 案例库</Link><nav><Link href={navigation.detailHref}>{navigation.detailLabel ?? "只读成果"}</Link><Link href={navigation.workspaceHref}>{navigation.workspaceLabel ?? "编辑工作稿"}</Link><button onClick={() => setHistory(true)}>历史版本</button></nav><span>{viewerName}</span></header> : null}
+    <section className={embedded ? styles.embeddedIntro : styles.detailIntro}><p>V0.4 案例分析</p>{!embedded ? <h1>{item.title}</h1> : <h2>当前 V0.4 成果</h2>}<div><span>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade && <b>专家优选 {item.expertGrade}</b>}</div>{!embedded ? <p>{item.description}</p> : null}{model.expertPreferredSubmission && model.latestSubmission && <div><button type="button" onClick={() => setVersionView("LATEST")} disabled={versionView === "LATEST"}>最新提交 V{model.latestSubmission.submissionNumber}</button><button type="button" onClick={() => setVersionView("EXPERT")} disabled={versionView === "EXPERT"}>专家优选 V{model.expertPreferredSubmission.submissionNumber}</button></div>}<div className={styles.embeddedActions}><Link href={navigation.workspaceHref}>{draft ? "继续 V0.4 工作稿" : "开始 V0.4 工作稿"}</Link><button type="button" onClick={() => setHistory(true)}>历史版本</button><button type="button" onClick={() => setComments(true)}>批注任务</button></div></section>
+    {showVideo ? <V04VideoPlayer caseId={item.id} title={item.title} surface="detail" media={item.media ?? null} /> : null}
+    {!draft ? <section className={styles.emptyState}><h2>尚无已提交成果</h2><p>此页仅查看提交成果，不展示填写控件、固定选项或条件交互。</p><Link href={navigation.workspaceHref}>开始公共工作稿</Link></section> : <div className={styles.readingBody}>
       <section className={styles.readingModule}><header><h2>第一模块｜脚本反写</h2></header><ReadonlyShots draft={draft} /></section>
       <section className={styles.readingModule}><header><h2>第二模块｜全片事实与核心判断</h2><button onClick={() => toggle(2)}>{collapsed.has(2) ? "展开" : "收起"}</button></header>{!collapsed.has(2) && <ReadonlyCore draft={draft} />}</section>
       <section className={styles.readingModule}><header><h2>第三模块｜主导感知类型发生路径</h2><button onClick={() => toggle(3)}>{collapsed.has(3) ? "展开" : "收起"}</button></header>{!collapsed.has(3) && <div className={styles.readingCore}><div><small>主导路径</small><p>{pathLabel[draft.primaryPath]}</p></div>{draft.primaryPathAnswers[draft.primaryPath].map((value, index) => <div key={index}><small>{V04_UI_PATHS.find((path) => path.id === draft.primaryPath)?.fields[index] ?? `条件判断 ${index + 1}`}</small><p>{value || "—"}</p></div>)}{draft.auxiliaryPaths.map((path) => <div key={path}><small>辅助路径｜{pathLabel[path]}</small><p>{[draft.auxiliaryPathDetails[path]?.description, draft.auxiliaryPathDetails[path]?.role].filter(Boolean).join("｜") || "—"}</p></div>)}</div>}</section>
       <section className={styles.readingModule}><header><h2>第四模块｜提交</h2></header><div className={styles.readingCore}><div><small>当前提交版</small><p>{selectedSubmission ? `V${selectedSubmission.submissionNumber} · ${selectedSubmission.submittedAt} · ${selectedSubmission.submittedByName}` : "尚无已提交成果"}</p></div><div><small>工作状态</small><p>{V04_UI_STATE_LABELS[item.workState]}</p></div></div></section>
     </div>}
-    <button className={styles.cornerTool} onClick={() => setComments(true)}>批注任务</button>
+    {!embedded ? <button className={styles.cornerTool} onClick={() => setComments(true)}>批注任务</button> : null}
     <V04HistoryDrawer videoId={item.id} open={history} onClose={() => setHistory(false)} />
     <V04CommentDrawer videoId={item.id} open={comments} onClose={() => setComments(false)} readOnly />
-  </main>;
+  </>;
+  return embedded
+    ? <section className={shellClassName} data-v04-page="detail" data-v04-embedded>{content}</section>
+    : <main className={shellClassName} data-v04-page="detail">{content}</main>;
 }

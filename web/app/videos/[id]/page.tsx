@@ -12,6 +12,12 @@ export default async function VideoDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requirePageUser(`/videos/${encodeURIComponent(id)}`);
-  return <VideoDetailClient videoId={id} />;
+  const user = await requirePageUser(`/videos/${encodeURIComponent(id)}`);
+  return (
+    <VideoDetailClient
+      videoId={id}
+      viewerName={user.displayName}
+      v04DetailEnabled={process.env.V04_DETAIL_UI_ENABLED === "true"}
+    />
+  );
 }
