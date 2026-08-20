@@ -8,6 +8,7 @@ import { V04_WORKFLOW_SCHEMA_STATEMENTS } from "@/db/v04-workflow-schema";
 import { V04ServiceError } from "./v04-errors";
 import {
   assertV04PreviewToken,
+  digestV04PreviewToken,
   previewV04Migration,
   type V04MigrationPreview,
 } from "./v04-migration-preview";
@@ -36,8 +37,8 @@ export type V04SchemaApplyResult = {
   schemaVersion: typeof V04_SCHEMA_VERSION;
   bundleHash: string;
   targetCodeSha: string;
-  previewToken: string;
-  postPreview?: V04MigrationPreview;
+  previewTokenDigest: string;
+  postPreview?: Omit<V04MigrationPreview, "previewToken">;
   failure?: { stage: string; code: string };
 };
 
@@ -90,6 +91,7 @@ function validateApplyInput(input: V04SchemaApplyInput, now: Date, expectedCodeS
   }
   return {
     previewToken,
+    previewTokenDigest: digestV04PreviewToken(previewToken),
     idempotencyKey,
     approvalReference,
     backupReference,
@@ -127,6 +129,12 @@ function sanitizedFailure(stage: string, error: unknown) {
   };
 }
 
+function withoutRuntimePreviewToken(preview: V04MigrationPreview): Omit<V04MigrationPreview, "previewToken"> {
+  const { previewToken, ...safeEvidence } = preview;
+  void previewToken;
+  return safeEvidence;
+}
+
 function resultFromRow(row: OperationRow): V04SchemaApplyResult {
   if (row.result_json) return { ...row.result_json, alreadyApplied: true };
   return {
@@ -137,7 +145,7 @@ function resultFromRow(row: OperationRow): V04SchemaApplyResult {
     schemaVersion: V04_SCHEMA_VERSION,
     bundleHash: V04_SCHEMA_BUNDLE_HASH,
     targetCodeSha: "UNKNOWN",
-    previewToken: row.preview_token,
+    previewTokenDigest: row.preview_token,
     failure: row.error_json?.stage
       ? { stage: row.error_json.stage, code: row.error_json.code ?? "SCHEMA_APPLY_FAILED" }
       : undefined,
@@ -196,7 +204,7 @@ async function failStaleApplyingIfSafe(
     schemaVersion: V04_SCHEMA_VERSION,
     bundleHash: V04_SCHEMA_BUNDLE_HASH,
     targetCodeSha,
-    previewToken: row.preview_token,
+    previewTokenDigest: row.preview_token,
     failure: { stage: "STALE_APPLYING_RECONCILIATION", code: "STALE_APPLYING" },
   };
 }
@@ -229,12 +237,12 @@ export async function applyV04Schema(
     if (currentPreview.schemaState !== "PRE_1A_EXACT") {
       const sameExisting = await currentOperationByIdempotency(tx, validated.idempotencyKey);
       if (sameExisting) {
-        if (sameExisting.preview_token !== validated.previewToken) {
+        if (sameExisting.preview_token !== validated.previewTokenDigest) {
           throw new V04ServiceError("IDEMPOTENCY_CONFLICT", "幂等键已绑定另一份 PREVIEW 事实。", {
             operationId: sameExisting.id,
           });
         }
-        if (sameExisting.preview_token === validated.previewToken
+        if (sameExisting.preview_token === validated.previewTokenDigest
           && ["APPLIED", "FAILED"].includes(sameExisting.status)) {
           return resultFromRow(sameExisting);
         }
@@ -300,7 +308,7 @@ export async function applyV04Schema(
     ) VALUES (?,?, 'SCHEMA_APPLY', ?, ?::jsonb, 'PREVIEWED', ?, ?, ?, ?, ?, ?, ?)`)
       .bind(identity.operationId, identity.operationKey, V04_SCHEMA_VERSION,
         JSON.stringify({ bundleHash: V04_SCHEMA_BUNDLE_HASH, targetCodeSha }),
-        validated.previewToken, currentPreview.sourceHash, currentPreview.targetHash,
+        validated.previewTokenDigest, currentPreview.sourceHash, currentPreview.targetHash,
         currentPreview.nonTargetHash, actor.userId, validated.idempotencyKey,
         approvalReference).run();
     await tx.prepare(`UPDATE schema_migration_operations
@@ -362,8 +370,8 @@ export async function applyV04Schema(
         schemaVersion: V04_SCHEMA_VERSION,
         bundleHash: V04_SCHEMA_BUNDLE_HASH,
         targetCodeSha,
-        previewToken: validated.previewToken,
-        postPreview,
+        previewTokenDigest: validated.previewTokenDigest,
+        postPreview: withoutRuntimePreviewToken(postPreview),
       };
       await tx.prepare(`UPDATE schema_migration_operations SET status='APPLIED',
         result_json=?::jsonb,error_json=NULL,completed_at=? WHERE id=? AND status='APPLYING'`)
@@ -383,7 +391,7 @@ export async function applyV04Schema(
         schemaVersion: V04_SCHEMA_VERSION,
         bundleHash: V04_SCHEMA_BUNDLE_HASH,
         targetCodeSha,
-        previewToken: validated.previewToken,
+        previewTokenDigest: validated.previewTokenDigest,
         failure,
       };
     }

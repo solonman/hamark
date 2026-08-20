@@ -27,5 +27,6 @@ test("V0.4 schema PREVIEW/APPLY real PostgreSQL matrix is explicit and opt-in", 
   assert.equal(evidence.savepointRollback, true);
   assert.equal(evidence.staleApplyingReconciled, true);
   assert.equal(evidence.partialDriftRejected, true);
+  assert.equal(evidence.runtimeTokenNotPersisted, true);
   assert.equal(evidence.publicFingerprintUnchanged, true);
 });

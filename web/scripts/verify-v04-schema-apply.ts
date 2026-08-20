@@ -192,6 +192,20 @@ async function verifySuccessPath(input: {
     assert.equal(result.postPreview?.sourceHash, preview.sourceHash);
     assert.equal(result.postPreview?.targetHash, preview.targetHash);
     assert.equal(result.postPreview?.nonTargetHash, preview.nonTargetHash);
+    assert.equal(result.previewTokenDigest, preview.previewTokenDigest);
+    assert.equal("previewToken" in result, false);
+    assert.equal("previewToken" in (result.postPreview ?? {}), false);
+    assert.equal(JSON.stringify(result).includes(preview.previewToken), false);
+
+    const storedOperation = await input.client.query<{
+      preview_token: string;
+      result_json: unknown;
+      error_json: unknown;
+    }>(`SELECT preview_token,result_json,error_json
+      FROM ${quote(input.schema)}.schema_migration_operations WHERE id=$1`, [result.operationId]);
+    assert.equal(storedOperation.rows.length, 1);
+    assert.equal(storedOperation.rows[0].preview_token, preview.previewTokenDigest);
+    assert.equal(JSON.stringify(storedOperation.rows[0]).includes(preview.previewToken), false);
 
     const replay = await applyV04Schema(db, actor, applyInput(
       preview, now, concurrentKeys[createdIndex],
@@ -275,7 +289,7 @@ async function verifyFailurePath(input: {
     ) VALUES ($1,$2,'SCHEMA_APPLY','V04_SCHEMA_1A_V1',$3::jsonb,'APPLYING',$4,$5,$6,$7,$8,$9,$10)`, [
       `operation_${input.runId}_stale`, `operation-key-${input.runId}-stale`,
       JSON.stringify({ bundleHash: V04_SCHEMA_BUNDLE_HASH, targetCodeSha: options.targetCodeSha }),
-      after.previewToken, after.sourceHash, after.targetHash, after.nonTargetHash,
+      after.previewTokenDigest, after.sourceHash, after.targetHash, after.nonTargetHash,
       actor.userId, staleKey, new Date(now.getTime() - 10 * 60 * 1000).toISOString(),
     ]);
     const reconciled = await applyV04Schema(db, actor, applyInput(after, now, staleKey), options);
@@ -341,6 +355,7 @@ export async function runV04SchemaApplyVerification(env: Environment = process.e
       savepointRollback: true,
       staleApplyingReconciled: true,
       partialDriftRejected: true,
+      runtimeTokenNotPersisted: true,
       bundleHash: V04_SCHEMA_BUNDLE_HASH,
       publicFingerprintUnchanged: true,
     };

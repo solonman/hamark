@@ -7,6 +7,7 @@ import {
   assertV04PreviewToken,
   canonicalV04PreviewValue,
   compareV04SchemaObjects,
+  digestV04PreviewToken,
   hashV04PreviewValue,
   isV04PreviewSameOrigin,
   V04_FROZEN_SCHEMA_OBJECT_EXPECTATION,
@@ -40,6 +41,7 @@ test("preview token enforces the fixed 30-minute window and stable STALE_PREVIEW
 
   const preview = {
     previewToken: "v04_preview_current",
+    previewTokenDigest: digestV04PreviewToken("v04_preview_current"),
     expiresAt: window.expiresAt,
   } as V04MigrationPreview;
   assert.doesNotThrow(() => assertV04PreviewToken(
@@ -52,6 +54,8 @@ test("preview token enforces the fixed 30-minute window and stable STALE_PREVIEW
       assert(error instanceof V04ServiceError);
       assert.equal(error.code, "STALE_PREVIEW");
       assert.equal(error.details.reason, "EXPIRED");
+      assert.equal(error.details.currentPreviewTokenDigest, preview.previewTokenDigest);
+      assert.doesNotMatch(JSON.stringify(error.details), /v04_preview_current/);
       return true;
     });
   }
@@ -64,6 +68,8 @@ test("preview token enforces the fixed 30-minute window and stable STALE_PREVIEW
     assert.equal(error.code, "STALE_PREVIEW");
     assert.equal(error.status, 409);
     assert.equal(error.details.reason, "FACTS_CHANGED");
+    assert.equal(error.details.currentPreviewTokenDigest, preview.previewTokenDigest);
+    assert.doesNotMatch(JSON.stringify(error.details), /v04_preview_current/);
     return true;
   });
   const response = v04ErrorResponse(new V04ServiceError("STALE_PREVIEW", "stale"), "request-stale");

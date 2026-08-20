@@ -131,6 +131,7 @@ export type V04MigrationPreview = {
   };
   ready: boolean;
   previewToken: string;
+  previewTokenDigest: string;
   schemaFingerprint: string;
   sourceHash: string;
   targetHash: string;
@@ -566,6 +567,10 @@ export function hashV04PreviewValue(value: unknown) {
   return createHash("sha256").update(canonicalV04PreviewValue(value), "utf8").digest("hex");
 }
 
+export function digestV04PreviewToken(previewToken: string) {
+  return hashV04PreviewValue({ previewToken });
+}
+
 function numeric(value: number | string | null | undefined) {
   const result = Number(value ?? 0);
   return Number.isFinite(result) ? result : 0;
@@ -962,7 +967,7 @@ export function assertV04PreviewToken(
   const expired = !Number.isFinite(expiresAtMs) || now.getTime() >= expiresAtMs;
   if (expired || !suppliedToken || suppliedToken !== current.previewToken) {
     throw new V04ServiceError("STALE_PREVIEW", "PREVIEW 事实已变化，请重新执行只读 PREVIEW。", {
-      currentPreviewToken: current.previewToken,
+      currentPreviewTokenDigest: current.previewTokenDigest,
       expiresAt: current.expiresAt,
       reason: expired ? "EXPIRED" : "FACTS_CHANGED",
     });
@@ -1377,6 +1382,7 @@ export async function previewV04Migration(
     p11Counts, totalContentHash, zeroWrite, stopReasons,
   };
   const previewToken = `v04_preview_${hashV04PreviewValue(tokenFacts)}`;
+  const previewTokenDigest = digestV04PreviewToken(previewToken);
   return {
     previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,
     scope: V04_MIGRATION_PREVIEW_SCOPE,
@@ -1391,6 +1397,7 @@ export async function previewV04Migration(
     contract,
     ready: stopReasons.length === 0,
     previewToken,
+    previewTokenDigest,
     schemaFingerprint,
     sourceHash: source.hash,
     targetHash,

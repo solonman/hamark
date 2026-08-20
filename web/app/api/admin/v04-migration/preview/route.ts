@@ -3,7 +3,6 @@ import { getAuthServices } from "@/lib/auth/server";
 import { requireV04Actor, v04RequestId } from "@/lib/v04-api";
 import { V04ServiceError, v04ErrorResponse } from "@/lib/v04-errors";
 import {
-  assertV04PreviewToken,
   isV04PreviewSameOrigin,
   previewV04Migration,
 } from "@/lib/v04-migration-preview";
@@ -41,8 +40,6 @@ export async function GET(request: Request) {
   if (access instanceof Response) return noStoreResponse(access);
   try {
     const preview = await previewV04Migration(getDbClient(), access.actor);
-    const suppliedToken = new URL(request.url).searchParams.get("previewToken");
-    if (suppliedToken) assertV04PreviewToken(preview, suppliedToken);
     return noStoreJson({ preview, requestId: access.requestId });
   } catch (error) {
     return noStoreResponse(v04ErrorResponse(error, access.requestId));

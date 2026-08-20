@@ -116,14 +116,8 @@ R5 PREVIEW 的首个产品前置是 R3、R4 均取得 A。未满足时不打开�
    ```
 
 2. 不携带生产数据库 URL，不复制 cookie，不使用跨源 curl，不提交任何表单。
-3. 保存脱敏证据：HTTP 状态、requestId、preview schema version、generatedAt／expiresAt、environment key、actor stable ID、ready、schema fingerprint、P01—P11 计数／稳定 ID／hash、异常类型。短期 token 只在受控执行上下文使用，归档时遮蔽主体。
-4. 在同一 30 分钟窗口立即用返回 token 再次 GET：
-
-   ```text
-   /api/admin/v04-migration/preview?previewToken=<本次短期 token>
-   ```
-
-   第二次须返回同一 token／fingerprint／事实；跨窗口或事实变化必须 `STALE_PREVIEW`。
+3. 保存脱敏证据：HTTP 状态、requestId、preview schema version、generatedAt／expiresAt、environment key、actor stable ID、ready、schema fingerprint、P01—P11 计数／稳定 ID／hash、异常类型。完整短期 token 只存在于同源管理页运行时内存；页面、URL、存储、日志和归档只能出现不可逆 SHA-256 摘要。
+4. 在同一 30 分钟窗口通过管理页“再次零写核验”按钮重新 GET 固定路径 `/api/admin/v04-migration/preview`。页面在运行时内存比较前后完整 token，不把 token 放入查询参数。第二次须得到同一 token／fingerprint／事实；跨窗口或事实变化必须在页面提示重新核对。
 5. 当前预期是结构化 `preview` 且 `ready=false`，P07 明确反映 pre-1A 缺失；这不是失败，也不是 APPLY 放行。
 
 ### D. 结果判读
@@ -227,7 +221,7 @@ R5 PREVIEW 的首个产品前置是 R3、R4 均取得 A。未满足时不打开�
 2. 建立只修改 `web/vercel.json` 及对应配置断言的短期提交，只设置 `V04_MIGRATION_PREVIEW_ENABLED=true`；不得设置 APPLY、ACTIVATE 或 UI/API 开关。
 3. 推送后等待 Vercel 部署同 SHA；使用负责人现有已登录会话打开同源 `/admin/v04-schema`。不得复制 cookie、凭据或数据库 URL。
 4. 点击“运行只读 PREVIEW”。页面只展示脱敏事实：`schemaState`、ready、stopReasons、目标代码 SHA、bundle/catalog/source/target/non-target hash、有效期与 P01—P11。
-5. 在同一30分钟窗口点击“使用当前 token 再次零写核验”；token、各 hash、P01—P11 和 stopReasons 必须稳定，`zeroWrite.unchanged=true`。
+5. 在同一30分钟窗口点击“使用当前 token 再次零写核验”；页面只显示 `Token 摘要`，完整 token 仅在 React 运行时内存比较，不进入 DOM、URL、Web Storage、console 或证据文件。token、各 hash、P01—P11 和 stopReasons 必须稳定，`zeroWrite.unchanged=true`。
 6. 保存证据后，无论结果成功或失败，都以第二笔独立提交关闭 PREVIEW 并核对 Vercel 同 SHA、端点恢复默认关闭、V0.3 主链正常。
 
 ### 11.3 PRE_1A_EXACT 的 READY 规则

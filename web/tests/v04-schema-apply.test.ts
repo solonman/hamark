@@ -55,8 +55,12 @@ test("schema APPLY service binds preview, code SHA, backup evidence and one stab
     "schema_migration_operations",
     "SYSTEM_ADMIN",
     "TARGET_APPLIED_EXACT",
+    "digestV04PreviewToken",
+    "withoutRuntimePreviewToken",
   ]) assert.match(source, new RegExp(invariant));
   assert.match(source, /Number\(activeAdminCount\?\.count \?\? 0\) !== 1/);
+  assert.match(source, /validated\.previewTokenDigest, currentPreview\.sourceHash/);
+  assert.doesNotMatch(source, /previewToken:\s*validated\.previewToken/);
   assert.doesNotMatch(source, /CONTRACT_ACTIVATE|npm run db:migrate|DELETE FROM|DROP TABLE/);
 });
 
@@ -71,6 +75,16 @@ test("admin page never auto-runs PREVIEW or APPLY and vercel keeps both gates cl
   assert.match(client, /onClick=\{\(\) => void runPreview\(\)\}/);
   assert.match(client, /onClick=\{\(\) => void applySchema\(\)\}/);
   assert.match(client, /disabled=\{!canApply \|\| applying\}/);
+  assert.match(client, /Token 摘要/);
+  assert.match(client, /preview\.previewTokenDigest\.slice\(0, 16\)/);
+  assert.match(client, /previewToken:\s*preview\.previewToken/,
+    "the complete token must remain available only for the in-memory APPLY request");
+  assert.match(client, /runPreview\(preview\.previewToken\)/,
+    "same-window replay must compare the complete token only in memory");
+  assert.doesNotMatch(client, /<dd[^>]*>\{preview\.previewToken\}<\/dd>|encodeURIComponent\([^)]*previewToken|localStorage|sessionStorage|console\./);
   assert.doesNotMatch(client, /useEffect|setInterval/);
+  const previewRoute = readFileSync(new URL("../app/api/admin/v04-migration/preview/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(previewRoute, /searchParams|get\(["']previewToken["']\)/,
+    "the runtime token must never be accepted through a URL");
   assert.doesNotMatch(vercel, /V04_MIGRATION_PREVIEW_ENABLED|V04_SCHEMA_APPLY_ENABLED|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED/);
 });

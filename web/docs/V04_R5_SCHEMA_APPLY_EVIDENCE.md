@@ -10,6 +10,7 @@
 - 受控 APPLY：POST-only、默认关闭、stable actor、同源、显式确认、外部恢复点引用、目标 SHA、token、幂等键、事务 advisory lock、控制平面账本、savepoint、写后复核和失败留账。
 - 管理员安全配置：只把本次唯一 ACTIVE actor 写为唯一 `SYSTEM_ADMIN`；不猜上传者、不批量授予、不放宽 RLS。
 - 安装内容只含 additive schema、DRAFT 合同和上述安全配置；没有业务回填、合同激活、V0.4 正式入口切换或生产连接。
+- 门 T 定向安全收口：完整 PREVIEW token 仅存在于同源页面 React state 和 APPLY POST 请求体的运行时内存中；页面只显示 `sha256:` 截断摘要。PREVIEW 重放不再把 token 放入 URL；STALE 错误、console、Web Storage、`schema_migration_operations` 与 `result_json` 均只保留不可逆摘要，写后 PREVIEW 证据也会先移除完整 token。
 
 ## 2. TEST_ONLY PostgreSQL 结果
 
@@ -25,6 +26,7 @@
 - source、target、non-target 三类语义 hash 写前写后完全一致；
 - 同幂等键重放返回原 operation，不创建第二套 schema／账本；
 - `AFTER_SCHEMA` 失败注入回滚目标 DDL，只保留脱敏 FAILED 账本；
+- APPLY 请求仍以完整 token 做事实绑定，但 TEST_ONLY 已逐行证明操作账本、`result_json`、错误和输出结果都不含完整 token，只保存 SHA-256 摘要；
 - 超时 APPLYING 在精确 `CONTROL_LEDGER_ONLY_EXACT` 状态安全标记 FAILED；
 - 任意 partial drift 返回 `DRIFT_OR_PARTIAL`、`ready=false`；
 - `public` catalog／业务指纹不变。

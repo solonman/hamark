@@ -48,13 +48,12 @@ export default function V04SchemaAdminClient(props: {
     && backupVerifiedAt,
   ), [props.applyEnabled, preview, confirmation, approvalReference, backupReference, backupVerifiedAt]);
 
-  async function runPreview(token?: string) {
+  async function runPreview(expectedToken?: string) {
     setLoading(true);
     setError("");
     setResult("");
     try {
-      const suffix = token ? `?previewToken=${encodeURIComponent(token)}` : "";
-      const response = await fetch(`/api/admin/v04-migration/preview${suffix}`, {
+      const response = await fetch("/api/admin/v04-migration/preview", {
         method: "GET",
         cache: "no-store",
         headers: { Accept: "application/json" },
@@ -62,6 +61,9 @@ export default function V04SchemaAdminClient(props: {
       const data = await readJson(response);
       if (!response.ok || !data.preview) {
         throw new Error(data.error?.message || `PREVIEW 未完成（HTTP ${response.status}）。`);
+      }
+      if (expectedToken && data.preview.previewToken !== expectedToken) {
+        throw new Error("PREVIEW 事实已经变化，请核对新结果后再继续。");
       }
       setPreview(data.preview);
     } catch (reason) {
@@ -156,7 +158,7 @@ export default function V04SchemaAdminClient(props: {
               <div><dt>source hash</dt><dd title={preview.sourceHash}>{shortHash(preview.sourceHash)}</dd></div>
               <div><dt>target hash</dt><dd title={preview.targetHash}>{shortHash(preview.targetHash)}</dd></div>
               <div><dt>non-target hash</dt><dd title={preview.nonTargetHash}>{shortHash(preview.nonTargetHash)}</dd></div>
-              <div><dt>token</dt><dd className={styles.wrap}>{preview.previewToken}</dd></div>
+              <div><dt>Token 摘要</dt><dd className={styles.wrap}>sha256:{preview.previewTokenDigest.slice(0, 16)}</dd></div>
               <div><dt>有效期</dt><dd>{preview.generatedAt} → {preview.expiresAt}</dd></div>
             </dl>
             <button type="button" className={styles.secondaryButton} onClick={() => void runPreview(preview.previewToken)} disabled={loading || applying}>
