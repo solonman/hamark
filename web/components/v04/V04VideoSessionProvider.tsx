@@ -1,15 +1,18 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { V04UiDraft } from "@/lib/v04-ui-model";
 
 type VideoState = { caseId: string; currentTime: number; minimized: boolean; floating: boolean };
+type WorkspaceSession = { tabToken: string; leaseProof: { tabToken: string; leaseToken: string; leaseVersion: number } | null };
 
 type SessionValue = {
   drafts: Record<string, V04UiDraft>;
   setDraft: (caseId: string, draft: V04UiDraft) => void;
   video: VideoState;
   updateVideo: (next: Partial<VideoState>) => void;
+  getWorkspaceSession: (caseId: string) => WorkspaceSession;
+  setWorkspaceLeaseProof: (caseId: string, proof: WorkspaceSession["leaseProof"]) => void;
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -17,11 +20,23 @@ const SessionContext = createContext<SessionValue | null>(null);
 export function V04VideoSessionProvider({ children }: { children: React.ReactNode }) {
   const [drafts, setDrafts] = useState<Record<string, V04UiDraft>>({});
   const [video, setVideo] = useState<VideoState>({ caseId: "", currentTime: 0, minimized: false, floating: false });
+  const workspaceSessions = useRef(new Map<string, WorkspaceSession>());
   const setDraft = useCallback((caseId: string, draft: V04UiDraft) => {
     setDrafts((current) => ({ ...current, [caseId]: structuredClone(draft) }));
   }, []);
   const updateVideo = useCallback((next: Partial<VideoState>) => setVideo((current) => ({ ...current, ...next })), []);
-  const value = useMemo(() => ({ drafts, setDraft, video, updateVideo }), [drafts, setDraft, video, updateVideo]);
+  const getWorkspaceSession = useCallback((caseId: string) => {
+    const existing = workspaceSessions.current.get(caseId);
+    if (existing) return existing;
+    const created = { tabToken: `v04-workspace-${crypto.randomUUID()}`, leaseProof: null };
+    workspaceSessions.current.set(caseId, created);
+    return created;
+  }, []);
+  const setWorkspaceLeaseProof = useCallback((caseId: string, proof: WorkspaceSession["leaseProof"]) => {
+    const current = getWorkspaceSession(caseId);
+    workspaceSessions.current.set(caseId, { ...current, leaseProof: proof });
+  }, [getWorkspaceSession]);
+  const value = useMemo(() => ({ drafts, setDraft, video, updateVideo, getWorkspaceSession, setWorkspaceLeaseProof }), [drafts, setDraft, video, updateVideo, getWorkspaceSession, setWorkspaceLeaseProof]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

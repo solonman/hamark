@@ -445,13 +445,18 @@ export const V04_SCHEMA_STATEMENTS = [
     IF workspace_annotation_id IS NULL THEN
       RAISE EXCEPTION 'collaboration object requires an existing workspace';
     END IF;
-    IF TG_TABLE_NAME IN ('collaboration_baselines', 'collaboration_rounds',
-      'annotation_submission_snapshots', 'collaboration_revision_events') THEN
+    IF TG_TABLE_NAME = 'collaboration_baselines' THEN
       IF NEW.annotation_id <> workspace_annotation_id THEN
         RAISE EXCEPTION 'collaboration object annotation must match workspace canonical annotation';
       END IF;
-    END IF;
-    IF TG_TABLE_NAME = 'annotation_submission_snapshots' THEN
+    ELSIF TG_TABLE_NAME = 'collaboration_rounds' THEN
+      IF NEW.annotation_id <> workspace_annotation_id THEN
+        RAISE EXCEPTION 'collaboration object annotation must match workspace canonical annotation';
+      END IF;
+    ELSIF TG_TABLE_NAME = 'annotation_submission_snapshots' THEN
+      IF NEW.annotation_id <> workspace_annotation_id THEN
+        RAISE EXCEPTION 'collaboration object annotation must match workspace canonical annotation';
+      END IF;
       IF NEW.video_id <> workspace_video_id OR NEW.workflow_version <> workspace_workflow_version THEN
         RAISE EXCEPTION 'submission video and workflow must match workspace';
       END IF;
@@ -467,17 +472,30 @@ export const V04_SCHEMA_STATEMENTS = [
       ) THEN
         RAISE EXCEPTION 'submission source must be exact workspace working snapshot';
       END IF;
-    END IF;
-    IF TG_TABLE_NAME IN ('annotation_submission_snapshots', 'collaboration_revision_events',
-      'collaboration_edit_leases') THEN
       IF NOT EXISTS (
         SELECT 1 FROM collaboration_rounds r
         WHERE r.id = NEW.round_id AND r.workspace_id = NEW.workspace_id
       ) THEN
         RAISE EXCEPTION 'collaboration round must belong to workspace';
       END IF;
-    END IF;
-    IF TG_TABLE_NAME = 'expert_analysis_releases' THEN
+    ELSIF TG_TABLE_NAME = 'collaboration_revision_events' THEN
+      IF NEW.annotation_id <> workspace_annotation_id THEN
+        RAISE EXCEPTION 'collaboration object annotation must match workspace canonical annotation';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM collaboration_rounds r
+        WHERE r.id = NEW.round_id AND r.workspace_id = NEW.workspace_id
+      ) THEN
+        RAISE EXCEPTION 'collaboration round must belong to workspace';
+      END IF;
+    ELSIF TG_TABLE_NAME = 'collaboration_edit_leases' THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM collaboration_rounds r
+        WHERE r.id = NEW.round_id AND r.workspace_id = NEW.workspace_id
+      ) THEN
+        RAISE EXCEPTION 'collaboration round must belong to workspace';
+      END IF;
+    ELSIF TG_TABLE_NAME = 'expert_analysis_releases' THEN
       IF NOT EXISTS (
         SELECT 1 FROM annotation_submission_snapshots s
         WHERE s.id = NEW.submission_snapshot_id AND s.workspace_id = NEW.workspace_id

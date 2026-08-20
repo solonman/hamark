@@ -37,13 +37,23 @@ test("fixture UI carries three pages, four modules, 12 shot fields and approved 
   assert.equal(V04_UI_CASES[0].draft.shotGroups[0].shots[0].subtitleEffect.length > 0, true);
 });
 
-test("tracked shadow runtime is fixture-only and contains no production API or database access", async () => {
+test("tracked shadow runtime remains an adapter and does not create a second data truth", async () => {
   for (const relative of runtimeFiles) {
     const source = await readFile(new URL(`../${relative}`, import.meta.url), "utf8");
-    for (const forbidden of ["fetch(", "XMLHttpRequest", '"/api/', "DATABASE_URL", "getDbClient", "localStorage", "indexedDB"]) {
+    for (const forbidden of ["DATABASE_URL", "getDbClient", "localStorage", "indexedDB"]) {
       assert.ok(!source.includes(forbidden), `${relative} contains ${forbidden}`);
     }
   }
+  const [library, cardsRoute, readModels] = await Promise.all([
+    readFile(new URL("../components/v04/V04LibraryClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/videos/analysis/v04/cards/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/v04-read-models.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(library, /fetch\("\/api\/videos"/);
+  assert.match(library, /v04UiApi\.cards/);
+  assert.match(cardsRoute, /getAll\("videoId"\)/);
+  assert.match(readModels, /Projects V0\.4 state and capabilities onto video IDs/);
+  assert.match(readModels, /return \{ projections \}/);
 });
 
 test("detail and workspace preserve V1.9 structural interaction contracts", async () => {

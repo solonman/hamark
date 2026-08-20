@@ -77,6 +77,49 @@ export function v04ShotFieldTargetId(shotId: string, field: string) {
   return `shot-${shotId}-${field}`;
 }
 
+const V04_FACT_TARGET_IDS: Record<string, string> = {
+  commercialIntent: V04_WORKSPACE_TARGETS.commercialIntent,
+  storySynopsis: V04_WORKSPACE_TARGETS.storySummary,
+  creativeMotif: V04_WORKSPACE_TARGETS.creativeMotif,
+  tensionButton: V04_WORKSPACE_TARGETS.tensionButton,
+  mainMechanism: V04_WORKSPACE_TARGETS.primaryMechanism,
+  auxiliaryMechanism: "field-auxiliaryMechanism",
+  creativeThinkingChain: V04_WORKSPACE_TARGETS.creativeThinkingChain,
+  storyReference: V04_WORKSPACE_TARGETS.storyReference,
+  creativeCarriers: V04_WORKSPACE_TARGETS.carriers,
+  carrierExplanation: V04_WORKSPACE_TARGETS.carrierExplanation,
+  acceptanceContract: V04_WORKSPACE_TARGETS.creativeContract,
+  overallCreativeRating: V04_WORKSPACE_TARGETS.overallGrade,
+  ratingReason: V04_WORKSPACE_TARGETS.gradeReason,
+};
+
+export function v04StableTargetToDomId(targetKey: string, draft?: V04UiDraft) {
+  const shot = targetKey.match(/^shot:([^.]+)\.([a-zA-Z][a-zA-Z0-9]*)$/);
+  if (shot) return v04ShotFieldTargetId(shot[1], shot[2]);
+  const group = targetKey.match(/^shotGroup:([^.]+)\.(bridgeName|primaryCreativeRole|auxiliaryCreativeRole|keyCreativeDescription|shots)$/);
+  if (group) {
+    if (group[2] === "bridgeName") return v04GroupTitleTargetId(group[1]);
+    if (group[2] === "primaryCreativeRole") return v04GroupPrimaryRoleTargetId(group[1]);
+    if (group[2] === "keyCreativeDescription") return `field-${group[1]}-description`;
+    return `group-${group[1]}`;
+  }
+  const fact = targetKey.match(/^facts\.([a-zA-Z][a-zA-Z0-9]*)/);
+  if (fact) return V04_FACT_TARGET_IDS[fact[1]] ?? "module-2";
+  if (targetKey === "path.primaryType") return "module-3";
+  const detail = targetKey.match(/^path\.primaryDetails\.([a-zA-Z][a-zA-Z0-9]*)$/);
+  if (detail && draft) {
+    const keys = {
+      LOVE: ["emotionalBase", "accumulation", "gapPressure", "releaseMethod", "mainCarrier"],
+      FUN: ["originalExpectation", "deviation", "reveal", "reinterpretation", "mainCarrier"],
+      PERCEPTION: ["perceptionRule", "repetitionVariation", "audiovisualRelation", "payoff", "mainCarrier"],
+    }[draft.primaryPath];
+    const index = keys.indexOf(detail[1]);
+    if (index >= 0) return `field-path-${index}`;
+  }
+  if (targetKey.startsWith("path.auxiliary:")) return "module-3";
+  return "module-1";
+}
+
 export function listV04WorkspaceTargetIds(draft: V04UiDraft) {
   return new Set([
     "module-1", "module-2", "module-3", "module-4",

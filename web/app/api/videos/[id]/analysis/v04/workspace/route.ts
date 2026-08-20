@@ -5,10 +5,15 @@ import { saveV04Draft, type V04LeaseProof } from "@/lib/v04-workspace-service";
 import type { V04Change } from "@/lib/v04-contract";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  return v04Route(request, { mutation: false }, async () => {
+  const response = await v04Route(request, { mutation: false }, async (actor) => {
     const { id } = await context.params;
-    return Response.json(await loadV04WorkspaceReadModel(getDbClient(), id));
+    return Response.json(await loadV04WorkspaceReadModel(getDbClient(), id, {
+      actor,
+      tabToken: request.headers.get("x-v04-tab-token"),
+    }));
   });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {

@@ -1,14 +1,32 @@
 "use client";
 
-import { locateV04Target, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { V04UiDraft } from "@/lib/v04-ui-model";
+import { locateV04Target, v04StableTargetToDomId } from "@/lib/v04-ui-client-state";
+import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
 import styles from "./V04Surface.module.css";
 
-const tasks = [
-  { id: "comment-1", targetId: "module-1", module: "第一模块｜脚本反写", subject: "桥段01｜画面内容", excerpt: "雨夜，一辆车驶入安静的住宅区……" },
-  { id: "comment-2", targetId: V04_WORKSPACE_TARGETS.creativeMotif, module: "第二模块｜全片事实与核心判断", subject: "创意母题", excerpt: "欢迎回家" },
-];
+type CommentItem = {
+  id: string;
+  moduleLabel: string;
+  targetKey: string;
+  targetLabel: string;
+  originalExcerpt: string;
+  body: string;
+  authorName: string;
+  status: string;
+};
 
-export default function V04CommentDrawer({ open, onClose, readOnly = false }: { open: boolean; onClose: () => void; readOnly?: boolean }) {
+export default function V04CommentDrawer({ videoId, open, onClose, readOnly = false, draft }: { videoId: string; open: boolean; onClose: () => void; readOnly?: boolean; draft?: V04UiDraft }) {
+  const tabToken = useRef(`v04-comments-${crypto.randomUUID()}`);
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [body, setBody] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const reload = useCallback(() => v04UiApi.comments<{ comments: CommentItem[] }>(videoId, tabToken.current)
+    .then((value) => { setComments(value.comments); setError(""); })
+    .catch((reason: unknown) => setError(reason instanceof V04UiApiError ? reason.message : "批注暂时无法读取。")), [videoId]);
+  useEffect(() => { if (open) void reload(); }, [open, reload]);
   if (!open) return null;
-  return <aside className={styles.drawer} aria-label="全部批注任务"><header><h2>全部批注任务</h2><button onClick={onClose}>关闭</button></header>{tasks.map((task) => <article key={task.id}><b>{task.module}</b><strong>{task.subject}</strong><span>原文：{task.excerpt}</span><button type="button" onClick={() => { void locateV04Target(task.targetId); }}>定位科目</button>{!readOnly && <button type="button">添加批注（演示）</button>}</article>)}</aside>;
+  return <aside className={styles.drawer} aria-label="全部批注任务"><header><h2>全部批注任务</h2><button onClick={onClose}>关闭</button></header>{error && <p role="alert">{error}</p>}{comments.map((comment) => <article key={comment.id}><b>{comment.moduleLabel}</b><strong>{comment.targetLabel}</strong><span>原文：{comment.originalExcerpt || "（空）"}</span><p>{comment.body}</p><small>{comment.authorName} · {comment.status}</small><button type="button" onClick={() => { void locateV04Target(v04StableTargetToDomId(comment.targetKey, draft)); }}>定位科目</button>{!readOnly && comment.status !== "AUTHOR_MARKED_HANDLED" && <button type="button" onClick={() => { void v04UiApi.updateComment(videoId, comment.id, { status: "AUTHOR_MARKED_HANDLED" }, `comment-status-${crypto.randomUUID()}`).then(reload); }}>标记已处理</button>}</article>)}{!comments.length && !error && <p>尚无批注。</p>}{!readOnly && <section><label>给“创意母题”添加批注<textarea value={body} onChange={(event) => setBody(event.target.value)} /></label><button type="button" disabled={!body.trim() || saving} onClick={() => { setSaving(true); void v04UiApi.createComment(videoId, { targetKey: "facts.creativeMotif", targetLabel: "创意母题", body }, `comment-create-${crypto.randomUUID()}`).then(() => { setBody(""); return reload(); }).finally(() => setSaving(false)); }}>{saving ? "正在添加…" : "添加批注"}</button></section>}</aside>;
 }

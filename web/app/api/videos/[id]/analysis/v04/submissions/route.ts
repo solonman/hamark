@@ -4,11 +4,16 @@ import { loadV04HistoryReadModel } from "@/lib/v04-read-models";
 import { submitV04Draft, type V04LeaseProof } from "@/lib/v04-workspace-service";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  return v04Route(request, { mutation: false }, async () => {
+  const response = await v04Route(request, { mutation: false }, async (actor) => {
     const { id } = await context.params;
-    const history = await loadV04HistoryReadModel(getDbClient(), id);
+    const history = await loadV04HistoryReadModel(getDbClient(), id, {
+      actor,
+      tabToken: request.headers.get("x-v04-tab-token"),
+    });
     return Response.json({ submissions: history.events.filter((event) => event.eventType === "SUBMISSION") });
   });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {

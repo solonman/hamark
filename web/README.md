@@ -274,6 +274,24 @@ cleanup token 和 marker 精确清理，并比对 `public` catalog/业务指纹�
 完整证据与双门边界见
 [`docs/V04_STAGE1_BATCH1C_EVIDENCE.md`](docs/V04_STAGE1_BATCH1C_EVIDENCE.md)。
 
+### V0.4 V1.9 现有系统增量优化 R1 本机验证
+
+R1 在现有系统上补齐 V0.4 暗 API、读模型和 TEST_ONLY PostgreSQL 纵链。现有 `/api/videos`
+仍是唯一视频目录、标签和上传来源；V0.4 cards API 只按这些既有 video ID 投影工作状态、
+版本和查看者能力，不建立第二套片库。媒体继续使用既有 video ID、stream 路径和预签名能力，
+用户与权限继续使用现有稳定身份。生产 UI／API 开关仍默认关闭；普通 build、start、GET 和
+部署不会安装 schema、激活合同或创建 V0.4 业务数据。
+
+本批真实 PG 验证除 `verify:v04-schema`、`verify:v04-workflow`、`verify:v04-preview` 外，
+还在 `tests/v04-ui-workflow.test.ts` 中逐表验证通用关系 trigger。运行时必须继续使用显式的
+`NODE_ENV=test`、唯一 `V04_TEST_RUN_ID` 和 loopback／数据库名含 `test` 的
+`V04_TEST_DATABASE_URL`；测试事务或隔离 schema 会精确回滚／清理，不允许连接生产。
+
+R1 首次物化验收发现并修正了一项从未投产的 1A trigger 基线缺陷。修正只把通用触发器改为
+按 `TG_TABLE_NAME` 读取各表真实字段，不关闭触发器、不放宽关系或不可变约束；bootstrap DDL
+与版本化 migration 的最终 catalog 必须完全相同。完整 hash、catalog、浏览器和 PostgreSQL
+证据见 [`docs/V04_V19_PRODUCTION_INTEGRATION_EVIDENCE.md`](docs/V04_V19_PRODUCTION_INTEGRATION_EVIDENCE.md)。
+
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；
