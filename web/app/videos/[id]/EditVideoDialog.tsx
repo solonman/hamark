@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { readJsonResponse } from "@/lib/http-json";
 
 export type EditableVideoInfo = {
   title: string;
@@ -49,7 +50,10 @@ export default function EditVideoDialog({ videoId, video, onClose, onSaved }: Pr
         }),
       });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { video?: EditableVideoInfo; error?: string };
+      const data = await readJsonResponse<{ video?: EditableVideoInfo; error?: string }>(
+        response,
+        "保存作品信息",
+      );
       if (!response.ok || !data.video) {
         throw new Error(data.error || "作品信息保存失败，请重试。");
       }

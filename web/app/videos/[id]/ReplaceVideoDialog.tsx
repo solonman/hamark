@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
+import { readJsonResponse } from "@/lib/http-json";
 
 export type ReplacedVideoFile = {
   originalName: string;
@@ -76,12 +77,12 @@ async function replaceVideoFile(
     }),
   });
   if (redirectOnUnauthorized(startResponse)) return null;
-  const started = (await startResponse.json().catch(() => ({}))) as {
+  const started = await readJsonResponse<{
     assetId?: string;
     uploadUrl?: string;
     thumbnailUploadUrl?: string;
     error?: string;
-  };
+  }>(startResponse, "开始替换原视频");
   if (!startResponse.ok || !started.assetId || !started.uploadUrl || !started.thumbnailUploadUrl) {
     throw new Error(started.error || "原视频替换失败，请重试。");
   }
@@ -107,10 +108,10 @@ async function replaceVideoFile(
     }),
   });
   if (redirectOnUnauthorized(completeResponse)) return null;
-  const completed = (await completeResponse.json().catch(() => ({}))) as {
+  const completed = await readJsonResponse<{
     video?: ReplacedVideoFile;
     error?: string;
-  };
+  }>(completeResponse, "确认原视频替换完成");
   if (!completeResponse.ok || !completed.video) {
     throw new Error(completed.error || "原视频替换失败，请重试。");
   }

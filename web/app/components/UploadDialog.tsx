@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { readJsonResponse } from "@/lib/http-json";
 import { createThumbnailFromVideoFile } from "./video-thumbnail";
 
 type UploadDialogProps = {
@@ -83,12 +84,12 @@ export default function UploadDialog({
         }),
       });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as {
+      const data = await readJsonResponse<{
         videoId?: string;
         uploadUrl?: string;
         thumbnailUploadUrl?: string;
         error?: string;
-      };
+      }>(response, "创建视频条目");
       if (!response.ok || !data.videoId || !data.uploadUrl || !data.thumbnailUploadUrl) {
         throw new Error(data.error || "无法创建视频条目。");
       }
@@ -105,7 +106,10 @@ export default function UploadDialog({
         method: "POST",
       });
       if (redirectOnUnauthorized(completeResponse)) return;
-      const completeData = (await completeResponse.json()) as { error?: string };
+      const completeData = await readJsonResponse<{ error?: string }>(
+        completeResponse,
+        "确认视频上传完成",
+      );
       if (!completeResponse.ok) {
         throw new Error(completeData.error || "视频上传完成确认失败，请重试。");
       }

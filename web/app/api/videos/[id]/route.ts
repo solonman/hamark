@@ -3,7 +3,11 @@ import { isFinalReviewer } from "@/lib/admin";
 import { requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
 import { loadSharedV03ReadModel } from "@/lib/v03-collaboration";
 import { v04IdempotencyKey, v04Route } from "@/lib/v04-api";
-import { trashVideo } from "@/lib/v04-video-lifecycle";
+import {
+  trashVideoWithSchemaCompatibility,
+  videoUploaderMatches,
+} from "@/lib/legacy-video-schema-compat";
+import type { VideoUploaderIdentity } from "@/lib/legacy-video-schema-compat";
 
 type VideoDetailRow = {
   id: string;
@@ -78,7 +82,8 @@ export async function GET(
     .prepare(
       `SELECT v.id, v.title, v.brand, v.description, v.tags_json, v.object_key,
         to_jsonb(v)->>'thumbnail_key' AS thumbnail_key, v.original_name,
-        v.content_type, v.file_size, v.status, v.created_by_email, v.created_by_user_id,
+        v.content_type, v.file_size, v.status, v.created_by_email,
+        to_jsonb(v)->>'created_by_user_id' AS created_by_user_id,
         v.created_by_name, v.created_at
       FROM videos v
       WHERE v.id = ? AND v.deleted_at IS NULL`,
@@ -190,7 +195,10 @@ export async function GET(
     tags = [];
   }
 
-  const canManage = video.created_by_user_id === user.id;
+  const canManage = videoUploaderMatches(video, {
+    userId: user.id,
+    identityKey: user.identityKey,
+  });
   const shared = await loadSharedV03ReadModel(id);
   const currentSharedSnapshot = shared?.collaboration?.currentSnapshotId
     ? await db.prepare(
@@ -397,14 +405,16 @@ export async function PATCH(
   const db = getDbClient();
   const video = await db
     .prepare(
-      `SELECT id, created_by_user_id FROM videos WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT id, created_by_email,
+        to_jsonb(videos)->>'created_by_user_id' AS created_by_user_id
+      FROM videos WHERE id = ? AND deleted_at IS NULL`,
     )
     .bind(id)
-    .first<{ id: string; created_by_user_id: string | null }>();
+    .first<VideoUploaderIdentity & { id: string }>();
   if (!video) {
     return Response.json({ error: "视频不存在。" }, { status: 404 });
   }
-  if (video.created_by_user_id !== user.id) {
+  if (!videoUploaderMatches(video, { userId: user.id, identityKey: user.identityKey })) {
     return Response.json({ error: "只有原上传者可以编辑视频信息。" }, { status: 403 });
   }
 
@@ -415,9 +425,16 @@ export async function PATCH(
       `UPDATE videos
       SET title = ?, brand = ?, description = ?, tags_json = ?,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND created_by_user_id = ? AND deleted_at IS NULL`,
+      WHERE id = ? AND deleted_at IS NULL
+        AND (
+          (NULLIF(to_jsonb(videos)->>'created_by_user_id', '') IS NOT NULL
+            AND to_jsonb(videos)->>'created_by_user_id' = ?)
+          OR
+          (NULLIF(to_jsonb(videos)->>'created_by_user_id', '') IS NULL
+            AND created_by_email = ?)
+        )`,
     )
-    .bind(title, brand, description, JSON.stringify(tags), id, user.id)
+    .bind(title, brand, description, JSON.stringify(tags), id, user.id, user.identityKey)
     .run();
   if (updateResult.meta.rows_written !== 1) {
     return Response.json({ error: "视频状态已变化，请刷新后重试。" }, { status: 409 });
@@ -432,7 +449,7 @@ export async function DELETE(
 ) {
   return v04Route(request, { mutation: true, requireFeature: false }, async (actor) => {
     const { id } = await context.params;
-    const result = await trashVideo(getDbClient(), id, actor, {
+    const result = await trashVideoWithSchemaCompatibility(getDbClient(), id, actor, {
       reason: "用户移入回收站",
       idempotencyKey: v04IdempotencyKey(request, actor.requestId),
     });

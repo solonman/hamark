@@ -17,6 +17,7 @@
     "verify:v04-schema": "node --import tsx scripts/verify-v04-schema.ts",
     "verify:v04-workflow": "node --import tsx scripts/verify-v04-workflow.ts",
     "verify:v04-preview": "node --import tsx scripts/verify-v04-migration-preview.ts",
+    "verify:legacy-schema-compat": "node --import tsx scripts/verify-legacy-schema-compat.ts",
     "local:setup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/setup-local-demo.ts",
     "local:dev": "next dev",
     "verify:v03-local": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/verify-v03-local.ts",

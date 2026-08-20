@@ -86,8 +86,8 @@ test("default video deletion is stable-uploader soft trash and never deletes DB 
     readProjectFile("lib/v04-video-lifecycle.ts"),
   ]);
 
-  assert.match(route, /trashVideo\(/);
-  assert.match(lifecycle, /created_by_user_id !== actor\.userId/);
+  assert.match(route, /trashVideoWithSchemaCompatibility\(/);
+  assert.match(lifecycle, /video\.created_by_user_id\s*\?\s*video\.created_by_user_id === actor\.userId\s*:\s*video\.created_by_email === actor\.identityKey/s);
   assert.match(lifecycle, /restore_until = \?::timestamptz/);
   assert.match(lifecycle, /deletion_state = 'TRASHED'/);
   assert.match(lifecycle, /assetAction: "NONE"/);
@@ -96,11 +96,17 @@ test("default video deletion is stable-uploader soft trash and never deletes DB 
   assert.doesNotMatch(route, /DELETE FROM annotations/);
 });
 
-test("video management derives uploader permission from stable user id", async () => {
-  const source = await readProjectFile("app/api/videos/[id]/route.ts");
+test("video management prefers stable uploader id and safely falls back on pre-1A schemas", async () => {
+  const [source, compatibility] = await Promise.all([
+    readProjectFile("app/api/videos/[id]/route.ts"),
+    readProjectFile("lib/legacy-video-schema-compat.ts"),
+  ]);
 
-  assert.match(source, /const canManage = video\.created_by_user_id === user\.id/);
+  assert.match(source, /to_jsonb\(v\)->>'created_by_user_id' AS created_by_user_id/);
+  assert.match(source, /videoUploaderMatches\(video/);
   assert.match(source, /canTrash: canManage/);
+  assert.match(compatibility, /stableUploader\s*\?\s*stableUploader === actor\.userId\s*:\s*video\.created_by_email === actor\.identityKey/s);
+  assert.match(compatibility, /fullV04Lifecycle/);
 });
 
 test("video metadata updates require the original uploader and normalize tags", async () => {

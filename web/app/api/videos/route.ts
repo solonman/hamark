@@ -1,5 +1,9 @@
 import { getDbClient, getVideoBucket } from "@/db";
 import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import {
+  createVideoWithSchemaCompatibility,
+  loadLegacyVideoSchemaCapabilities,
+} from "@/lib/legacy-video-schema-compat";
 
 type VideoRow = {
   id: string;
@@ -119,46 +123,25 @@ export async function POST(request: Request) {
     bucket.createPresignedPutUrl(thumbnailKey, { contentType: "image/jpeg" }),
   ]);
 
-  await db.batch([
-    db
-      .prepare(
-        `INSERT INTO videos (
-          id, title, brand, description, tags_json, object_key, thumbnail_key,
-          original_name, content_type, file_size, status, rights_confirmed,
-          created_by_email, created_by_name, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPLOADING', 1, ?, ?, ?)`,
-      )
-      .bind(
-        id,
-        title,
-        body.brand?.trim() ?? "",
-        body.description?.trim() ?? "",
-        JSON.stringify(tags),
-        objectKey,
-        thumbnailKey,
-        originalName,
-        contentType,
-        Math.max(0, Number(body.fileSize) || 0),
-        user.identityKey,
-        user.displayName,
-        user.id,
-      ),
-    db
-      .prepare(
-        `INSERT INTO audit_logs (
-          id, actor_email, action, object_type, object_id, detail_json,
-          actor_user_id, request_id
-        ) VALUES (?, ?, 'VIDEO_CREATED', 'VIDEO', ?, ?, ?, ?)`,
-      )
-      .bind(
-        newId("audit"),
-        user.identityKey,
-        id,
-        JSON.stringify({ title, originalName }),
-        user.id,
-        request.headers.get("x-request-id")?.trim() || newId("request"),
-      ),
-  ]);
+  const capabilities = await loadLegacyVideoSchemaCapabilities(db);
+  await createVideoWithSchemaCompatibility(db, capabilities, {
+    id,
+    title,
+    brand: body.brand?.trim() ?? "",
+    description: body.description?.trim() ?? "",
+    tagsJson: JSON.stringify(tags),
+    objectKey,
+    thumbnailKey,
+    originalName,
+    contentType,
+    fileSize: Math.max(0, Number(body.fileSize) || 0),
+    actor: {
+      userId: user.id,
+      identityKey: user.identityKey,
+      displayName: user.displayName,
+    },
+    requestId: request.headers.get("x-request-id")?.trim() || newId("request"),
+  });
 
   return Response.json(
     { videoId: id, uploadUrl, thumbnailUploadUrl },

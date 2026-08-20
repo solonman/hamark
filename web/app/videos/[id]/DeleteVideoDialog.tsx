@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { readJsonResponse } from "@/lib/http-json";
 
 type Props = {
   videoId: string;
@@ -27,7 +28,10 @@ export default function DeleteVideoDialog({ videoId, onClose, onDeleted }: Props
     try {
       const response = await fetch(`/api/videos/${videoId}`, { method: "DELETE" });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { error?: string | { message?: string } };
+      const data = await readJsonResponse<{ error?: string | { message?: string } }>(
+        response,
+        "移入回收站",
+      );
       const message = typeof data.error === "string" ? data.error : data.error?.message;
       if (!response.ok) throw new Error(message || "移入回收站失败，请重试。");
       onDeleted();

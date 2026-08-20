@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import DraggableVideoPlayer from "@/app/components/DraggableVideoPlayer";
 import { formatLongDate } from "@/lib/date-format";
+import { readJsonResponse } from "@/lib/http-json";
 import type {
   ApprovedAnalysisRelease,
   SubmittedAnalysis,
@@ -86,7 +87,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     fetch(`/api/videos/${videoId}`, { cache: "no-store" })
       .then(async (response) => {
         if (redirectOnUnauthorized(response)) return;
-        const data = (await response.json()) as {
+        const data = await readJsonResponse<{
           video?: VideoItem;
           analyses?: SubmittedAnalysis[];
           approvedStandards?: ApprovedAnalysisRelease[];
@@ -101,7 +102,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           canManage?: boolean;
           canTrash?: boolean;
           error?: string;
-        };
+        }>(response, "作品读取");
         if (!response.ok) throw new Error(data.error || "作品读取失败");
         if (active) {
           setVideo(data.video ?? null);
@@ -178,10 +179,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         cache: "no-store",
       });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as {
+      const data = await readJsonResponse<{
         analysis?: SubmittedAnalysis;
         error?: string;
-      };
+      }>(response, "作业版本读取");
       if (!response.ok || !data.analysis) {
         throw new Error(data.error || "作业版本读取失败");
       }
@@ -206,7 +207,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     try {
       const response = await fetch(`/api/approved-standards/${releaseId}`, { cache: "no-store" });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { release?: ApprovedAnalysisRelease; error?: string };
+      const data = await readJsonResponse<{ release?: ApprovedAnalysisRelease; error?: string }>(
+        response,
+        "历史标准版读取",
+      );
       if (!response.ok || !data.release?.payload) {
         throw new Error(data.error || "历史标准版读取失败");
       }
@@ -225,7 +229,10 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     try {
       const response = await fetch(`/api/analyses/${snapshotId}`, { cache: "no-store" });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { analysis?: SubmittedAnalysis; error?: string };
+      const data = await readJsonResponse<{ analysis?: SubmittedAnalysis; error?: string }>(
+        response,
+        "来源作业读取",
+      );
       if (!response.ok || !data.analysis) throw new Error(data.error || "来源作业读取失败");
       setSourceAnalyses((current) => ({ ...current, [snapshotId]: data.analysis! }));
     } catch (reason) {
@@ -249,7 +256,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         }),
       });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { error?: string };
+      const data = await readJsonResponse<{ error?: string }>(response, "创建标准恢复轮");
       if (!response.ok) throw new Error(data.error || "恢复轮创建失败");
       window.location.reload();
     } catch (reason) {
@@ -266,7 +273,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
     try {
       const response = await fetch(`/api/v03-baselines/${collaboration.initialBaselineId}`, { cache: "no-store" });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as {
+      const data = await readJsonResponse<{
         baseline?: {
           id: string;
           payload: SubmittedAnalysis["payload"];
@@ -275,7 +282,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
           createdAt: string;
         };
         error?: string;
-      };
+      }>(response, "初始基线读取");
       if (!response.ok || !data.baseline) throw new Error(data.error || "初始基线读取失败");
       setInitialBaseline({
         id: data.baseline.id,
@@ -311,7 +318,7 @@ export default function VideoDetailClient({ videoId }: { videoId: string }) {
         }),
       });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as { error?: string };
+      const data = await readJsonResponse<{ error?: string }>(response, "创建初始基线恢复轮");
       if (!response.ok) throw new Error(data.error || "初始基线恢复失败");
       window.location.reload();
     } catch (reason) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatShortDate } from "@/lib/date-format";
+import { readJsonResponse } from "@/lib/http-json";
 import type { ScoreRankingItem } from "@/lib/score-ranking";
 import type { VideoItem } from "@/lib/types";
 import ScoreRankingDialog from "./ScoreRankingDialog";
@@ -46,10 +47,10 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
           }
           return;
         }
-        const data = (await response.json()) as {
+        const data = await readJsonResponse<{
           videos?: VideoItem[];
           error?: string;
-        };
+        }>(response, "片库读取");
         if (!response.ok) throw new Error(data.error || "片库读取失败");
         if (active) {
           setVideos(data.videos ?? []);
@@ -107,7 +108,10 @@ export default function HomeClient({ user, isAdmin }: { user: UserMenuUser; isAd
         `/api/admin/video-score-ranking?${new URLSearchParams({ startDate: rankingStartDate, endDate: rankingEndDate })}`,
         { cache: "no-store" },
       );
-      const data = (await response.json()) as { items?: ScoreRankingItem[]; error?: string };
+      const data = await readJsonResponse<{ items?: ScoreRankingItem[]; error?: string }>(
+        response,
+        "评分排行读取",
+      );
       if (!response.ok) throw new Error(data.error || "评分排行读取失败");
       if (rankingRequestId.current === requestId) {
         setRankingItems(data.items ?? []);

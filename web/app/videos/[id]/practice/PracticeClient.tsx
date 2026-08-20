@@ -14,6 +14,7 @@ import {
   type SaveResponseBody,
 } from "@/lib/annotation-sync";
 import { validateAnnotation } from "@/lib/annotation-validation";
+import { readJsonResponse } from "@/lib/http-json";
 import { emptyCreativeStructure } from "@/lib/taxonomy-v0.3";
 import type {
   AnnotationDraft,
@@ -241,7 +242,7 @@ export default function PracticeClient({
     })
       .then(async (response) => {
         if (redirectOnUnauthorized(response)) return;
-        const data = (await response.json()) as AnnotationResponse;
+        const data = await readJsonResponse<AnnotationResponse>(response, "公共工作稿读取");
         if (!response.ok || !data.video || !data.annotation) {
           throw new Error(data.error || "作业读取失败");
         }
@@ -315,10 +316,10 @@ export default function PracticeClient({
         signal: abort.signal,
       });
       if (redirectOnUnauthorized(response)) return null;
-      const data = (await response.json().catch(() => ({}))) as SaveResponseBody & {
+      const data = await readJsonResponse<SaveResponseBody & {
         annotationId?: string;
         collaboration?: AnnotationResponse["collaboration"];
-      };
+      }>(response, "公共工作稿保存");
       const outcome = interpretSaveResponse(
         response.status,
         data,
@@ -531,11 +532,11 @@ export default function PracticeClient({
         method: "POST",
       });
       if (redirectOnUnauthorized(response)) return;
-      const data = (await response.json()) as {
+      const data = await readJsonResponse<{
         error?: string;
         missing?: string[];
         versionNumber?: number;
-      };
+      }>(response, "公共工作稿提交");
       if (!response.ok) {
         setMissing(data.missing ?? []);
         throw new Error(data.error || "提交失败");

@@ -35,6 +35,7 @@ async function audit(
 type VideoLifecycleRow = QueryResultRow & {
   id: string;
   created_by_user_id: string | null;
+  created_by_email: string;
   deleted_at: string | null;
   deletion_state: string | null;
   restore_until: string | null;
@@ -58,12 +59,15 @@ export async function trashVideo(
   }
   return db.withTransaction(async (transaction) => {
     const video = await transaction.prepare(
-      `SELECT id, created_by_user_id, deleted_at, deletion_state, restore_until
+      `SELECT id, created_by_user_id, created_by_email, deleted_at, deletion_state, restore_until
       FROM videos WHERE id = ? FOR UPDATE`,
     ).bind(videoId).first<VideoLifecycleRow>();
     if (!video) throw new V04ServiceError("CASE_NOT_FOUND", "案例不存在。");
     const admin = await isSystemAdmin(transaction, actor.userId);
-    if (video.created_by_user_id !== actor.userId && !admin) {
+    const isUploader = video.created_by_user_id
+      ? video.created_by_user_id === actor.userId
+      : video.created_by_email === actor.identityKey;
+    if (!isUploader && !admin) {
       throw new V04ServiceError("FORBIDDEN", "仅稳定上传者或系统管理员可将案例移入回收站。");
     }
     const replay = await transaction.prepare(
@@ -116,12 +120,15 @@ export async function restoreVideo(
   }
   return db.withTransaction(async (transaction) => {
     const video = await transaction.prepare(
-      `SELECT id, created_by_user_id, deleted_at, deletion_state, restore_until
+      `SELECT id, created_by_user_id, created_by_email, deleted_at, deletion_state, restore_until
       FROM videos WHERE id = ? FOR UPDATE`,
     ).bind(videoId).first<VideoLifecycleRow>();
     if (!video) throw new V04ServiceError("CASE_NOT_FOUND", "案例不存在。");
     const admin = await isSystemAdmin(transaction, actor.userId);
-    if (video.created_by_user_id !== actor.userId && !admin) {
+    const isUploader = video.created_by_user_id
+      ? video.created_by_user_id === actor.userId
+      : video.created_by_email === actor.identityKey;
+    if (!isUploader && !admin) {
       throw new V04ServiceError("FORBIDDEN", "仅稳定上传者或系统管理员可恢复案例。");
     }
     const replay = await transaction.prepare(
