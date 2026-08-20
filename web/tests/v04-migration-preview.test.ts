@@ -254,14 +254,13 @@ test("preview route is default closed, read-only, stable-admin protected and exp
   }
 });
 
-test("Gate B deployment enables only the read-only V0.4 PREVIEW switch", () => {
+test("Gate B closure removes the temporary V0.4 PREVIEW deployment switch", () => {
   const vercel = JSON.parse(
     readFileSync(new URL("../vercel.json", import.meta.url), "utf8"),
   ) as { env?: Record<string, string> };
-  assert.deepEqual(vercel.env, {
-    V04_MIGRATION_PREVIEW_ENABLED: "true",
-  });
+  assert.equal(vercel.env?.V04_MIGRATION_PREVIEW_ENABLED, undefined);
   for (const forbidden of [
+    "PREVIEW",
     "APPLY",
     "ACTIVATE",
     "WORKFLOW_API_ENABLED",
