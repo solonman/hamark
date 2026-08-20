@@ -147,3 +147,26 @@ P2 首次真实浏览器物化暴露 1A 未投产 DDL 的通用触发器缺陷�
 ### 8.5 R1 停止点
 
 R1 只形成共享底座代码：`V04_UI_SHADOW_ENABLED` 与 `V04_WORKFLOW_API_ENABLED` 均保持默认关闭；不执行生产 schema APPLY、合同激活、历史回填、生产写入或正式入口切换。R1 与后续 R2 分开提交；R2 才会把已验收共享组件以受控分支接入现有 `/videos/[id]/practice`。自动门禁为 `npm test` 263 项（258 通过、5 项显式 opt-in 跳过）、lint、production build 和 `git diff --check` 全部通过；TEST_ONLY PostgreSQL 的 1A schema、1B workflow、1C PREVIEW 与逐表 trigger 矩阵全部通过。当前状态：**R1 工程完成，待统筹／产品复验**。
+
+## 9. R2｜现有工作页受控接入
+
+### 9.1 路由与复用边界
+
+- 现有 `/videos/[id]/practice` 仍是唯一正式工作路由；只有显式 `taxonomy=V0.4` 且服务端 `V04_WORKFLOW_UI_ENABLED=true` 时，才渲染共享的 `V04WorkspaceClient` 与 `V04VideoSessionProvider`。
+- 页面继续先调用现有 `requirePageUser`，并把同一个 video ID 传给 V0.4 组件；没有新增登录、用户、视频、上传、媒体或正式 workspace 路由。
+- 无 taxonomy 和未知 taxonomy 均继续落到 `V0.3-PILOT`；显式 `V0.2` 保持原行为。既有 `PracticeClient.tsx` SHA-256 保持 `80689400bd930b8f6bd0dfc565a01b7a238cc60dcb973f138060a8ca3ee053d7`。
+- V0.4 工作稿页头返回现有案例库和作品详情；`/v04-shadow` 继续保留为验收／恢复外壳，不再扩大业务职责。
+- `V04_WORKFLOW_UI_ENABLED` 与 `V04_WORKFLOW_API_ENABLED` 都没有写入部署配置；生产默认关闭，暗代码部署不会开放 V0.4 模式。
+
+### 9.2 R2 验收停止点
+
+本机仅在 TEST_ONLY 数据库和本地显式开关下验证 `taxonomy=V0.4` 的四模块、逐镜 12 字段、保存／提交／历史／租约与桌面／窄屏路径。不开生产 schema、不激活合同、不写生产案例、不改变默认 taxonomy。完成后状态只能是：**待 R1／R2 产品真实路径复验**。
+
+### 9.3 本机现有路由证据
+
+- 在本机 TEST_ONLY 数据库、`V04_WORKFLOW_UI_ENABLED=true` 与 `V04_WORKFLOW_API_ENABLED=true` 下，打开 `/videos/test_v04_video/practice?taxonomy=V0.4`，页面直接呈现四模块；新增首个桥段后出现一镜 12 个独立输入，保存成功，工作状态由“尚未开始”变为“尚未完成”。
+- 页头实际链接为现有 `/`、`/videos/test_v04_video` 与同一路由的 `?taxonomy=V0.4`；页面逻辑播放器实例为 1，没有进入 `/v04-shadow`。
+- 同一登录用户在第二个标签页打开相同 URL 时，新的 tab token 被现有租约隔离；页面显示“只读旁观”，编辑 fieldset 的可写控件为 0，原标签页仍保留编辑权。
+- 关闭两个 V0.4 本地开关后，显式 `taxonomy=V0.4` 返回真实 404；无 taxonomy 的同一 URL 继续呈现 `体系 V0.3-PILOT`，没有 V0.4 页面标记。
+- 共享 V1.9 组件的 P1 390×844 实测结果（页面无横向溢出、四模块、逐镜 12 项、单视频）未因 R2 改变：本批没有修改 CSS、逐镜编辑器或响应式结构，只增加现有 practice 的服务端选择分支与可配置页头链接。当前 in-app 验收视口为 1910×1075；390px 物理复验沿用已冻结的同组件 P1 证据，待产品真实路径复验再次确认。
+- 浏览器 error／warn 为 0。完整自动门禁为 `npm test` 266 项（261 通过、5 项显式 opt-in 跳过）、lint、production build 与 `git diff --check` 全部通过。

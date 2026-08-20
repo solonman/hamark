@@ -23,6 +23,13 @@ type SaveState = "saved" | "dirty" | "saving" | "failed";
 type LeaseProof = { tabToken: string; leaseToken: string; leaseVersion: number };
 type LeaseResult = { leaseId: string; leaseToken: string; leaseVersion: number; expiresAt: string; reused: boolean };
 type SaveResult = { revision: number; contentHash: string; savedAt?: string; workflowState?: V04ServerWorkspaceModel["state"]; rebased?: boolean };
+type V04WorkspaceNavigation = {
+  libraryHref: string;
+  detailHref: string;
+  workspaceHref: string;
+  detailLabel?: string;
+  workspaceLabel?: string;
+};
 const pathLabels = Object.fromEntries(V04_UI_PATHS.map((item) => [item.id, item.label]));
 
 function Field({ id, label, value, disabled, tall = false, required = true, onChange }: { id: string; label: string; value: string; disabled: boolean; tall?: boolean; required?: boolean; onChange: (value: string) => void }) {
@@ -30,7 +37,22 @@ function Field({ id, label, value, disabled, tall = false, required = true, onCh
   return <label className={styles.formField} id={id} htmlFor={controlId}><span>{label}{required && <em>发布必填</em>}</span>{tall ? <textarea id={controlId} data-v04-primary-focus value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /> : <input id={controlId} data-v04-primary-focus value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />}</label>;
 }
 
-export default function V04WorkspaceClient({ videoId, viewerName, viewerUserId }: { videoId: string; viewerName: string; viewerUserId: string }) {
+export default function V04WorkspaceClient({
+  videoId,
+  viewerName,
+  viewerUserId,
+  navigation,
+}: {
+  videoId: string;
+  viewerName: string;
+  viewerUserId: string;
+  navigation?: V04WorkspaceNavigation;
+}) {
+  const links = navigation ?? {
+    libraryHref: "/v04-shadow",
+    detailHref: `/v04-shadow/videos/${videoId}`,
+    workspaceHref: `/v04-shadow/videos/${videoId}/workspace`,
+  };
   const { getWorkspaceSession, setWorkspaceLeaseProof } = useV04VideoSession();
   const [workspaceSession] = useState(() => getWorkspaceSession(videoId));
   const tabToken = useRef(workspaceSession.tabToken);
@@ -246,11 +268,11 @@ export default function V04WorkspaceClient({ videoId, viewerName, viewerUserId }
     }
   };
 
-  if (loadError) return <main className={styles.surface} data-v04-page="workspace"><section className={styles.emptyState}><h2>公共工作稿读取失败</h2><p>{loadError}</p><Link href="/v04-shadow">返回案例库</Link></section></main>;
+  if (loadError) return <main className={styles.surface} data-v04-page="workspace"><section className={styles.emptyState}><h2>公共工作稿读取失败</h2><p>{loadError}</p><Link href={links.libraryHref}>返回案例库</Link></section></main>;
   if (!item || !model) return <main className={styles.surface} data-v04-page="workspace"><section className={styles.emptyState}><h2>正在读取公共工作稿…</h2></section></main>;
 
   return <main className={styles.surface} data-v04-page="workspace">
-    <header className={styles.productHeader} data-v04-fixed-header><Link href="/v04-shadow" className={styles.wordmark}>← 案例库</Link><nav><Link href={`/v04-shadow/videos/${item.id}`}>只读成果</Link><Link href={`/v04-shadow/videos/${item.id}/workspace`}>编辑工作稿</Link><button onClick={() => setHistory(true)}>历史</button></nav><div className={styles.saveCluster}><span>{saveLabel}</span><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || saveState === "saving"}>保存</button></div></header>
+    <header className={styles.productHeader} data-v04-fixed-header><Link href={links.libraryHref} className={styles.wordmark}>← 案例库</Link><nav><Link href={links.detailHref}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref}>{links.workspaceLabel ?? "编辑工作稿"}</Link><button onClick={() => setHistory(true)}>历史</button></nav><div className={styles.saveCluster}><span>{saveLabel}</span><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || saveState === "saving"}>保存</button></div></header>
     <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{canEdit ? `${viewerName} 正在编辑公共工作稿` : `只读旁观 · ${item.activeEditor ?? "其他编辑端"} 正在编辑`}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {actionError && <section className={styles.emptyState} role="alert"><p>{actionError}</p></section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>

@@ -292,6 +292,12 @@ R1 首次物化验收发现并修正了一项从未投产的 1A trigger 基线�
 与版本化 migration 的最终 catalog 必须完全相同。完整 hash、catalog、浏览器和 PostgreSQL
 证据见 [`docs/V04_V19_PRODUCTION_INTEGRATION_EVIDENCE.md`](docs/V04_V19_PRODUCTION_INTEGRATION_EVIDENCE.md)。
 
+R2 只在现有 `/videos/[id]/practice` 增加显式 `taxonomy=V0.4` 分支，并继续使用现有登录用户和
+同一个 video ID。该分支同时要求服务端 `V04_WORKFLOW_UI_ENABLED=true`；未配置时返回 404。
+无 taxonomy、`V0.2` 和 `V0.3-PILOT` 仍原样渲染既有 `PracticeClient`，生产默认继续是
+`V0.3-PILOT`。V0.4 API 仍由独立 `V04_WORKFLOW_API_ENABLED` 门控制；两个门均不写入
+`vercel.json`，因此提交和部署暗代码不会自动开放入口或访问未安装的生产 schema。
+
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；
