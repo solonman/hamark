@@ -150,3 +150,36 @@ test("preview route is default closed, read-only, stable-admin protected and exp
     assert.match(service, new RegExp(`\\b${key}\\b`));
   }
 });
+
+test("Gate B deployment enables only the read-only V0.4 PREVIEW switch", () => {
+  const vercel = JSON.parse(
+    readFileSync(new URL("../vercel.json", import.meta.url), "utf8"),
+  ) as { env?: Record<string, string> };
+  assert.deepEqual(vercel.env, {
+    V04_MIGRATION_PREVIEW_ENABLED: "true",
+  });
+  for (const forbidden of [
+    "APPLY",
+    "ACTIVATE",
+    "WORKFLOW_API_ENABLED",
+    "MATERIALIZE",
+  ]) {
+    assert.equal(
+      Object.keys(vercel.env ?? {}).some((key) => key.includes(forbidden)),
+      false,
+    );
+  }
+
+  const route = readFileSync(
+    new URL("../app/api/admin/v04-migration/preview/route.ts", import.meta.url),
+    "utf8",
+  );
+  const service = readFileSync(
+    new URL("../lib/v04-migration-preview.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /export async function GET/);
+  assert.match(route, /isV04PreviewSameOrigin/);
+  assert.match(service, /role_key='SYSTEM_ADMIN'/);
+  assert.doesNotMatch(route, /export async function POST|schema_migration_operations|CONTRACT_ACTIVATE/);
+});

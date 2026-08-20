@@ -268,6 +268,8 @@ cleanup token 和 marker 精确清理，并比对 `public` catalog/业务指纹�
 
 部署后的只读路由为 `/api/admin/v04-migration/preview`，默认关闭，只有服务端显式设置
 `V04_MIGRATION_PREVIEW_ENABLED=true` 才响应；它没有 POST 或 APPLY 路径，不写 preview 账本。
+门 B 核验期间由版本化 `vercel.json` 短期开启这一项非敏感布尔开关；配置不包含数据库
+凭据，也不启用 schema APPLY、业务 APPLY、合同激活或 V0.4 正式入口，核验结束后应精确撤销。
 本机验证只属于 1C “门 A”证据，不代表生产只读 PREVIEW、1C 通过或合同激活。
 完整证据与双门边界见
 [`docs/V04_STAGE1_BATCH1C_EVIDENCE.md`](docs/V04_STAGE1_BATCH1C_EVIDENCE.md)。
