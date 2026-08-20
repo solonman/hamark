@@ -160,13 +160,22 @@ R1 只形成共享底座代码：`V04_UI_SHADOW_ENABLED` 与 `V04_WORKFLOW_API_E
 
 ### 9.2 R2 验收停止点
 
-本机仅在 TEST_ONLY 数据库和本地显式开关下验证 `taxonomy=V0.4` 的四模块、逐镜 12 字段、保存／提交／历史／租约与桌面／窄屏路径。不开生产 schema、不激活合同、不写生产案例、不改变默认 taxonomy。完成后状态只能是：**待 R1／R2 产品真实路径复验**。
+本机仅在 TEST_ONLY 数据库和本地显式开关下验证 `taxonomy=V0.4` 的四模块、逐镜 12 字段、保存／提交／历史／租约与桌面／窄屏路径。不开生产 schema、不激活合同、不写生产案例、不改变默认 taxonomy。R1 已获产品 A；R2-ISSUE-001 定向修正后，当前停止状态为：**待 R2 定向产品真实路径复验**。
 
 ### 9.3 本机现有路由证据
 
 - 在本机 TEST_ONLY 数据库、`V04_WORKFLOW_UI_ENABLED=true` 与 `V04_WORKFLOW_API_ENABLED=true` 下，打开 `/videos/test_v04_video/practice?taxonomy=V0.4`，页面直接呈现四模块；新增首个桥段后出现一镜 12 个独立输入，保存成功，工作状态由“尚未开始”变为“尚未完成”。
 - 页头实际链接为现有 `/`、`/videos/test_v04_video` 与同一路由的 `?taxonomy=V0.4`；页面逻辑播放器实例为 1，没有进入 `/v04-shadow`。
-- 同一登录用户在第二个标签页打开相同 URL 时，新的 tab token 被现有租约隔离；页面显示“只读旁观”，编辑 fieldset 的可写控件为 0，原标签页仍保留编辑权。
+- 同一登录用户在第二个标签页打开相同 URL 时，新的 tab token 被现有租约隔离；页面显示“只读旁观”，原标签页仍保留编辑权。初版使用整页 disabled fieldset，错误连带禁用了旁观者的模块收展和定位；该回归已在 9.4 以结构性拆分修正。
 - 关闭两个 V0.4 本地开关后，显式 `taxonomy=V0.4` 返回真实 404；无 taxonomy 的同一 URL 继续呈现 `体系 V0.3-PILOT`，没有 V0.4 页面标记。
 - 共享 V1.9 组件的 P1 390×844 实测结果（页面无横向溢出、四模块、逐镜 12 项、单视频）未因 R2 改变：本批没有修改 CSS、逐镜编辑器或响应式结构，只增加现有 practice 的服务端选择分支与可配置页头链接。当前 in-app 验收视口为 1910×1075；390px 物理复验沿用已冻结的同组件 P1 证据，待产品真实路径复验再次确认。
 - 浏览器 error／warn 为 0。完整自动门禁为 `npm test` 266 项（261 通过、5 项显式 opt-in 跳过）、lint、production build 与 `git diff --check` 全部通过。
+
+### 9.4 R2-ISSUE-001｜旁观态只读交互定向修正
+
+- 根因：工作稿正文原先整体包在 `<fieldset disabled={!canEdit}>` 中。HTML 原生 disabled 语义会同时切断输入写入、模块收展按钮、缺项定位按钮及被定位字段的 focus，因此把“没有编辑租约”错误扩大成“页面不可交互”。
+- 修正：移除整页 disabled fieldset；文本控件统一使用可聚焦、可选择文字但不可写的 `readOnly`，选择值、路径、移动、新增、保存、提交、恢复、专家优选和批注写入分别按 `canEdit` 禁用，并在写函数入口增加客户端二次守卫。服务端租约、权限和事务逻辑未改。
+- 只读入口：第二／第三模块收展、模块／科目导航、未填写项目、批注定位统一经过同一定位函数；目标位于已收起模块时先展开、等待布局，再执行既有的可见性校正、focus 与高亮。历史抽屉在旁观态不提供恢复按钮；批注抽屉保留查看／定位但不渲染新增或状态修改动作；AI Mock 外壳仍可阅读和本地演示。
+- 静态契约：`v04-ui-baseline.test.ts` 新增旁观态断言，禁止整页 disabled fieldset 回退，验证 readOnly／mutation disabled／函数守卫／统一定位／只读历史与批注边界。完整 `npm test` 为 267 项（262 通过、5 项显式 opt-in 跳过），`npm run lint`、Turbopack production build、Webpack production build 与 `git diff --check` 均通过。
+- TEST_ONLY 服务证据：同一稳定用户、两个 tab token 读取同一 `test_v04_video`；tab A 持租约时 `canEdit=true`，tab B 为 `canEdit=false` 且仍有读取／批注能力；tab B 申请租约返回 HTTP 423 `LEASE_HELD_BY_OTHER`。tab A 精确释放后，tab B 取得租约并变为 `canEdit=true`，最后精确释放；工作稿 revision 始终为 2，本轮未保存、提交、恢复、优选或修改正文。
+- 浏览器限制：代码工程任务尝试在已连接的应用内浏览器刷新本机 `localhost:3000` 验收页时，被浏览器自身 URL 安全策略拒绝；未使用其他浏览器或自动化绕过。因此 1280／1440／390 的定向点击项必须由产品真实路径复验补齐，工程回报不得把本节写成产品 PASS。

@@ -135,6 +135,9 @@
 .navChildren button:hover { color: var(--v04-accent); }
 .editorColumn { min-width: 0; }
 .editorFieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.readOnlyEditor input[readonly], .readOnlyEditor textarea[readonly] { cursor: text; opacity: .92; }
+.readOnlyEditor button:disabled, .readOnlyEditor select:disabled { cursor: not-allowed; opacity: .46; }
+.readOnlyEditor .choiceTrigger { cursor: pointer; opacity: 1; }
 .editorModule { margin-bottom: 22px; overflow: visible; border: 1px solid var(--v04-line); border-radius: 18px; background: var(--v04-panel); padding: clamp(18px, 3vw, 30px); }
 .editorModule > header { position: relative; margin-bottom: 22px; }
 .editorModule > header small { color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .1em; }

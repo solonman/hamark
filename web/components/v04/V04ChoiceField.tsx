@@ -6,7 +6,7 @@ import type { V04VocabularyOption } from "@/lib/v04-vocabulary";
 import styles from "./V04Surface.module.css";
 
 export default function V04ChoiceField({
-  label, value, options, multiple = false, max = 2, customLabel, showAdvanced = false, disabled = false, targetId, advancedTargetId, onChange,
+  label, value, options, multiple = false, max = 2, customLabel, showAdvanced = false, readOnly = false, targetId, advancedTargetId, onChange,
 }: {
   label: string;
   value: V04ChoiceValue;
@@ -15,7 +15,7 @@ export default function V04ChoiceField({
   max?: number;
   customLabel: string;
   showAdvanced?: boolean;
-  disabled?: boolean;
+  readOnly?: boolean;
   targetId?: string;
   advancedTargetId?: string;
   onChange: (value: V04ChoiceValue) => void;
@@ -38,20 +38,20 @@ export default function V04ChoiceField({
   return (
     <section className={styles.choiceField} data-choice-field id={targetId}>
       <label>{label}</label>
-      <button type="button" className={styles.choiceTrigger} data-v04-primary-focus aria-expanded={open} aria-controls={panelId} disabled={disabled} onClick={() => setOpen((current) => !current)}>
+      <button type="button" className={styles.choiceTrigger} data-v04-primary-focus aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((current) => !current)}>
         <span>{selectedLabels.length ? selectedLabels.join("、") : `展开固定选项 · 共 ${options.length} 项`}</span><b>{open ? "收起" : "选择"}</b>
       </button>
       {open && (
         <div id={panelId} className={styles.choicePanel}>
           {options.map((option) => (
-            <button type="button" key={option.optionId} className={value.selectedOptionIds.includes(option.optionId) ? styles.isSelected : ""} onClick={() => toggle(option.optionId)} disabled={disabled}>
+            <button type="button" key={option.optionId} className={value.selectedOptionIds.includes(option.optionId) ? styles.isSelected : ""} onClick={() => toggle(option.optionId)} disabled={readOnly}>
               {option.labelZhCn}
             </button>
           ))}
         </div>
       )}
-      <label className={styles.customInput}>{customLabel}<input value={value.customText} disabled={disabled} onChange={(event) => onChange({ ...value, customText: event.target.value })} placeholder="可只填自定义，也可与固定值并存" /></label>
-      {showAdvanced && <label className={styles.advancedInput} id={advancedTargetId}>进阶机制层 · 条件必填<input data-v04-primary-focus value={value.advancedText ?? ""} disabled={disabled} onChange={(event) => onChange({ ...value, advancedText: event.target.value })} /></label>}
+      <label className={styles.customInput}>{customLabel}<input value={value.customText} readOnly={readOnly} onChange={(event) => onChange({ ...value, customText: event.target.value })} placeholder="可只填自定义，也可与固定值并存" /></label>
+      {showAdvanced && <label className={styles.advancedInput} id={advancedTargetId}>进阶机制层 · 条件必填<input data-v04-primary-focus value={value.advancedText ?? ""} readOnly={readOnly} onChange={(event) => onChange({ ...value, advancedText: event.target.value })} /></label>}
     </section>
   );
 }

@@ -99,3 +99,43 @@ test("detail and workspace preserve V1.9 structural interaction contracts", asyn
   assert.match(css, /\.readingTwo \{ grid-template-columns: repeat\(2/);
   assert.match(css, /\.readingThree, \.readingTwo, \.readingOne \{ grid-template-columns: 1fr; \}/);
 });
+
+test("observer workspace keeps local reading interactions while every mutation remains locked", async () => {
+  const [workspace, navigation, choice, shot, comments, css] = await Promise.all([
+    readFile(new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04WorkspaceNavigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04ChoiceField.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04ShotEditor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04CommentDrawer.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(workspace, /<fieldset[^>]*disabled=\{!canEdit\}/);
+  assert.match(workspace, /aria-readonly=\{!canEdit\}/);
+  assert.match(workspace, /const updateDraft[\s\S]*if \(!canEdit\) return;/);
+  assert.match(workspace, /const manualSave[\s\S]*if \(!canEdit\) return;/);
+  assert.match(workspace, /const submitDraft[\s\S]*if \(!canEdit\) return;/);
+  assert.match(workspace, /onRestore=\{canEdit \? restoreVersion : undefined\}/);
+  assert.match(workspace, /readOnly=\{!canEdit\}/);
+  assert.match(workspace, /disabled=\{!canEdit\}[\s\S]*新增镜头/);
+  assert.match(workspace, /disabled=\{!canEdit\}[\s\S]*提交并更新案例/);
+  assert.match(workspace, /disabled=\{!canEdit\}[\s\S]*setExpertPreference/);
+
+  assert.match(workspace, /第二模块[\s\S]*onClick=\{\(\) => toggleModule\(2\)\}/);
+  assert.match(workspace, /第三模块[\s\S]*onClick=\{\(\) => toggleModule\(3\)\}/);
+  assert.match(workspace, /publication\.missing\.map[\s\S]*onClick=\{\(\) => locate\(missing\.id\)\}/);
+  assert.match(navigation, /onLocate\?: \(id: string\) => void/);
+  assert.match(workspace, /<V04WorkspaceNavigation draft=\{draft\} onLocate=\{locate\}/);
+  assert.match(workspace, /setCollapsed[\s\S]*locateV04Target\(id\)/);
+  assert.match(comments, /onLocate\?: \(id: string\) => void/);
+  assert.match(workspace, /<V04CommentDrawer[\s\S]*onLocate=\{locate\}[\s\S]*readOnly=\{!canEdit\}/);
+
+  assert.match(choice, /className=\{styles\.choiceTrigger\}[\s\S]*onClick=\{\(\) => setOpen/);
+  assert.doesNotMatch(choice, /className=\{styles\.choiceTrigger\}[^>]*disabled/);
+  assert.match(choice, /disabled=\{readOnly\}/);
+  assert.match(choice, /readOnly=\{readOnly\}/);
+  assert.match(shot, /draggable=\{!readOnly\}/);
+  assert.match(shot, /disabled=\{readOnly\}/);
+  assert.match(shot, /readOnly=\{readOnly\}/);
+  assert.match(css, /\.readOnlyEditor input\[readonly\]/);
+});

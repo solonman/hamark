@@ -11,8 +11,8 @@ const coreTargets = [
   [V04_WORKSPACE_TARGETS.creativeContract, "成立契约"], [V04_WORKSPACE_TARGETS.overallGrade, "整体创意评价"], [V04_WORKSPACE_TARGETS.gradeReason, "评价理由"],
 ] as const;
 
-export default function V04WorkspaceNavigation({ draft }: { draft: V04UiDraft }) {
-  const locate = (id: string) => { void locateV04Target(id); };
+export default function V04WorkspaceNavigation({ draft, onLocate }: { draft: V04UiDraft; onLocate?: (id: string) => void }) {
+  const locate = (id: string) => { if (onLocate) onLocate(id); else void locateV04Target(id); };
   return (
     <nav className={styles.workspaceNav} aria-label="公共工作稿分级导航">
       <button onClick={() => locate("module-1")}><b>第一模块</b><span>脚本反写</span></button>
