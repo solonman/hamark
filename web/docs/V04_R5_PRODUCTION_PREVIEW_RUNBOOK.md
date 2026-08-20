@@ -199,4 +199,13 @@ R5 PREVIEW 的首个产品前置是 R3、R4 均取得 A。未满足时不打开�
 - contract／schema／preview 定向测试 16／16 通过；`git diff --check` 在创建本文前通过。
 - 未连接生产数据库，未调用生产 PREVIEW，未执行 schema／业务 APPLY，未激活合同，未改正式入口。
 
-当前停止点：**R5 生产只读 PREVIEW 已具备可执行步骤；等待 R3／R4 产品真实路径复验 A。PREVIEW 完成后仍须补齐受控 schema APPLY 工具，不能直接运行 `npm run db:migrate`。**
+## 10. 2026-08-20 首次执行记录
+
+- R3／R4 产品真实路径复验均为 A，进入 R5 第一段。
+- Runbook 以提交 `904a7af` 独立纳入版本控制。
+- PREVIEW 以提交 `21f6d69` 短期开启，定向与全量门禁通过，GitHub/Vercel 已部署相同 SHA。
+- 现有生产已登录业务会话可正常访问页面，但当前浏览器控制层阻止直接导航到 JSON API；受限页面执行环境也不提供 `fetch`／XHR。未复制、读取或输出 Cookie／凭据，也未调用生产 PREVIEW。
+- 因无法在不转移会话凭据的前提下调用同源 API，按本文停止条件使用独立提交 `025bf77` 关闭 PREVIEW；没有生成 preview token/hash，没有生产写入，也没有执行 schema APPLY／合同激活／入口切换。
+- 受控 APPLY 的工程审计发现：当前 pre-1A PREVIEW 的 P01—P11 多数为占位、catalog 覆盖和语义 hash 尚不足、首次安装账本失败留痕需要 control-plane savepoint、管理员 membership 存在安装后自锁风险、应用内 hash 不可冒充可恢复备份。精确实施方案见 `web/docs/V04_R5_SCHEMA_APPLY_IMPLEMENTATION_PLAN.md`。
+
+当前停止点：**临时 PREVIEW 已关闭；首次调用未发生。必须先补齐增强 PREVIEW 与受控 schema APPLY 工具，在 TEST_ONLY PostgreSQL 完成验证后，再进行下一次短期生产 PREVIEW。不能直接运行 `npm run db:migrate`。**
