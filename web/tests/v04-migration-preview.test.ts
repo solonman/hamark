@@ -143,8 +143,15 @@ test("preview route is default closed, read-only, stable-admin protected and exp
   assert.doesNotMatch(route, /export async function POST|INSERT INTO|UPDATE\s+|DELETE FROM|APPLYING|CONTRACT_ACTIVATE/);
 
   const service = readFileSync(new URL("../lib/v04-migration-preview.ts", import.meta.url), "utf8");
+  const capabilityProbe = service.indexOf("role_memberships_available");
+  const stableMembershipLookup = service.indexOf("FROM app_role_memberships");
+  assert(capabilityProbe >= 0 && stableMembershipLookup > capabilityProbe);
   assert.match(service, /role_key='SYSTEM_ADMIN'/);
   assert.match(service, /status='ACTIVE'/);
+  assert.match(service, /authorizationMode: "PRE_1A_PREVIEW_ONLY"/);
+  assert.match(service, /active_name_count/);
+  assert.match(service, /unique_active_user_id !== actor\.userId/);
+  assert.match(service, /catalogColumnSet\.has\("workflow_contract_versions\.status"\)/);
   assert.doesNotMatch(service, /\.run\(\)|INSERT INTO|UPDATE\s+[a-z_]+\s+SET|DELETE FROM/);
   for (const key of Array.from({ length: 11 }, (_, index) => `P${String(index + 1).padStart(2, "0")}`)) {
     assert.match(service, new RegExp(`\\b${key}\\b`));

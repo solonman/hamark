@@ -85,6 +85,117 @@ async function isolatedFingerprint(client: pg.Client, schemaName: string) {
   return sha256(evidence.join("\n"));
 }
 
+async function verifyPre1AAdminCompatibility(
+  client: pg.Client,
+  connectionString: string,
+  runId: string,
+) {
+  const schemaName = `test_only_v04_preview_pre_${runId}`;
+  const marker = randomBytes(16).toString("hex");
+  const exists = await client.query("SELECT 1 FROM pg_namespace WHERE nspname=$1", [schemaName]);
+  if (exists.rowCount) throw new Error(`refusing to reuse ${schemaName}`);
+  await client.query(`CREATE SCHEMA ${quote(schemaName)}`);
+  try {
+    await client.query(`SET search_path TO ${quote(schemaName)},public`);
+    await client.query(`CREATE TABLE __v04_preview_pre_marker (
+      run_id TEXT PRIMARY KEY, cleanup_token TEXT NOT NULL
+    )`);
+    await client.query("INSERT INTO __v04_preview_pre_marker VALUES ($1,$2)", [runId, marker]);
+    await client.query(`CREATE TABLE users (
+      id TEXT PRIMARY KEY, display_name TEXT NOT NULL, status TEXT NOT NULL
+    )`);
+    await client.query(`CREATE TABLE app_admins (
+      display_name TEXT PRIMARY KEY
+    )`);
+    await client.query(`INSERT INTO users (id,display_name,status) VALUES
+      ($1,'TEST_ONLY Pre Admin','ACTIVE'),
+      ($2,'TEST_ONLY Ambiguous','ACTIVE'),
+      ($3,'TEST_ONLY Ambiguous','ACTIVE'),
+      ($4,'TEST_ONLY Missing','ACTIVE'),
+      ($5,'TEST_ONLY Disabled','DISABLED')`, [
+      `user_${runId}_pre_unique`,
+      `user_${runId}_pre_ambiguous_a`,
+      `user_${runId}_pre_ambiguous_b`,
+      `user_${runId}_pre_missing`,
+      `user_${runId}_pre_disabled`,
+    ]);
+    await client.query(`INSERT INTO app_admins (display_name) VALUES
+      ('TEST_ONLY Pre Admin'),('TEST_ONLY Ambiguous'),('TEST_ONLY Disabled')`);
+    const before = await isolatedFingerprint(client, schemaName);
+    const pool = new Pool({
+      connectionString,
+      ssl: false,
+      application_name: `hamark_v04_preview_pre_service_${runId}`,
+      options: `-c search_path=${schemaName},public`,
+      max: 3,
+    });
+    try {
+      const db = new DbClient(pool);
+      const uniqueActor = {
+        userId: `user_${runId}_pre_unique`,
+        displayName: "TEST_ONLY Pre Admin",
+      };
+      const first = await previewV04Migration(db, uniqueActor, {
+        now: new Date("2026-08-19T12:30:00.000Z"),
+        environmentKey: "test-only-pre-1a",
+      });
+      const repeated = await previewV04Migration(db, uniqueActor, {
+        now: new Date("2026-08-19T12:31:00.000Z"),
+        environmentKey: "test-only-pre-1a",
+      });
+      assert.equal(first.ready, false);
+      assert.equal(first.contract.status, "MISSING");
+      assert(first.facts.P07.missingTables.includes("app_role_memberships"));
+      assert(first.facts.P07.missingTables.includes("workflow_contract_versions"));
+      assert.equal(first.previewToken, repeated.previewToken);
+      assert.equal(first.sourceHash, repeated.sourceHash);
+      assert.equal(first.targetHash, repeated.targetHash);
+      assert.equal(first.nonTargetHash, repeated.nonTargetHash);
+
+      for (const denied of [
+        {
+          actor: { userId: `user_${runId}_pre_ambiguous_a`, displayName: "TEST_ONLY Ambiguous" },
+          classification: "AMBIGUOUS",
+        },
+        {
+          actor: { userId: `user_${runId}_pre_missing`, displayName: "TEST_ONLY Missing" },
+          classification: "MISSING",
+        },
+        {
+          actor: { userId: `user_${runId}_pre_disabled`, displayName: "TEST_ONLY Disabled" },
+          classification: "DISABLED",
+        },
+      ]) {
+        await assert.rejects(
+          previewV04Migration(db, denied.actor, { environmentKey: "test-only-pre-1a" }),
+          (error: unknown) => error instanceof V04ServiceError
+            && error.code === "ADMIN_REQUIRED"
+            && error.details.classification === denied.classification,
+        );
+      }
+    } finally {
+      await pool.end();
+    }
+    assert.equal(await isolatedFingerprint(client, schemaName), before, "pre-1A PREVIEW must be zero-write");
+    return {
+      pre1AUniqueAdminAllowed: true,
+      pre1AAmbiguousMissingDisabledRejected: true,
+      pre1ASchemaDriftP07Returned: true,
+      pre1AZeroWrite: true,
+    };
+  } finally {
+    await client.query(`SET search_path TO ${quote(schemaName)},public`);
+    const guard = await client.query<{ run_id: string; cleanup_token: string }>(
+      "SELECT run_id,cleanup_token FROM __v04_preview_pre_marker",
+    );
+    assert.equal(guard.rowCount, 1);
+    assert.equal(guard.rows[0].run_id, runId);
+    assert.equal(guard.rows[0].cleanup_token, marker);
+    await client.query("SET search_path TO public");
+    await client.query(`DROP SCHEMA ${quote(schemaName)} CASCADE`);
+  }
+}
+
 async function seedHistory(db: DbClient, runId: string) {
   const time = "2026-08-19T12:00:00.000Z";
   const userRows = [
@@ -196,6 +307,7 @@ async function seedHistory(db: DbClient, runId: string) {
     .bind(`baseline_${runId}`, `round_${runId}`, `stream_${runId}`).run();
   return {
     adminUserId: `user_${runId}_admin`,
+    uniqueLegacyAdminUserId: `user_${runId}_unique`,
     expertUserId: `user_${runId}_expert`,
     streamId: `stream_${runId}`,
     v03AnnotationId: `annotation_${runId}_v03`,
@@ -221,6 +333,10 @@ export async function runV04MigrationPreviewVerification(env: Environment = proc
   await client.connect();
   const publicBefore = await publicFingerprint(client);
   try {
+    Object.assign(
+      evidence,
+      await verifyPre1AAdminCompatibility(client, config.connectionString, config.runId),
+    );
     const exists = await client.query("SELECT 1 FROM pg_namespace WHERE nspname=$1", [schemaName]);
     if (exists.rowCount) throw new Error(`refusing to reuse ${schemaName}`);
     await client.query(`CREATE SCHEMA ${quote(schemaName)}`);
@@ -296,6 +412,15 @@ export async function runV04MigrationPreviewVerification(env: Environment = proc
       await assert.rejects(
         previewV04Migration(db, { userId: fixture.expertUserId }, { environmentKey: "test-only" }),
         (error: unknown) => error instanceof V04ServiceError && error.code === "ADMIN_REQUIRED",
+      );
+      await assert.rejects(
+        previewV04Migration(db, {
+          userId: fixture.uniqueLegacyAdminUserId,
+          displayName: "老孙",
+        }, { environmentKey: "test-only" }),
+        (error: unknown) => error instanceof V04ServiceError
+          && error.code === "ADMIN_REQUIRED"
+          && error.details.authorizationMode === "STABLE_MEMBERSHIP_REQUIRED",
       );
 
       const driftNow = new Date("2026-08-19T12:50:00.000Z");
@@ -474,6 +599,7 @@ export async function runV04MigrationPreviewVerification(env: Environment = proc
       evidence.indexIncludeTriggerOrientationAndUpdateColumnsDetected = true;
       evidence.policyExtraMissingChangedDetected = true;
       evidence.stableAdminOnly = true;
+      evidence.latestSchemaLegacyNameFallbackRejected = true;
       evidence.contractStatus = first.contract.status;
       evidence.firstPreviewToken = first.previewToken;
       evidence.schemaFingerprint = first.schemaFingerprint;

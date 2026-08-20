@@ -20,6 +20,17 @@ export const V04_MIGRATION_PREVIEW_TTL_MS = 30 * 60 * 1000;
 
 type CountRow = QueryResultRow & { count: number | string };
 type HashRow = QueryResultRow & { row_count: number | string; aggregate_hash: string };
+type PreviewAdminCapabilityRow = QueryResultRow & {
+  role_memberships_available: boolean;
+  users_available: boolean;
+  legacy_admins_available: boolean;
+};
+type TransitionalPreviewAdminRow = QueryResultRow & {
+  actor_active: boolean;
+  legacy_admin: boolean;
+  active_name_count: number | string;
+  unique_active_user_id: string | null;
+};
 type CatalogTableRow = QueryResultRow & { table_name: string; rls_enabled: boolean };
 type CatalogColumnRow = QueryResultRow & {
   table_name: string;
@@ -724,14 +735,82 @@ export function isV04PreviewSameOrigin(request: Request, appUrl: string) {
   }
 }
 
+export async function assertV04PreviewAdmin(
+  db: DbClient,
+  actor: { userId: string; displayName?: string },
+) {
+  const capabilities = await db.prepare(`SELECT
+    to_regclass(current_schema() || '.app_role_memberships') IS NOT NULL
+      AS role_memberships_available,
+    to_regclass(current_schema() || '.users') IS NOT NULL AS users_available,
+    to_regclass(current_schema() || '.app_admins') IS NOT NULL AS legacy_admins_available`)
+    .first<PreviewAdminCapabilityRow>();
+  if (!capabilities) {
+    throw new V04ServiceError("ADMIN_REQUIRED", "仅稳定系统管理员可查看 V0.4 迁移 PREVIEW。");
+  }
+
+  if (capabilities.role_memberships_available) {
+    const stableAdmin = await db.prepare(`SELECT 1 FROM app_role_memberships
+      WHERE user_id=? AND role_key='SYSTEM_ADMIN' AND status='ACTIVE'`)
+      .bind(actor.userId).first();
+    if (!stableAdmin) {
+      throw new V04ServiceError("ADMIN_REQUIRED", "仅稳定系统管理员可查看 V0.4 迁移 PREVIEW。", {
+        authorizationMode: "STABLE_MEMBERSHIP_REQUIRED",
+      });
+    }
+    return "STABLE_MEMBERSHIP" as const;
+  }
+
+  const displayName = actor.displayName?.trim() ?? "";
+  if (!capabilities.users_available || !capabilities.legacy_admins_available || !displayName) {
+    throw new V04ServiceError("ADMIN_REQUIRED", "当前管理员身份无法唯一确认。", {
+      authorizationMode: "PRE_1A_PREVIEW_ONLY",
+      classification: "MISSING",
+    });
+  }
+  const transitional = await db.prepare(`SELECT
+    EXISTS (
+      SELECT 1 FROM users
+      WHERE id=? AND status='ACTIVE' AND display_name=?
+    ) AS actor_active,
+    EXISTS (
+      SELECT 1 FROM app_admins WHERE display_name=?
+    ) AS legacy_admin,
+    (
+      SELECT COUNT(*)::bigint FROM users
+      WHERE status='ACTIVE' AND display_name=?
+    ) AS active_name_count,
+    (
+      SELECT MIN(id) FROM users
+      WHERE status='ACTIVE' AND display_name=?
+    ) AS unique_active_user_id`)
+    .bind(actor.userId, displayName, displayName, displayName, displayName)
+    .first<TransitionalPreviewAdminRow>();
+  const activeNameCount = numeric(transitional?.active_name_count);
+  const classification = !transitional?.actor_active
+    ? "DISABLED"
+    : !transitional.legacy_admin
+      ? "MISSING"
+      : activeNameCount !== 1
+        ? "AMBIGUOUS"
+        : transitional.unique_active_user_id !== actor.userId
+          ? "MISSING"
+          : "UNIQUE";
+  if (classification !== "UNIQUE") {
+    throw new V04ServiceError("ADMIN_REQUIRED", "当前管理员身份无法唯一确认。", {
+      authorizationMode: "PRE_1A_PREVIEW_ONLY",
+      classification,
+    });
+  }
+  return "PRE_1A_PREVIEW_ONLY" as const;
+}
+
 export async function previewV04Migration(
   db: DbClient,
-  actor: { userId: string },
+  actor: { userId: string; displayName?: string },
   options: { now?: Date; environmentKey?: string } = {},
 ): Promise<V04MigrationPreview> {
-  const admin = await db.prepare(`SELECT 1 FROM app_role_memberships
-    WHERE user_id=? AND role_key='SYSTEM_ADMIN' AND status='ACTIVE'`).bind(actor.userId).first();
-  if (!admin) throw new V04ServiceError("ADMIN_REQUIRED", "仅稳定系统管理员可查看 V0.4 迁移 PREVIEW。");
+  await assertV04PreviewAdmin(db, actor);
 
   const now = options.now ?? new Date();
   const previewWindow = v04PreviewTimeWindow(now);
@@ -748,7 +827,10 @@ export async function previewV04Migration(
   });
   const schemaDriftCount = Object.values(drift).reduce((sum, values) => sum + values.length, 0);
   if (schemaDriftCount > 0) {
+    const catalogColumnSet = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
     const contractStatus = catalogTableSet.has("workflow_contract_versions")
+      && catalogColumnSet.has("workflow_contract_versions.workflow_version")
+      && catalogColumnSet.has("workflow_contract_versions.status")
       ? (await db.prepare(`SELECT status FROM workflow_contract_versions WHERE workflow_version=?`)
         .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>())?.status ?? "MISSING"
       : "MISSING";
