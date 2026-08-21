@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getDbClient } from "@/db";
 import { requirePageUser } from "@/lib/current-user";
 import { assertV04PreviewAdmin } from "@/lib/v04-migration-preview";
+import { inspectV04SystemAdminBootstrapCandidate } from "@/lib/v04-system-admin-bootstrap";
+import { v04TargetCodeSha } from "@/lib/v04-schema-catalog";
 import V04SchemaAdminClient from "./V04SchemaAdminClient";
 import styles from "./page.module.css";
 
@@ -15,6 +17,24 @@ export default async function V04SchemaAdminPage() {
       displayName: user.displayName,
     });
   } catch {
+    const bootstrapEnabled = process.env.V04_SYSTEM_ADMIN_BOOTSTRAP_ENABLED === "true";
+    const candidate = bootstrapEnabled
+      ? await inspectV04SystemAdminBootstrapCandidate(getDbClient(), {
+        userId: user.id,
+        displayName: user.displayName,
+      })
+      : null;
+    if (candidate?.eligible) {
+      return (
+        <V04SchemaAdminClient
+          previewEnabled={false}
+          applyEnabled={false}
+          bootstrapEnabled
+          bootstrapEligible
+          targetCodeSha={v04TargetCodeSha()}
+        />
+      );
+    }
     return (
       <main className={styles.shell}>
         <section className={styles.panel}>
@@ -31,6 +51,9 @@ export default async function V04SchemaAdminPage() {
     <V04SchemaAdminClient
       previewEnabled={process.env.V04_MIGRATION_PREVIEW_ENABLED === "true"}
       applyEnabled={process.env.V04_SCHEMA_APPLY_ENABLED === "true"}
+      bootstrapEnabled={process.env.V04_SYSTEM_ADMIN_BOOTSTRAP_ENABLED === "true"}
+      bootstrapEligible={false}
+      targetCodeSha={v04TargetCodeSha()}
     />
   );
 }

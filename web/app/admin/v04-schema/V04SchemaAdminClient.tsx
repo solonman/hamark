@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { V04MigrationPreview } from "@/lib/v04-migration-preview";
-import { V04_SCHEMA_APPLY_CONFIRMATION } from "@/lib/v04-schema-admin-contract";
+import {
+  V04_SCHEMA_APPLY_CONFIRMATION,
+  V04_SYSTEM_ADMIN_BOOTSTRAP_CONFIRMATION,
+} from "@/lib/v04-schema-admin-contract";
 import styles from "./page.module.css";
 
 type PreviewResponse = {
@@ -28,6 +31,9 @@ function shortHash(value: string) {
 export default function V04SchemaAdminClient(props: {
   previewEnabled: boolean;
   applyEnabled: boolean;
+  bootstrapEnabled: boolean;
+  bootstrapEligible: boolean;
+  targetCodeSha: string;
 }) {
   const [preview, setPreview] = useState<V04MigrationPreview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,6 +44,9 @@ export default function V04SchemaAdminClient(props: {
   const [approvalReference, setApprovalReference] = useState("");
   const [backupReference, setBackupReference] = useState("");
   const [backupVerifiedAt, setBackupVerifiedAt] = useState("");
+  const [bootstrapConfirmation, setBootstrapConfirmation] = useState("");
+  const [bootstrapApproval, setBootstrapApproval] = useState("");
+  const [bootstrapping, setBootstrapping] = useState(false);
 
   const canApply = useMemo(() => Boolean(
     props.applyEnabled
@@ -111,6 +120,33 @@ export default function V04SchemaAdminClient(props: {
     }
   }
 
+  async function bootstrapSystemAdmin() {
+    if (!props.bootstrapEnabled || !props.bootstrapEligible) return;
+    setBootstrapping(true);
+    setError("");
+    const idempotencyKey = `v04-admin-bootstrap-${crypto.randomUUID()}`;
+    try {
+      const response = await fetch("/api/admin/v04-system-admin-bootstrap", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({
+          action: "BOOTSTRAP_SYSTEM_ADMIN",
+          confirmation: bootstrapConfirmation,
+          approvalReference: bootstrapApproval.trim(),
+          targetCodeSha: props.targetCodeSha,
+          idempotencyKey,
+        }),
+      });
+      const data = await readJson(response);
+      if (!response.ok || !data.result) throw new Error(data.error?.message || "管理员自锁恢复未完成。");
+      window.location.reload();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "管理员自锁恢复未完成。");
+      setBootstrapping(false);
+    }
+  }
+
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
@@ -127,6 +163,23 @@ export default function V04SchemaAdminClient(props: {
         <span data-enabled={props.applyEnabled}>APPLY {props.applyEnabled ? "短期开启" : "关闭"}</span>
         <span>合同激活关闭</span><span>V0.4 正式入口关闭</span>
       </section>
+
+      {props.bootstrapEligible ? (
+        <section className={styles.panel}>
+          <p className={styles.eyebrow}>一次性权限自锁恢复</p>
+          <h2>恢复当前唯一稳定管理员</h2>
+          <p>仅在目标 schema 精确、当前有效 SYSTEM_ADMIN 为0且旧管理员到 stable user 唯一映射时执行；失败会整体回滚。</p>
+          <label><span>审批引用</span><input value={bootstrapApproval} onChange={(event) => setBootstrapApproval(event.target.value)} autoComplete="off" /></label>
+          <p className={styles.confirmation}>{V04_SYSTEM_ADMIN_BOOTSTRAP_CONFIRMATION}</p>
+          <label><span>精确确认语句</span><input value={bootstrapConfirmation} onChange={(event) => setBootstrapConfirmation(event.target.value)} autoComplete="off" /></label>
+          <button type="button" className={styles.dangerButton}
+            disabled={bootstrapping || bootstrapApproval.trim().length < 8
+              || bootstrapConfirmation !== V04_SYSTEM_ADMIN_BOOTSTRAP_CONFIRMATION}
+            onClick={() => void bootstrapSystemAdmin()}>
+            {bootstrapping ? "正在事务化恢复…" : "执行一次 SYSTEM_ADMIN 自锁恢复"}
+          </button>
+        </section>
+      ) : null}
 
       <section className={styles.panel}>
         <div className={styles.panelHeader}>
