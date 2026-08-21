@@ -36,7 +36,7 @@ export default async function VideoDetailPage({
             libraryHref: "/",
             detailHref: `/videos/${encodedId}`,
             workspaceHref: `/videos/${encodedId}/practice`,
-            detailLabel: "案例成果",
+            detailLabel: "只读成果",
             workspaceLabel: "编辑工作稿",
             compatibilityLinks: [
               { href: `/videos/${encodedId}/practice?taxonomy=V0.3-PILOT`, label: "V0.3" },

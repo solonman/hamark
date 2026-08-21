@@ -52,10 +52,12 @@ test("formal library uses real media and preserves upload, admin, search and tag
 });
 
 test("formal workspace keeps approved choice, comment and publication semantics", async () => {
-  const [workspace, detail, shotEditor] = await Promise.all([
+  const [workspace, detail, shotEditor, detailPage, practicePage] = await Promise.all([
     source("../components/v04/V04WorkspaceClient.tsx"),
     source("../components/v04/V04DetailClient.tsx"),
     source("../components/v04/V04ShotEditor.tsx"),
+    source("../app/videos/[id]/page.tsx"),
+    source("../app/videos/[id]/practice/page.tsx"),
   ]);
   assert.match(workspace, /label="桥段辅助创意作用"[\s\S]*multiple max=\{3\}/);
   assert.match(workspace, /V04_UI_BRIDGE_OPTIONS\.filter\(\(option\) => !group\.primaryRole\.selectedOptionIds\.includes\(option\.optionId\)\)/);
@@ -67,4 +69,12 @@ test("formal workspace keeps approved choice, comment and publication semantics"
   assert.match(detail, /value\.advancedText/);
   assert.match(detail, /桥段创意作用/);
   assert.match(detail, /本桥段关键创意描述/);
+  assert.match(detail, /data-v04-case-title title=\{item\.title\}>\{item\.title\}/);
+  assert.match(workspace, /data-v04-case-title title=\{item\.title\}>\{item\.title\}/);
+  assert.match(workspace, /const submitActionProps = \{/);
+  assert.equal((workspace.match(/\.\.\.submitActionProps/g) ?? []).length, 2);
+  assert.match(detailPage, /detailLabel: "只读成果"/);
+  assert.match(practicePage, /detailLabel: "只读成果"/);
+  assert.doesNotMatch(detailPage, /detailLabel: "案例成果"/);
+  assert.doesNotMatch(practicePage, /detailLabel: "作品详情"/);
 });

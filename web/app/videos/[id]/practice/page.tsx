@@ -46,7 +46,7 @@ export default async function PracticePage({
             workspaceHref: v04DefaultEnabled
               ? `/videos/${encodedId}/practice`
               : `/videos/${encodedId}/practice?taxonomy=V0.4`,
-            detailLabel: "作品详情",
+            detailLabel: "只读成果",
             workspaceLabel: "V0.4 工作稿",
           }}
         />
