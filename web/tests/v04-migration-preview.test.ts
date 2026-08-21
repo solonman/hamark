@@ -277,11 +277,12 @@ test("preview route is default closed, read-only, stable-admin protected and exp
   }
 });
 
-test("Gate B closure removes the temporary V0.4 PREVIEW deployment switch", () => {
+test("Gate B closure keeps PREVIEW closed while only the contract lifecycle gate is short-opened", () => {
   const vercel = JSON.parse(
     readFileSync(new URL("../vercel.json", import.meta.url), "utf8"),
   ) as { env?: Record<string, string> };
   assert.equal(vercel.env?.V04_MIGRATION_PREVIEW_ENABLED, undefined);
+  assert.equal(vercel.env?.V04_CONTRACT_ACTIVATE_ENABLED, "true");
   for (const forbidden of [
     "PREVIEW",
     "APPLY",
@@ -290,7 +291,9 @@ test("Gate B closure removes the temporary V0.4 PREVIEW deployment switch", () =
     "MATERIALIZE",
   ]) {
     assert.equal(
-      Object.keys(vercel.env ?? {}).some((key) => key.includes(forbidden)),
+      Object.keys(vercel.env ?? {})
+        .filter((key) => key !== "V04_CONTRACT_ACTIVATE_ENABLED")
+        .some((key) => key.includes(forbidden)),
       false,
     );
   }
