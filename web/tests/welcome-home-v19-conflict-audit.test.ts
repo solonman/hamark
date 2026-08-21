@@ -213,6 +213,20 @@ test("audit is default-off, strict GET-only, no-store and contains no mutation c
   }
 });
 
+test("deployment opens only the fixed read-only audit and leaves data-operation flags closed", () => {
+  const deployment = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.equal(deployment.env.V04_WELCOME_HOME_V19_AUDIT_ENABLED, "true");
+  for (const forbidden of [
+    "V04_MIGRATION_PREVIEW_ENABLED",
+    "V04_SCHEMA_APPLY_ENABLED",
+    "V04_CONTRACT_ACTIVATE_ENABLED",
+    "V04_SYSTEM_ADMIN_BOOTSTRAP_ENABLED",
+    "V04_GRAY_TEST_OBJECT_ENABLED",
+    "V04_GRAY_IDENTITY_DIGEST_ENABLED",
+    "V04_GRAY_ROLLOUT_ENABLED",
+  ]) assert.equal(forbidden in deployment.env, false, `${forbidden} must stay closed`);
+});
+
 test("browser response and client surface expose aggregates and digests, never content or identity", () => {
   const client = readFileSync(new URL(
     "../app/admin/welcome-home-v19-conflict-audit/WelcomeHomeV19ConflictAuditClient.tsx",
