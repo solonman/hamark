@@ -85,14 +85,14 @@ test("an explicitly approved controlled existing video stays separate from TEST_
     USER_A, controlledFacts, VIDEO_CONTROLLED).reason, "VIDEO_NOT_ALLOWED");
 });
 
-test("all official V0.4 surfaces reuse one server gray guard and deployment keeps them closed", () => {
+test("all official V0.4 surfaces reuse one server gray guard and deployment only opens identity proof", () => {
   const api = readFileSync(new URL("../lib/v04-api.ts", import.meta.url), "utf8");
   const gray = readFileSync(new URL("../lib/v04-gray-access.ts", import.meta.url), "utf8");
   const practice = readFileSync(new URL("../app/videos/[id]/practice/page.tsx", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../app/videos/[id]/page.tsx", import.meta.url), "utf8");
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const cards = readFileSync(new URL("../app/api/videos/analysis/v04/cards/route.ts", import.meta.url), "utf8");
-  const deployment = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
+  const deployment = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   assert.match(api, /assertV04GrayAccess/);
   assert.match(api, /v04GrayVideoIdFromRequest/);
   assert.match(gray, /V04_GRAY_USER_ID_SHA256S/);
@@ -106,7 +106,7 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment keep
   assert.match(detail, /canAccessV04Gray\(getDbClient\(\), user\.id, id\)/);
   assert.match(home, /canAccessV04Gray\(getDbClient\(\), user\.id\)/);
   assert.match(cards, /filterV04GrayVideoIds/);
-  assert.doesNotMatch(deployment, /V04_GRAY_|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED|V04_DETAIL_UI_ENABLED|V04_LIBRARY_UI_ENABLED/);
+  assert.deepEqual(deployment.env, { V04_GRAY_IDENTITY_DIGEST_ENABLED: "true" });
 });
 
 test("identity digest is deterministic and the self-service proof page never renders stable ids", () => {
@@ -146,10 +146,12 @@ test("identity digest is deterministic and the self-service proof page never ren
   }
   const page = readFileSync(new URL("../app/v04-gray-identity/page.tsx", import.meta.url), "utf8");
   assert.match(page, /V04_GRAY_IDENTITY_DIGEST_ENABLED/);
+  assert.match(page, /export const dynamic = "force-dynamic"/);
   assert.match(page, /requirePageUser/);
   assert.match(page, /hashV04GrayUserId\(user\.id\)/);
   assert.match(page, /status='ACTIVE'/);
   assert.doesNotMatch(page, /displayName|display_name|email|identityKey|user\.id\}/);
+  assert.doesNotMatch(page, /\bPOST\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b|localStorage|sessionStorage|console\./);
 });
 
 test("tracked repository has no legacy raw-id gray configuration boundary", () => {
