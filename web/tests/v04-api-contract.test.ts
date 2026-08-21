@@ -12,6 +12,13 @@ test("V0.4 dark routes fail closed before authentication or database access", ()
   assert.match(source, /UNSUPPORTED_WORKFLOW/);
 });
 
+test("V0.4 API uses formal BUSINESS access after default release and retains gray fallback", () => {
+  const source = readFileSync(new URL("../lib/v04-api.ts", import.meta.url), "utf8");
+  assert.match(source, /process\.env\.V04_DEFAULT_UI_ENABLED === "true"/);
+  assert.match(source, /assertV04DefaultAccess\(getDbClient\(\), user\.id, videoId\)/);
+  assert.match(source, /assertV04GrayAccess\(getDbClient\(\), user\.id, videoId\)/);
+});
+
 test("V0.4 error contract distinguishes conflict, lease and rate-limit semantics", async () => {
   for (const [code, status] of [
     ["REVISION_CONFLICT", 409],

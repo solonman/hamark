@@ -13,15 +13,18 @@ test("existing library remains the sole catalog and conditionally adds V0.4 proj
     source("../vercel.json"),
   ]);
   assert.match(page, /process\.env\.V04_LIBRARY_UI_ENABLED === "true"/);
+  assert.match(page, /process\.env\.V04_DEFAULT_UI_ENABLED === "true"/);
   assert.match(home, /fetch\("\/api\/videos"/);
   assert.match(home, /v04UiApi\.cards\([\s\S]*nextVideos\.map\(\(video\) => video\.id\)/);
   assert.match(home, /v04LibraryEnabled \? \([\s\S]*<V04CardProjection/);
   assert.match(home, /\/videos\/\$\{encodedId\}#v04-analysis/);
   assert.match(home, /\/videos\/\$\{encodedId\}\/practice\?taxonomy=V0\.4/);
+  assert.match(home, /V0\.3 兼容入口/);
   assert.match(home, /V0\.4 状态暂时无法读取，片库仍可正常使用/);
   assert.match(home, /<UploadDialog/);
   assert.match(home, /video\.tags\.slice\(0, 4\)/);
-  assert.doesNotMatch(deployment, /V04_LIBRARY_UI_ENABLED/);
+  assert.match(deployment, /"V04_LIBRARY_UI_ENABLED": "true"/);
+  assert.match(deployment, /"V04_DEFAULT_UI_ENABLED": "true"/);
   assert.deepEqual(Object.values(V04_UI_STATE_LABELS), [
     "尚未开始",
     "尚未完成",

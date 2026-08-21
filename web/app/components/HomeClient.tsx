@@ -24,7 +24,15 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
 }
 
-function V04CardProjection({ videoId, projection }: { videoId: string; projection?: V04ServerCardModel }) {
+function V04CardProjection({
+  videoId,
+  projection,
+  defaultMode,
+}: {
+  videoId: string;
+  projection?: V04ServerCardModel;
+  defaultMode: boolean;
+}) {
   if (!projection) return null;
   const encodedId = encodeURIComponent(videoId);
   return (
@@ -37,14 +45,14 @@ function V04CardProjection({ videoId, projection }: { videoId: string; projectio
           </span>
         ) : null}
       </div>
-      <div className={v04Styles.existingCardActions}>
+      {!defaultMode ? <div className={v04Styles.existingCardActions}>
         <Link href={`/videos/${encodedId}#v04-analysis`}>
           {projection.submissionCount > 0 ? "查看 V0.4 成果" : "查看 V0.4"}
         </Link>
         <Link href={`/videos/${encodedId}/practice?taxonomy=V0.4`}>
           {projection.state === "NOT_STARTED" ? "开始 V0.4 逆向工程" : "继续 V0.4 逆向工程"}
         </Link>
-      </div>
+      </div> : null}
     </div>
   );
 }
@@ -53,10 +61,12 @@ export default function HomeClient({
   user,
   isAdmin,
   v04LibraryEnabled = false,
+  v04DefaultEnabled = false,
 }: {
   user: UserMenuUser;
   isAdmin: boolean;
   v04LibraryEnabled?: boolean;
+  v04DefaultEnabled?: boolean;
 }) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [v04Projections, setV04Projections] = useState<Record<string, V04ServerCardModel>>({});
@@ -375,14 +385,31 @@ export default function HomeClient({
                   </div>
                   <div className="card-actions">
                     <Link href={`/videos/${video.id}`}>看片与分析</Link>
-                    <Link href={`/videos/${video.id}/practice?taxonomy=V0.3-PILOT`}>
-                      {video.hasV03Content
-                        ? "继续 V0.3 逆向工程"
-                        : "开始 V0.3 逆向工程"} <span aria-hidden="true">↗</span>
+                    <Link href={v04DefaultEnabled
+                      ? `/videos/${video.id}/practice`
+                      : `/videos/${video.id}/practice?taxonomy=V0.3-PILOT`}>
+                      {v04DefaultEnabled
+                        ? (!v04Projections[video.id]
+                            ? "进入 V1.9 逆向工程"
+                            : v04Projections[video.id].state === "NOT_STARTED"
+                              ? "开始 V1.9 逆向工程"
+                              : "继续 V1.9 逆向工程")
+                        : (video.hasV03Content
+                            ? "继续 V0.3 逆向工程"
+                            : "开始 V0.3 逆向工程")} <span aria-hidden="true">↗</span>
                     </Link>
+                    {v04DefaultEnabled ? (
+                      <Link href={`/videos/${video.id}/practice?taxonomy=V0.3-PILOT`}>
+                        V0.3 兼容入口
+                      </Link>
+                    ) : null}
                   </div>
                   {v04LibraryEnabled ? (
-                    <V04CardProjection videoId={video.id} projection={v04Projections[video.id]} />
+                    <V04CardProjection
+                      videoId={video.id}
+                      projection={v04Projections[video.id]}
+                      defaultMode={v04DefaultEnabled}
+                    />
                   ) : null}
                 </div>
               </article>

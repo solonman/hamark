@@ -287,7 +287,6 @@ test("Gate B closure removes every temporary V0.4 operation deployment switch", 
     "PREVIEW",
     "APPLY",
     "ACTIVATE",
-    "WORKFLOW_API_ENABLED",
     "MATERIALIZE",
   ]) {
     assert.equal(

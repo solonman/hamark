@@ -5,7 +5,7 @@ import test from "node:test";
 
 const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("existing video detail embeds V0.4 results only behind its disabled-by-default gate", async () => {
+test("existing video detail embeds V0.4 results as the default while keeping V0.3 compatibility", async () => {
   const [page, detail, v04Detail, deployment] = await Promise.all([
     source("../app/videos/[id]/page.tsx"),
     source("../app/videos/[id]/VideoDetailClient.tsx"),
@@ -13,10 +13,13 @@ test("existing video detail embeds V0.4 results only behind its disabled-by-defa
     source("../vercel.json"),
   ]);
   assert.match(page, /process\.env\.V04_DETAIL_UI_ENABLED === "true"/);
+  assert.match(page, /process\.env\.V04_DEFAULT_UI_ENABLED === "true"/);
   assert.match(detail, /v04DetailEnabled \? \(/);
   assert.match(detail, /<V04DetailClient[\s\S]*embedded[\s\S]*showVideo=\{false\}/);
-  assert.match(detail, /workspaceHref: `\/videos\/\$\{encodeURIComponent\(videoId\)\}\/practice\?taxonomy=V0\.4`/);
-  assert.doesNotMatch(deployment, /V04_DETAIL_UI_ENABLED/);
+  assert.match(detail, /workspaceHref: v04DefaultEnabled/);
+  assert.match(detail, /进入 V1\.9 公共工作稿/);
+  assert.match(detail, /practice\?taxonomy=V0\.3-PILOT/);
+  assert.match(deployment, /"V04_DETAIL_UI_ENABLED": "true"/);
   assert.match(v04Detail, /!draft \? <section[\s\S]*尚无已提交成果/);
   assert.match(v04Detail, /versionView === "EXPERT"[\s\S]*expertPreferredSubmission/);
   assert.match(v04Detail, /最新提交 V/);

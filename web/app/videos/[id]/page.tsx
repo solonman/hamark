@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getDbClient } from "@/db";
 import { requirePageUser } from "@/lib/current-user";
-import { canAccessV04Gray } from "@/lib/v04-gray-access";
+import { canAccessV04Surface } from "@/lib/v04-gray-access";
 import VideoDetailClient from "./VideoDetailClient";
 
 export const metadata: Metadata = {
@@ -15,13 +15,15 @@ export default async function VideoDetailPage({
 }) {
   const { id } = await params;
   const user = await requirePageUser(`/videos/${encodeURIComponent(id)}`);
+  const v04DefaultEnabled = process.env.V04_DEFAULT_UI_ENABLED === "true";
   const v04DetailEnabled = process.env.V04_DETAIL_UI_ENABLED === "true"
-    && await canAccessV04Gray(getDbClient(), user.id, id);
+    && await canAccessV04Surface(getDbClient(), user.id, id);
   return (
     <VideoDetailClient
       videoId={id}
       viewerName={user.displayName}
       v04DetailEnabled={v04DetailEnabled}
+      v04DefaultEnabled={v04DefaultEnabled}
     />
   );
 }

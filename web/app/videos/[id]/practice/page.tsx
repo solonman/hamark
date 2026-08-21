@@ -4,7 +4,7 @@ import { V04VideoSessionProvider } from "@/components/v04/V04VideoSessionProvide
 import V04WorkspaceClient from "@/components/v04/V04WorkspaceClient";
 import { getDbClient } from "@/db";
 import { requirePageUser } from "@/lib/current-user";
-import { canAccessV04Gray } from "@/lib/v04-gray-access";
+import { canAccessV04Surface } from "@/lib/v04-gray-access";
 import PracticeClient from "./PracticeClient";
 import type { TaxonomyVersion } from "@/lib/types";
 
@@ -21,7 +21,9 @@ export default async function PracticePage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  const isV04 = query.taxonomy === "V0.4";
+  const v04DefaultEnabled = process.env.V04_DEFAULT_UI_ENABLED === "true";
+  const explicitLegacy = query.taxonomy === "V0.2" || query.taxonomy === "V0.3-PILOT";
+  const isV04 = query.taxonomy === "V0.4" || (v04DefaultEnabled && !explicitLegacy);
   const taxonomyVersion: TaxonomyVersion =
     query.taxonomy === "V0.2" ? "V0.2" : "V0.3-PILOT";
   const returnTo = isV04
@@ -30,7 +32,7 @@ export default async function PracticePage({
   const user = await requirePageUser(returnTo);
   if (isV04) {
     if (process.env.V04_WORKFLOW_UI_ENABLED !== "true") notFound();
-    if (!await canAccessV04Gray(getDbClient(), user.id, id)) notFound();
+    if (!await canAccessV04Surface(getDbClient(), user.id, id)) notFound();
     const encodedId = encodeURIComponent(id);
     return (
       <V04VideoSessionProvider>
@@ -41,7 +43,9 @@ export default async function PracticePage({
           navigation={{
             libraryHref: "/",
             detailHref: `/videos/${encodedId}`,
-            workspaceHref: `/videos/${encodedId}/practice?taxonomy=V0.4`,
+            workspaceHref: v04DefaultEnabled
+              ? `/videos/${encodedId}/practice`
+              : `/videos/${encodedId}/practice?taxonomy=V0.4`,
             detailLabel: "作品详情",
             workspaceLabel: "V0.4 工作稿",
           }}

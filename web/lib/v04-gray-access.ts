@@ -45,6 +45,17 @@ export type V04GrayDecision = {
     | "VIDEO_NOT_TEST_ONLY";
 };
 
+export type V04DefaultAccessDecision = {
+  allowed: boolean;
+  reason:
+    | "GRANTED"
+    | "USER_NOT_ACTIVE"
+    | "CONTRACT_NOT_ACTIVE"
+    | "VIDEO_NOT_FOUND"
+    | "VIDEO_NOT_READY"
+    | "VIDEO_NOT_BUSINESS";
+};
+
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LEGACY_TEST_ONLY_USER_ID = /^user_(?:test|testonly)_[A-Za-z0-9][A-Za-z0-9_-]{2,}$/;
 const STABLE_VIDEO_ID = /^video_[A-Za-z0-9_-]{8,}$/;
@@ -103,6 +114,25 @@ function videoHasUsableMedia(video: NonNullable<V04GrayFacts["video"]>) {
     && Number(video.fileSize) > 0
     && video.deletedAt === null
     && (video.deletionState === null || video.deletionState === "ACTIVE");
+}
+
+export function evaluateV04DefaultAccess(
+  facts: V04GrayFacts,
+  videoId?: string,
+): V04DefaultAccessDecision {
+  if (facts.userStatus !== "ACTIVE") return { allowed: false, reason: "USER_NOT_ACTIVE" };
+  if (!facts.contractsActive) return { allowed: false, reason: "CONTRACT_NOT_ACTIVE" };
+  if (!videoId) return { allowed: true, reason: "GRANTED" };
+  if (!facts.video || facts.video.id !== videoId) {
+    return { allowed: false, reason: "VIDEO_NOT_FOUND" };
+  }
+  if (facts.video.dataScope !== "BUSINESS") {
+    return { allowed: false, reason: "VIDEO_NOT_BUSINESS" };
+  }
+  if (!videoHasUsableMedia(facts.video)) {
+    return { allowed: false, reason: "VIDEO_NOT_READY" };
+  }
+  return { allowed: true, reason: "GRANTED" };
 }
 
 export function evaluateV04GrayAccess(
@@ -208,6 +238,57 @@ export async function canAccessV04Gray(
   return (await decideV04GrayAccess(db, userId, videoId, environment)).allowed;
 }
 
+export async function decideV04DefaultAccess(
+  db: DbClient,
+  userId: string,
+  videoId?: string,
+) {
+  const actorFacts = await loadActorAndContractFacts(db, userId);
+  const video = videoId ? await loadVideoFacts(db, videoId) : undefined;
+  return evaluateV04DefaultAccess({ ...actorFacts, video }, videoId);
+}
+
+export async function canAccessV04Default(
+  db: DbClient,
+  userId: string,
+  videoId?: string,
+) {
+  return (await decideV04DefaultAccess(db, userId, videoId)).allowed;
+}
+
+export async function canAccessV04Surface(
+  db: DbClient,
+  userId: string,
+  videoId?: string,
+  environment: Environment = process.env,
+) {
+  return environment.V04_DEFAULT_UI_ENABLED === "true"
+    ? canAccessV04Default(db, userId, videoId)
+    : canAccessV04Gray(db, userId, videoId, environment);
+}
+
+export async function assertV04DefaultAccess(
+  db: DbClient,
+  userId: string,
+  videoId?: string,
+) {
+  const decision = await decideV04DefaultAccess(db, userId, videoId);
+  if (decision.allowed) return decision;
+  if (decision.reason === "CONTRACT_NOT_ACTIVE") {
+    throw new V04ServiceError("UNSUPPORTED_WORKFLOW", "V0.4 工作流当前未激活。", {
+      reason: decision.reason,
+    });
+  }
+  if (decision.reason.startsWith("VIDEO_")) {
+    throw new V04ServiceError("CASE_NOT_FOUND", "该案例当前不可用于 V0.4 逆向工程。", {
+      reason: decision.reason,
+    });
+  }
+  throw new V04ServiceError("FORBIDDEN", "当前稳定身份无权访问 V0.4。", {
+    reason: decision.reason,
+  });
+}
+
 export async function assertV04GrayAccess(
   db: DbClient,
   userId: string,
@@ -266,4 +347,36 @@ export async function filterV04GrayVideoIds(
     }
     return config.controlledVideoIds.has(id);
   });
+}
+
+export async function filterV04DefaultVideoIds(db: DbClient, videoIds: string[]) {
+  const candidates = [...new Set(videoIds)];
+  if (candidates.length === 0) return [];
+  const rows = await db.prepare(
+    `SELECT id,status,data_scope,object_key,file_size,deleted_at,deletion_state
+    FROM videos WHERE id IN (${candidates.map(() => "?").join(",")})`,
+  ).bind(...candidates).all<VideoFactsRow>();
+  const facts = new Map(rows.results.map((row) => [row.id, {
+    id: row.id,
+    status: row.status,
+    dataScope: row.data_scope,
+    objectKey: row.object_key,
+    fileSize: Number(row.file_size),
+    deletedAt: row.deleted_at,
+    deletionState: row.deletion_state,
+  }]));
+  return candidates.filter((id) => {
+    const video = facts.get(id);
+    return Boolean(video && video.dataScope === "BUSINESS" && videoHasUsableMedia(video));
+  });
+}
+
+export async function filterV04AccessibleVideoIds(
+  db: DbClient,
+  videoIds: string[],
+  environment: Environment = process.env,
+) {
+  return environment.V04_DEFAULT_UI_ENABLED === "true"
+    ? filterV04DefaultVideoIds(db, videoIds)
+    : filterV04GrayVideoIds(db, videoIds, environment);
 }

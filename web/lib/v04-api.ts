@@ -3,7 +3,11 @@ import { getCurrentUserFromRequest, requireSameOriginMutation } from "@/lib/curr
 import { SESSION_COOKIE } from "@/lib/auth/session";
 import { hashToken } from "@/lib/auth/security";
 import { V04ServiceError, v04ErrorResponse } from "./v04-errors";
-import { assertV04GrayAccess, v04GrayVideoIdFromRequest } from "./v04-gray-access";
+import {
+  assertV04DefaultAccess,
+  assertV04GrayAccess,
+  v04GrayVideoIdFromRequest,
+} from "./v04-gray-access";
 import type { V04Actor } from "./v04-workspace-service";
 
 function readCookie(header: string | null, name: string) {
@@ -32,7 +36,7 @@ export async function requireV04Actor(
   if (options.requireFeature !== false && process.env.V04_WORKFLOW_API_ENABLED !== "true") {
     return v04ErrorResponse(new V04ServiceError(
       "UNSUPPORTED_WORKFLOW",
-      "V0.4 工作流合同仍为 DRAFT，当前入口未激活。",
+      "V0.4 工作流当前入口未激活。",
       {},
       requestId,
     ), requestId);
@@ -89,7 +93,11 @@ export async function requireV04Actor(
       ), requestId);
     }
     try {
-      await assertV04GrayAccess(getDbClient(), user.id, videoId);
+      if (process.env.V04_DEFAULT_UI_ENABLED === "true") {
+        await assertV04DefaultAccess(getDbClient(), user.id, videoId);
+      } else {
+        await assertV04GrayAccess(getDbClient(), user.id, videoId);
+      }
     } catch (error) {
       return v04ErrorResponse(error, requestId);
     }

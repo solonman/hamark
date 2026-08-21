@@ -45,10 +45,12 @@ export default function VideoDetailClient({
   videoId,
   viewerName,
   v04DetailEnabled = false,
+  v04DefaultEnabled = false,
 }: {
   videoId: string;
   viewerName: string;
   v04DetailEnabled?: boolean;
+  v04DefaultEnabled?: boolean;
 }) {
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [analyses, setAnalyses] = useState<SubmittedAnalysis[]>([]);
@@ -362,8 +364,12 @@ export default function VideoDetailClient({
         </Link>
         <div className="detail-header-actions">
           <span>{analyses.length} 份公开分析</span>
-          <Link className="button button-accent" href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
-            {currentPublicV03 ? "继续 V0.3 逆向工程" : "开始 V0.3 逆向工程"}
+          <Link className="button button-accent" href={v04DefaultEnabled
+            ? `/videos/${videoId}/practice`
+            : `/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}>
+            {v04DefaultEnabled
+              ? "进入 V1.9 公共工作稿"
+              : (currentPublicV03 ? "继续 V0.3 逆向工程" : "开始 V0.3 逆向工程")}
           </Link>
         </div>
       </header>
@@ -485,6 +491,11 @@ export default function VideoDetailClient({
                 查看 V0.4 成果
               </a>
             ) : null}
+            {v04DefaultEnabled ? (
+              <Link className="text-button" href={`/videos/${videoId}/practice`}>
+                进入 V1.9 公共工作稿 ↗
+              </Link>
+            ) : null}
             <Link
               className="text-button"
               href={`/videos/${videoId}/practice?taxonomy=V0.3-PILOT`}
@@ -511,7 +522,9 @@ export default function VideoDetailClient({
               navigation={{
                 libraryHref: "/",
                 detailHref: `/videos/${encodeURIComponent(videoId)}`,
-                workspaceHref: `/videos/${encodeURIComponent(videoId)}/practice?taxonomy=V0.4`,
+                workspaceHref: v04DefaultEnabled
+                  ? `/videos/${encodeURIComponent(videoId)}/practice`
+                  : `/videos/${encodeURIComponent(videoId)}/practice?taxonomy=V0.4`,
                 detailLabel: "V0.4 成果",
                 workspaceLabel: "V0.4 工作稿",
               }}

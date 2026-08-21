@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  evaluateV04DefaultAccess,
   evaluateV04GrayAccess,
   hashV04GrayUserId,
   loadV04GrayConfig,
@@ -85,7 +86,29 @@ test("an explicitly approved controlled existing video stays separate from TEST_
     USER_A, controlledFacts, VIDEO_CONTROLLED).reason, "VIDEO_NOT_ALLOWED");
 });
 
-test("all official V0.4 surfaces reuse one server gray guard and deployment only opens identity proof", () => {
+test("formal default access is limited to ACTIVE actors, ACTIVE contracts and ready BUSINESS videos", () => {
+  const businessFacts: V04GrayFacts = {
+    ...activeFacts,
+    video: { ...activeFacts.video!, id: VIDEO_CONTROLLED, dataScope: "BUSINESS" },
+  };
+  assert.deepEqual(evaluateV04DefaultAccess(businessFacts, VIDEO_CONTROLLED), {
+    allowed: true,
+    reason: "GRANTED",
+  });
+  assert.equal(evaluateV04DefaultAccess({ ...businessFacts, userStatus: "DISABLED" }, VIDEO_CONTROLLED).reason,
+    "USER_NOT_ACTIVE");
+  assert.equal(evaluateV04DefaultAccess({ ...businessFacts, contractsActive: false }, VIDEO_CONTROLLED).reason,
+    "CONTRACT_NOT_ACTIVE");
+  assert.equal(evaluateV04DefaultAccess(activeFacts, VIDEO_TEST).reason, "VIDEO_NOT_BUSINESS");
+  assert.equal(evaluateV04DefaultAccess({
+    ...businessFacts,
+    video: { ...businessFacts.video!, status: "UPLOADING" },
+  }, VIDEO_CONTROLLED).reason, "VIDEO_NOT_READY");
+  assert.equal(evaluateV04DefaultAccess({ ...businessFacts, video: null }, VIDEO_CONTROLLED).reason,
+    "VIDEO_NOT_FOUND");
+});
+
+test("official V0.4 surfaces use formal access while preserving the closed gray fallback", () => {
   const api = readFileSync(new URL("../lib/v04-api.ts", import.meta.url), "utf8");
   const gray = readFileSync(new URL("../lib/v04-gray-access.ts", import.meta.url), "utf8");
   const practice = readFileSync(new URL("../app/videos/[id]/practice/page.tsx", import.meta.url), "utf8");
@@ -93,6 +116,7 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment only
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const cards = readFileSync(new URL("../app/api/videos/analysis/v04/cards/route.ts", import.meta.url), "utf8");
   const deployment = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.match(api, /assertV04DefaultAccess/);
   assert.match(api, /assertV04GrayAccess/);
   assert.match(api, /v04GrayVideoIdFromRequest/);
   assert.match(gray, /V04_GRAY_USER_ID_SHA256S/);
@@ -102,11 +126,19 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment only
   assert.match(gray, /V04_GRAY_TEST_VIDEO_IDS/);
   assert.match(gray, /V04_GRAY_CONTROLLED_VIDEO_IDS/);
   assert.doesNotMatch(gray, /displayName|display_name|app_admins/);
-  assert.match(practice, /canAccessV04Gray\(getDbClient\(\), user\.id, id\)/);
-  assert.match(detail, /canAccessV04Gray\(getDbClient\(\), user\.id, id\)/);
-  assert.match(home, /canAccessV04Gray\(getDbClient\(\), user\.id\)/);
-  assert.match(cards, /filterV04GrayVideoIds/);
-  assert.deepEqual(deployment.env, { V04_GRAY_IDENTITY_DIGEST_ENABLED: "true" });
+  assert.match(practice, /canAccessV04Surface\(getDbClient\(\), user\.id, id\)/);
+  assert.match(detail, /canAccessV04Surface\(getDbClient\(\), user\.id, id\)/);
+  assert.match(home, /canAccessV04Surface\(getDbClient\(\), user\.id\)/);
+  assert.match(cards, /filterV04AccessibleVideoIds/);
+  assert.deepEqual(deployment.env, {
+    V04_DEFAULT_UI_ENABLED: "true",
+    V04_WORKFLOW_API_ENABLED: "true",
+    V04_WORKFLOW_UI_ENABLED: "true",
+    V04_DETAIL_UI_ENABLED: "true",
+    V04_LIBRARY_UI_ENABLED: "true",
+  });
+  assert.equal("V04_GRAY_IDENTITY_DIGEST_ENABLED" in deployment.env, false);
+  assert.equal("V04_GRAY_ROLLOUT_ENABLED" in deployment.env, false);
 });
 
 test("identity digest is deterministic and the self-service proof page never renders stable ids", () => {
