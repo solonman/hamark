@@ -11,6 +11,10 @@ import {
 } from "../lib/v04-gray-test-object.ts";
 import { V04_GRAY_TEST_MEDIA, v04GrayTestMediaBytes } from "../lib/v04-gray-test-media.ts";
 import { V04ServiceError } from "../lib/v04-errors.ts";
+import {
+  V04_GRAY_TEST_OBJECT_REASON_CLASSES,
+  normalizeV04GrayTestObjectReasonClass,
+} from "../lib/v04-gray-test-object-contract.ts";
 
 test("approved gray media is a frozen locally generated non-business clip", () => {
   const bytes = v04GrayTestMediaBytes();
@@ -143,6 +147,7 @@ test("preview failures expose only stable non-sensitive stages", async () => {
   assert.match(service, /new V04ServiceError\([\s\S]*?"INTERNAL_ERROR"[\s\S]*?reasonClass \? \{ stage, reasonClass \} : \{ stage \}/);
   assert.doesNotMatch(service, /error\.message|error\.stack|String\(error\)/);
   assert.match(client, /诊断：\$\{context\}/);
+  assert.match(client, /normalizeV04GrayTestObjectReasonClass/);
   assert.doesNotMatch(client, /console\.|localStorage|sessionStorage/);
 
   const sensitiveFailure = "database host and credential must never escape";
@@ -172,4 +177,29 @@ test("preview failures expose only stable non-sensitive stages", async () => {
       return true;
     },
   );
+});
+
+test("browser diagnostics expose only allowlisted COS reason classes", () => {
+  assert.deepEqual(V04_GRAY_TEST_OBJECT_REASON_CLASSES, [
+    "NOT_FOUND",
+    "AUTHORIZATION",
+    "SERVER",
+    "NETWORK",
+    "UNKNOWN",
+  ]);
+  for (const value of V04_GRAY_TEST_OBJECT_REASON_CLASSES) {
+    assert.equal(normalizeV04GrayTestObjectReasonClass(value), value);
+  }
+  assert.equal(normalizeV04GrayTestObjectReasonClass(undefined), null);
+  assert.equal(normalizeV04GrayTestObjectReasonClass(null), null);
+  for (const untrusted of [
+    "SignatureDoesNotMatch: secret detail",
+    "https://private.example/object-key",
+    "AccessDenied raw response",
+    "",
+    403,
+    { reason: "network detail" },
+  ]) {
+    assert.equal(normalizeV04GrayTestObjectReasonClass(untrusted), "UNKNOWN");
+  }
 });

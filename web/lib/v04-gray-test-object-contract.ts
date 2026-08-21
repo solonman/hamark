@@ -1,6 +1,26 @@
 export const V04_GRAY_TEST_OBJECT_CONFIRMATION =
   "我确认仅创建一个隐藏的 V0.4 TEST_ONLY 灰度测试视频";
 
+export const V04_GRAY_TEST_OBJECT_REASON_CLASSES = [
+  "NOT_FOUND",
+  "AUTHORIZATION",
+  "SERVER",
+  "NETWORK",
+  "UNKNOWN",
+] as const;
+export type V04GrayTestObjectReasonClass =
+  typeof V04_GRAY_TEST_OBJECT_REASON_CLASSES[number];
+
+export function normalizeV04GrayTestObjectReasonClass(
+  value: unknown,
+): V04GrayTestObjectReasonClass | null {
+  if (value === undefined || value === null) return null;
+  return typeof value === "string"
+    && V04_GRAY_TEST_OBJECT_REASON_CLASSES.includes(value as V04GrayTestObjectReasonClass)
+    ? value as V04GrayTestObjectReasonClass
+    : "UNKNOWN";
+}
+
 export type V04GrayTestObjectPreview = {
   mode: "TEST_ONLY_GRAY_MEDIA";
   ready: boolean;

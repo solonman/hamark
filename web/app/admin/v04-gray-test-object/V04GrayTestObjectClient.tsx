@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   V04_GRAY_TEST_OBJECT_CONFIRMATION,
+  normalizeV04GrayTestObjectReasonClass,
   type V04GrayTestObjectApplyResult,
   type V04GrayTestObjectPreview,
 } from "@/lib/v04-gray-test-object-contract";
@@ -12,12 +13,13 @@ import styles from "../v04-schema/page.module.css";
 type ApiResponse = {
   preview?: V04GrayTestObjectPreview;
   result?: V04GrayTestObjectApplyResult;
-  error?: { code?: string; message?: string; details?: { stage?: string } };
+  error?: { code?: string; message?: string; details?: { stage?: string; reasonClass?: unknown } };
 };
 
 function diagnosticError(error: ApiResponse["error"], fallback: string) {
   const message = error?.message || fallback;
-  const context = [error?.code, error?.details?.stage].filter(Boolean).join(" / ");
+  const reasonClass = normalizeV04GrayTestObjectReasonClass(error?.details?.reasonClass);
+  const context = [error?.code, error?.details?.stage, reasonClass].filter(Boolean).join(" / ");
   return context ? `${message}（诊断：${context}）` : message;
 }
 
