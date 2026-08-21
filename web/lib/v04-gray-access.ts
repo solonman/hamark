@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { DbClient, QueryResultRow } from "@/db";
 import {
   V04_TAXONOMY_VERSION,
@@ -11,7 +12,7 @@ type Environment = Record<string, string | undefined>;
 export type V04GrayConfig = {
   enabled: boolean;
   valid: boolean;
-  stableUserIds: ReadonlySet<string>;
+  stableUserIdSha256s: ReadonlySet<string>;
   testVideoIds: ReadonlySet<string>;
   controlledVideoIds: ReadonlySet<string>;
 };
@@ -46,6 +47,23 @@ export type V04GrayDecision = {
 
 const STABLE_USER_ID = /^user_[A-Za-z0-9_-]{8,}$/;
 const STABLE_VIDEO_ID = /^video_[A-Za-z0-9_-]{8,}$/;
+const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+
+export function hashV04GrayUserId(userId: string) {
+  if (!STABLE_USER_ID.test(userId)) {
+    throw new V04ServiceError("FORBIDDEN", "当前稳定身份不符合灰度摘要合同。");
+  }
+  return createHash("sha256").update(`hamark:v04:gray-user:v1\0${userId}`, "utf8").digest("hex");
+}
+
+function digestAllowlistContains(config: V04GrayConfig, userId: string) {
+  const actual = Buffer.from(hashV04GrayUserId(userId), "hex");
+  let matched = 0;
+  for (const digest of config.stableUserIdSha256s) {
+    matched |= Number(timingSafeEqual(actual, Buffer.from(digest, "hex")));
+  }
+  return matched === 1;
+}
 
 function parseIds(value: string | undefined, pattern: RegExp) {
   const raw = (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
@@ -57,7 +75,7 @@ function parseIds(value: string | undefined, pattern: RegExp) {
 }
 
 export function loadV04GrayConfig(environment: Environment = process.env): V04GrayConfig {
-  const users = parseIds(environment.V04_GRAY_USER_IDS, STABLE_USER_ID);
+  const users = parseIds(environment.V04_GRAY_USER_ID_SHA256S, SHA256_DIGEST);
   const testVideos = parseIds(environment.V04_GRAY_TEST_VIDEO_IDS, STABLE_VIDEO_ID);
   const controlledVideos = parseIds(environment.V04_GRAY_CONTROLLED_VIDEO_IDS, STABLE_VIDEO_ID);
   const enabled = environment.V04_GRAY_ROLLOUT_ENABLED === "true";
@@ -66,7 +84,7 @@ export function loadV04GrayConfig(environment: Environment = process.env): V04Gr
     valid: users.valid && testVideos.valid && controlledVideos.valid
       && users.ids.size > 0
       && (testVideos.ids.size + controlledVideos.ids.size) > 0,
-    stableUserIds: users.ids,
+    stableUserIdSha256s: users.ids,
     testVideoIds: testVideos.ids,
     controlledVideoIds: controlledVideos.ids,
   };
@@ -88,7 +106,9 @@ export function evaluateV04GrayAccess(
 ): V04GrayDecision {
   if (!config.enabled) return { allowed: false, reason: "GATE_CLOSED" };
   if (!config.valid) return { allowed: false, reason: "INVALID_ALLOWLIST" };
-  if (!config.stableUserIds.has(userId)) return { allowed: false, reason: "USER_NOT_ALLOWED" };
+  if (!digestAllowlistContains(config, userId)) {
+    return { allowed: false, reason: "USER_NOT_ALLOWED" };
+  }
   if (facts.userStatus !== "ACTIVE") return { allowed: false, reason: "USER_NOT_ACTIVE" };
   if (!facts.contractsActive) return { allowed: false, reason: "CONTRACT_NOT_ACTIVE" };
   if (!videoId) return { allowed: true, reason: "GRANTED" };
@@ -164,7 +184,7 @@ export async function decideV04GrayAccess(
   environment: Environment = process.env,
 ) {
   const config = loadV04GrayConfig(environment);
-  if (!config.enabled || !config.valid || !config.stableUserIds.has(userId)) {
+  if (!config.enabled || !config.valid || !digestAllowlistContains(config, userId)) {
     return evaluateV04GrayAccess(config, userId, { userStatus: null, contractsActive: false }, videoId);
   }
   const actorFacts = await loadActorAndContractFacts(db, userId);
@@ -231,9 +251,12 @@ export async function filterV04GrayVideoIds(
     deletedAt: row.deleted_at,
     deletionState: row.deletion_state,
   }]));
-  return candidates.filter((id) => evaluateV04GrayAccess(config, [...config.stableUserIds][0], {
-    userStatus: "ACTIVE",
-    contractsActive: true,
-    video: facts.get(id) ?? null,
-  }, id).allowed);
+  return candidates.filter((id) => {
+    const video = facts.get(id);
+    if (!video || !videoHasUsableMedia(video)) return false;
+    if (config.testVideoIds.has(id) && !config.controlledVideoIds.has(id)) {
+      return video.dataScope === "TEST_ONLY";
+    }
+    return config.controlledVideoIds.has(id);
+  });
 }

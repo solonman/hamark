@@ -13,7 +13,7 @@
 必须同时满足：
 
 1. `V04_GRAY_ROLLOUT_ENABLED=true`；
-2. 当前 `users.id` 精确出现在 `V04_GRAY_USER_IDS`，且该用户仍为 `ACTIVE`；
+2. 服务端对当前 `users.id` 计算规范化 SHA-256 摘要，并以恒定时间比较精确命中 `V04_GRAY_USER_ID_SHA256S`；当前用户仍须为 `ACTIVE`；
 3. taxonomy、vocabulary、workflow 三份冻结合同均精确 `ACTIVE`；
 4. 目标 `videos.id` 精确出现在下列一类 allowlist：
    - `V04_GRAY_TEST_VIDEO_IDS`：数据库 `data_scope` 还必须为 `TEST_ONLY`；
@@ -27,12 +27,14 @@
 
 以下四项必须有非敏感稳定引用，缺一即停止：
 
-- 当前稳定管理员 `users.id`；
-- 第二稳定身份 `users.id`；
+- 当前稳定管理员由本人登录会话生成的身份 SHA-256 摘要；
+- 第二稳定身份由本人登录会话生成的身份 SHA-256 摘要；
 - 受控视频 `videos.id`；
 - 视频审批来源、`data_scope`、READY/媒体存在性的脱敏只读证据。
 
 禁止使用显示姓名、Mock/fixture ID、同一用户双tab、普通41案例、历史演示案例或本机TEST_ONLY对象代替。工程仓库截至本手册创建时没有第二稳定身份引用；受控媒体只能通过下一节的专用生产 TEST_ONLY 工具，在当次浏览器安全确认后创建，不能借用普通业务视频。
+
+身份摘要证明页为 `/v04-gray-identity`，由独立 `V04_GRAY_IDENTITY_DIGEST_ENABLED` 默认关闭开关保护。每个同事必须用本人企微登录会话打开；页面只返回其本人摘要、短摘要和ACTIVE判断，不渲染原始`users.id`、显示姓名、邮箱或identity key。摘要可登记到服务器配置，但原始稳定ID不得写入Git、`vercel.json`、DOM、URL、日志、截图、测试快照、证据或文档。不得根据显示姓名、首次登录时间或邮箱推断第二身份。
 
 ### 2.1 专用生产 TEST_ONLY 媒体对象
 
@@ -74,7 +76,7 @@ PREVIEW 是 same-origin、稳定 SYSTEM_ADMIN 的 POST，但只读数据库和�
 {
   "env": {
     "V04_GRAY_ROLLOUT_ENABLED": "true",
-    "V04_GRAY_USER_IDS": "<approved-stable-user-id-1>,<approved-stable-user-id-2>",
+    "V04_GRAY_USER_ID_SHA256S": "<approved-user-sha256-1>,<approved-user-sha256-2>",
     "V04_GRAY_TEST_VIDEO_IDS": "<approved-test-video-id>",
     "V04_GRAY_CONTROLLED_VIDEO_IDS": "",
     "V04_WORKFLOW_API_ENABLED": "true",
@@ -112,7 +114,7 @@ PREVIEW 是 same-origin、稳定 SYSTEM_ADMIN 的 POST，但只读数据库和�
 
 ## 七、最小关闭与回滚
 
-回滚只以独立提交删除 `V04_GRAY_*`、`V04_WORKFLOW_API_ENABLED`、`V04_WORKFLOW_UI_ENABLED`、`V04_DETAIL_UI_ENABLED`、`V04_LIBRARY_UI_ENABLED`。验证并部署后：
+回滚只以独立提交删除 `V04_GRAY_*`、`V04_WORKFLOW_API_ENABLED`、`V04_WORKFLOW_UI_ENABLED`、`V04_DETAIL_UI_ENABLED`、`V04_LIBRARY_UI_ENABLED`。身份摘要证明开关也必须恢复关闭。验证并部署后：
 
 - V0.4 API/UI/detail/library立即fail-closed，默认V0.3恢复；
 - 不删除 additive schema、ACTIVE合同、schema ledger、V0.4草稿、submission、lease历史、comment、expert release或V0.2/V0.3；

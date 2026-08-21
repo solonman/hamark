@@ -67,7 +67,7 @@ npm run verify:v03-local
 
 该验证只允许连接 `LOCAL_DEMO_MODE=1` 的本机回环地址，会发布一份 V0.3 演示快照，并自动断言 V0.2 作业内容与修订号均未改变。
 
-V0.4 小范围灰度和专用 TEST_ONLY 媒体工具均为默认关闭的暗能力。灰度只接受显式稳定 `users.id` 与显式 `videos.id`；不接受姓名、标签或通配符。专用媒体工具位于 `/admin/v04-gray-test-object`，只允许稳定 SYSTEM_ADMIN 使用固定哈希的本机生成测试片，且生产创建动作必须取得当次浏览器安全确认。工具关闭、页面加载、构建和部署都不会创建对象或数据库行。详细门禁、开启及回滚步骤见 `docs/V04_R5_GATE2_GRAY_ROLLOUT_RUNBOOK_V1.0_20260821.md`。
+V0.4 小范围灰度和专用 TEST_ONLY 媒体工具均为默认关闭的暗能力。灰度只接受当前稳定 `users.id` 的服务器端 SHA-256 摘要与显式 `videos.id`；不接受原始用户ID、姓名、标签或通配符。本人身份摘要证明页 `/v04-gray-identity` 也由独立开关默认关闭，只显示当前登录者自己的不可逆摘要与ACTIVE状态。专用媒体工具位于 `/admin/v04-gray-test-object`，只允许稳定 SYSTEM_ADMIN 使用固定哈希的本机生成测试片，且生产创建动作必须取得当次浏览器安全确认。工具关闭、页面加载、构建和部署都不会创建对象或数据库行。详细门禁、开启及回滚步骤见 `docs/V04_R5_GATE2_GRAY_ROLLOUT_RUNBOOK_V1.0_20260821.md`。
 
 历史视频缩略图回填需要在有生产环境变量和 `ffmpeg` 的机器上执行。脚本会先确保 `thumbnail_key` 字段存在，再为 `READY` 且缺少封面的历史视频生成 `1600px` 宽度上限的 JPEG 封面并上传到 COS：
 

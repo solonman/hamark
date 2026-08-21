@@ -15,7 +15,7 @@ import type {
   V04DraftPayloadV1,
 } from "../lib/v04-contract.ts";
 import { V04ServiceError } from "../lib/v04-errors.ts";
-import { assertV04GrayAccess } from "../lib/v04-gray-access.ts";
+import { assertV04GrayAccess, hashV04GrayUserId } from "../lib/v04-gray-access.ts";
 import {
   applyV04GrayTestObject,
   previewV04GrayTestObject,
@@ -400,7 +400,8 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
       ).bind("2026-08-19T12:00:00.000Z").run();
       const grayEnvironment = {
         V04_GRAY_ROLLOUT_ENABLED: "true",
-        V04_GRAY_USER_IDS: `${actors.a.userId},${actors.b.userId}`,
+        V04_GRAY_USER_ID_SHA256S:
+          `${hashV04GrayUserId(actors.a.userId)},${hashV04GrayUserId(actors.b.userId)}`,
         V04_GRAY_TEST_VIDEO_IDS: `${videoId},${emptyVideoId}`,
         V04_GRAY_CONTROLLED_VIDEO_IDS: "",
       };

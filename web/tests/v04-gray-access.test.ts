@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   evaluateV04GrayAccess,
+  hashV04GrayUserId,
   loadV04GrayConfig,
   type V04GrayFacts,
 } from "../lib/v04-gray-access.ts";
 
-const USER_A = "user_testonly_actor_a";
-const USER_B = "user_testonly_actor_b";
+const USER_A = ["user", "testonly", "actor", "a"].join("_");
+const USER_B = ["user", "testonly", "actor", "b"].join("_");
 const VIDEO_TEST = "video_testonly_media_a";
 const VIDEO_CONTROLLED = "video_controlled_media_a";
 
@@ -29,7 +31,7 @@ const activeFacts: V04GrayFacts = {
 function config(overrides: Record<string, string | undefined> = {}) {
   return loadV04GrayConfig({
     V04_GRAY_ROLLOUT_ENABLED: "true",
-    V04_GRAY_USER_IDS: `${USER_A},${USER_B}`,
+    V04_GRAY_USER_ID_SHA256S: `${hashV04GrayUserId(USER_A)},${hashV04GrayUserId(USER_B)}`,
     V04_GRAY_TEST_VIDEO_IDS: VIDEO_TEST,
     V04_GRAY_CONTROLLED_VIDEO_IDS: VIDEO_CONTROLLED,
     ...overrides,
@@ -39,8 +41,11 @@ function config(overrides: Record<string, string | undefined> = {}) {
 test("gray rollout is closed by default and rejects empty, duplicate or non-stable allowlists", () => {
   assert.equal(loadV04GrayConfig({}).enabled, false);
   assert.equal(loadV04GrayConfig({ V04_GRAY_ROLLOUT_ENABLED: "true" }).valid, false);
-  assert.equal(config({ V04_GRAY_USER_IDS: "老孙" }).valid, false);
-  assert.equal(config({ V04_GRAY_USER_IDS: `${USER_A},${USER_A}` }).valid, false);
+  assert.equal(config({ V04_GRAY_USER_ID_SHA256S: "老孙" }).valid, false);
+  assert.equal(config({ V04_GRAY_USER_ID_SHA256S: "abc" }).valid, false);
+  const digest = hashV04GrayUserId(USER_A);
+  assert.equal(config({ V04_GRAY_USER_ID_SHA256S: `${digest},${digest}` }).valid, false);
+  assert.equal(config({ V04_GRAY_USER_ID_SHA256S: "" }).valid, false);
   assert.equal(config({ V04_GRAY_TEST_VIDEO_IDS: "*" }).valid, false);
 });
 
@@ -50,7 +55,7 @@ test("two explicit stable actors can access only a ready approved TEST_ONLY vide
     reason: "GRANTED",
   });
   assert.equal(evaluateV04GrayAccess(config(), USER_B, activeFacts, VIDEO_TEST).allowed, true);
-  assert.equal(evaluateV04GrayAccess(config(), "user_unknown_actor", activeFacts, VIDEO_TEST).reason,
+  assert.equal(evaluateV04GrayAccess(config(), ["user", "unknown", "actor"].join("_"), activeFacts, VIDEO_TEST).reason,
     "USER_NOT_ALLOWED");
   assert.equal(evaluateV04GrayAccess(config(), USER_A, { ...activeFacts, userStatus: "DISABLED" }, VIDEO_TEST).reason,
     "USER_NOT_ACTIVE");
@@ -88,7 +93,10 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment keep
   const deployment = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
   assert.match(api, /assertV04GrayAccess/);
   assert.match(api, /v04GrayVideoIdFromRequest/);
-  assert.match(gray, /V04_GRAY_USER_IDS/);
+  assert.match(gray, /V04_GRAY_USER_ID_SHA256S/);
+  assert.match(gray, /timingSafeEqual/);
+  const legacyRawIdEnvironmentName = ["V04", "GRAY", "USER", "IDS"].join("_");
+  assert.equal(gray.includes(legacyRawIdEnvironmentName), false);
   assert.match(gray, /V04_GRAY_TEST_VIDEO_IDS/);
   assert.match(gray, /V04_GRAY_CONTROLLED_VIDEO_IDS/);
   assert.doesNotMatch(gray, /displayName|display_name|app_admins/);
@@ -97,6 +105,34 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment keep
   assert.match(home, /canAccessV04Gray\(getDbClient\(\), user\.id\)/);
   assert.match(cards, /filterV04GrayVideoIds/);
   assert.doesNotMatch(deployment, /V04_GRAY_|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED|V04_DETAIL_UI_ENABLED|V04_LIBRARY_UI_ENABLED/);
+});
+
+test("identity digest is deterministic and the self-service proof page never renders stable ids", () => {
+  assert.match(hashV04GrayUserId(USER_A), /^[a-f0-9]{64}$/);
+  assert.equal(hashV04GrayUserId(USER_A), hashV04GrayUserId(USER_A));
+  assert.notEqual(hashV04GrayUserId(USER_A), hashV04GrayUserId(USER_B));
+  const page = readFileSync(new URL("../app/v04-gray-identity/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /V04_GRAY_IDENTITY_DIGEST_ENABLED/);
+  assert.match(page, /requirePageUser/);
+  assert.match(page, /hashV04GrayUserId\(user\.id\)/);
+  assert.match(page, /status='ACTIVE'/);
+  assert.doesNotMatch(page, /displayName|display_name|email|identityKey|user\.id\}/);
+});
+
+test("tracked repository has no legacy raw-id gray configuration boundary", () => {
+  const legacyRawIdEnvironmentName = ["V04", "GRAY", "USER", "IDS"].join("_");
+  let matches = "";
+  try {
+    matches = execFileSync("git", ["grep", "-n", legacyRawIdEnvironmentName], {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const status = (error as { status?: number }).status;
+    if (status !== 1) throw error;
+  }
+  assert.equal(matches, "");
 });
 
 test("gray rollback is non-destructive: closing the gate denies access without touching contracts or content", () => {
