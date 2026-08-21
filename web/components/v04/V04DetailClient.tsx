@@ -45,6 +45,8 @@ export type V04DetailNavigation = {
   workspaceHref: string;
   detailLabel?: string;
   workspaceLabel?: string;
+  compatibilityLinks?: Array<{ href: string; label: string }>;
+  managementHref?: string;
 };
 
 const shadowNavigation = (videoId: string): V04DetailNavigation => ({
@@ -94,7 +96,7 @@ export default function V04DetailClient({
   if (error) return <section className={shellClassName} data-v04-page="detail" data-v04-embedded={embedded || undefined}><section className={styles.emptyState}><h2>成果读取失败</h2><p>{error}</p><Link href={navigation.libraryHref}>返回案例库</Link></section></section>;
   if (!item || !model) return <section className={shellClassName} data-v04-page="detail" data-v04-embedded={embedded || undefined}><section className={styles.emptyState}><h2>正在读取案例成果…</h2></section></section>;
   const content = <>
-    {!embedded ? <header className={styles.productHeader} data-v04-fixed-header><Link href={navigation.libraryHref} className={styles.wordmark}>← 案例库</Link><nav><Link href={navigation.detailHref}>{navigation.detailLabel ?? "只读成果"}</Link><Link href={navigation.workspaceHref}>{navigation.workspaceLabel ?? "编辑工作稿"}</Link><button onClick={() => setHistory(true)}>历史版本</button></nav><span>{viewerName}</span></header> : null}
+    {!embedded ? <header className={styles.productHeader} data-v04-fixed-header><Link href={navigation.libraryHref} className={styles.wordmark}>← 案例库</Link><nav><Link href={navigation.detailHref}>{navigation.detailLabel ?? "只读成果"}</Link><Link href={navigation.workspaceHref}>{navigation.workspaceLabel ?? "编辑工作稿"}</Link>{navigation.compatibilityLinks?.map((link) => <Link href={link.href} key={link.href}>{link.label}</Link>)}{navigation.managementHref ? <Link href={navigation.managementHref}>视频管理</Link> : null}<button onClick={() => setHistory(true)}>历史版本</button></nav><span>{viewerName}</span></header> : null}
     <section className={embedded ? styles.embeddedIntro : styles.detailIntro}><p>V0.4 案例分析</p>{!embedded ? <h1>{item.title}</h1> : <h2>当前 V0.4 成果</h2>}<div><span>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade && <b>专家优选 {item.expertGrade}</b>}</div>{!embedded ? <p>{item.description}</p> : null}{model.expertPreferredSubmission && model.latestSubmission && <div><button type="button" onClick={() => setVersionView("LATEST")} disabled={versionView === "LATEST"}>最新提交 V{model.latestSubmission.submissionNumber}</button><button type="button" onClick={() => setVersionView("EXPERT")} disabled={versionView === "EXPERT"}>专家优选 V{model.expertPreferredSubmission.submissionNumber}</button></div>}<div className={styles.embeddedActions}><Link href={navigation.workspaceHref}>{draft ? "继续 V0.4 工作稿" : "开始 V0.4 工作稿"}</Link><button type="button" onClick={() => setHistory(true)}>历史版本</button><button type="button" onClick={() => setComments(true)}>批注任务</button></div></section>
     {showVideo ? <V04VideoPlayer caseId={item.id} title={item.title} surface="detail" media={item.media ?? null} /> : null}
     {!draft ? <section className={styles.emptyState}><h2>尚无已提交成果</h2><p>此页仅查看提交成果，不展示填写控件、固定选项或条件交互。</p><Link href={navigation.workspaceHref}>开始公共工作稿</Link></section> : <div className={styles.readingBody}>

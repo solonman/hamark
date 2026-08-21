@@ -6,23 +6,27 @@ import { V04_UI_STATE_LABELS } from "../lib/v04-ui-model.ts";
 
 const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("existing library remains the sole catalog and conditionally adds V0.4 projections", async () => {
-  const [page, home, deployment] = await Promise.all([
+test("the existing video catalog feeds the standalone formal V1.9 library", async () => {
+  const [page, library, home, deployment] = await Promise.all([
     source("../app/page.tsx"),
+    source("../components/v04/V04LibraryClient.tsx"),
     source("../app/components/HomeClient.tsx"),
     source("../vercel.json"),
   ]);
   assert.match(page, /process\.env\.V04_LIBRARY_UI_ENABLED === "true"/);
   assert.match(page, /process\.env\.V04_DEFAULT_UI_ENABLED === "true"/);
-  assert.match(home, /fetch\("\/api\/videos"/);
-  assert.match(home, /v04UiApi\.cards\([\s\S]*nextVideos\.map\(\(video\) => video\.id\)/);
-  assert.match(home, /v04LibraryEnabled \? \([\s\S]*<V04CardProjection/);
-  assert.match(home, /\/videos\/\$\{encodedId\}#v04-analysis/);
-  assert.match(home, /\/videos\/\$\{encodedId\}\/practice\?taxonomy=V0\.4/);
-  assert.match(home, /V0\.3 兼容入口/);
-  assert.match(home, /V0\.4 状态暂时无法读取，片库仍可正常使用/);
+  assert.match(page, /if \(v04DefaultEnabled && v04LibraryEnabled\)[\s\S]*<V04LibraryClient[\s\S]*formal/);
+  assert.match(library, /fetch\("\/api\/videos"/);
+  assert.match(library, /v04UiApi\.cards\(videos\.map\(\(video\) => video\.id\)/);
+  assert.match(library, /const detailHref[\s\S]*formal[\s\S]*`\/videos\/\$\{encodeURIComponent\(videoId\)\}`/);
+  assert.match(library, /const workspaceHref[\s\S]*formal[\s\S]*`\/videos\/\$\{encodeURIComponent\(videoId\)\}\/practice`/);
+  assert.match(library, /video\.thumbnailUrl/);
+  assert.match(library, /<UploadDialog/);
+  assert.match(library, /\/admin\/v02-v03-batch-mapping/);
+  assert.match(library, /<UserMenu user=\{user\}/);
+  assert.match(library, /\?taxonomy=V0\.3-PILOT/);
+  assert.match(library, /data-v04-page="library"/);
   assert.match(home, /<UploadDialog/);
-  assert.match(home, /video\.tags\.slice\(0, 4\)/);
   assert.match(deployment, /"V04_LIBRARY_UI_ENABLED": "true"/);
   assert.match(deployment, /"V04_DEFAULT_UI_ENABLED": "true"/);
   assert.deepEqual(Object.values(V04_UI_STATE_LABELS), [

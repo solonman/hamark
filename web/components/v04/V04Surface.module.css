@@ -60,6 +60,9 @@
 .productHeader nav a:hover, .productHeader nav button:hover, .saveCluster button:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .productHeader > div { display: flex; align-items: center; gap: 9px; }
 .productHeader > div > b { color: var(--v04-accent); font-size: 10px; letter-spacing: .08em; }
+.productHeader :global(.user-menu-trigger) { border-color: var(--v04-line); background: var(--v04-panel); color: var(--v04-ink); }
+.productHeader :global(.user-menu-popover) { border-color: var(--v04-line); background: var(--v04-panel); color: var(--v04-ink); }
+.productHeader :global(.user-menu-popover button) { background: var(--v04-accent); color: #111; }
 .wordmark { font-weight: 900; letter-spacing: -.03em; }
 .wordmark small { margin-left: 8px; color: var(--v04-muted); font-size: 10px; }
 .saveCluster span { color: var(--v04-muted); font-size: 11px; }
@@ -77,6 +80,7 @@
 .caseCard { min-width: 0; }
 .poster { position: relative; display: flex; aspect-ratio: 16 / 9; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 16px; background: radial-gradient(circle at 24% 22%, #4c503e, #1c1d19 42%, #0b0c0a); }
 .poster::after { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(0,0,0,.62)); content: ""; }
+.posterImage { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .poster > span, .poster > small { position: absolute; z-index: 1; bottom: 14px; font-size: 10px; }
 .poster > span { left: 16px; letter-spacing: .08em; }
 .poster > small { right: 16px; }

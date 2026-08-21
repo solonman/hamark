@@ -3,6 +3,7 @@ import { getDbClient } from "@/db";
 import { isAppAdmin } from "@/lib/admin";
 import { requirePageUser } from "@/lib/current-user";
 import { canAccessV04Surface } from "@/lib/v04-gray-access";
+import V04LibraryClient from "@/components/v04/V04LibraryClient";
 import HomeClient from "./components/HomeClient";
 
 export const metadata: Metadata = {
@@ -16,16 +17,27 @@ export default async function Home() {
   const v04DefaultEnabled = process.env.V04_DEFAULT_UI_ENABLED === "true";
   const v04LibraryEnabled = process.env.V04_LIBRARY_UI_ENABLED === "true"
     && await canAccessV04Surface(getDbClient(), user.id);
+  const userView = {
+    displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
+    departmentName:
+      user.departments.find((item) => item.isPrimary)?.name ??
+      user.departments[0]?.name ??
+      null,
+  };
+  if (v04DefaultEnabled && v04LibraryEnabled) {
+    return (
+      <V04LibraryClient
+        viewerName={user.displayName}
+        user={userView}
+        isAdmin={isAdmin}
+        formal
+      />
+    );
+  }
   return (
     <HomeClient
-      user={{
-        displayName: user.displayName,
-        avatarUrl: user.avatarUrl,
-        departmentName:
-          user.departments.find((item) => item.isPrimary)?.name ??
-          user.departments[0]?.name ??
-          null,
-      }}
+      user={userView}
       isAdmin={isAdmin}
       v04LibraryEnabled={v04LibraryEnabled}
       v04DefaultEnabled={v04DefaultEnabled}
