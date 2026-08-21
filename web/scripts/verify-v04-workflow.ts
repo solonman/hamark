@@ -15,6 +15,13 @@ import type {
   V04DraftPayloadV1,
 } from "../lib/v04-contract.ts";
 import { V04ServiceError } from "../lib/v04-errors.ts";
+import { assertV04GrayAccess } from "../lib/v04-gray-access.ts";
+import {
+  applyV04GrayTestObject,
+  previewV04GrayTestObject,
+  V04_GRAY_TEST_OBJECT_CONFIRMATION,
+} from "../lib/v04-gray-test-object.ts";
+import { V04_GRAY_TEST_MEDIA } from "../lib/v04-gray-test-media.ts";
 import {
   loadV04CaseCardReadModel,
   loadV04CaseDetailReadModel,
@@ -37,12 +44,57 @@ import {
 } from "../lib/v04-workspace-service.ts";
 import { restoreVideo, trashVideo } from "../lib/v04-video-lifecycle.ts";
 import { parseV04SchemaTestConfig } from "./verify-v04-schema.ts";
+import type { ObjectBody, PresignedPutOptions, VideoBucket } from "../storage/types.ts";
 
 const { Client, Pool } = pg;
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const sha256 = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 
 type Environment = Record<string, string | undefined>;
+
+class MemoryVideoBucket implements VideoBucket {
+  readonly objects = new Map<string, Uint8Array>();
+
+  async createPresignedPutUrl(key: string, options: PresignedPutOptions) {
+    void options;
+    return `memory://put/${key}`;
+  }
+
+  async createPresignedGetUrl(key: string) {
+    return `memory://get/${key}`;
+  }
+
+  async put(key: string, body: ObjectBody) {
+    if (body instanceof Uint8Array) this.objects.set(key, body.slice());
+    else if (body instanceof Blob) this.objects.set(key, new Uint8Array(await body.arrayBuffer()));
+    else this.objects.set(key, new Uint8Array(await new Response(body).arrayBuffer()));
+  }
+
+  async head(key: string) {
+    const value = this.objects.get(key);
+    return value ? { size: value.byteLength, httpEtag: `memory-${value.byteLength}` } : null;
+  }
+
+  async get(key: string, options?: { range?: { offset: number; length: number } }) {
+    const value = this.objects.get(key);
+    if (!value) return { body: null };
+    const selected = options?.range
+      ? value.slice(options.range.offset, options.range.offset + options.range.length)
+      : value;
+    return {
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(selected));
+          controller.close();
+        },
+      }),
+    };
+  }
+
+  async delete(key: string) {
+    this.objects.delete(key);
+  }
+}
 
 async function publicFingerprint(client: pg.Client) {
   const result = await client.query<{ line: string }>(`
@@ -232,10 +284,10 @@ async function seed(db: DbClient, runId: string) {
     await db.prepare(
       `INSERT INTO videos (
         id, title, brand, description, tags_json, object_key, original_name,
-        status, rights_confirmed, created_by_email, created_by_name,
+        file_size, status, rights_confirmed, created_by_email, created_by_name,
         created_by_user_id, data_scope, test_run_id, created_at, updated_at,
         deletion_state
-      ) VALUES (?, ?, 'TEST_ONLY', '', '[]', ?, 'test.mp4', 'READY', 1,
+      ) VALUES (?, ?, 'TEST_ONLY', '', '[]', ?, 'test.mp4', 1024, 'READY', 1,
         ?, ?, ?, 'TEST_ONLY', ?, ?, ?, 'ACTIVE')`,
     ).bind(
       id, title, `test-only/${runId}/${id}.mp4`, actors.a.identityKey,
@@ -334,6 +386,146 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
     const db = new DbClient(pool);
     try {
       const { actors, videoId, emptyVideoId } = await seed(db, config.runId);
+      await db.prepare(
+        `UPDATE annotation_taxonomy_versions SET status='ACTIVE'
+        WHERE taxonomy_version='AD_VIDEO_TAXONOMY_V1' AND status='DRAFT'`,
+      ).run();
+      await db.prepare(
+        `UPDATE annotation_vocabulary_versions SET status='ACTIVE'
+        WHERE vocabulary_version='AD_VIDEO_VOCAB_V1' AND status='DRAFT'`,
+      ).run();
+      await db.prepare(
+        `UPDATE workflow_contract_versions SET status='ACTIVE',activated_at=?
+        WHERE workflow_version='AD_VIDEO_WORKFLOW_V1' AND status='DRAFT'`,
+      ).bind("2026-08-19T12:00:00.000Z").run();
+      const grayEnvironment = {
+        V04_GRAY_ROLLOUT_ENABLED: "true",
+        V04_GRAY_USER_IDS: `${actors.a.userId},${actors.b.userId}`,
+        V04_GRAY_TEST_VIDEO_IDS: `${videoId},${emptyVideoId}`,
+        V04_GRAY_CONTROLLED_VIDEO_IDS: "",
+      };
+      await assertV04GrayAccess(db, actors.a.userId, videoId, grayEnvironment);
+      await assertV04GrayAccess(db, actors.b.userId, videoId, grayEnvironment);
+      await expectCode(
+        assertV04GrayAccess(db, actors.expert.userId, videoId, grayEnvironment),
+        "FORBIDDEN",
+      );
+      const grayMediaBucket = new MemoryVideoBucket();
+      const grayMediaNow = new Date("2026-08-19T12:10:00.000Z");
+      const grayMediaOptions = {
+        tokenSecret: "TEST_ONLY_v04_gray_media_token_secret_32_bytes",
+        targetCodeSha: "TEST_ONLY_GRAY_MEDIA_SHA",
+        now: grayMediaNow,
+      };
+      const grayMediaBusinessBefore = await count(db, "videos", "data_scope='BUSINESS'");
+      const grayMediaPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      assert.equal(grayMediaPreview.ready, true);
+      assert.equal(grayMediaPreview.zeroWrite.unchanged, true);
+      assert.equal(grayMediaPreview.facts.targetState, "ABSENT");
+      const failedGrayMedia = await applyV04GrayTestObject(
+        db,
+        grayMediaBucket,
+        actors.admin,
+        {
+          action: "CREATE_TEST_ONLY_GRAY_VIDEO",
+          previewToken: grayMediaPreview.previewToken,
+          idempotencyKey: `gray-media-failure-${config.runId}`,
+          confirmation: V04_GRAY_TEST_OBJECT_CONFIRMATION,
+          approvalReference: "TEST_ONLY_GATE2_MEDIA_APPROVAL",
+          targetCodeSha: grayMediaOptions.targetCodeSha,
+        },
+        { ...grayMediaOptions, failAt: "AFTER_UPLOAD" },
+      );
+      assert.equal(failedGrayMedia.status, "FAILED");
+      assert.equal(failedGrayMedia.compensation, "OBJECT_DELETED");
+      assert.equal(grayMediaBucket.objects.has(V04_GRAY_TEST_MEDIA.objectKey), false);
+      assert.equal(await count(db, "videos", "id=?", [V04_GRAY_TEST_MEDIA.videoId]), 0);
+      const grayMediaRetryPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      const grayMediaInput = {
+        action: "CREATE_TEST_ONLY_GRAY_VIDEO" as const,
+        previewToken: grayMediaRetryPreview.previewToken,
+        idempotencyKey: `gray-media-success-${config.runId}`,
+        confirmation: V04_GRAY_TEST_OBJECT_CONFIRMATION,
+        approvalReference: "TEST_ONLY_GATE2_MEDIA_APPROVAL",
+        targetCodeSha: grayMediaOptions.targetCodeSha,
+      };
+      const createdGrayMedia = await applyV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaInput, grayMediaOptions,
+      );
+      assert.equal(createdGrayMedia.status, "APPLIED", JSON.stringify(createdGrayMedia));
+      assert.equal(createdGrayMedia.alreadyApplied, false);
+      assert.equal((await grayMediaBucket.head(V04_GRAY_TEST_MEDIA.objectKey))?.size,
+        V04_GRAY_TEST_MEDIA.fileSize);
+      const createdVideo = await db.prepare(`SELECT status,data_scope,test_run_id,file_size,
+          created_by_user_id,object_key FROM videos WHERE id=?`)
+        .bind(V04_GRAY_TEST_MEDIA.videoId).first<{
+          status: string; data_scope: string; test_run_id: string; file_size: number;
+          created_by_user_id: string; object_key: string;
+        }>();
+      assert.deepEqual(createdVideo, {
+        status: "READY",
+        data_scope: "TEST_ONLY",
+        test_run_id: V04_GRAY_TEST_MEDIA.testRunId,
+        file_size: V04_GRAY_TEST_MEDIA.fileSize,
+        created_by_user_id: actors.admin.userId,
+        object_key: V04_GRAY_TEST_MEDIA.objectKey,
+      });
+      assert.equal(await count(db, "videos", "data_scope='BUSINESS'"), grayMediaBusinessBefore);
+      const replayedGrayMedia = await applyV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaInput, grayMediaOptions,
+      );
+      assert.equal(replayedGrayMedia.alreadyApplied, true);
+      const concurrentGrayMedia = await Promise.all([
+        applyV04GrayTestObject(db, grayMediaBucket, actors.admin, {
+          ...grayMediaInput,
+          idempotencyKey: `gray-media-concurrent-a-${config.runId}`,
+        }, grayMediaOptions),
+        applyV04GrayTestObject(db, grayMediaBucket, actors.admin, {
+          ...grayMediaInput,
+          idempotencyKey: `gray-media-concurrent-b-${config.runId}`,
+        }, grayMediaOptions),
+      ]);
+      assert(concurrentGrayMedia.every((item) => item.status === "APPLIED" && item.alreadyApplied));
+      assert.equal(await count(db, "videos", "id=?", [V04_GRAY_TEST_MEDIA.videoId]), 1);
+      const trashedGrayMedia = await trashVideo(db, V04_GRAY_TEST_MEDIA.videoId, actors.admin, {
+        reason: "TEST_ONLY gray media retention verification",
+        idempotencyKey: `gray-media-trash-${config.runId}`,
+        now: grayMediaNow,
+      });
+      assert.equal(trashedGrayMedia.trashed, true);
+      assert.equal(grayMediaBucket.objects.has(V04_GRAY_TEST_MEDIA.objectKey), true);
+      const trashedRow = await db.prepare(`SELECT deletion_state,restore_until FROM videos WHERE id=?`)
+        .bind(V04_GRAY_TEST_MEDIA.videoId).first<{ deletion_state: string; restore_until: string }>();
+      assert.equal(trashedRow?.deletion_state, "TRASHED");
+      assert.equal(Date.parse(trashedRow?.restore_until ?? "") - grayMediaNow.getTime(),
+        90 * 24 * 60 * 60 * 1000);
+      await restoreVideo(db, V04_GRAY_TEST_MEDIA.videoId, actors.admin, {
+        idempotencyKey: `gray-media-restore-${config.runId}`,
+        now: new Date(grayMediaNow.getTime() + 1000),
+      });
+      assert.equal(grayMediaBucket.objects.has(V04_GRAY_TEST_MEDIA.objectKey), true);
+      const nonAdminPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.a, grayMediaOptions,
+      );
+      assert.equal(nonAdminPreview.ready, false);
+      assert(nonAdminPreview.stopReasons.includes("SYSTEM_ADMIN_REQUIRED"));
+      evidence.grayTestMediaPreviewZeroWrite = grayMediaPreview.zeroWrite.unchanged;
+      evidence.grayTestMediaFailureCompensated = failedGrayMedia.compensation === "OBJECT_DELETED";
+      evidence.grayTestMediaReadyAndHidden = createdVideo?.status === "READY"
+        && createdVideo.data_scope === "TEST_ONLY"
+        && await count(db, "videos", "data_scope='BUSINESS'") === grayMediaBusinessBefore;
+      evidence.grayTestMediaIdempotentConcurrent = concurrentGrayMedia.every((item) => item.alreadyApplied);
+      evidence.grayTestMediaSoftDeleteKeepsAsset = grayMediaBucket.objects.has(V04_GRAY_TEST_MEDIA.objectKey);
+      await expectCode(
+        assertV04GrayAccess(db, actors.a.userId, `video_${config.runId}_unknown`, grayEnvironment),
+        "CASE_NOT_FOUND",
+      );
+      evidence.grayTwoStableUsers = true;
+      evidence.grayUnknownActorAndVideoDenied = true;
       const emptyBefore = await snapshotCounts(db, config.runId);
       const logicalA = await loadV04WorkspaceReadModel(db, emptyVideoId);
       const logicalB = await loadV04WorkspaceReadModel(db, emptyVideoId);
