@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { getRequiredEnv } from "../lib/env.ts";
 import {
   buildCosEndpoint,
+  createCosAuthorization,
   cosFailureReason,
   CosVideoBucket,
   readCosConfig,
@@ -137,6 +138,35 @@ const cosTestConfig = {
   endpoint: "https://cos.ap-guangzhou.myqcloud.com",
 };
 
+test("COS native Authorization matches Tencent's fixed-clock range GET vector", async () => {
+  const documentedSecretId = ["AKID", "Qjz3ltompVjBni5LitkWHFlFpwkn9U5q"].join("");
+  const documentedSecretKey = ["BQYIM75p8x0iWVFS", "IgqEKwFprpRSVHlz"].join("");
+  const authorization = await createCosAuthorization(
+    new Request(
+      "https://bucket1-1254000000.cos.ap-beijing.myqcloud.com/testfile",
+      { method: "GET", headers: { range: "bytes=0-3" } },
+    ),
+    {
+      region: "ap-beijing",
+      bucket: "bucket1-1254000000",
+      secretId: documentedSecretId,
+      secretKey: documentedSecretKey,
+      endpoint: "https://cos.ap-beijing.myqcloud.com",
+    },
+    {
+      now: new Date(1417773892 * 1000),
+      expiresInSeconds: 1417853898 - 1417773892,
+    },
+  );
+  assert.equal(
+    authorization,
+    "q-sign-algorithm=sha1&q-ak=AKID" + "Qjz3ltompVjBni5LitkWHFlFpwkn9U5q"
+      + "&q-sign-time=1417773892;1417853898&q-key-time=1417773892;1417853898"
+      + "&q-header-list=host;range&q-url-param-list="
+      + "&q-signature=4b6cbab14ce01381c29032423481ebffd514e8be",
+  );
+});
+
 async function withFetchStub(stub, operation) {
   const original = globalThis.fetch;
   globalThis.fetch = stub;
@@ -185,13 +215,19 @@ test("COS HEAD keeps authorization, server, unknown and network failures fail-cl
   );
 });
 
-test("COS signed requests preserve native metadata and HEAD reads both metadata forms", async () => {
+test("COS native direct requests sign every sent header and support PUT, HEAD, range GET and DELETE", async () => {
   await withFetchStub(
     async (input) => {
       const request = input instanceof Request ? input : new Request(input);
       assert.equal(request.method, "PUT");
-      assert.match(request.headers.get("authorization") ?? "", /^AWS4-HMAC-SHA256 /);
+      const authorization = request.headers.get("authorization") ?? "";
+      assert.match(authorization, /^q-sign-algorithm=sha1&q-ak=/);
+      assert.match(
+        authorization,
+        /q-header-list=content-type;host;if-none-match;x-cos-meta-data-scope/,
+      );
       assert.equal(request.headers.get("content-type"), "video/mp4");
+      assert.equal(request.headers.get("if-none-match"), "*");
       assert.equal(request.headers.get("x-cos-meta-data-scope"), "TEST_ONLY");
       assert.equal(request.headers.get("x-amz-meta-data-scope"), null);
       return new Response(null, { status: 200 });
@@ -202,26 +238,80 @@ test("COS signed requests preserve native metadata and HEAD reads both metadata 
       {
         httpMetadata: { contentType: "video/mp4" },
         customMetadata: { "data-scope": "TEST_ONLY" },
+        ifNoneMatch: "*",
       },
     ),
   );
 
   await withFetchStub(
-    async () => new Response(null, {
-      status: 200,
-      headers: {
-        "content-length": "3",
-        "content-type": "video/mp4",
-        "x-amz-meta-test-run-id": "s3-compatible",
-        "x-cos-meta-test-run-id": "native-cos",
-        "x-cos-meta-sha256": "fixed-sha",
-      },
-    }),
+    async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      assert.equal(request.method, "HEAD");
+      assert.match(request.headers.get("authorization") ?? "", /q-header-list=host/);
+      return new Response(null, {
+        status: 200,
+        headers: {
+          "content-length": "3",
+          "content-type": "video/mp4",
+          "x-amz-meta-test-run-id": "s3-compatible",
+          "x-cos-meta-test-run-id": "native-cos",
+          "x-cos-meta-sha256": "fixed-sha",
+        },
+      });
+    },
     async () => {
       const facts = await new CosVideoBucket(cosTestConfig).head("test-only/metadata");
       assert.equal(facts?.customMetadata?.["test-run-id"], "native-cos");
       assert.equal(facts?.customMetadata?.sha256, "fixed-sha");
     },
+  );
+
+  await withFetchStub(
+    async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      assert.equal(request.method, "GET");
+      assert.equal(request.headers.get("range"), "bytes=8-14");
+      assert.match(request.headers.get("authorization") ?? "", /q-header-list=host;range/);
+      return new Response("content", { status: 206 });
+    },
+    async () => new CosVideoBucket(cosTestConfig).get(
+      "test-only/metadata",
+      { range: { offset: 8, length: 7 } },
+    ),
+  );
+
+  await withFetchStub(
+    async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      assert.equal(request.method, "DELETE");
+      assert.match(request.headers.get("authorization") ?? "", /q-header-list=host/);
+      return new Response(null, { status: 204 });
+    },
+    async () => new CosVideoBucket(cosTestConfig).delete("test-only/metadata"),
+  );
+});
+
+test("custom non-COS endpoints retain the explicit S3-compatible signer", async () => {
+  await withFetchStub(
+    async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      assert.equal(
+        request.url,
+        "https://s3.test.invalid/hamark-videos-1250000000/test-only/metadata",
+      );
+      assert.match(request.headers.get("authorization") ?? "", /^AWS4-HMAC-SHA256 /);
+      assert.equal(request.headers.get("x-amz-meta-data-scope"), "TEST_ONLY");
+      assert.equal(request.headers.get("x-cos-meta-data-scope"), null);
+      return new Response(null, { status: 200 });
+    },
+    async () => new CosVideoBucket({
+      ...cosTestConfig,
+      endpoint: "https://s3.test.invalid",
+    }).put(
+      "test-only/metadata",
+      new Uint8Array([0, 1, 2]),
+      { customMetadata: { "data-scope": "TEST_ONLY" } },
+    ),
   );
 });
 

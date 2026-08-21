@@ -33,6 +33,7 @@ export function cosFailureReason(error: unknown): CosFailureReason | null {
 
 const unsignedPayload = "UNSIGNED-PAYLOAD";
 const service = "s3";
+const directRequestSignatureLifetimeSeconds = 10 * 60;
 
 export function buildCosEndpoint(region: string) {
   return `https://cos.${region}.myqcloud.com`;
@@ -121,6 +122,97 @@ async function sha1(value: string) {
   return hex(await crypto.subtle.digest("SHA-1", utf8(value)));
 }
 
+function isNativeCosEndpoint(endpoint: string) {
+  try {
+    return new URL(endpoint).hostname.toLowerCase().endsWith(".myqcloud.com");
+  } catch {
+    return false;
+  }
+}
+
+function canonicalCosPairs(entries: Array<readonly [string, string]>) {
+  return entries
+    .map(([name, value]) => [name.toLowerCase(), value.trim()] as const)
+    .sort(([leftName, leftValue], [rightName, rightValue]) =>
+      leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue))
+    .map(([name, value]) => `${encodePathSegment(name)}=${encodePathSegment(value)}`)
+    .join("&");
+}
+
+type CosSignatureFields = {
+  "q-sign-algorithm": "sha1";
+  "q-ak": string;
+  "q-sign-time": string;
+  "q-key-time": string;
+  "q-header-list": string;
+  "q-url-param-list": string;
+  "q-signature": string;
+};
+
+async function createCosSignatureFields({
+  method,
+  url,
+  headers,
+  config,
+  keyTime,
+}: {
+  method: string;
+  url: URL;
+  headers: Headers;
+  config: CosConfig;
+  keyTime: string;
+}): Promise<CosSignatureFields> {
+  const headerEntries = canonicalHeaders(headers)
+    .filter(([name]) => name !== "authorization");
+  const parameterEntries = Array.from(url.searchParams.entries())
+    .map(([name, value]) => [name.toLowerCase(), value] as const)
+    .sort(([leftName, leftValue], [rightName, rightValue]) =>
+      leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue));
+  const headerList = headerEntries.map(([name]) => name).join(";");
+  const parameterList = parameterEntries.map(([name]) => name).join(";");
+  const httpString = [
+    method.toLowerCase(),
+    url.pathname,
+    canonicalCosPairs(parameterEntries),
+    canonicalCosPairs(headerEntries),
+    "",
+  ].join("\n");
+  const stringToSign = `sha1\n${keyTime}\n${await sha1(httpString)}\n`;
+  const signKey = await hmacSha1(config.secretKey, keyTime);
+  return {
+    "q-sign-algorithm": "sha1",
+    "q-ak": config.secretId,
+    "q-sign-time": keyTime,
+    "q-key-time": keyTime,
+    "q-header-list": headerList,
+    "q-url-param-list": parameterList,
+    "q-signature": await hmacSha1(signKey, stringToSign),
+  };
+}
+
+export async function createCosAuthorization(
+  request: Request,
+  config: CosConfig,
+  {
+    now = new Date(),
+    expiresInSeconds = directRequestSignatureLifetimeSeconds,
+  }: { now?: Date; expiresInSeconds?: number } = {},
+) {
+  const url = new URL(request.url);
+  const headers = new Headers(request.headers);
+  headers.set("host", url.host);
+  const startTime = Math.floor(now.getTime() / 1000);
+  const keyTime = `${startTime};${startTime + expiresInSeconds}`;
+  const fields = await createCosSignatureFields({
+    method: request.method,
+    url,
+    headers,
+    config,
+    keyTime,
+  });
+  return Object.entries(fields).map(([name, value]) => `${name}=${value}`).join("&");
+}
+
 async function signingKey(secretKey: string, date: string, region: string) {
   const kDate = await hmac(arrayBuffer(utf8(`AWS4${secretKey}`)), date);
   const kRegion = await hmac(kDate, region);
@@ -134,7 +226,7 @@ function canonicalHeaders(headers: Headers) {
     .sort(([a], [b]) => a.localeCompare(b));
 }
 
-async function signRequest(
+async function signAwsRequest(
   request: Request,
   config: CosConfig,
   now = new Date(),
@@ -233,13 +325,9 @@ export class CosVideoBucket implements VideoBucket {
   }
 
   private metadataPrefix() {
-    try {
-      return new URL(this.config.endpoint).hostname.endsWith(".myqcloud.com")
-        ? "x-cos-meta" as const
-        : "x-amz-meta" as const;
-    } catch {
-      return "x-amz-meta" as const;
-    }
+    return isNativeCosEndpoint(this.config.endpoint)
+      ? "x-cos-meta" as const
+      : "x-amz-meta" as const;
   }
 
   private async request(
@@ -251,7 +339,14 @@ export class CosVideoBucket implements VideoBucket {
       ...init,
       method,
     });
-    const headers = await signRequest(request, this.config);
+    const headers = new Headers(request.headers);
+    if (isNativeCosEndpoint(this.config.endpoint)) {
+      headers.set("host", new URL(request.url).host);
+      headers.set("authorization", await createCosAuthorization(request, this.config));
+    } else {
+      const awsHeaders = await signAwsRequest(request, this.config);
+      for (const [name, value] of awsHeaders.entries()) headers.set(name, value);
+    }
     const signedRequest = new Request(request, { headers });
     let response: Response;
     try {
@@ -281,24 +376,14 @@ export class CosVideoBucket implements VideoBucket {
     const url = new URL(virtualHostObjectUrl(this.config.bucket, this.config.region, key));
     const startTime = Math.floor(now.getTime() / 1000);
     const keyTime = `${startTime};${startTime + expiresInSeconds}`;
-    const headerList = "content-type;host";
-    const httpHeaders = [
-      `content-type=${encodePathSegment(contentType)}`,
-      `host=${encodePathSegment(url.host)}`,
-    ].join("&");
-    const httpString = `put\n${url.pathname}\n\n${httpHeaders}\n`;
-    const stringToSign = `sha1\n${keyTime}\n${await sha1(httpString)}\n`;
-    const signKey = await hmacSha1(this.config.secretKey, keyTime);
-    const signature = await hmacSha1(signKey, stringToSign);
-    const parameters = new URLSearchParams({
-      "q-sign-algorithm": "sha1",
-      "q-ak": this.config.secretId,
-      "q-sign-time": keyTime,
-      "q-key-time": keyTime,
-      "q-header-list": headerList,
-      "q-url-param-list": "",
-      "q-signature": signature,
+    const headers = new Headers({
+      "content-type": contentType,
+      host: url.host,
     });
+    const fields = await createCosSignatureFields({
+      method: "PUT", url, headers, config: this.config, keyTime,
+    });
+    const parameters = new URLSearchParams(fields);
     url.search = parameters.toString();
     return url.toString();
   }
@@ -317,21 +402,11 @@ export class CosVideoBucket implements VideoBucket {
     const url = new URL(virtualHostObjectUrl(this.config.bucket, this.config.region, key));
     const startTime = Math.floor(now.getTime() / 1000);
     const keyTime = `${startTime};${startTime + expiresInSeconds}`;
-    const headerList = "host";
-    const httpHeaders = `host=${encodePathSegment(url.host)}`;
-    const httpString = `get\n${url.pathname}\n\n${httpHeaders}\n`;
-    const stringToSign = `sha1\n${keyTime}\n${await sha1(httpString)}\n`;
-    const signKey = await hmacSha1(this.config.secretKey, keyTime);
-    const signature = await hmacSha1(signKey, stringToSign);
-    const parameters = new URLSearchParams({
-      "q-sign-algorithm": "sha1",
-      "q-ak": this.config.secretId,
-      "q-sign-time": keyTime,
-      "q-key-time": keyTime,
-      "q-header-list": headerList,
-      "q-url-param-list": "",
-      "q-signature": signature,
+    const headers = new Headers({ host: url.host });
+    const fields = await createCosSignatureFields({
+      method: "GET", url, headers, config: this.config, keyTime,
     });
+    const parameters = new URLSearchParams(fields);
     url.search = parameters.toString();
     return url.toString();
   }
