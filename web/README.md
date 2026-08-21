@@ -69,6 +69,8 @@ npm run verify:v03-local
 
 V0.4 小范围灰度和专用 TEST_ONLY 媒体工具均为默认关闭的暗能力。灰度只接受当前稳定 `users.id` 的服务器端 SHA-256 摘要与显式 `videos.id`；不接受原始用户ID、姓名、标签或通配符。本人身份摘要证明页 `/v04-gray-identity` 也由独立开关默认关闭，只显示当前登录者自己的不可逆摘要与ACTIVE状态。专用媒体工具位于 `/admin/v04-gray-test-object`，只允许稳定 SYSTEM_ADMIN 使用固定哈希的本机生成测试片；它只接受“目标/对象/账本全空”或“三者全量精确匹配”两种状态，条件创建不覆盖预存对象，补偿也只删除带本次creation marker与ETag的对象。生产创建动作必须取得当次浏览器安全确认。工具关闭、页面加载、构建和部署都不会创建对象或数据库行。详细门禁、开启及回滚步骤见 `docs/V04_R5_GATE2_GRAY_ROLLOUT_RUNBOOK_V1.0_20260821.md`。
 
+《欢迎回家》V1.9 固定单案例直接映射的默认关闭 PREVIEW/APPLY 工具及 TEST_ONLY 证据见 `docs/WELCOME_HOME_V19_MAPPING_V1_1_EVIDENCE.md`。生产部署不会自动运行 PREVIEW、APPLY、迁移或数据回填。
+
 历史视频缩略图回填需要在有生产环境变量和 `ffmpeg` 的机器上执行。脚本会先确保 `thumbnail_key` 字段存在，再为 `READY` 且缺少封面的历史视频生成 `1600px` 宽度上限的 JPEG 封面并上传到 COS：
 
 ```bash

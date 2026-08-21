@@ -20,6 +20,7 @@
     "verify:v04-schema-apply": "node --import tsx scripts/verify-v04-schema-apply.ts",
     "verify:v04-admin-bootstrap": "node --import tsx scripts/verify-v04-system-admin-bootstrap.ts",
     "verify:v04-contract-activation": "node --import tsx scripts/verify-v04-contract-activation.ts",
+    "verify:welcome-home-v19-mapping": "node --import tsx scripts/verify-welcome-home-v19-mapping.ts",
     "verify:legacy-schema-compat": "node --import tsx scripts/verify-legacy-schema-compat.ts",
     "local:setup": "NODE_ENV=development node --env-file=.env.local --import tsx scripts/setup-local-demo.ts",
     "local:dev": "next dev",

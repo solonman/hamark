@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DbClient, QueryResultRow } from "@/db";
 import { hashToken, randomToken } from "@/lib/auth/security";
 import {
@@ -30,6 +30,16 @@ const id = (prefix: string) => `${prefix}_${randomUUID()}`;
 const iso = (value: Date) => value.toISOString();
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 
+// V0.3 and V0.4 share the legacy relational shot tables whose primary keys are
+// global. V0.4 logical stable IDs live in immutable payloads and may legitimately
+// equal their V0.3 source IDs. Keep those logical IDs unchanged in the payload,
+// while projecting deterministic annotation-scoped physical IDs into the shared
+// relational tables so a direct adapter never collides with its source rows.
+function v04RelationalId(kind: "group" | "shot", annotationId: string, logicalId: string) {
+  return `v04_${kind}_${createHash("sha256")
+    .update(`${annotationId}\0${logicalId}`, "utf8").digest("hex").slice(0, 40)}`;
+}
+
 export type V04Actor = {
   userId: string;
   identityKey: string;
@@ -44,7 +54,7 @@ export type V04LeaseProof = {
   leaseVersion: number;
 };
 
-type WorkspaceRow = QueryResultRow & {
+export type V04WorkspacePersistenceRow = QueryResultRow & {
   id: string;
   video_id: string;
   canonical_annotation_id: string;
@@ -57,6 +67,8 @@ type WorkspaceRow = QueryResultRow & {
   content_hash: string | null;
   updated_at: string;
 };
+
+type WorkspaceRow = V04WorkspacePersistenceRow;
 
 type LeaseRow = QueryResultRow & {
   id: string;
@@ -232,9 +244,9 @@ async function insertChoice(
   ).run();
 }
 
-async function persistRelationalDraft(
+export async function persistV04RelationalDraft(
   db: DbClient,
-  workspace: WorkspaceRow,
+  workspace: V04WorkspacePersistenceRow,
   payload: V04DraftPayloadV1,
   revision: number,
   contentHash: string,
@@ -250,6 +262,7 @@ async function persistRelationalDraft(
   await db.prepare(`DELETE FROM shot_groups WHERE annotation_id = ?`).bind(annotationId).run();
 
   for (const group of payload.script.shotGroups) {
+    const physicalGroupId = v04RelationalId("group", annotationId, group.id);
     await db.prepare(
       `INSERT INTO shot_groups (
         id, annotation_id, order_index, title, primary_role_id,
@@ -257,7 +270,7 @@ async function persistRelationalDraft(
         note, taxonomy_version, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
-      group.id, annotationId, group.orderIndex, group.bridgeName,
+      physicalGroupId, annotationId, group.orderIndex, group.bridgeName,
       group.primaryCreativeRole.selectedOptionIds[0] ?? "",
       group.primaryCreativeRole.selectedOptionIds[0] ?? "",
       JSON.stringify(group.auxiliaryCreativeRole.selectedOptionIds),
@@ -265,14 +278,15 @@ async function persistRelationalDraft(
       V04_TAXONOMY_VERSION, now, now,
     ).run();
     await insertChoice(
-      db, annotationId, "SHOT_GROUP", group.id, "PRIMARY",
+      db, annotationId, "SHOT_GROUP", physicalGroupId, "PRIMARY",
       "bridgeCreativeRole", group.primaryCreativeRole, actor, now,
     );
     await insertChoice(
-      db, annotationId, "SHOT_GROUP", group.id, "AUXILIARY",
+      db, annotationId, "SHOT_GROUP", physicalGroupId, "AUXILIARY",
       "bridgeCreativeRole", group.auxiliaryCreativeRole, actor, now,
     );
     for (const shot of group.shots) {
+      const physicalShotId = v04RelationalId("shot", annotationId, shot.id);
       await db.prepare(
         `INSERT INTO shots (
           id, annotation_id, order_index, group_name, shot_group_id, shot_number,
@@ -281,7 +295,7 @@ async function persistRelationalDraft(
           sound_effect, music, creative_comment
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`,
       ).bind(
-        shot.id, annotationId, shot.orderIndex, group.bridgeName, group.id,
+        physicalShotId, annotationId, shot.orderIndex, group.bridgeName, physicalGroupId,
         String(shot.orderIndex + 1), shot.startTime, shot.endTime, shot.shotScale,
         shot.cameraAngle, shot.cameraMovement, shot.visualContent, shot.screenCopy,
         shot.subtitleEffect, shot.dialogue, shot.voiceOver, shot.soundEffect, shot.music,
@@ -775,7 +789,7 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
     const nextRevision = serverRevision + 1;
     const snapshotId = id("snapshot");
     const savedAt = iso(now);
-    await persistRelationalDraft(
+    await persistV04RelationalDraft(
       transaction, workspace, after, nextRevision, nextHash, actor, savedAt,
     );
     await transaction.prepare(
@@ -1201,7 +1215,7 @@ export async function restoreV04Draft(
     const contentHash = hashV04Payload(payload);
     const snapshotId = id("snapshot");
     const savedAt = iso(now);
-    await persistRelationalDraft(
+    await persistV04RelationalDraft(
       transaction, workspace, payload, nextRevision, contentHash,
       actor, savedAt,
     );

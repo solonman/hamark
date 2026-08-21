@@ -213,9 +213,9 @@ test("audit is default-off, strict GET-only, no-store and contains no mutation c
   }
 });
 
-test("deployment opens only the fixed read-only audit and leaves data-operation flags closed", () => {
+test("deployment keeps the completed conflict audit and all welcome-home data operations closed", () => {
   const deployment = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
-  assert.equal(deployment.env.V04_WELCOME_HOME_V19_AUDIT_ENABLED, "true");
+  assert.equal("V04_WELCOME_HOME_V19_AUDIT_ENABLED" in deployment.env, false);
   for (const forbidden of [
     "V04_MIGRATION_PREVIEW_ENABLED",
     "V04_SCHEMA_APPLY_ENABLED",
