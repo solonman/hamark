@@ -62,7 +62,12 @@ export default function SubmittedAnalysisContent({
   forceOpen?: boolean;
 }) {
   const payload = analysis.payload;
-  const shotGroups = groupSubmittedShots(payload.shots);
+  // Legacy detail can encounter a newer workflow payload while a case is
+  // deliberately routed through the V0.2/V0.3 compatibility surface. Keep
+  // that read-only route diagnostic instead of crashing on a missing legacy
+  // `shots` array; the V0.4 payload itself is rendered by V04DetailClient.
+  const submittedShots = Array.isArray(payload.shots) ? payload.shots : [];
+  const shotGroups = groupSubmittedShots(submittedShots);
   const columnSizing = useShotTableColumns();
 
   if (analysis.taxonomyVersion === "V0.3-PILOT") {
@@ -85,7 +90,7 @@ export default function SubmittedAnalysisContent({
         <summary>
           查看逐镜脚本与镜头组创意点评
           <span>
-            {shotGroups.length} 个镜头组 · {payload.shots.length} 个镜头
+            {shotGroups.length} 个镜头组 · {submittedShots.length} 个镜头
           </span>
         </summary>
         <ShotTableWidthToolbar onReset={columnSizing.resetAll} dark />
@@ -285,6 +290,7 @@ function SubmittedV03Analysis({
   const payload = analysis.payload;
   const structure = payload.creativeStructure;
   const groups = payload.shotGroups ?? [];
+  const shots = Array.isArray(payload.shots) ? payload.shots : [];
   if (!structure) {
     return <p className="v03-empty-state">这份 V0.3 快照缺少创意结构数据，请联系管理员核验。</p>;
   }
@@ -320,12 +326,12 @@ function SubmittedV03Analysis({
       <details className="analysis-details" open={forceOpen ? true : undefined}>
         <summary>
           01 脚本反写与桥段创意作用
-          <span>{groups.length} 个桥段 · {payload.shots.length} 个镜头</span>
+          <span>{groups.length} 个桥段 · {shots.length} 个镜头</span>
         </summary>
         <ShotTableWidthToolbar onReset={columnSizing.resetAll} dark />
         <div className="submitted-shot-groups">
           {groups.map((group, groupIndex) => {
-            const groupShots = payload.shots.filter((shot) => shot.shotGroupId === group.id);
+            const groupShots = shots.filter((shot) => shot.shotGroupId === group.id);
             return (
               <section className="submitted-shot-group" key={group.id}>
                 <header>

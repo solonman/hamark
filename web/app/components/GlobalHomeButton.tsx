@@ -9,9 +9,12 @@ export type HomeNavigationEventDetail = {
   continueNavigation: () => void;
 };
 
-export default function GlobalHomeButton() {
+export default function GlobalHomeButton({ hideForV04Default = false }: { hideForV04Default?: boolean }) {
   const pathname = usePathname();
   const isHome = pathname === "/";
+  const isFormalV04Surface = isHome || /^\/videos\/[^/]+(?:\/practice)?$/.test(pathname);
+
+  if (hideForV04Default && isFormalV04Surface) return null;
 
   return (
     <Link

@@ -17,9 +17,9 @@ export const V04_UI_MECHANISM_OPTIONS = V04_VOCABULARY_OPTIONS.filter((item) => 
 export const V04_UI_STORY_OPTIONS = V04_VOCABULARY_OPTIONS.filter((item) => item.fieldKey === "storyReferenceType");
 
 export const V04_UI_PATHS = [
-  { id: "LOVE" as const, label: "有爱／情感", fields: ["关系起点", "情感触发", "压力与阻碍", "关系转变", "情感兑现"] },
-  { id: "FUN" as const, label: "有趣／预期", fields: ["原始预期", "偏离信号", "异常升级", "揭示方式", "重释结果"] },
-  { id: "PERCEPTION" as const, label: "有料／感知", fields: ["感知规则", "首次呈现", "重复升级", "视听兑现", "品牌落点"] },
+  { id: "LOVE" as const, label: "有爱／情感", fields: ["情感底板", "情感如何累积", "情感缺口／压力", "情感释放方式", "主要承重元素"] },
+  { id: "FUN" as const, label: "有趣／预期", fields: ["原始预期", "偏离／异常", "揭示／反转", "重新理解", "主要承重元素"] },
+  { id: "PERCEPTION" as const, label: "有料／感知", fields: ["感知规则／装置", "重复与变化", "音画／文画关系", "高潮／兑现方式", "主要承重元素"] },
 ];
 
 export const V04_UI_PROTOTYPE_HASHES = Object.freeze({

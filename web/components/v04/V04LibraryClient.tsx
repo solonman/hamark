@@ -14,19 +14,40 @@ import styles from "./V04Surface.module.css";
 
 type V04LibraryCase = { item: V04UiCase; video: VideoItem };
 
-function formatBytes(value: number) {
-  if (!value) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const index = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
-  return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`;
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "--:--";
+  const rounded = Math.round(seconds);
+  return `${String(Math.floor(rounded / 60)).padStart(2, "0")}:${String(rounded % 60).padStart(2, "0")}`;
 }
 
-export default function V04LibraryClient({
-  viewerName,
-  formal = false,
-  user,
-  isAdmin = false,
-}: {
+function VideoDuration({ videoId }: { videoId: string }) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const [duration, setDuration] = useState("--:--");
+  useEffect(() => {
+    const node = anchor.current;
+    if (!node) return;
+    let disposed = false;
+    let media: HTMLVideoElement | null = null;
+    const load = () => {
+      if (media || disposed) return;
+      media = document.createElement("video");
+      media.preload = "metadata";
+      media.muted = true;
+      media.src = `/api/videos/${encodeURIComponent(videoId)}/stream`;
+      media.onloadedmetadata = () => { if (!disposed && media) setDuration(formatDuration(media.duration)); };
+      media.onerror = () => { if (!disposed) setDuration("--:--"); };
+      media.load();
+    };
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) { load(); observer.disconnect(); }
+    }, { rootMargin: "240px" });
+    observer.observe(node);
+    return () => { disposed = true; observer.disconnect(); if (media) { media.removeAttribute("src"); media.load(); } };
+  }, [videoId]);
+  return <span ref={anchor} className={styles.posterDuration} data-video-duration>{duration}</span>;
+}
+
+export default function V04LibraryClient({ viewerName, formal = false, user, isAdmin = false }: {
   viewerName: string;
   formal?: boolean;
   user?: UserMenuUser;
@@ -46,6 +67,12 @@ export default function V04LibraryClient({
     return cases.filter(({ item, video }) => matchesV04LibraryQuery(item, nextQuery)
       || Boolean(normalized && video.createdByName.normalize("NFKC").toLocaleLowerCase("zh-CN").includes(normalized)));
   }, [cases, committedQuery, composing, query]);
+  const caseIndexById = useMemo(() => new Map(cases.map(({ item }, index) => [item.id, index + 1])), [cases]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/videos", { cache: "no-store", signal: controller.signal })
@@ -60,10 +87,7 @@ export default function V04LibraryClient({
           return projection ? [{ item: v04CardToUiCase(video, projection), video }] : [];
         });
       })
-      .then((nextCases) => {
-        setCases(nextCases);
-        setLoadError("");
-      })
+      .then((nextCases) => { setCases(nextCases); setLoadError(""); })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setLoadError(error instanceof V04UiApiError ? error.message : "案例库暂时无法读取，请稍后重试。");
@@ -71,43 +95,27 @@ export default function V04LibraryClient({
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, []);
-  const detailHref = (videoId: string) => formal
-    ? `/videos/${encodeURIComponent(videoId)}`
-    : `/v04-shadow/videos/${encodeURIComponent(videoId)}`;
-  const workspaceHref = (videoId: string) => formal
-    ? `/videos/${encodeURIComponent(videoId)}/practice`
-    : `/v04-shadow/videos/${encodeURIComponent(videoId)}/workspace`;
-  return (
-    <main className={styles.surface} data-v04-page="library">
-      <header className={styles.productHeader} data-v04-formal-header={formal || undefined}>
-        <Link href={formal ? "/" : "/v04-shadow"} className={styles.wordmark}>RE:VERSE <small>{formal ? "V1.9" : "V0.4 SHADOW"}</small></Link>
-        {formal ? <nav aria-label="正式导航">
-          <Link href="/">案例库</Link>
-          {isAdmin ? <Link href="/admin/v02-v03-batch-mapping">数据操作</Link> : null}
-          <button type="button" onClick={() => setShowUpload(true)}>上传作品</button>
-        </nav> : null}
-        {formal && user ? <UserMenu user={user} /> : <div><span>{viewerName}</span>{formal ? null : <b>可交互审核稿 · Fixture</b>}</div>}
-      </header>
-      <section className={styles.libraryHero}><p>VIDEO CREATIVE REVERSE ENGINEERING</p><h1>案例库</h1><span>发现作品、查看最新成果，或进入同一份公共工作稿继续维护。</span></section>
-      <section className={styles.libraryToolbar}>
-        <label>搜索案例<input value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="作品、品牌、标签" /></label>
-        <span>{visible.length} 个案例</span>
-      </section>
-      {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section> : loadError ? <section className={styles.emptyState}><h2>案例库读取失败</h2><p>{loadError}</p></section> : visible.length ? <section className={styles.caseGrid}>{visible.map(({ item, video }) => (
-        <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
-          <Link href={detailHref(item.id)} className={styles.poster} aria-label={`查看 ${item.title} 最新成果`}>
-            {/* eslint-disable-next-line @next/next/no-img-element -- signed COS thumbnails remain direct browser requests */}
-            {video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : null}
-            <span>{item.brand || "未标注品牌"}</span><b>▶</b><small>{formatBytes(video.fileSize)}</small>
-          </Link>
-          <div className={styles.caseBody}>
-            <div className={styles.caseTitleLine}><h2>{item.title}</h2><span className={styles.workStatus}>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade && <span className={styles.expertGrade}>专家优选 {item.expertGrade}</span>}</div>
-            <p>{item.description || `${video.createdByName} 上传`}</p><div className={styles.tags}>{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
-            <div className={styles.caseActions}><Link href={detailHref(item.id)}>{(item.submissionCount ?? item.submissions.length) > 0 ? "查看最新成果" : "查看案例"}</Link><Link href={workspaceHref(item.id)}>{item.workState === "NOT_STARTED" ? "开始公共工作稿" : "编辑工作稿"}</Link>{formal ? <Link href={`${workspaceHref(item.id)}?taxonomy=V0.3-PILOT`}>V0.3</Link> : null}</div>
-          </div>
-        </article>
-      ))}</section> : <section className={styles.emptyState}><h2>没有找到匹配案例</h2><p>页面外壳保持可用，可以继续修改或清空搜索。</p><button onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button></section>}
-      {showUpload ? <UploadDialog onClose={() => setShowUpload(false)} onUploaded={async (videoId) => { setShowUpload(false); window.location.href = detailHref(videoId); }} /> : null}
-    </main>
-  );
+
+  const detailHref = (videoId: string) => formal ? `/videos/${encodeURIComponent(videoId)}` : `/v04-shadow/videos/${encodeURIComponent(videoId)}`;
+  const workspaceHref = (videoId: string) => formal ? `/videos/${encodeURIComponent(videoId)}/practice` : `/v04-shadow/videos/${encodeURIComponent(videoId)}/workspace`;
+
+  return <main className={styles.surface} data-v04-page="library" data-v04-layout="two-column-banner">
+    <header className={styles.siteHeader} data-v04-formal-header={formal || undefined}>
+      <Link href={formal ? "/" : "/v04-shadow"} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link>
+      <nav className={styles.siteNav} aria-label="案例库导航"><Link href={formal ? "/" : "/v04-shadow"} className={styles.activeNav}>案例库</Link>{formal ? null : <span>UI PROTOTYPE</span>}</nav>
+      <div className={styles.siteUtilities}>{formal && isAdmin ? <Link href="/admin/v02-v03-batch-mapping">数据操作</Link> : null}{formal ? <button type="button" onClick={() => setShowUpload(true)}>上传作品</button> : null}{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
+    </header>
+    <section className={styles.libraryHero}><p>CREATIVE REVERSE-ENGINEERING LIBRARY</p><h1>从好作品里，<br />练出看见创意的能力。</h1></section>
+    <section className={styles.libraryToolbar}><div><p>CASE LIBRARY</p><h2>案例库</h2></div><label className={styles.librarySearch}><span aria-hidden>⌕</span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label></section>
+    {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section> : loadError ? <section className={styles.emptyState}><h2>案例库读取失败</h2><p>{loadError}</p></section> : visible.length ? <section className={styles.caseGrid} aria-label="案例列表">{visible.map(({ item, video }) => {
+      const detail = detailHref(item.id);
+      const workspace = workspaceHref(item.id);
+      const submissionCount = item.submissionCount ?? item.submissions.length;
+      return <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
+        <Link href={detail} className={styles.poster} aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
+        <div className={styles.caseBody}><div className={styles.caseQuickActions}><Link className={styles.primaryPill} href={detail}>{submissionCount > 0 ? "查看最新成果" : "查看成果状态"}</Link><Link className={styles.ghostPill} href={workspace}>{item.workState === "NOT_STARTED" ? "开始公共工作稿" : "编辑工作稿"}</Link></div><p className={styles.caseNumber}>CASE {String(caseIndexById.get(item.id) ?? 0).padStart(2, "0")}</p><div className={styles.caseTitleStatus}><h2><small>{item.brand || "未标注品牌"}</small><span>{item.title}</span></h2><div><span className={styles.workStatus}>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade ? <span className={styles.expertGrade}>◆ 专家优选 {item.expertGrade}</span> : null}</div></div><div className={styles.caseInfoBand}><span>{submissionCount > 0 ? `提交版 V${submissionCount}` : "尚无提交版"}</span><span>{item.activeEditor ? `${item.activeEditor} 编辑中` : "当前无人编辑"}</span>{item.tags.map((tag) => <span className={styles.caseCategoryTag} key={tag}>#{tag}</span>)}{formal ? <Link href={`${workspace}?taxonomy=V0.3-PILOT`}>V0.3 历史</Link> : null}</div></div>
+      </article>;
+    })}</section> : <section className={styles.emptyState}><span>⌕</span><h2>没有找到对应案例</h2><p>可以换一个片名、品牌或标签继续搜索。</p><button onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button></section>}
+    {showUpload ? <UploadDialog onClose={() => setShowUpload(false)} onUploaded={async (videoId) => { setShowUpload(false); window.location.href = detailHref(videoId); }} /> : null}
+  </main>;
 }

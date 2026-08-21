@@ -187,7 +187,7 @@ export const V04_UI_SHOT_FIELDS: ReadonlyArray<{ key: V04ShotFieldKey; label: st
   { key: "shotScale", label: "景别" },
   { key: "cameraAngle", label: "机位／角度" },
   { key: "cameraMovement", label: "镜头运动" },
-  { key: "visualContent", label: "画面内容" },
+  { key: "visualContent", label: "画面内容（镜头故事）" },
   { key: "screenCopy", label: "字幕／屏幕文案" },
   { key: "subtitleEffect", label: "字幕特效" },
   { key: "dialogue", label: "对白" },

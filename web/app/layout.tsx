@@ -50,7 +50,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body>
-        <GlobalHomeButton />
+        <GlobalHomeButton hideForV04Default={process.env.V04_DEFAULT_UI_ENABLED === "true"} />
         <UpdateNotifier version={process.env.VERCEL_GIT_COMMIT_SHA || "dev"} />
         {children}
       </body>

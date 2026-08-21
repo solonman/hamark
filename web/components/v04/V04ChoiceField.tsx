@@ -6,7 +6,7 @@ import type { V04VocabularyOption } from "@/lib/v04-vocabulary";
 import styles from "./V04Surface.module.css";
 
 export default function V04ChoiceField({
-  label, value, options, multiple = false, max = 2, customLabel, showAdvanced = false, readOnly = false, targetId, advancedTargetId, onChange,
+  label, value, options, multiple = false, max = 2, customLabel, showAdvanced = false, readOnly = false, targetId, advancedTargetId, onComment, onChange,
 }: {
   label: string;
   value: V04ChoiceValue;
@@ -18,6 +18,7 @@ export default function V04ChoiceField({
   readOnly?: boolean;
   targetId?: string;
   advancedTargetId?: string;
+  onComment?: () => void;
   onChange: (value: V04ChoiceValue) => void;
 }) {
   const panelId = useId();
@@ -37,7 +38,7 @@ export default function V04ChoiceField({
   };
   return (
     <section className={styles.choiceField} data-choice-field id={targetId}>
-      <label>{label}</label>
+      <label className={styles.choiceLabel}><span>{label}</span>{onComment ? <button type="button" onClick={onComment}>批注</button> : null}</label>
       <button type="button" className={styles.choiceTrigger} data-v04-primary-focus aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((current) => !current)}>
         <span>{selectedLabels.length ? selectedLabels.join("、") : `展开固定选项 · 共 ${options.length} 项`}</span><b>{open ? "收起" : "选择"}</b>
       </button>

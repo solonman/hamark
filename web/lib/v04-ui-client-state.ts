@@ -56,6 +56,8 @@ export const V04_WORKSPACE_TARGETS = {
   tensionButton: "field-tensionButton",
   primaryMechanism: "field-primaryMechanism",
   primaryMechanismAdvanced: "field-primaryMechanism-advanced",
+  auxiliaryMechanism: "field-auxiliaryMechanism",
+  auxiliaryMechanismAdvanced: "field-auxiliaryMechanism-advanced",
   creativeThinkingChain: "field-creativeThinkingChain",
   storyReference: "field-storyReference",
   carriers: "field-carriers",
@@ -83,7 +85,7 @@ const V04_FACT_TARGET_IDS: Record<string, string> = {
   creativeMotif: V04_WORKSPACE_TARGETS.creativeMotif,
   tensionButton: V04_WORKSPACE_TARGETS.tensionButton,
   mainMechanism: V04_WORKSPACE_TARGETS.primaryMechanism,
-  auxiliaryMechanism: "field-auxiliaryMechanism",
+  auxiliaryMechanism: V04_WORKSPACE_TARGETS.auxiliaryMechanism,
   creativeThinkingChain: V04_WORKSPACE_TARGETS.creativeThinkingChain,
   storyReference: V04_WORKSPACE_TARGETS.storyReference,
   creativeCarriers: V04_WORKSPACE_TARGETS.carriers,
@@ -103,8 +105,16 @@ export function v04StableTargetToDomId(targetKey: string, draft?: V04UiDraft) {
     if (group[2] === "keyCreativeDescription") return `field-${group[1]}-description`;
     return `group-${group[1]}`;
   }
-  const fact = targetKey.match(/^facts\.([a-zA-Z][a-zA-Z0-9]*)/);
-  if (fact) return V04_FACT_TARGET_IDS[fact[1]] ?? "module-2";
+  const fact = targetKey.match(/^facts\.([a-zA-Z][a-zA-Z0-9]*)(?:\.([a-zA-Z][a-zA-Z0-9]*))?$/);
+  if (fact) {
+    if (fact[2] === "advancedText" && fact[1] === "mainMechanism") {
+      return V04_WORKSPACE_TARGETS.primaryMechanismAdvanced;
+    }
+    if (fact[2] === "advancedText" && fact[1] === "auxiliaryMechanism") {
+      return V04_WORKSPACE_TARGETS.auxiliaryMechanismAdvanced;
+    }
+    return V04_FACT_TARGET_IDS[fact[1]] ?? "module-2";
+  }
   if (targetKey === "path.primaryType") return "module-3";
   const detail = targetKey.match(/^path\.primaryDetails\.([a-zA-Z][a-zA-Z0-9]*)$/);
   if (detail && draft) {
@@ -134,6 +144,7 @@ export function listV04WorkspaceTargetIds(draft: V04UiDraft) {
       ]),
     ]),
     ...draft.primaryPathAnswers[draft.primaryPath].map((_, index) => `field-path-${index}`),
+    ...draft.auxiliaryPaths.flatMap((path) => [`field-aux-${path}-description`, `field-aux-${path}-role`]),
   ]);
 }
 
@@ -214,6 +225,9 @@ export function evaluateV04FixturePublication(draft: V04UiDraft) {
   const requireText = (value: string, id: string, module: string, scope: string, label: string) => {
     if (!value.trim()) missing.push({ id, module, scope, label });
   };
+  if (!draft.shotGroups.length) {
+    missing.push({ id: "module-1", module: V04_UI_MODULES[0], scope: "脚本反写", label: "至少添加一个桥段并填写镜头画面内容" });
+  }
   draft.shotGroups.forEach((group, index) => {
     const scope = `桥段${String(index + 1).padStart(2, "0")}`;
     requireText(group.title, v04GroupTitleTargetId(group.id), V04_UI_MODULES[0], scope, "桥段名称");
@@ -228,15 +242,26 @@ export function evaluateV04FixturePublication(draft: V04UiDraft) {
     ["carrierExplanation", "创意承重载体具体说明"], ["creativeContract", "创意成立契约"], ["gradeReason", "评价理由"],
   ];
   core.forEach(([key, label]) => requireText(String(draft[key]), `field-${String(key)}`, V04_UI_MODULES[1], "全片", label));
-  if (!draft.primaryMechanism.selectedOptionIds.length && !draft.primaryMechanism.customText.trim())
+  if (!draft.primaryMechanism.selectedOptionIds.length && !draft.primaryMechanism.customText.trim() && !draft.primaryMechanism.advancedText?.trim())
     missing.push({ id: V04_WORKSPACE_TARGETS.primaryMechanism, module: V04_UI_MODULES[1], scope: "全片", label: "创意主导手法及机制" });
   if (draft.primaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM") && !draft.primaryMechanism.advancedText?.trim())
     missing.push({ id: V04_WORKSPACE_TARGETS.primaryMechanismAdvanced, module: V04_UI_MODULES[1], scope: "全片", label: "待形成新机制｜进阶机制层" });
+  if (draft.auxiliaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM") && !draft.auxiliaryMechanism.advancedText?.trim())
+    missing.push({ id: "field-auxiliaryMechanism-advanced", module: V04_UI_MODULES[1], scope: "全片", label: "辅助待形成新机制｜进阶机制层" });
   if (!draft.storyReference.selectedOptionIds.length && !draft.storyReference.customText.trim())
     missing.push({ id: "field-storyReference", module: V04_UI_MODULES[1], scope: "全片", label: "故事参照类型" });
   if (!draft.carriers.length) missing.push({ id: "field-carriers", module: V04_UI_MODULES[1], scope: "全片", label: "创意承重载体" });
   if (!draft.overallGrade) missing.push({ id: "field-overallGrade", module: V04_UI_MODULES[1], scope: "整体评价", label: "整体创意评价" });
-  draft.primaryPathAnswers[draft.primaryPath].forEach((value, index) => requireText(value, `field-path-${index}`, V04_UI_MODULES[2], "主导路径", `条件判断 ${index + 1}`));
+  const pathLabels = {
+    LOVE: ["情感底板", "情感如何累积", "情感缺口／压力", "情感释放方式", "主要承重元素"],
+    FUN: ["原始预期", "偏离／异常", "揭示／反转", "重新理解", "主要承重元素"],
+    PERCEPTION: ["感知规则／装置", "重复与变化", "音画／文画关系", "高潮／兑现方式", "主要承重元素"],
+  }[draft.primaryPath];
+  draft.primaryPathAnswers[draft.primaryPath].forEach((value, index) => requireText(value, `field-path-${index}`, V04_UI_MODULES[2], "主导路径", pathLabels[index]));
+  draft.auxiliaryPaths.forEach((path) => {
+    requireText(draft.auxiliaryPathDetails[path]?.description ?? "", `field-aux-${path}-description`, V04_UI_MODULES[2], `辅助路径｜${path}`, "辅助路径说明");
+    requireText(draft.auxiliaryPathDetails[path]?.role ?? "", `field-aux-${path}-role`, V04_UI_MODULES[2], `辅助路径｜${path}`, "辅助类型的创意作用");
+  });
   return { ready: missing.length === 0, missing };
 }
 
