@@ -85,14 +85,14 @@ test("an explicitly approved controlled existing video stays separate from TEST_
     USER_A, controlledFacts, VIDEO_CONTROLLED).reason, "VIDEO_NOT_ALLOWED");
 });
 
-test("all official V0.4 surfaces reuse one server gray guard and deployment only opens the test-object tool", () => {
+test("all official V0.4 surfaces reuse one server gray guard and deployment keeps them closed", () => {
   const api = readFileSync(new URL("../lib/v04-api.ts", import.meta.url), "utf8");
   const gray = readFileSync(new URL("../lib/v04-gray-access.ts", import.meta.url), "utf8");
   const practice = readFileSync(new URL("../app/videos/[id]/practice/page.tsx", import.meta.url), "utf8");
   const detail = readFileSync(new URL("../app/videos/[id]/page.tsx", import.meta.url), "utf8");
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const cards = readFileSync(new URL("../app/api/videos/analysis/v04/cards/route.ts", import.meta.url), "utf8");
-  const deployment = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const deployment = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
   assert.match(api, /assertV04GrayAccess/);
   assert.match(api, /v04GrayVideoIdFromRequest/);
   assert.match(gray, /V04_GRAY_USER_ID_SHA256S/);
@@ -106,7 +106,7 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment only
   assert.match(detail, /canAccessV04Gray\(getDbClient\(\), user\.id, id\)/);
   assert.match(home, /canAccessV04Gray\(getDbClient\(\), user\.id\)/);
   assert.match(cards, /filterV04GrayVideoIds/);
-  assert.deepEqual(deployment.env, { V04_GRAY_TEST_OBJECT_ENABLED: "true" });
+  assert.doesNotMatch(deployment, /V04_GRAY_|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED|V04_DETAIL_UI_ENABLED|V04_LIBRARY_UI_ENABLED/);
 });
 
 test("identity digest is deterministic and the self-service proof page never renders stable ids", () => {
