@@ -13,7 +13,7 @@
 必须同时满足：
 
 1. `V04_GRAY_ROLLOUT_ENABLED=true`；
-2. 服务端对当前 `users.id` 计算规范化 SHA-256 摘要，并以恒定时间比较精确命中 `V04_GRAY_USER_ID_SHA256S`；当前用户仍须为 `ACTIVE`；
+2. 服务端对当前 `users.id` 计算规范化 SHA-256 摘要，并以恒定时间比较精确命中 `V04_GRAY_USER_ID_SHA256S`；生产稳定 ID 必须是带合法 version/variant 的标准 UUID，摘要前统一转为小写；仅测试兼容既有 `user_test_`／`user_testonly_` ID 且保持原字节；两类之外的文本、空白变体、姓名、邮箱、企微 ID 和 identity key 均拒绝；摘要域前缀固定为 `hamark:v04:gray-user:v1\0`；当前用户仍须为 `ACTIVE`；
 3. taxonomy、vocabulary、workflow 三份冻结合同均精确 `ACTIVE`；
 4. 目标 `videos.id` 精确出现在下列一类 allowlist：
    - `V04_GRAY_TEST_VIDEO_IDS`：数据库 `data_scope` 还必须为 `TEST_ONLY`；

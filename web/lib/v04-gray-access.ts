@@ -45,15 +45,22 @@ export type V04GrayDecision = {
     | "VIDEO_NOT_TEST_ONLY";
 };
 
-const STABLE_USER_ID = /^user_[A-Za-z0-9_-]{8,}$/;
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LEGACY_TEST_ONLY_USER_ID = /^user_(?:test|testonly)_[A-Za-z0-9][A-Za-z0-9_-]{2,}$/;
 const STABLE_VIDEO_ID = /^video_[A-Za-z0-9_-]{8,}$/;
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 
+export function normalizeV04GrayUserId(userId: string) {
+  if (CANONICAL_UUID.test(userId)) return userId.toLowerCase();
+  if (LEGACY_TEST_ONLY_USER_ID.test(userId)) return userId;
+  throw new V04ServiceError("FORBIDDEN", "当前稳定身份不符合灰度摘要合同。");
+}
+
 export function hashV04GrayUserId(userId: string) {
-  if (!STABLE_USER_ID.test(userId)) {
-    throw new V04ServiceError("FORBIDDEN", "当前稳定身份不符合灰度摘要合同。");
-  }
-  return createHash("sha256").update(`hamark:v04:gray-user:v1\0${userId}`, "utf8").digest("hex");
+  const canonicalUserId = normalizeV04GrayUserId(userId);
+  return createHash("sha256")
+    .update(`hamark:v04:gray-user:v1\0${canonicalUserId}`, "utf8")
+    .digest("hex");
 }
 
 function digestAllowlistContains(config: V04GrayConfig, userId: string) {

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   evaluateV04GrayAccess,
   hashV04GrayUserId,
   loadV04GrayConfig,
+  normalizeV04GrayUserId,
   type V04GrayFacts,
 } from "../lib/v04-gray-access.ts";
 
@@ -55,7 +57,7 @@ test("two explicit stable actors can access only a ready approved TEST_ONLY vide
     reason: "GRANTED",
   });
   assert.equal(evaluateV04GrayAccess(config(), USER_B, activeFacts, VIDEO_TEST).allowed, true);
-  assert.equal(evaluateV04GrayAccess(config(), ["user", "unknown", "actor"].join("_"), activeFacts, VIDEO_TEST).reason,
+  assert.equal(evaluateV04GrayAccess(config(), "user_testonly_unknown_actor", activeFacts, VIDEO_TEST).reason,
     "USER_NOT_ALLOWED");
   assert.equal(evaluateV04GrayAccess(config(), USER_A, { ...activeFacts, userStatus: "DISABLED" }, VIDEO_TEST).reason,
     "USER_NOT_ACTIVE");
@@ -108,9 +110,40 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment keep
 });
 
 test("identity digest is deterministic and the self-service proof page never renders stable ids", () => {
+  const productionUuid = "550e8400-e29b-41d4-a716-446655440000";
+  const uppercaseUuid = productionUuid.toUpperCase();
+  const legacyTestId = "user_testonly_Actor_A";
+  assert.equal(normalizeV04GrayUserId(uppercaseUuid), productionUuid);
+  assert.equal(hashV04GrayUserId(productionUuid), hashV04GrayUserId(uppercaseUuid));
+  assert.equal(normalizeV04GrayUserId(legacyTestId), legacyTestId);
+  assert.equal(
+    hashV04GrayUserId(legacyTestId),
+    createHash("sha256").update(`hamark:v04:gray-user:v1\0${legacyTestId}`).digest("hex"),
+  );
   assert.match(hashV04GrayUserId(USER_A), /^[a-f0-9]{64}$/);
   assert.equal(hashV04GrayUserId(USER_A), hashV04GrayUserId(USER_A));
   assert.notEqual(hashV04GrayUserId(USER_A), hashV04GrayUserId(USER_B));
+  for (const invalid of [
+    "",
+    " ",
+    ` ${productionUuid}`,
+    `${productionUuid}\n`,
+    `{${productionUuid}}`,
+    productionUuid.replaceAll("-", ""),
+    productionUuid.slice(0, -1),
+    `${productionUuid}0`,
+    "550e8400-e29b-01d4-a716-446655440000",
+    "550e8400-e29b-41d4-7716-446655440000",
+    "老孙",
+    "owner@example.com",
+    "wecom_corp_user_123",
+    "corp:user-id",
+    "arbitrary-stable-text",
+    "user_business_actor",
+    "user_test_actor\u0000",
+  ]) {
+    assert.throws(() => hashV04GrayUserId(invalid), /当前稳定身份不符合灰度摘要合同/);
+  }
   const page = readFileSync(new URL("../app/v04-gray-identity/page.tsx", import.meta.url), "utf8");
   assert.match(page, /V04_GRAY_IDENTITY_DIGEST_ENABLED/);
   assert.match(page, /requirePageUser/);
