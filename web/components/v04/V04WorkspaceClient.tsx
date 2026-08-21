@@ -113,7 +113,9 @@ export default function V04WorkspaceClient({
       setDraftState(v04WorkspaceToUiCase(next).draft);
       setSavedAt(next.lastSavedAt ?? "");
       setLoadError("");
-      if (next.viewerCapabilities.canAcquireLease) {
+      // A logical empty workspace is a read-only projection until the first
+      // actual save. The save path materializes it atomically before leasing.
+      if (next.viewerCapabilities.canAcquireLease && !next.logicalEmpty) {
         try { await acquireLease(next); } catch (reason) {
           if (reason instanceof V04UiApiError && reason.code === "LEASE_HELD_BY_OTHER") await refreshWorkspace();
         }

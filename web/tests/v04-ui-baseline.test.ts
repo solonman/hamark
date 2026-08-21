@@ -139,3 +139,22 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(shot, /readOnly=\{readOnly\}/);
   assert.match(css, /\.readOnlyEditor input\[readonly\]/);
 });
+
+test("opening a logical empty V0.4 workspace stays zero-write until the first actual save", async () => {
+  const workspace = await readFile(
+    new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    workspace,
+    /if \(next\.viewerCapabilities\.canAcquireLease && !next\.logicalEmpty\)/,
+  );
+  assert.match(
+    workspace,
+    /const acquireLease[\s\S]*if \(current\.logicalEmpty\) \{[\s\S]*v04UiApi\.materialize[\s\S]*const commitSave/,
+  );
+  const firstMaterialize = workspace.indexOf("v04UiApi.materialize");
+  const initialLoadEffect = workspace.indexOf("useEffect(() =>", firstMaterialize);
+  assert.ok(firstMaterialize >= 0 && initialLoadEffect > firstMaterialize,
+    "materialize must remain in the mutation path, before the initial read effect");
+});
