@@ -86,5 +86,5 @@ test("admin page never auto-runs PREVIEW or APPLY and vercel keeps both gates cl
   const previewRoute = readFileSync(new URL("../app/api/admin/v04-migration/preview/route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(previewRoute, /searchParams|get\(["']previewToken["']\)/,
     "the runtime token must never be accepted through a URL");
-  assert.doesNotMatch(vercel, /V04_MIGRATION_PREVIEW_ENABLED|V04_SCHEMA_APPLY_ENABLED|V04_CONTRACT_ACTIVATE_ENABLED|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED/);
+  assert.doesNotMatch(vercel, /V04_MIGRATION_PREVIEW_ENABLED|V04_SCHEMA_APPLY_ENABLED|V04_CONTRACT_ACTIVATE_ENABLED/);
 });

@@ -23,7 +23,8 @@ test("existing library remains the sole catalog and conditionally adds V0.4 proj
   assert.match(home, /V0\.4 状态暂时无法读取，片库仍可正常使用/);
   assert.match(home, /<UploadDialog/);
   assert.match(home, /video\.tags\.slice\(0, 4\)/);
-  assert.doesNotMatch(deployment, /V04_LIBRARY_UI_ENABLED|V04_DEFAULT_UI_ENABLED/);
+  assert.match(deployment, /"V04_LIBRARY_UI_ENABLED": "true"/);
+  assert.match(deployment, /"V04_DEFAULT_UI_ENABLED": "true"/);
   assert.deepEqual(Object.values(V04_UI_STATE_LABELS), [
     "尚未开始",
     "尚未完成",

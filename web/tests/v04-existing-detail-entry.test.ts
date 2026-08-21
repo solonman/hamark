@@ -19,7 +19,8 @@ test("existing video detail embeds V0.4 results as the default while keeping V0.
   assert.match(detail, /workspaceHref: v04DefaultEnabled/);
   assert.match(detail, /进入 V1\.9 公共工作稿/);
   assert.match(detail, /practice\?taxonomy=V0\.3-PILOT/);
-  assert.doesNotMatch(deployment, /V04_DETAIL_UI_ENABLED|V04_DEFAULT_UI_ENABLED/);
+  assert.match(deployment, /"V04_DETAIL_UI_ENABLED": "true"/);
+  assert.match(deployment, /"V04_DEFAULT_UI_ENABLED": "true"/);
   assert.match(v04Detail, /!draft \? <section[\s\S]*尚无已提交成果/);
   assert.match(v04Detail, /versionView === "EXPERT"[\s\S]*expertPreferredSubmission/);
   assert.match(v04Detail, /最新提交 V/);

@@ -130,7 +130,13 @@ test("official V0.4 surfaces use formal access while preserving the closed gray 
   assert.match(detail, /canAccessV04Surface\(getDbClient\(\), user\.id, id\)/);
   assert.match(home, /canAccessV04Surface\(getDbClient\(\), user\.id\)/);
   assert.match(cards, /filterV04AccessibleVideoIds/);
-  assert.deepEqual(deployment.env, {});
+  assert.deepEqual(deployment.env, {
+    V04_DEFAULT_UI_ENABLED: "true",
+    V04_WORKFLOW_API_ENABLED: "true",
+    V04_WORKFLOW_UI_ENABLED: "true",
+    V04_DETAIL_UI_ENABLED: "true",
+    V04_LIBRARY_UI_ENABLED: "true",
+  });
   assert.equal("V04_GRAY_IDENTITY_DIGEST_ENABLED" in deployment.env, false);
   assert.equal("V04_GRAY_ROLLOUT_ENABLED" in deployment.env, false);
 });
