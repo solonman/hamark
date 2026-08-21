@@ -1,7 +1,18 @@
 import { createHash } from "node:crypto";
 
+const V04_GRAY_TEST_VIDEO_ID = "video_v04_gray_test_f79086fba2876352";
+const V04_GRAY_TEST_OBJECT_KEY = `videos/${V04_GRAY_TEST_VIDEO_ID}/original`;
+
+export function assertV04GrayTestMediaTarget(videoId: string, objectKey: string) {
+  if (videoId !== V04_GRAY_TEST_VIDEO_ID
+    || objectKey !== V04_GRAY_TEST_OBJECT_KEY
+    || objectKey !== `videos/${videoId}/original`) {
+    throw new Error("V04_GRAY_TEST_MEDIA_TARGET_INVALID");
+  }
+}
+
 export const V04_GRAY_TEST_MEDIA = {
-  schemaVersion: "V04_GRAY_TEST_MEDIA_V1",
+  schemaVersion: "V04_GRAY_TEST_MEDIA_V2",
   contentType: "video/mp4",
   originalName: "hamark-v04-gray-test-clip.mp4",
   title: "V0.4 灰度 TEST_ONLY 测试片",
@@ -9,10 +20,12 @@ export const V04_GRAY_TEST_MEDIA = {
   description: "本项目本机生成的 1 秒无敏感测试片；仅用于 V0.4 小范围灰度验证。",
   fileSize: 1685,
   sha256: "f79086fba2876352cc38b4566da616b1e96518cddcbd6cfbb7b5dee295fd9181",
-  videoId: "video_v04_gray_test_f79086fba2876352",
+  videoId: V04_GRAY_TEST_VIDEO_ID,
   testRunId: "V04_GRAY_PRODUCTION_GATE2_V1",
-  objectKey: "test-only/v04-gray/video_v04_gray_test_f79086fba2876352/original.mp4",
+  objectKey: V04_GRAY_TEST_OBJECT_KEY,
 } as const;
+
+assertV04GrayTestMediaTarget(V04_GRAY_TEST_MEDIA.videoId, V04_GRAY_TEST_MEDIA.objectKey);
 
 // Generated locally with /opt/homebrew/bin/ffmpeg from a one-second solid colour
 // frame without audio. The bytes are frozen so the controlled operation can never
@@ -24,6 +37,7 @@ const APPROVED_MEDIA_BASE64 = [
 let approvedBytes: Uint8Array | null = null;
 
 export function v04GrayTestMediaBytes() {
+  assertV04GrayTestMediaTarget(V04_GRAY_TEST_MEDIA.videoId, V04_GRAY_TEST_MEDIA.objectKey);
   if (!approvedBytes) approvedBytes = new Uint8Array(Buffer.from(APPROVED_MEDIA_BASE64, "base64"));
   const digest = createHash("sha256").update(approvedBytes).digest("hex");
   if (approvedBytes.byteLength !== V04_GRAY_TEST_MEDIA.fileSize || digest !== V04_GRAY_TEST_MEDIA.sha256) {

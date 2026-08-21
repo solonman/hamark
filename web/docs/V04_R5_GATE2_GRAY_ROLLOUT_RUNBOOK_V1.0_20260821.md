@@ -47,7 +47,9 @@
 - `test_run_id`：`V04_GRAY_PRODUCTION_GATE2_V1`；
 - 本机 `/opt/homebrew/bin/ffmpeg` 生成的 1 秒、160×90、无音频纯色 MP4；
 - 文件大小 `1685` 字节，SHA-256 `f79086fba2876352cc38b4566da616b1e96518cddcbd6cfbb7b5dee295fd9181`；
-- 对象键固定在独立 `test-only/v04-gray/` 前缀，页面只显示不可逆摘要。
+- 对象键精确固定为 `videos/video_v04_gray_test_f79086fba2876352/original`，与既有上传资产的最小权限命名规范一致；程序同时断言它必须等于 `videos/${videoId}/original`，不接受输入、环境覆盖或任意其他 `videos/*`。对象键 SHA-256 为 `f7fa85d4d85dc7722dcfb9cceab97ea5d3a277d6b49ae8c29a71114eb2896de1`，页面仍只显示不可逆摘要。
+
+2026-08-21 的旧前缀只读探测在 `OBJECT_FACTS/AUTHORIZATION` 阶段即失败，未生成 PREVIEW token、未进入 APPLY、未写账本，也从未由本工具发出 PUT 或 DELETE。路径调整不探测、不删除旧前缀，不触碰 P10；新键首次使用前仍必须通过 `CLEAN_CREATE` 全部事实检查。
 
 PREVIEW 是 same-origin、稳定 SYSTEM_ADMIN 的 POST，但只读数据库和对象 HEAD/固定小文件哈希，前后数据库指纹必须一致；浏览器公开合同、token 可逆载荷和结果只绑定不可逆 actor digest，不含原始稳定用户ID。完整30分钟 token 只在页面内存与同源请求中使用，不进入 DOM、URL、storage、console 或账本。
 
@@ -64,7 +66,7 @@ APPLY 需要精确确认语句、批准引用和幂等键；对象上传使用�
 使用既有 `verify:v04-workflow` 的隔离 schema 与 guarded cleanup；只允许 loopback、数据库名含 `test`、独立 `V04_TEST_RUN_ID`。验证：
 
 - 两个 ACTIVE stable user 均在 allowlist，同一 `TEST_ONLY` READY视频可进入；未知/停用用户、未知/无媒体/非TEST_ONLY视频拒绝；
-- 固定测试媒体 PREVIEW 零写；状态笛卡尔矩阵只有 `CLEAN_CREATE`、`EXACT_APPLIED` 合法；对象先存在、仅数据库存在、仅账本存在、多账本、对象/数据库漂移全部fail-closed；预存对象永不删除；上传失败仅补偿当前请求拥有的对象；成功后 `READY`/`TEST_ONLY`/稳定上传者/独立对象键全部精确；重复与并发请求只产生一个视频；BUSINESS 片库数量和指纹不变；
+- 固定测试媒体 PREVIEW 零写；对象键只能精确为 `videos/video_v04_gray_test_f79086fba2876352/original`，任意其他 `videos/*` 和旧前缀均拒绝；状态笛卡尔矩阵只有 `CLEAN_CREATE`、`EXACT_APPLIED` 合法；对象先存在、仅数据库存在、仅账本存在、多账本、对象/数据库漂移全部fail-closed；预存对象永不删除；上传失败仅补偿当前请求拥有的对象；成功后 `READY`/`TEST_ONLY`/稳定上传者/固定专用对象键全部精确；重复与并发请求只产生一个视频；BUSINESS 片库数量和指纹不变；
 - 两身份/同用户双tab租约、30秒heartbeat/120秒TTL、旁观、释放/过期/接管；
 - 手动/自动保存、冲突/rebase、首次/二次提交、不可变快照、失败回滚、幂等和NO_CHANGES；
 - 历史、专家优选/撤回、非破坏恢复、批注与软删除恢复；

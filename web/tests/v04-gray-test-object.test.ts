@@ -9,7 +9,11 @@ import {
   loadV04GrayTestObjectConfig,
   previewV04GrayTestObject,
 } from "../lib/v04-gray-test-object.ts";
-import { V04_GRAY_TEST_MEDIA, v04GrayTestMediaBytes } from "../lib/v04-gray-test-media.ts";
+import {
+  assertV04GrayTestMediaTarget,
+  V04_GRAY_TEST_MEDIA,
+  v04GrayTestMediaBytes,
+} from "../lib/v04-gray-test-media.ts";
 import { V04ServiceError } from "../lib/v04-errors.ts";
 import {
   V04_GRAY_TEST_OBJECT_REASON_CLASSES,
@@ -21,7 +25,30 @@ test("approved gray media is a frozen locally generated non-business clip", () =
   assert.equal(bytes.byteLength, V04_GRAY_TEST_MEDIA.fileSize);
   assert.equal(createHash("sha256").update(bytes).digest("hex"), V04_GRAY_TEST_MEDIA.sha256);
   assert.equal(V04_GRAY_TEST_MEDIA.contentType, "video/mp4");
-  assert.match(V04_GRAY_TEST_MEDIA.objectKey, /^test-only\/v04-gray\//);
+  assert.equal(V04_GRAY_TEST_MEDIA.schemaVersion, "V04_GRAY_TEST_MEDIA_V2");
+  assert.equal(
+    V04_GRAY_TEST_MEDIA.objectKey,
+    `videos/${V04_GRAY_TEST_MEDIA.videoId}/original`,
+  );
+  assert.equal(
+    createHash("sha256").update(V04_GRAY_TEST_MEDIA.objectKey).digest("hex"),
+    "f7fa85d4d85dc7722dcfb9cceab97ea5d3a277d6b49ae8c29a71114eb2896de1",
+  );
+  assert.doesNotThrow(() => assertV04GrayTestMediaTarget(
+    V04_GRAY_TEST_MEDIA.videoId,
+    V04_GRAY_TEST_MEDIA.objectKey,
+  ));
+  for (const [videoId, objectKey] of [
+    ["video_business_123", "videos/video_business_123/original"],
+    [V04_GRAY_TEST_MEDIA.videoId, "videos/video_business_123/original"],
+    [V04_GRAY_TEST_MEDIA.videoId, `videos/${V04_GRAY_TEST_MEDIA.videoId}/replacement`],
+    [V04_GRAY_TEST_MEDIA.videoId, "test-only/v04-gray/legacy/original.mp4"],
+  ]) {
+    assert.throws(
+      () => assertV04GrayTestMediaTarget(videoId, objectKey),
+      /V04_GRAY_TEST_MEDIA_TARGET_INVALID/,
+    );
+  }
   assert.match(V04_GRAY_TEST_MEDIA.testRunId, /^V04_GRAY_/);
 });
 
