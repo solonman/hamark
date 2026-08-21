@@ -35,12 +35,12 @@ test("V0.3 PracticeClient remains byte-identical while the server page gains the
   );
 });
 
-test("deployment configuration enables only the approved V0.4 default surfaces", async () => {
+test("deployment configuration keeps the V0.4 default surfaces closed during rollback", async () => {
   const source = await readFile(new URL("../vercel.json", import.meta.url), "utf8");
   const deployment = JSON.parse(source);
-  assert.equal(deployment.env.V04_DEFAULT_UI_ENABLED, "true");
-  assert.equal(deployment.env.V04_WORKFLOW_UI_ENABLED, "true");
-  assert.equal(deployment.env.V04_WORKFLOW_API_ENABLED, "true");
+  assert.equal(deployment.env.V04_DEFAULT_UI_ENABLED, undefined);
+  assert.equal(deployment.env.V04_WORKFLOW_UI_ENABLED, undefined);
+  assert.equal(deployment.env.V04_WORKFLOW_API_ENABLED, undefined);
   for (const forbidden of [
     "V04_GRAY_ROLLOUT_ENABLED",
     "V04_GRAY_IDENTITY_DIGEST_ENABLED",
