@@ -64,7 +64,7 @@ test("schema APPLY service binds preview, code SHA, backup evidence and one stab
   assert.doesNotMatch(source, /CONTRACT_ACTIVATE|npm run db:migrate|DELETE FROM|DROP TABLE/);
 });
 
-test("admin page never auto-runs PREVIEW or APPLY and vercel keeps both gates closed", () => {
+test("admin page never auto-runs PREVIEW or APPLY and diagnostic deployment keeps APPLY closed", () => {
   const page = readFileSync(new URL("../app/admin/v04-schema/page.tsx", import.meta.url), "utf8");
   const client = readFileSync(new URL("../app/admin/v04-schema/V04SchemaAdminClient.tsx", import.meta.url), "utf8");
   const vercel = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
@@ -86,5 +86,7 @@ test("admin page never auto-runs PREVIEW or APPLY and vercel keeps both gates cl
   const previewRoute = readFileSync(new URL("../app/api/admin/v04-migration/preview/route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(previewRoute, /searchParams|get\(["']previewToken["']\)/,
     "the runtime token must never be accepted through a URL");
-  assert.doesNotMatch(vercel, /V04_MIGRATION_PREVIEW_ENABLED|V04_SCHEMA_APPLY_ENABLED|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED/);
+  const deployment = JSON.parse(vercel) as { env?: Record<string, string> };
+  assert.deepEqual(deployment.env, { V04_MIGRATION_PREVIEW_ENABLED: "true" });
+  assert.doesNotMatch(vercel, /V04_SCHEMA_APPLY_ENABLED|V04_CONTRACT_ACTIVATE_ENABLED|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED/);
 });
