@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { V04VideoSessionProvider } from "@/components/v04/V04VideoSessionProvider";
 import V04WorkspaceClient from "@/components/v04/V04WorkspaceClient";
+import { getDbClient } from "@/db";
 import { requirePageUser } from "@/lib/current-user";
+import { canAccessV04Gray } from "@/lib/v04-gray-access";
 import PracticeClient from "./PracticeClient";
 import type { TaxonomyVersion } from "@/lib/types";
 
@@ -28,6 +30,7 @@ export default async function PracticePage({
   const user = await requirePageUser(returnTo);
   if (isV04) {
     if (process.env.V04_WORKFLOW_UI_ENABLED !== "true") notFound();
+    if (!await canAccessV04Gray(getDbClient(), user.id, id)) notFound();
     const encodedId = encodeURIComponent(id);
     return (
       <V04VideoSessionProvider>

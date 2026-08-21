@@ -3,6 +3,7 @@ import { getCurrentUserFromRequest, requireSameOriginMutation } from "@/lib/curr
 import { SESSION_COOKIE } from "@/lib/auth/session";
 import { hashToken } from "@/lib/auth/security";
 import { V04ServiceError, v04ErrorResponse } from "./v04-errors";
+import { assertV04GrayAccess, v04GrayVideoIdFromRequest } from "./v04-gray-access";
 import type { V04Actor } from "./v04-workspace-service";
 
 function readCookie(header: string | null, name: string) {
@@ -25,7 +26,7 @@ export function v04IdempotencyKey(request: Request, fallback?: string) {
 
 export async function requireV04Actor(
   request: Request,
-  options: { mutation: boolean; requireFeature?: boolean },
+  options: { mutation: boolean; requireFeature?: boolean; grayCollection?: boolean },
 ): Promise<{ actor: V04Actor; requestId: string } | Response> {
   const requestId = v04RequestId(request);
   if (options.requireFeature !== false && process.env.V04_WORKFLOW_API_ENABLED !== "true") {
@@ -77,6 +78,22 @@ export async function requireV04Actor(
       requestId,
     ), requestId);
   }
+  if (options.requireFeature !== false) {
+    const videoId = options.grayCollection ? undefined : v04GrayVideoIdFromRequest(request);
+    if (!options.grayCollection && !videoId) {
+      return v04ErrorResponse(new V04ServiceError(
+        "FORBIDDEN",
+        "V0.4 受控灰度对象无法识别。",
+        {},
+        requestId,
+      ), requestId);
+    }
+    try {
+      await assertV04GrayAccess(getDbClient(), user.id, videoId);
+    } catch (error) {
+      return v04ErrorResponse(error, requestId);
+    }
+  }
   return {
     requestId,
     actor: {
@@ -91,7 +108,7 @@ export async function requireV04Actor(
 
 export async function v04Route(
   request: Request,
-  options: { mutation: boolean; requireFeature?: boolean },
+  options: { mutation: boolean; requireFeature?: boolean; grayCollection?: boolean },
   operation: (actor: V04Actor, requestId: string) => Promise<Response>,
 ) {
   const access = await requireV04Actor(request, options);

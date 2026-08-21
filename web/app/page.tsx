@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { getDbClient } from "@/db";
 import { isAppAdmin } from "@/lib/admin";
 import { requirePageUser } from "@/lib/current-user";
+import { canAccessV04Gray } from "@/lib/v04-gray-access";
 import HomeClient from "./components/HomeClient";
 
 export const metadata: Metadata = {
@@ -11,6 +13,8 @@ export const metadata: Metadata = {
 export default async function Home() {
   const user = await requirePageUser("/");
   const isAdmin = await isAppAdmin(user);
+  const v04LibraryEnabled = process.env.V04_LIBRARY_UI_ENABLED === "true"
+    && await canAccessV04Gray(getDbClient(), user.id);
   return (
     <HomeClient
       user={{
@@ -22,7 +26,7 @@ export default async function Home() {
           null,
       }}
       isAdmin={isAdmin}
-      v04LibraryEnabled={process.env.V04_LIBRARY_UI_ENABLED === "true"}
+      v04LibraryEnabled={v04LibraryEnabled}
     />
   );
 }
