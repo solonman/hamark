@@ -27,6 +27,18 @@ export type {
 export const V04_GRAY_TEST_OBJECT_TTL_MS = 30 * 60 * 1000;
 export const V04_GRAY_TEST_OBJECT_LOCK_KEY = "HAMARK:V04:GRAY_TEST_OBJECT:V1";
 export const V04_GRAY_TEST_OBJECT_OPERATION_TYPE = "V04_GRAY_TEST_OBJECT_CREATE";
+export const V04_GRAY_TEST_OBJECT_PREVIEW_STAGES = [
+  "DB_SYSTEM_FACTS_BEFORE",
+  "DB_TARGET_VIDEO_BEFORE",
+  "DB_BUSINESS_FINGERPRINT_BEFORE",
+  "DB_LEDGER_FACTS_BEFORE",
+  "OBJECT_FACTS",
+  "DB_SYSTEM_FACTS_AFTER",
+  "DB_TARGET_VIDEO_AFTER",
+  "DB_BUSINESS_FINGERPRINT_AFTER",
+  "DB_LEDGER_FACTS_AFTER",
+] as const;
+export type V04GrayTestObjectPreviewStage = typeof V04_GRAY_TEST_OBJECT_PREVIEW_STAGES[number];
 
 type Environment = Record<string, string | undefined>;
 type SystemFactsRow = QueryResultRow & {
@@ -108,6 +120,22 @@ function hash(value: unknown) {
     typeof value === "string" ? value : canonicalV04SchemaValue(value),
     "utf8",
   ).digest("hex");
+}
+
+async function atPreviewStage<T>(
+  stage: V04GrayTestObjectPreviewStage,
+  operation: () => Promise<T>,
+) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof V04ServiceError && error.details.stage) throw error;
+    throw new V04ServiceError(
+      "INTERNAL_ERROR",
+      "操作未完成，请稍后重试。",
+      { stage },
+    );
+  }
 }
 
 function base64Url(value: string | Buffer) {
@@ -218,12 +246,19 @@ async function appliedLedgers(db: DbClient) {
   return rows.results;
 }
 
-async function databaseFingerprint(db: DbClient, actorUserId: string) {
-  const system = await systemFacts(db, actorUserId);
-  const target = await targetVideo(db);
-  const business = await businessFingerprint(db);
-  const ledgers = await appliedLedgers(db);
-  return hash({ system, target, business, ledgers });
+async function databaseFacts(
+  db: DbClient,
+  actorUserId: string,
+  phase: "BEFORE" | "AFTER",
+) {
+  const system = await atPreviewStage(`DB_SYSTEM_FACTS_${phase}`, () => systemFacts(db, actorUserId));
+  const target = await atPreviewStage(`DB_TARGET_VIDEO_${phase}`, () => targetVideo(db));
+  const business = await atPreviewStage(
+    `DB_BUSINESS_FINGERPRINT_${phase}`,
+    () => businessFingerprint(db),
+  );
+  const ledgers = await atPreviewStage(`DB_LEDGER_FACTS_${phase}`, () => appliedLedgers(db));
+  return { system, target, business, ledgers };
 }
 
 function targetState(row: TargetVideoRow | null, actorUserId: string) {
@@ -313,13 +348,12 @@ export async function previewV04GrayTestObject(
     * V04_GRAY_TEST_OBJECT_TTL_MS;
   const generatedAt = new Date(windowStart).toISOString();
   const expiresAt = new Date(windowStart + V04_GRAY_TEST_OBJECT_TTL_MS).toISOString();
-  const beforeHash = await databaseFingerprint(db, actor.userId);
   // Keep database reads sequential so this function is safe both on a pool and
-  // on the single transaction client used by APPLY.
-  const system = await systemFacts(db, actor.userId);
-  const target = await targetVideo(db);
-  const business = await businessFingerprint(db);
-  const ledgers = await appliedLedgers(db);
+  // on the single transaction client used by APPLY. Reuse the first fact set for
+  // the PREVIEW body, then read it again after object inspection for zero-write proof.
+  const before = await databaseFacts(db, actor.userId, "BEFORE");
+  const beforeHash = hash(before);
+  const { system, target, business, ledgers } = before;
   const appliedCount = ledgers.length;
   const appliedLedger = appliedCount === 1 ? ledgers[0] : null;
   const state = targetState(target, actor.userId);
@@ -328,7 +362,7 @@ export async function previewV04GrayTestObject(
     : appliedCount === 1 && exactLedger(appliedLedger, actor.userId, targetCodeSha)
       ? "EXACT" as const
       : "DRIFT" as const;
-  const object = await bucketObjectFacts(bucket, appliedLedger);
+  const object = await atPreviewStage("OBJECT_FACTS", () => bucketObjectFacts(bucket, appliedLedger));
   const legalState = classifyV04GrayTestObjectState({
     targetState: state,
     objectState: object.state,
@@ -377,7 +411,8 @@ export async function previewV04GrayTestObject(
     mediaSha256: V04_GRAY_TEST_MEDIA.sha256,
   };
   const previewToken = tokenFor(payload, options.tokenSecret);
-  const afterHash = await databaseFingerprint(db, actor.userId);
+  const after = await databaseFacts(db, actor.userId, "AFTER");
+  const afterHash = hash(after);
   const unchanged = beforeHash === afterHash;
   if (!unchanged) stopReasons.push("PREVIEW_WROTE_DATABASE");
   return {

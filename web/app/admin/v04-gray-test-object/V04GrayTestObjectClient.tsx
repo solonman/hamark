@@ -12,8 +12,14 @@ import styles from "../v04-schema/page.module.css";
 type ApiResponse = {
   preview?: V04GrayTestObjectPreview;
   result?: V04GrayTestObjectApplyResult;
-  error?: { message?: string };
+  error?: { code?: string; message?: string; details?: { stage?: string } };
 };
+
+function diagnosticError(error: ApiResponse["error"], fallback: string) {
+  const message = error?.message || fallback;
+  const context = [error?.code, error?.details?.stage].filter(Boolean).join(" / ");
+  return context ? `${message}（诊断：${context}）` : message;
+}
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -52,7 +58,7 @@ export default function V04GrayTestObjectClient({ enabled }: { enabled: boolean 
         body: "{}",
       });
       const data = await readJson(response);
-      if (!response.ok || !data.preview) throw new Error(data.error?.message || "PREVIEW 未完成。");
+      if (!response.ok || !data.preview) throw new Error(diagnosticError(data.error, "PREVIEW 未完成。"));
       setPreview(data.preview);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "PREVIEW 未完成。");
@@ -81,7 +87,9 @@ export default function V04GrayTestObjectClient({ enabled }: { enabled: boolean 
         }),
       });
       const data = await readJson(response);
-      if (!data.result) throw new Error(data.error?.message || "TEST_ONLY 对象创建未完成。");
+      if (!data.result) {
+        throw new Error(diagnosticError(data.error, "TEST_ONLY 对象创建未完成。"));
+      }
       setResult(data.result);
       if (!response.ok || data.result.status !== "APPLIED") {
         throw new Error("事务已回滚；固定媒体已执行补偿或记录补偿失败状态。");
