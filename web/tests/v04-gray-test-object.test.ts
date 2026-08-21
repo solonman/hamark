@@ -44,10 +44,8 @@ test("gray media tool is independently closed and never enabled by deployment de
   assert.equal(loadV04GrayTestObjectConfig({}).enabled, false);
   assert.equal(loadV04GrayTestObjectConfig({ V04_GRAY_TEST_OBJECT_ENABLED: "false" }).enabled, false);
   assert.equal(loadV04GrayTestObjectConfig({ V04_GRAY_TEST_OBJECT_ENABLED: "true" }).enabled, true);
-  const deployment = JSON.parse(readFileSync(
-    new URL("../vercel.json", import.meta.url), "utf8",
-  )) as { env?: Record<string, string> };
-  assert.deepEqual(deployment.env, { V04_GRAY_TEST_OBJECT_ENABLED: "true" });
+  const deployment = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
+  assert.doesNotMatch(deployment, /V04_GRAY_TEST_OBJECT_ENABLED|V04_GRAY_ROLLOUT_ENABLED|V04_WORKFLOW_API_ENABLED/);
 });
 
 test("preview and apply routes are same-origin admin operations with no GET write path", () => {
