@@ -90,9 +90,7 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment keep
   const detail = readFileSync(new URL("../app/videos/[id]/page.tsx", import.meta.url), "utf8");
   const home = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
   const cards = readFileSync(new URL("../app/api/videos/analysis/v04/cards/route.ts", import.meta.url), "utf8");
-  const deployment = JSON.parse(readFileSync(
-    new URL("../vercel.json", import.meta.url), "utf8",
-  )) as { env?: Record<string, string> };
+  const deployment = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
   assert.match(api, /assertV04GrayAccess/);
   assert.match(api, /v04GrayVideoIdFromRequest/);
   assert.match(gray, /V04_GRAY_USER_ID_SHA256S/);
@@ -106,7 +104,7 @@ test("all official V0.4 surfaces reuse one server gray guard and deployment keep
   assert.match(detail, /canAccessV04Gray\(getDbClient\(\), user\.id, id\)/);
   assert.match(home, /canAccessV04Gray\(getDbClient\(\), user\.id\)/);
   assert.match(cards, /filterV04GrayVideoIds/);
-  assert.deepEqual(deployment.env, { V04_GRAY_TEST_OBJECT_ENABLED: "true" });
+  assert.doesNotMatch(deployment, /V04_GRAY_|V04_WORKFLOW_UI_ENABLED|V04_WORKFLOW_API_ENABLED|V04_DETAIL_UI_ENABLED|V04_LIBRARY_UI_ENABLED/);
 });
 
 test("identity digest is deterministic and the self-service proof page never renders stable ids", () => {
