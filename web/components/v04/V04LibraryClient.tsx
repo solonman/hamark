@@ -8,6 +8,7 @@ import type { V04ServerCardModel, V04UiCase } from "@/lib/v04-ui-model";
 import { v04CardToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
 import { matchesV04LibraryQuery } from "@/lib/v04-ui-client-state";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
+import { v04MetadataQueue } from "@/lib/v04-media-loading";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import styles from "./V04Surface.module.css";
@@ -27,22 +28,45 @@ function VideoDuration({ videoId }: { videoId: string }) {
     const node = anchor.current;
     if (!node) return;
     let disposed = false;
-    let media: HTMLVideoElement | null = null;
+    let requested = false;
+    let cancel: (() => void) | null = null;
     const load = () => {
-      if (media || disposed) return;
-      media = document.createElement("video");
-      media.preload = "metadata";
-      media.muted = true;
-      media.src = `/api/videos/${encodeURIComponent(videoId)}/stream`;
-      media.onloadedmetadata = () => { if (!disposed && media) setDuration(formatDuration(media.duration)); };
-      media.onerror = () => { if (!disposed) setDuration("--:--"); };
-      media.load();
+      if (requested || disposed) return;
+      requested = true;
+      cancel = v04MetadataQueue.schedule((signal) => new Promise<void>((resolve) => {
+        const media = document.createElement("video");
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          media.removeAttribute("src");
+          media.load();
+          resolve();
+        };
+        media.preload = "metadata";
+        media.muted = true;
+        media.src = `/api/videos/${encodeURIComponent(videoId)}/stream`;
+        media.onloadedmetadata = () => {
+          if (!disposed && !signal.aborted) setDuration(formatDuration(media.duration));
+          finish();
+        };
+        media.onerror = () => {
+          if (!disposed && !signal.aborted) setDuration("--:--");
+          finish();
+        };
+        signal.addEventListener("abort", finish, { once: true });
+        if (signal.aborted) finish(); else media.load();
+      }));
     };
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) { load(); observer.disconnect(); }
-    }, { rootMargin: "240px" });
-    observer.observe(node);
-    return () => { disposed = true; observer.disconnect(); if (media) { media.removeAttribute("src"); media.load(); } };
+    const cardLink = node.closest("a");
+    cardLink?.addEventListener("pointerenter", load, { once: true });
+    cardLink?.addEventListener("focusin", load, { once: true });
+    return () => {
+      disposed = true;
+      cardLink?.removeEventListener("pointerenter", load);
+      cardLink?.removeEventListener("focusin", load);
+      cancel?.();
+    };
   }, [videoId]);
   return <span ref={anchor} className={styles.posterDuration} data-video-duration>{duration}</span>;
 }

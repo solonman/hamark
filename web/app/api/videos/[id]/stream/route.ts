@@ -3,9 +3,11 @@ import { requireApiUser } from "@/lib/current-user";
 
 type StreamRow = {
   object_key: string;
-  content_type: string;
+  thumbnail_key: string | null;
   status: string;
 };
+
+const PLAYBACK_URL_TTL_SECONDS = 15 * 60;
 
 export async function GET(
   request: Request,
@@ -16,8 +18,10 @@ export async function GET(
   const { id } = await context.params;
   const video = await getDbClient()
     .prepare(
-      `SELECT object_key, content_type, status
-      FROM videos WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT v.object_key, v.status,
+              to_jsonb(v)->>'thumbnail_key' AS thumbnail_key
+         FROM videos v
+        WHERE v.id = ? AND v.deleted_at IS NULL`,
     )
     .bind(id)
     .first<StreamRow>();
@@ -34,55 +38,35 @@ export async function GET(
     );
   }
 
-  const bucket = getVideoBucket();
-  const rangeHeader = request.headers.get("range");
-  const head = await bucket.head(video.object_key);
-  if (!head) {
-    return Response.json({ error: "视频文件不存在。" }, { status: 404 });
+  const asset = new URL(request.url).searchParams.get("asset");
+  if (asset && asset !== "thumbnail") {
+    return Response.json({ error: "不支持的媒体资源类型。" }, { status: 400 });
+  }
+  const objectKey =
+    asset === "thumbnail" ? video.thumbnail_key : video.object_key;
+  if (!objectKey) {
+    return Response.json(
+      { error: asset === "thumbnail" ? "视频封面不存在。" : "视频文件不存在。" },
+      { status: 404 },
+    );
   }
 
-  const commonHeaders = new Headers({
-    "Accept-Ranges": "bytes",
-    "Content-Type": video.content_type || "application/octet-stream",
-    "Cache-Control": "private, no-cache",
-    "Content-Disposition": "inline",
-    "X-Content-Type-Options": "nosniff",
+  // The authenticated route authorizes this exact READY video object, then
+  // redirects the browser to a short-lived object-scoped COS URL. Range and
+  // conditional requests are preserved by 307 and handled by COS directly;
+  // video bytes never traverse the serverless function.
+  const location = await getVideoBucket().createPresignedGetUrl(objectKey, {
+    expiresInSeconds: PLAYBACK_URL_TTL_SECONDS,
   });
-  if (head.httpEtag) commonHeaders.set("ETag", head.httpEtag);
-
-  if (rangeHeader) {
-    const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader);
-    if (match) {
-      const start = Number(match[1]);
-      const requestedEnd = match[2] ? Number(match[2]) : head.size - 1;
-      const end = Math.min(requestedEnd, head.size - 1);
-      if (start <= end && start < head.size) {
-        const object = await bucket.get(video.object_key, {
-          range: { offset: start, length: end - start + 1 },
-        });
-        if (object?.body) {
-          commonHeaders.set("Content-Length", String(end - start + 1));
-          commonHeaders.set(
-            "Content-Range",
-            `bytes ${start}-${end}/${head.size}`,
-          );
-          return new Response(object.body, {
-            status: 206,
-            headers: commonHeaders,
-          });
-        }
-      }
-      return new Response(null, {
-        status: 416,
-        headers: { "Content-Range": `bytes */${head.size}` },
-      });
-    }
-  }
-
-  const object = await bucket.get(video.object_key);
-  if (!object?.body) {
-    return Response.json({ error: "视频文件不存在。" }, { status: 404 });
-  }
-  commonHeaders.set("Content-Length", String(head.size));
-  return new Response(object.body, { headers: commonHeaders });
+  return new Response(null, {
+    status: 307,
+    headers: {
+      Location: location,
+      "Cache-Control": "private, max-age=300, no-transform",
+      "Content-Disposition": "inline",
+      "Referrer-Policy": "no-referrer",
+      Vary: "Cookie",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }

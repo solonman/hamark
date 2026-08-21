@@ -23,7 +23,7 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
       ) : (
         <>
           <div className={styles.videoStage}>
-            <video ref={ref} controls preload="metadata" src={media?.streamPath} aria-label={`${title} 视频播放器`} onLoadedMetadata={(event) => onDuration?.(event.currentTarget.duration)} onTimeUpdate={(event) => updateVideo({ currentTime: event.currentTarget.currentTime })} />
+            <video ref={ref} controls preload="metadata" src={media?.streamPath} poster={media?.posterPath ?? undefined} aria-label={`${title} 视频播放器`} onLoadedMetadata={(event) => onDuration?.(event.currentTarget.duration)} onTimeUpdate={(event) => updateVideo({ currentTime: event.currentTarget.currentTime })} />
             {!media && <div className={styles.videoPlaceholder}><span>V0.4 VIDEO</span><strong>{title}</strong><small>媒体尚未就绪</small></div>}
           </div>
           <div className={styles.videoTools}>

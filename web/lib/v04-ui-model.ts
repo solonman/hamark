@@ -62,6 +62,7 @@ export type V04UiSubmission = {
 export type V04UiMediaReference = {
   videoId: string;
   streamPath: string;
+  posterPath: string | null;
   metadataPath: string;
   thumbnailKey: string | null;
   originalName: string;
@@ -418,6 +419,7 @@ export function v04CardToUiCase(video: VideoItem, card: V04ServerCardModel): V04
     media: {
       videoId: video.id,
       streamPath: `/api/videos/${encodedId}/stream`,
+      posterPath: video.thumbnailUrl,
       metadataPath: `/api/videos/${encodedId}`,
       thumbnailKey: null,
       originalName: video.originalName,

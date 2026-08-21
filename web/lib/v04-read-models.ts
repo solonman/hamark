@@ -99,6 +99,9 @@ function stableMediaReference(video: VideoReadRow) {
   return {
     videoId: video.id,
     streamPath: `/api/videos/${encodedId}/stream`,
+    posterPath: video.thumbnail_key
+      ? `/api/videos/${encodedId}/stream?asset=thumbnail`
+      : null,
     metadataPath: `/api/videos/${encodedId}`,
     thumbnailKey: video.thumbnail_key,
     originalName: video.original_name,
