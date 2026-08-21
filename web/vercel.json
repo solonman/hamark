@@ -2,5 +2,8 @@
   "framework": "nextjs",
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
-  "regions": ["syd1"]
+  "regions": ["syd1"],
+  "env": {
+    "V04_GRAY_TEST_OBJECT_ENABLED": "true"
+  }
 }
