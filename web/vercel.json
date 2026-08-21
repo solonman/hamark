@@ -2,8 +2,5 @@
   "framework": "nextjs",
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
-  "env": {
-    "V04_CONTRACT_ACTIVATE_ENABLED": "true"
-  },
   "regions": ["syd1"]
 }

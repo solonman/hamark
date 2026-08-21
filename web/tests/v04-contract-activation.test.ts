@@ -7,7 +7,7 @@ import {
   V04_GATE_ONE_BASELINE,
 } from "../lib/v04-contract-activation.ts";
 
-test("contract lifecycle route is POST-only, same-origin protected and explicitly short-opened", () => {
+test("contract lifecycle route is POST-only, same-origin protected and default closed", () => {
   const route = readFileSync(new URL("../app/api/admin/v04-contract/route.ts", import.meta.url), "utf8");
   const page = readFileSync(new URL("../app/admin/v04-schema/page.tsx", import.meta.url), "utf8");
   const vercel = readFileSync(new URL("../vercel.json", import.meta.url), "utf8");
@@ -18,7 +18,7 @@ test("contract lifecycle route is POST-only, same-origin protected and explicitl
   assert.match(route, /v04IdempotencyKey/);
   assert.match(route, /Cache-Control/);
   assert.match(page, /V04_CONTRACT_ACTIVATE_ENABLED/);
-  assert.match(vercel, /"V04_CONTRACT_ACTIVATE_ENABLED"\s*:\s*"true"/);
+  assert.doesNotMatch(vercel, /V04_CONTRACT_ACTIVATE_ENABLED/);
 });
 
 test("contract lifecycle service binds Gate 1 evidence and changes exactly three frozen contracts", () => {
