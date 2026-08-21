@@ -18,7 +18,7 @@ GitHub：`origin/main=5adcb14347f80bd52062be032a93509422d5b1ca`
 | GitHub、main 与关闭基线一致 | 已满足 | `HEAD=origin/main=5adcb14347f80bd52062be032a93509422d5b1ca`，工作树在本清单创建前干净。 |
 | PREVIEW 目标代码 SHA 已锁定 | 已满足 | 门 P 目标 SHA：`f2d4f8f39d836d4a782c83d8ecb741e920f1fed4`。该旧 token 已过期且绝不复用；后续必须在同一 PREVIEW+APPLY 部署重新生成 token。 |
 | schema bundle hash 已锁定 | 已满足 | `d068f0e422a26162ed90a28c3b36a905e0b80d0ddd2a0c08711af0d62603155c`。 |
-| 生产 catalog hash 已锁定 | 已满足 | `331f79c488e5d84d880de9cdad258af534beac661b3352350d5fb77b77408206`。 |
+| 生产 catalog hash 已锁定 | 已满足 | pre-1A 值为 `331f79c488e5d84d880de9cdad258af534beac661b3352350d5fb77b77408206`；安装后精确 catalog 以第9.2节门二 fresh PREVIEW 修正值为准。 |
 | source hash 已锁定 | 已满足 | `f2e8865cad80facb737a2b83cd132b1fc123540c37e5dac60475b86f798582fe`。 |
 | target hash 已锁定 | 已满足 | `d20fe2f7c62411ccee4897fc501fc0e7f5b5b9aae380006f2d30a710b8bf8d29`。 |
 | non-target hash 已锁定 | 已满足 | `734b60057165b03129c405d309e8ac4cdb0f0bbdf4c2264f8a359b835f3f70e7`。 |
@@ -166,7 +166,7 @@ TEST_ONLY PostgreSQL 门禁：合法唯一 actor 成功；非ACTIVE、歧义映�
 - PREVIEW 关闭提交：`ee5ed695405266a8bec7d7fc15d4e080a8cfe9ec`；Vercel 部署成功。
 - schema 结果：`ready=true`，`schemaState=TARGET_APPLIED_EXACT`，`stopReasons=[]`，合同仍为 `DRAFT`，GET/PREVIEW 前后 `UNCHANGED`。
 - 目标 bundle hash：`d068f0e422a26162ed90a28c3b36a905e0b80d0ddd2a0c08711af0d62603155c`。
-- 安装后 catalog hash：`b13f997790152385817351f90f42879261530c39faea69e7365acd68ef043a64`。
+- 安装后 catalog hash：`b13f99779015239d09b8ceef8d7e081272e83d9ff163a590cbf0fd68ef043a64`。原归档串在公共前缀后转录错误；2026-08-21 门二 fresh PREVIEW 再次得到该值，且 P07 的 missing/extra/changed/drift/RLS-disabled 仍全部为0，三类业务指纹未变化。
 - source hash：`f2e8865cad80facb737a2b83cd132b1fc123540c37e5dac60475b86f798582fe`。
 - target hash：`d20fe2f7c62411ccee4897fc501fc0e7f5b5b9aae380006f2d30a710b8bf8d29`。
 - non-target hash：`734b60057165b03129c405d309e8ac4cdb0f0bbdf4c2264f8a359b835f3f70e7`。

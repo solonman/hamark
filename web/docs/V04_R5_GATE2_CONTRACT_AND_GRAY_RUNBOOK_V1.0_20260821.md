@@ -13,7 +13,7 @@
 - 稳定权限：ACTIVE SYSTEM_ADMIN=1。
 - V0.4 工作区、提交、租约、批注等业务事实均为0；P10三个既有孤儿不清理、不改写。
 - bundle：`d068f0e422a26162ed90a28c3b36a905e0b80d0ddd2a0c08711af0d62603155c`。
-- catalog：`b13f997790152385817351f90f42879261530c39faea69e7365acd68ef043a64`。
+- catalog：`b13f99779015239d09b8ceef8d7e081272e83d9ff163a590cbf0fd68ef043a64`（门二 fresh PREVIEW、P07=0；修正门一文档中的旧归档值）。
 - source：`f2e8865cad80facb737a2b83cd132b1fc123540c37e5dac60475b86f798582fe`。
 - target：`d20fe2f7c62411ccee4897fc501fc0e7f5b5b9aae380006f2d30a710b8bf8d29`。
 - non-target：`734b60057165b03129c405d309e8ac4cdb0f0bbdf4c2264f8a359b835f3f70e7`。

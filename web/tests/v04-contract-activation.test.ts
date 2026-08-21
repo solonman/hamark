@@ -28,6 +28,8 @@ test("contract lifecycle service binds Gate 1 evidence and changes exactly three
   assert.equal(V04_CONTRACT_RETIRE_CONFIRMATION,
     "我确认仅停用三份 V0.4 合同并保留全部历史数据");
   assert.match(V04_GATE_ONE_BASELINE.bundleHash, /^[a-f0-9]{64}$/);
+  assert.equal(V04_GATE_ONE_BASELINE.catalogHash,
+    "b13f99779015239d09b8ceef8d7e081272e83d9ff163a590cbf0fd68ef043a64");
   for (const invariant of [
     "pg_advisory_xact_lock",
     "schema_migration_operations",

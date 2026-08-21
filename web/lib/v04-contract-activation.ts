@@ -36,7 +36,7 @@ export const V04_CONTRACT_LIFECYCLE_LOCK_KEY = "HAMARK:V04:CONTRACT_LIFECYCLE:V1
 export const V04_GATE_ONE_BASELINE = {
   verifiedCodeSha: "5fe4e03df46847b9033cb8721f18d233f0642c92",
   bundleHash: "d068f0e422a26162ed90a28c3b36a905e0b80d0ddd2a0c08711af0d62603155c",
-  catalogHash: "b13f997790152385817351f90f42879261530c39faea69e7365acd68ef043a64",
+  catalogHash: "b13f99779015239d09b8ceef8d7e081272e83d9ff163a590cbf0fd68ef043a64",
   sourceHash: "f2e8865cad80facb737a2b83cd132b1fc123540c37e5dac60475b86f798582fe",
   targetHash: "d20fe2f7c62411ccee4897fc501fc0e7f5b5b9aae380006f2d30a710b8bf8d29",
   nonTargetHash: "734b60057165b03129c405d309e8ac4cdb0f0bbdf4c2264f8a359b835f3f70e7",
@@ -179,6 +179,16 @@ function gateOneMatches(preview: V04MigrationPreview, baseline: V04GateOneBaseli
     && preview.nonTargetHash === baseline.nonTargetHash;
 }
 
+function gateOneMismatchKeys(preview: V04MigrationPreview, baseline: V04GateOneBaseline) {
+  return [
+    ["bundleHash", preview.bundleHash, baseline.bundleHash],
+    ["catalogHash", preview.schemaFingerprint, baseline.catalogHash],
+    ["sourceHash", preview.sourceHash, baseline.sourceHash],
+    ["targetHash", preview.targetHash, baseline.targetHash],
+    ["nonTargetHash", preview.nonTargetHash, baseline.nonTargetHash],
+  ].filter(([, current, expected]) => current !== expected).map(([key]) => key);
+}
+
 function assertExactPreflight(
   preview: V04MigrationPreview,
   expectedStatus: ContractState,
@@ -205,6 +215,7 @@ function assertExactPreflight(
       schemaState: preview.schemaState,
       contractStatus: preview.contract.status,
       stopReasons: preview.stopReasons,
+      gateOneMismatchKeys: gateOneMismatchKeys(preview, gateOneBaseline),
     });
   }
 }
