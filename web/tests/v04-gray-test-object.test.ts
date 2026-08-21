@@ -140,7 +140,7 @@ test("preview failures expose only stable non-sensitive stages", async () => {
     new URL("../app/admin/v04-gray-test-object/V04GrayTestObjectClient.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(service, /new V04ServiceError\([\s\S]*?"INTERNAL_ERROR"[\s\S]*?\{ stage \}/);
+  assert.match(service, /new V04ServiceError\([\s\S]*?"INTERNAL_ERROR"[\s\S]*?reasonClass \? \{ stage, reasonClass \} : \{ stage \}/);
   assert.doesNotMatch(service, /error\.message|error\.stack|String\(error\)/);
   assert.match(client, /诊断：\$\{context\}/);
   assert.doesNotMatch(client, /console\.|localStorage|sessionStorage/);

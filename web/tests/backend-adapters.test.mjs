@@ -4,7 +4,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { getRequiredEnv } from "../lib/env.ts";
-import { buildCosEndpoint, CosVideoBucket, readCosConfig } from "../storage/cos.ts";
+import {
+  buildCosEndpoint,
+  cosFailureReason,
+  CosVideoBucket,
+  readCosConfig,
+} from "../storage/cos.ts";
 import { translateSqlPlaceholders } from "../db/sql.ts";
 
 const readRepoFile = (pathFromTestFile) =>
@@ -122,6 +127,102 @@ test("COS creates a three-hour signed GET URL for a single video object", async 
   assert.equal(parsed.searchParams.get("q-header-list"), "host");
   assert.match(parsed.searchParams.get("q-signature") ?? "", /^[a-f0-9]{40}$/);
   assert.equal(parsed.searchParams.has("response-content-disposition"), false);
+});
+
+const cosTestConfig = {
+  region: "ap-guangzhou",
+  bucket: "hamark-videos-1250000000",
+  secretId: "test-only-secret-id",
+  secretKey: "test-only-secret-key",
+  endpoint: "https://cos.ap-guangzhou.myqcloud.com",
+};
+
+async function withFetchStub(stub, operation) {
+  const original = globalThis.fetch;
+  globalThis.fetch = stub;
+  try {
+    return await operation();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+test("COS HEAD maps only authoritative not-found responses to ABSENT", async () => {
+  for (const headers of [{}, { "x-cos-error-code": "NoSuchKey" }]) {
+    await withFetchStub(
+      async () => new Response(null, { status: 404, headers }),
+      async () => assert.equal(await new CosVideoBucket(cosTestConfig).head("test-only/absent"), null),
+    );
+  }
+});
+
+test("COS HEAD keeps authorization, server, unknown and network failures fail-closed", async () => {
+  for (const response of [
+    new Response(null, { status: 403, headers: { "x-cos-error-code": "AccessDenied" } }),
+    new Response(null, { status: 403, headers: { "x-cos-error-code": "NoSuchKey" } }),
+    new Response(null, { status: 500 }),
+    new Response(null, { status: 400 }),
+  ]) {
+    await withFetchStub(
+      async () => response.clone(),
+      async () => assert.rejects(
+        () => new CosVideoBucket(cosTestConfig).head("test-only/not-authoritative"),
+        (error) => {
+          assert.match(error.message, /^COS request failed \((AUTHORIZATION|SERVER|UNKNOWN)\)\.$/);
+          assert.match(cosFailureReason(error), /^(AUTHORIZATION|SERVER|UNKNOWN)$/);
+          assert.doesNotMatch(error.message, /test-only|secret|https?:/);
+          return true;
+        },
+      ),
+    );
+  }
+  await withFetchStub(
+    async () => { throw new Error("network details must stay private"); },
+    async () => assert.rejects(
+      () => new CosVideoBucket(cosTestConfig).head("test-only/network"),
+      /^CosRequestError: COS request failed \(NETWORK\)\.$/,
+    ),
+  );
+});
+
+test("COS signed requests preserve native metadata and HEAD reads both metadata forms", async () => {
+  await withFetchStub(
+    async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      assert.equal(request.method, "PUT");
+      assert.match(request.headers.get("authorization") ?? "", /^AWS4-HMAC-SHA256 /);
+      assert.equal(request.headers.get("content-type"), "video/mp4");
+      assert.equal(request.headers.get("x-cos-meta-data-scope"), "TEST_ONLY");
+      assert.equal(request.headers.get("x-amz-meta-data-scope"), null);
+      return new Response(null, { status: 200 });
+    },
+    async () => new CosVideoBucket(cosTestConfig).put(
+      "test-only/metadata",
+      new Uint8Array([0, 1, 2]),
+      {
+        httpMetadata: { contentType: "video/mp4" },
+        customMetadata: { "data-scope": "TEST_ONLY" },
+      },
+    ),
+  );
+
+  await withFetchStub(
+    async () => new Response(null, {
+      status: 200,
+      headers: {
+        "content-length": "3",
+        "content-type": "video/mp4",
+        "x-amz-meta-test-run-id": "s3-compatible",
+        "x-cos-meta-test-run-id": "native-cos",
+        "x-cos-meta-sha256": "fixed-sha",
+      },
+    }),
+    async () => {
+      const facts = await new CosVideoBucket(cosTestConfig).head("test-only/metadata");
+      assert.equal(facts?.customMetadata?.["test-run-id"], "native-cos");
+      assert.equal(facts?.customMetadata?.sha256, "fixed-sha");
+    },
+  );
 });
 
 test("Postgres pool fails fast when hosted database is unreachable", () => {

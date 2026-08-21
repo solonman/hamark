@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { DbClient, QueryResultRow } from "@/db";
 import type { VideoBucket } from "@/storage/types";
+import { cosFailureReason } from "@/storage/cos";
 import {
   V04_TAXONOMY_VERSION,
   V04_VOCABULARY_VERSION,
@@ -130,10 +131,11 @@ async function atPreviewStage<T>(
     return await operation();
   } catch (error) {
     if (error instanceof V04ServiceError && error.details.stage) throw error;
+    const reasonClass = cosFailureReason(error);
     throw new V04ServiceError(
       "INTERNAL_ERROR",
       "操作未完成，请稍后重试。",
-      { stage },
+      reasonClass ? { stage, reasonClass } : { stage },
     );
   }
 }

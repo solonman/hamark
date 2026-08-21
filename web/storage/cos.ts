@@ -15,6 +15,21 @@ export type CosConfig = {
 };
 
 type FetchInitWithDuplex = RequestInit & { duplex?: "half" };
+type CosFailureReason = "NOT_FOUND" | "AUTHORIZATION" | "SERVER" | "NETWORK" | "UNKNOWN";
+
+class CosRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly reasonClass: CosFailureReason,
+  ) {
+    super(`COS request failed (${reasonClass}).`);
+    this.name = "CosRequestError";
+  }
+}
+
+export function cosFailureReason(error: unknown): CosFailureReason | null {
+  return error instanceof CosRequestError ? error.reasonClass : null;
+}
 
 const unsignedPayload = "UNSIGNED-PAYLOAD";
 const service = "s3";
@@ -161,12 +176,45 @@ async function signRequest(
   return headers;
 }
 
-function metadataHeaders(metadata?: Record<string, string>) {
+function metadataHeaders(
+  metadata: Record<string, string> | undefined,
+  prefix: "x-cos-meta" | "x-amz-meta",
+) {
   const headers = new Headers();
   for (const [key, value] of Object.entries(metadata ?? {})) {
-    headers.set(`x-amz-meta-${key.toLowerCase()}`, value);
+    headers.set(`${prefix}-${key.toLowerCase()}`, value);
   }
   return headers;
+}
+
+function responseMetadata(headers: Headers) {
+  const metadata: Record<string, string> = {};
+  // Read the S3-compatible form first and let the native COS form win if both exist.
+  for (const prefix of ["x-amz-meta-", "x-cos-meta-"] as const) {
+    for (const [name, value] of headers.entries()) {
+      if (name.startsWith(prefix)) metadata[name.slice(prefix.length)] = value;
+    }
+  }
+  return metadata;
+}
+
+function responseErrorCode(headers: Headers) {
+  return headers.get("x-cos-error-code")?.trim()
+    || headers.get("x-amz-error-code")?.trim()
+    || "";
+}
+
+function classifyCosFailure(status: number, headers: Headers): CosFailureReason {
+  const code = responseErrorCode(headers);
+  if (status === 404 && (!code || code === "NoSuchKey" || code === "NotFound")) {
+    return "NOT_FOUND";
+  }
+  if (status === 401 || status === 403 || code === "AccessDenied"
+    || code === "InvalidAccessKeyId" || code === "SignatureDoesNotMatch") {
+    return "AUTHORIZATION";
+  }
+  if (status >= 500) return "SERVER";
+  return "UNKNOWN";
 }
 
 export class CosVideoBucket implements VideoBucket {
@@ -184,6 +232,16 @@ export class CosVideoBucket implements VideoBucket {
     return `${endpoint}${objectPath(this.config.bucket, key)}`;
   }
 
+  private metadataPrefix() {
+    try {
+      return new URL(this.config.endpoint).hostname.endsWith(".myqcloud.com")
+        ? "x-cos-meta" as const
+        : "x-amz-meta" as const;
+    } catch {
+      return "x-amz-meta" as const;
+    }
+  }
+
   private async request(
     method: string,
     key: string,
@@ -194,11 +252,15 @@ export class CosVideoBucket implements VideoBucket {
       method,
     });
     const headers = await signRequest(request, this.config);
-    const fetchInit: FetchInitWithDuplex = { headers };
-    if (init.duplex) fetchInit.duplex = init.duplex;
-    const response = await fetch(request, fetchInit as RequestInit);
+    const signedRequest = new Request(request, { headers });
+    let response: Response;
+    try {
+      response = await fetch(signedRequest);
+    } catch {
+      throw new CosRequestError(0, "NETWORK");
+    }
     if (!response.ok) {
-      throw new Error(`COS ${method} ${key} failed with ${response.status}`);
+      throw new CosRequestError(response.status, classifyCosFailure(response.status, response.headers));
     }
     return response;
   }
@@ -283,7 +345,7 @@ export class CosVideoBucket implements VideoBucket {
       ifNoneMatch?: "*";
     },
   ) {
-    const headers = metadataHeaders(options?.customMetadata);
+    const headers = metadataHeaders(options?.customMetadata, this.metadataPrefix());
     if (options?.httpMetadata?.contentType) {
       headers.set("content-type", options.httpMetadata.contentType);
     }
@@ -298,7 +360,7 @@ export class CosVideoBucket implements VideoBucket {
 
   async head(key: string) {
     const response = await this.request("HEAD", key).catch((error) => {
-      if (error instanceof Error && error.message.endsWith(" 404")) return null;
+      if (error instanceof CosRequestError && error.reasonClass === "NOT_FOUND") return null;
       throw error;
     });
     if (!response) return null;
@@ -306,11 +368,7 @@ export class CosVideoBucket implements VideoBucket {
       size: Number(response.headers.get("content-length") ?? 0),
       httpEtag: response.headers.get("etag") ?? undefined,
       contentType: response.headers.get("content-type") ?? undefined,
-      customMetadata: Object.fromEntries(
-        [...response.headers.entries()]
-          .filter(([name]) => name.startsWith("x-cos-meta-"))
-          .map(([name, value]) => [name.slice("x-cos-meta-".length), value]),
-      ),
+      customMetadata: responseMetadata(response.headers),
     };
   }
 
