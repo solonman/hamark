@@ -29,6 +29,7 @@ export default async function V04SchemaAdminPage() {
         <V04SchemaAdminClient
           previewEnabled={false}
           applyEnabled={false}
+          contractLifecycleEnabled={false}
           bootstrapEnabled
           bootstrapEligible
           targetCodeSha={v04TargetCodeSha()}
@@ -51,6 +52,7 @@ export default async function V04SchemaAdminPage() {
     <V04SchemaAdminClient
       previewEnabled={process.env.V04_MIGRATION_PREVIEW_ENABLED === "true"}
       applyEnabled={process.env.V04_SCHEMA_APPLY_ENABLED === "true"}
+      contractLifecycleEnabled={process.env.V04_CONTRACT_ACTIVATE_ENABLED === "true"}
       bootstrapEnabled={process.env.V04_SYSTEM_ADMIN_BOOTSTRAP_ENABLED === "true"}
       bootstrapEligible={false}
       targetCodeSha={v04TargetCodeSha()}

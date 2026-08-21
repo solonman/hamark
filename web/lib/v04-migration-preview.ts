@@ -127,7 +127,7 @@ export type V04MigrationPreview = {
     vocabularyVersion: typeof V04_VOCABULARY_VERSION;
     payloadSchemaVersion: typeof V04_PAYLOAD_SCHEMA_VERSION;
     status: string;
-    expectedStatus: "DRAFT";
+    expectedStatus: "DRAFT" | "ACTIVE" | "RETIRED";
   };
   ready: boolean;
   previewToken: string;
@@ -1059,7 +1059,12 @@ export async function assertV04PreviewAdmin(
 export async function previewV04Migration(
   db: DbClient,
   actor: { userId: string; displayName?: string },
-  options: { now?: Date; environmentKey?: string; targetCodeSha?: string } = {},
+  options: {
+    now?: Date;
+    environmentKey?: string;
+    targetCodeSha?: string;
+    expectedContractStatus?: "DRAFT" | "ACTIVE" | "RETIRED";
+  } = {},
 ): Promise<V04MigrationPreview> {
   await assertV04PreviewAdmin(db, actor);
 
@@ -1081,14 +1086,36 @@ export async function previewV04Migration(
   const schemaState = classifyV04SchemaState(catalog, drift);
   const targetCodeSha = v04TargetCodeSha(options.targetCodeSha);
   const catalogColumnSet = new Set(catalog.columns.map((row) => `${row.table_name}.${row.column_name}`));
-  const contractStatus = await inPreviewStage("SCHEMA_DRIFT", async () => (
-    catalogTableSet.has("workflow_contract_versions")
-      && catalogColumnSet.has("workflow_contract_versions.workflow_version")
-      && catalogColumnSet.has("workflow_contract_versions.status")
-      ? (await db.prepare(`SELECT status FROM workflow_contract_versions WHERE workflow_version=?`)
-        .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>())?.status ?? "MISSING"
-      : "MISSING"
-  ));
+  const expectedContractStatus = options.expectedContractStatus ?? "DRAFT";
+  const contractStatuses = await inPreviewStage("SCHEMA_DRIFT", async () => {
+    const unavailable = {
+      taxonomy: "MISSING",
+      vocabulary: "MISSING",
+      workflow: "MISSING",
+    };
+    if (!catalogTableSet.has("annotation_taxonomy_versions")
+      || !catalogTableSet.has("annotation_vocabulary_versions")
+      || !catalogTableSet.has("workflow_contract_versions")
+      || !catalogColumnSet.has("annotation_taxonomy_versions.status")
+      || !catalogColumnSet.has("annotation_vocabulary_versions.status")
+      || !catalogColumnSet.has("workflow_contract_versions.status")) return unavailable;
+    const [taxonomy, vocabulary, workflow] = await Promise.all([
+      db.prepare("SELECT status FROM annotation_taxonomy_versions WHERE taxonomy_version=?")
+        .bind(V04_TAXONOMY_VERSION).first<{ status: string } & QueryResultRow>(),
+      db.prepare("SELECT status FROM annotation_vocabulary_versions WHERE vocabulary_version=?")
+        .bind(V04_VOCABULARY_VERSION).first<{ status: string } & QueryResultRow>(),
+      db.prepare("SELECT status FROM workflow_contract_versions WHERE workflow_version=?")
+        .bind(V04_WORKFLOW_VERSION).first<{ status: string } & QueryResultRow>(),
+    ]);
+    return {
+      taxonomy: taxonomy?.status ?? "MISSING",
+      vocabulary: vocabulary?.status ?? "MISSING",
+      workflow: workflow?.status ?? "MISSING",
+    };
+  });
+  const contractStatus = new Set(Object.values(contractStatuses)).size === 1
+    ? contractStatuses.workflow
+    : "MIXED";
   const source = await inPreviewStage("BUSINESS_FACTS", () =>
     scopedHash(db, catalogTableSet, SOURCE_HASH_QUERIES));
   const targetBusiness = await inPreviewStage("BUSINESS_FACTS", () =>
@@ -1278,6 +1305,24 @@ export async function previewV04Migration(
     workflowDraft: await countIf(db, catalogTableSet, ["workflow_contract_versions"],
       `SELECT COUNT(*) AS count FROM workflow_contract_versions
         WHERE workflow_version='${V04_WORKFLOW_VERSION}' AND status='DRAFT'`),
+    taxonomyActive: await countIf(db, catalogTableSet, ["annotation_taxonomy_versions"],
+      `SELECT COUNT(*) AS count FROM annotation_taxonomy_versions
+        WHERE taxonomy_version='${V04_TAXONOMY_VERSION}' AND status='ACTIVE'`),
+    vocabularyActive: await countIf(db, catalogTableSet, ["annotation_vocabulary_versions"],
+      `SELECT COUNT(*) AS count FROM annotation_vocabulary_versions
+        WHERE vocabulary_version='${V04_VOCABULARY_VERSION}' AND status='ACTIVE'`),
+    workflowActive: await countIf(db, catalogTableSet, ["workflow_contract_versions"],
+      `SELECT COUNT(*) AS count FROM workflow_contract_versions
+        WHERE workflow_version='${V04_WORKFLOW_VERSION}' AND status='ACTIVE'`),
+    taxonomyRetired: await countIf(db, catalogTableSet, ["annotation_taxonomy_versions"],
+      `SELECT COUNT(*) AS count FROM annotation_taxonomy_versions
+        WHERE taxonomy_version='${V04_TAXONOMY_VERSION}' AND status='RETIRED'`),
+    vocabularyRetired: await countIf(db, catalogTableSet, ["annotation_vocabulary_versions"],
+      `SELECT COUNT(*) AS count FROM annotation_vocabulary_versions
+        WHERE vocabulary_version='${V04_VOCABULARY_VERSION}' AND status='RETIRED'`),
+    workflowRetired: await countIf(db, catalogTableSet, ["workflow_contract_versions"],
+      `SELECT COUNT(*) AS count FROM workflow_contract_versions
+        WHERE workflow_version='${V04_WORKFLOW_VERSION}' AND status='RETIRED'`),
     actorSystemAdmin: catalogTableSet.has("app_role_memberships")
       ? numeric((await db.prepare(`SELECT COUNT(*) AS count FROM app_role_memberships
           WHERE user_id=? AND role_key='SYSTEM_ADMIN' AND status='ACTIVE'`)
@@ -1333,13 +1378,13 @@ export async function previewV04Migration(
     ...(ledgerAnomalyIds.length ? ["SCHEMA_LEDGER_STATE_ANOMALY"] : []),
     ...(targetBusinessRowCount ? ["V04_BUSINESS_ROWS_PRESENT"] : []),
     ...(!zeroWrite.unchanged ? ["PREVIEW_NOT_ZERO_WRITE"] : []),
-    ...(schemaState === "TARGET_APPLIED_EXACT" && contractStatus !== "DRAFT"
-      ? ["WORKFLOW_CONTRACT_NOT_DRAFT"] : []),
+    ...(schemaState === "TARGET_APPLIED_EXACT" && contractStatus !== expectedContractStatus
+      ? [`V04_CONTRACT_NOT_${expectedContractStatus}`] : []),
     ...(schemaState === "TARGET_APPLIED_EXACT" && (
-      contractCounts.taxonomyDraft !== 1
-      || contractCounts.vocabularyDraft !== 1
+      contractCounts[`taxonomy${expectedContractStatus[0]}${expectedContractStatus.slice(1).toLowerCase()}` as keyof typeof contractCounts] !== 1
+      || contractCounts[`vocabulary${expectedContractStatus[0]}${expectedContractStatus.slice(1).toLowerCase()}` as keyof typeof contractCounts] !== 1
       || contractCounts.vocabularyOptions !== 60
-      || contractCounts.workflowDraft !== 1
+      || contractCounts[`workflow${expectedContractStatus[0]}${expectedContractStatus.slice(1).toLowerCase()}` as keyof typeof contractCounts] !== 1
       || contractCounts.actorSystemAdmin !== 1
     ) ? ["TARGET_SECURITY_OR_CONTRACT_DRIFT"] : []),
   ]);
@@ -1361,7 +1406,7 @@ export async function previewV04Migration(
     vocabularyVersion: V04_VOCABULARY_VERSION,
     payloadSchemaVersion: V04_PAYLOAD_SCHEMA_VERSION,
     status: contractStatus,
-    expectedStatus: "DRAFT" as const,
+    expectedStatus: expectedContractStatus,
   };
   const tokenFacts = {
     previewSchemaVersion: V04_MIGRATION_PREVIEW_SCHEMA_VERSION,

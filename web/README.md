@@ -317,6 +317,26 @@ R2 只在现有 `/videos/[id]/practice` 增加显式 `taxonomy=V0.4` 分支，�
 `V0.3-PILOT`。V0.4 API 仍由独立 `V04_WORKFLOW_API_ENABLED` 门控制；两个门均不写入
 `vercel.json`，因此提交和部署暗代码不会自动开放入口或访问未安装的生产 schema。
 
+### V0.4 R5 门二合同生命周期（默认关闭）
+
+合同激活使用独立的 POST-only 管理操作面与 `V04_CONTRACT_ACTIVATE_ENABLED` 开关。服务端在
+同一事务锁内复核门一 catalog/RLS/词表/稳定 SYSTEM_ADMIN/零业务事实和三类指纹，再将
+taxonomy、vocabulary、workflow 三份冻结合同原子地从 DRAFT 激活为 ACTIVE；失败回滚三行并
+保留脱敏 FAILED 账本，重放返回同一结果。生命周期停用仅支持受控 ACTIVE→RETIRED，不删除
+任何历史。默认部署不配置该开关，页面加载、GET、build/start 不会触发合同操作。
+
+TEST_ONLY PostgreSQL 门禁：
+
+```bash
+NODE_ENV=test \
+V04_TEST_RUN_ID="gate2_contract_<unique>" \
+V04_TEST_DATABASE_URL="${V04_TEST_DATABASE_URL:?inject a loopback test database URL}" \
+npm run verify:v04-contract-activation
+```
+
+生产执行、立即关门和小灰度停止条件见
+[`docs/V04_R5_GATE2_CONTRACT_AND_GRAY_RUNBOOK_V1.0_20260821.md`](docs/V04_R5_GATE2_CONTRACT_AND_GRAY_RUNBOOK_V1.0_20260821.md)。
+
 ## 关键目录
 
 - `app/`：片库、作品、作业页面和API；

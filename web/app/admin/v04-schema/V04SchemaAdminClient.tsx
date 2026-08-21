@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { V04MigrationPreview } from "@/lib/v04-migration-preview";
 import {
+  V04_CONTRACT_ACTIVATE_CONFIRMATION,
+  V04_CONTRACT_RETIRE_CONFIRMATION,
   V04_SCHEMA_APPLY_CONFIRMATION,
   V04_SYSTEM_ADMIN_BOOTSTRAP_CONFIRMATION,
 } from "@/lib/v04-schema-admin-contract";
@@ -31,6 +33,7 @@ function shortHash(value: string) {
 export default function V04SchemaAdminClient(props: {
   previewEnabled: boolean;
   applyEnabled: boolean;
+  contractLifecycleEnabled: boolean;
   bootstrapEnabled: boolean;
   bootstrapEligible: boolean;
   targetCodeSha: string;
@@ -47,6 +50,11 @@ export default function V04SchemaAdminClient(props: {
   const [bootstrapConfirmation, setBootstrapConfirmation] = useState("");
   const [bootstrapApproval, setBootstrapApproval] = useState("");
   const [bootstrapping, setBootstrapping] = useState(false);
+  const [contractAction, setContractAction] = useState<"ACTIVATE_CONTRACTS" | "RETIRE_CONTRACTS">("ACTIVATE_CONTRACTS");
+  const [contractConfirmation, setContractConfirmation] = useState("");
+  const [contractApproval, setContractApproval] = useState("");
+  const [contractEvidence, setContractEvidence] = useState("gate-one:5fe4e03df46847b9033cb8721f18d233f0642c92");
+  const [changingContracts, setChangingContracts] = useState(false);
 
   const canApply = useMemo(() => Boolean(
     props.applyEnabled
@@ -147,6 +155,39 @@ export default function V04SchemaAdminClient(props: {
     }
   }
 
+  async function changeContractLifecycle() {
+    if (!props.contractLifecycleEnabled) return;
+    setChangingContracts(true);
+    setError("");
+    setResult("");
+    const idempotencyKey = `v04-contract-${crypto.randomUUID()}`;
+    try {
+      const response = await fetch("/api/admin/v04-contract", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({
+          action: contractAction,
+          confirmation: contractConfirmation,
+          approvalReference: contractApproval.trim(),
+          gateOneEvidenceReference: contractEvidence.trim(),
+          targetCodeSha: props.targetCodeSha,
+          idempotencyKey,
+        }),
+      });
+      const data = await readJson(response);
+      if (!response.ok || !data.result) {
+        throw new Error(data.error?.message || `合同操作未完成（HTTP ${response.status}）。`);
+      }
+      setResult(`合同操作 ${data.result.operationId ?? "—"}：${data.result.status ?? "已返回"}`);
+      setContractConfirmation("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "合同操作未完成。");
+    } finally {
+      setChangingContracts(false);
+    }
+  }
+
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
@@ -161,7 +202,8 @@ export default function V04SchemaAdminClient(props: {
       <section className={styles.switches} aria-label="生产开关状态">
         <span data-enabled={props.previewEnabled}>PREVIEW {props.previewEnabled ? "短期开启" : "关闭"}</span>
         <span data-enabled={props.applyEnabled}>APPLY {props.applyEnabled ? "短期开启" : "关闭"}</span>
-        <span>合同激活关闭</span><span>V0.4 正式入口关闭</span>
+        <span data-enabled={props.contractLifecycleEnabled}>合同生命周期 {props.contractLifecycleEnabled ? "短期开启" : "关闭"}</span>
+        <span>V0.4 正式入口关闭</span>
       </section>
 
       {props.bootstrapEligible ? (
@@ -191,6 +233,36 @@ export default function V04SchemaAdminClient(props: {
         {!props.previewEnabled ? <p className={styles.notice}>PREVIEW 当前关闭。需使用独立短期部署提交开启，取得证据后立即关闭。</p> : null}
         {error ? <p className={styles.error} role="alert">{error}</p> : null}
         {result ? <p className={styles.success} role="status">{result}</p> : null}
+      </section>
+
+      <section className={styles.panel}>
+        <p className={styles.eyebrow}>门二 · 默认关闭</p>
+        <h2>三份冻结合同原子生命周期操作</h2>
+        <p>每次操作都会在事务锁内复核门一 catalog、15/15 RLS、60 项词表、唯一稳定 SYSTEM_ADMIN、零 V0.4 工作事实和三类业务指纹；不回填、不开放默认入口。</p>
+        <label><span>操作</span><select value={contractAction} onChange={(event) => {
+          setContractAction(event.target.value as "ACTIVATE_CONTRACTS" | "RETIRE_CONTRACTS");
+          setContractConfirmation("");
+        }}>
+          <option value="ACTIVATE_CONTRACTS">DRAFT → ACTIVE（门二激活）</option>
+          <option value="RETIRE_CONTRACTS">ACTIVE → RETIRED（紧急生命周期停用）</option>
+        </select></label>
+        <label><span>批准引用</span><input value={contractApproval} onChange={(event) => setContractApproval(event.target.value)} autoComplete="off" /></label>
+        <label><span>门一证据引用</span><input value={contractEvidence} onChange={(event) => setContractEvidence(event.target.value)} autoComplete="off" /></label>
+        <p className={styles.confirmation}>{contractAction === "ACTIVATE_CONTRACTS"
+          ? V04_CONTRACT_ACTIVATE_CONFIRMATION
+          : V04_CONTRACT_RETIRE_CONFIRMATION}</p>
+        <label><span>精确确认语句</span><input value={contractConfirmation} onChange={(event) => setContractConfirmation(event.target.value)} autoComplete="off" /></label>
+        <button type="button" className={styles.dangerButton}
+          disabled={!props.contractLifecycleEnabled || changingContracts
+            || contractApproval.trim().length < 12 || contractEvidence.trim().length < 12
+            || contractConfirmation !== (contractAction === "ACTIVATE_CONTRACTS"
+              ? V04_CONTRACT_ACTIVATE_CONFIRMATION : V04_CONTRACT_RETIRE_CONFIRMATION)}
+          onClick={() => void changeContractLifecycle()}>
+          {changingContracts ? "正在事务化核验与执行…" : "执行一次合同生命周期操作"}
+        </button>
+        {!props.contractLifecycleEnabled
+          ? <p className={styles.notice}>合同操作开关关闭；页面加载和 GET 不会自动执行。</p>
+          : null}
       </section>
 
       {preview ? (
