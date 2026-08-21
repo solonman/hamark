@@ -12,7 +12,7 @@ export type V04GrayTestObjectPreview = {
   previewHash: string;
   previewToken: string;
   previewTokenDigest: string;
-  actorUserId: string;
+  actorDigest: string;
   plan: {
     videoId: string;
     objectKeyDigest: string;
@@ -29,7 +29,9 @@ export type V04GrayTestObjectPreview = {
     actorSystemAdmin: boolean;
     contractsActive: boolean;
     targetState: "ABSENT" | "EXACT" | "DRIFT";
-    objectState: "ABSENT" | "EXACT_SIZE" | "DRIFT_SIZE";
+    objectState: "ABSENT" | "EXACT" | "DRIFT";
+    ledgerState: "ABSENT" | "EXACT" | "DRIFT";
+    legalState: "CLEAN_CREATE" | "EXACT_APPLIED" | "INCONSISTENT";
     businessVideoCount: number;
     businessFingerprint: string;
     ledgerAppliedCount: number;
@@ -56,11 +58,13 @@ export type V04GrayTestObjectApplyResult = {
   fileSize: number;
   mediaSha256: string;
   objectKeyDigest: string;
-  actorUserId: string;
+  actorDigest: string;
+  objectEtagDigest: string | null;
+  creationMarkerDigest: string | null;
   targetCodeSha: string;
   previewTokenDigest: string;
   businessFingerprint: string;
   completedAt: string;
-  compensation?: "NOT_NEEDED" | "OBJECT_DELETED" | "OBJECT_DELETE_FAILED";
+  compensation?: "NOT_NEEDED" | "OBJECT_DELETED" | "OBJECT_DELETE_REFUSED" | "OBJECT_DELETE_FAILED";
   failure?: { stage: string; code: string };
 };

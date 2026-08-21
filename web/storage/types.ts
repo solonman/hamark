@@ -23,9 +23,15 @@ export interface VideoBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
+      ifNoneMatch?: "*";
     },
   ): Promise<void>;
-  head(key: string): Promise<{ size: number; httpEtag?: string } | null>;
+  head(key: string): Promise<{
+    size: number;
+    httpEtag?: string;
+    contentType?: string;
+    customMetadata?: Record<string, string>;
+  } | null>;
   get(
     key: string,
     options?: { range?: ObjectRange },

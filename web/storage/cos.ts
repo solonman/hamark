@@ -280,12 +280,14 @@ export class CosVideoBucket implements VideoBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
+      ifNoneMatch?: "*";
     },
   ) {
     const headers = metadataHeaders(options?.customMetadata);
     if (options?.httpMetadata?.contentType) {
       headers.set("content-type", options.httpMetadata.contentType);
     }
+    if (options?.ifNoneMatch) headers.set("if-none-match", options.ifNoneMatch);
     const requestBody = body instanceof Uint8Array ? new Blob([arrayBuffer(body)]) : body;
     await this.request("PUT", key, {
       body: requestBody,
@@ -303,6 +305,12 @@ export class CosVideoBucket implements VideoBucket {
     return {
       size: Number(response.headers.get("content-length") ?? 0),
       httpEtag: response.headers.get("etag") ?? undefined,
+      contentType: response.headers.get("content-type") ?? undefined,
+      customMetadata: Object.fromEntries(
+        [...response.headers.entries()]
+          .filter(([name]) => name.startsWith("x-cos-meta-"))
+          .map(([name, value]) => [name.slice("x-cos-meta-".length), value]),
+      ),
     };
   }
 

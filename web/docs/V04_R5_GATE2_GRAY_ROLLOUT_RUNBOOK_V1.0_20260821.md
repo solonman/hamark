@@ -49,7 +49,11 @@
 - 文件大小 `1685` 字节，SHA-256 `f79086fba2876352cc38b4566da616b1e96518cddcbd6cfbb7b5dee295fd9181`；
 - 对象键固定在独立 `test-only/v04-gray/` 前缀，页面只显示不可逆摘要。
 
-PREVIEW 是 same-origin、稳定 SYSTEM_ADMIN 的 POST，但只读数据库和对象 HEAD，前后数据库指纹必须一致；完整30分钟 token 只在页面内存与同源请求中使用，不进入 DOM、URL、storage、console 或账本。APPLY 需要精确确认语句、批准引用和幂等键，事务内获取 advisory lock，写固定媒体、校验大小及 SHA、写 `videos`/审计/不可变管理员操作账本，并复核 BUSINESS 视频数量与指纹。失败通过 savepoint 回滚数据库并仅删除本次保留对象键；成功对象不立即清理。
+PREVIEW 是 same-origin、稳定 SYSTEM_ADMIN 的 POST，但只读数据库和对象 HEAD/固定小文件哈希，前后数据库指纹必须一致；浏览器公开合同、token 可逆载荷和结果只绑定不可逆 actor digest，不含原始稳定用户ID。完整30分钟 token 只在页面内存与同源请求中使用，不进入 DOM、URL、storage、console 或账本。
+
+合法状态只允许两种：`CLEAN_CREATE = videos目标ABSENT + 对象ABSENT + APPLIED账本0`；`EXACT_APPLIED = videos目标EXACT + 对象大小/内容类型/固定SHA/元数据/creation marker/ETag全部EXACT + 唯一APPLIED账本与同一run/目标/hash/actor digest绑定`。其他任意组合均为 `INCONSISTENT`，PREVIEW `ready=false`，APPLY 在 advisory lock 和数据库事务内、任何目标写入前再次拒绝。
+
+APPLY 需要精确确认语句、批准引用和幂等键；对象上传使用条件创建，禁止覆盖既有键。失败通过 savepoint 回滚数据库；只有当前请求确实新建、且补偿时 creation marker、ETag、大小、类型与固定SHA仍同时匹配的对象才可删除。预存、漂移或所有权不明的对象绝不删除；成功对象不立即清理。
 
 生产执行必须另有当次浏览器安全确认。工程开发、部署和页面 PREVIEW 不能代替该确认；未经确认不得点击创建。创建成功后仍须等待第二稳定身份引用齐备，灰度总开关继续关闭。
 
@@ -60,7 +64,7 @@ PREVIEW 是 same-origin、稳定 SYSTEM_ADMIN 的 POST，但只读数据库和�
 使用既有 `verify:v04-workflow` 的隔离 schema 与 guarded cleanup；只允许 loopback、数据库名含 `test`、独立 `V04_TEST_RUN_ID`。验证：
 
 - 两个 ACTIVE stable user 均在 allowlist，同一 `TEST_ONLY` READY视频可进入；未知/停用用户、未知/无媒体/非TEST_ONLY视频拒绝；
-- 固定测试媒体 PREVIEW 零写；上传失败对象补偿；成功后 `READY`/`TEST_ONLY`/稳定上传者/独立对象键全部精确；重复与并发请求只产生一个视频；BUSINESS 片库数量和指纹不变；
+- 固定测试媒体 PREVIEW 零写；状态笛卡尔矩阵只有 `CLEAN_CREATE`、`EXACT_APPLIED` 合法；对象先存在、仅数据库存在、仅账本存在、多账本、对象/数据库漂移全部fail-closed；预存对象永不删除；上传失败仅补偿当前请求拥有的对象；成功后 `READY`/`TEST_ONLY`/稳定上传者/独立对象键全部精确；重复与并发请求只产生一个视频；BUSINESS 片库数量和指纹不变；
 - 两身份/同用户双tab租约、30秒heartbeat/120秒TTL、旁观、释放/过期/接管；
 - 手动/自动保存、冲突/rebase、首次/二次提交、不可变快照、失败回滚、幂等和NO_CHANGES；
 - 历史、专家优选/撤回、非破坏恢复、批注与软删除恢复；

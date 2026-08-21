@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  classifyV04GrayTestObjectState,
   V04_GRAY_TEST_OBJECT_CONFIRMATION,
   loadV04GrayTestObjectConfig,
 } from "../lib/v04-gray-test-object.ts";
@@ -15,6 +16,29 @@ test("approved gray media is a frozen locally generated non-business clip", () =
   assert.equal(V04_GRAY_TEST_MEDIA.contentType, "video/mp4");
   assert.match(V04_GRAY_TEST_MEDIA.objectKey, /^test-only\/v04-gray\//);
   assert.match(V04_GRAY_TEST_MEDIA.testRunId, /^V04_GRAY_/);
+});
+
+test("only clean-create and exact-applied are legal across the target/object/ledger matrix", () => {
+  const states = ["ABSENT", "EXACT", "DRIFT"] as const;
+  const legal: string[] = [];
+  for (const targetState of states) {
+    for (const objectState of states) {
+      for (const ledgerState of states) {
+        for (const ledgerAppliedCount of [0, 1, 2]) {
+          const outcome = classifyV04GrayTestObjectState({
+            targetState, objectState, ledgerState, ledgerAppliedCount,
+          });
+          if (outcome !== "INCONSISTENT") {
+            legal.push(`${targetState}/${objectState}/${ledgerState}/${ledgerAppliedCount}:${outcome}`);
+          }
+        }
+      }
+    }
+  }
+  assert.deepEqual(legal, [
+    "ABSENT/ABSENT/ABSENT/0:CLEAN_CREATE",
+    "EXACT/EXACT/EXACT/1:EXACT_APPLIED",
+  ]);
 });
 test("gray media tool is independently closed and never enabled by deployment defaults", () => {
   assert.equal(loadV04GrayTestObjectConfig({}).enabled, false);
@@ -57,6 +81,10 @@ test("the service uses stable SYSTEM_ADMIN, fixed media, transaction lock, ledge
     "TEST_ONLY",
     "test_run_id",
     "created_by_user_id",
+    "ifNoneMatch",
+    "creation-marker",
+    "objectIsOwnedByOperation",
+    "INCONSISTENT_TARGET_STATE",
     "bucket.delete",
     "SOFT_DELETE_90_DAYS_NO_IMMEDIATE_COS_DELETE",
   ]) assert.match(source, new RegExp(marker));
@@ -72,4 +100,22 @@ test("full operation token remains runtime-only and is never rendered or persist
   assert.match(client, /preview\.previewTokenDigest\.slice/);
   assert.doesNotMatch(client, /localStorage|sessionStorage|console\.|window\.location.*previewToken/);
   assert.doesNotMatch(client, /[>}\s]preview\.previewToken[<}]/);
+});
+
+test("browser-visible contracts never expose raw stable user ids", () => {
+  const contract = readFileSync(new URL("../lib/v04-gray-test-object-contract.ts", import.meta.url), "utf8");
+  const client = readFileSync(new URL(
+    "../app/admin/v04-gray-test-object/V04GrayTestObjectClient.tsx", import.meta.url,
+  ), "utf8");
+  const previewRoute = readFileSync(new URL(
+    "../app/api/admin/v04-gray-test-object/preview/route.ts", import.meta.url,
+  ), "utf8");
+  const applyRoute = readFileSync(new URL(
+    "../app/api/admin/v04-gray-test-object/apply/route.ts", import.meta.url,
+  ), "utf8");
+  for (const source of [contract, client, previewRoute, applyRoute]) {
+    assert.doesNotMatch(source, /actorUserId|actor_user_id|stableUserId|displayName|display_name/);
+  }
+  assert.match(contract, /actorDigest: string/);
+  assert.match(contract, /objectEtagDigest: string \| null/);
 });

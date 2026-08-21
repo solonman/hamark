@@ -102,36 +102,53 @@ export class LocalVideoBucket implements VideoBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
+      ifNoneMatch?: "*";
     },
   ) {
     const destination = localObjectPath(key);
     await mkdir(path.dirname(destination), { recursive: true });
-    if (body instanceof Uint8Array) {
-      await writeFile(destination, body);
-    } else if (body instanceof Blob) {
-      await writeFile(destination, new Uint8Array(await body.arrayBuffer()));
-    } else {
-      await pipeline(
-        Readable.fromWeb(body as unknown as NodeReadableStream<Uint8Array>),
-        createWriteStream(destination),
+    const exclusive = options?.ifNoneMatch === "*";
+    try {
+      if (body instanceof Uint8Array) {
+        await writeFile(destination, body, exclusive ? { flag: "wx" } : undefined);
+      } else if (body instanceof Blob) {
+        await writeFile(
+          destination,
+          new Uint8Array(await body.arrayBuffer()),
+          exclusive ? { flag: "wx" } : undefined,
+        );
+      } else {
+        await pipeline(
+          Readable.fromWeb(body as unknown as NodeReadableStream<Uint8Array>),
+          createWriteStream(destination, exclusive ? { flags: "wx" } : undefined),
+        );
+      }
+      await writeFile(
+        metadataPath(key),
+        JSON.stringify({
+          contentType: options?.httpMetadata?.contentType,
+          customMetadata: options?.customMetadata,
+        }),
+        "utf8",
       );
+    } catch (error) {
+      if (exclusive && (error as NodeJS.ErrnoException).code !== "EEXIST") {
+        await unlink(destination).catch(() => undefined);
+        await unlink(metadataPath(key)).catch(() => undefined);
+      }
+      throw error;
     }
-    await writeFile(
-      metadataPath(key),
-      JSON.stringify({
-        contentType: options?.httpMetadata?.contentType,
-        customMetadata: options?.customMetadata,
-      }),
-      "utf8",
-    );
   }
 
   async head(key: string) {
     try {
       const info = await stat(localObjectPath(key));
+      const metadata = await readMetadata(key);
       return {
         size: info.size,
         httpEtag: `\"local-${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}\"`,
+        contentType: metadata.contentType,
+        customMetadata: metadata.customMetadata,
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;

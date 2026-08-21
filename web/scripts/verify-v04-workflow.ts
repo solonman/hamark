@@ -21,7 +21,7 @@ import {
   previewV04GrayTestObject,
   V04_GRAY_TEST_OBJECT_CONFIRMATION,
 } from "../lib/v04-gray-test-object.ts";
-import { V04_GRAY_TEST_MEDIA } from "../lib/v04-gray-test-media.ts";
+import { V04_GRAY_TEST_MEDIA, v04GrayTestMediaBytes } from "../lib/v04-gray-test-media.ts";
 import {
   loadV04CaseCardReadModel,
   loadV04CaseDetailReadModel,
@@ -54,6 +54,12 @@ type Environment = Record<string, string | undefined>;
 
 class MemoryVideoBucket implements VideoBucket {
   readonly objects = new Map<string, Uint8Array>();
+  readonly metadata = new Map<string, {
+    contentType?: string;
+    customMetadata?: Record<string, string>;
+    httpEtag: string;
+  }>();
+  readonly deletedKeys: string[] = [];
 
   async createPresignedPutUrl(key: string, options: PresignedPutOptions) {
     void options;
@@ -64,15 +70,38 @@ class MemoryVideoBucket implements VideoBucket {
     return `memory://get/${key}`;
   }
 
-  async put(key: string, body: ObjectBody) {
-    if (body instanceof Uint8Array) this.objects.set(key, body.slice());
-    else if (body instanceof Blob) this.objects.set(key, new Uint8Array(await body.arrayBuffer()));
-    else this.objects.set(key, new Uint8Array(await new Response(body).arrayBuffer()));
+  async put(
+    key: string,
+    body: ObjectBody,
+    options?: {
+      httpMetadata?: { contentType?: string };
+      customMetadata?: Record<string, string>;
+      ifNoneMatch?: "*";
+    },
+  ) {
+    if (options?.ifNoneMatch === "*" && this.objects.has(key)) throw new Error("PRECONDITION_FAILED");
+    const bytes = body instanceof Uint8Array
+      ? body.slice()
+      : body instanceof Blob
+        ? new Uint8Array(await body.arrayBuffer())
+        : new Uint8Array(await new Response(body).arrayBuffer());
+    this.objects.set(key, bytes);
+    this.metadata.set(key, {
+      contentType: options?.httpMetadata?.contentType,
+      customMetadata: options?.customMetadata ? { ...options.customMetadata } : undefined,
+      httpEtag: `memory-${createHash("sha256").update(bytes).digest("hex")}`,
+    });
   }
 
   async head(key: string) {
     const value = this.objects.get(key);
-    return value ? { size: value.byteLength, httpEtag: `memory-${value.byteLength}` } : null;
+    const metadata = this.metadata.get(key);
+    return value ? {
+      size: value.byteLength,
+      httpEtag: metadata?.httpEtag ?? `memory-${value.byteLength}`,
+      contentType: metadata?.contentType,
+      customMetadata: metadata?.customMetadata,
+    } : null;
   }
 
   async get(key: string, options?: { range?: { offset: number; length: number } }) {
@@ -92,7 +121,9 @@ class MemoryVideoBucket implements VideoBucket {
   }
 
   async delete(key: string) {
+    this.deletedKeys.push(key);
     this.objects.delete(key);
+    this.metadata.delete(key);
   }
 }
 
@@ -425,6 +456,96 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
       assert.equal(grayMediaPreview.ready, true);
       assert.equal(grayMediaPreview.zeroWrite.unchanged, true);
       assert.equal(grayMediaPreview.facts.targetState, "ABSENT");
+      assert.equal(grayMediaPreview.facts.objectState, "ABSENT");
+      assert.equal(grayMediaPreview.facts.ledgerState, "ABSENT");
+      assert.equal(grayMediaPreview.facts.legalState, "CLEAN_CREATE");
+      assert.equal(JSON.stringify(grayMediaPreview).includes(actors.admin.userId), false);
+      const tokenPayload = JSON.parse(Buffer.from(
+        grayMediaPreview.previewToken.split(".")[0] ?? "", "base64url",
+      ).toString("utf8")) as Record<string, unknown>;
+      assert.equal(JSON.stringify(tokenPayload).includes(actors.admin.userId), false);
+      assert.equal("actorUserId" in tokenPayload, false);
+
+      await grayMediaBucket.put(V04_GRAY_TEST_MEDIA.objectKey, v04GrayTestMediaBytes(), {
+        httpMetadata: { contentType: V04_GRAY_TEST_MEDIA.contentType },
+        customMetadata: { sha256: V04_GRAY_TEST_MEDIA.sha256, "data-scope": "TEST_ONLY" },
+      });
+      const preexistingPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      assert.equal(preexistingPreview.ready, false);
+      assert.equal(preexistingPreview.facts.legalState, "INCONSISTENT");
+      assert(preexistingPreview.stopReasons.includes("TARGET_OBJECT_DRIFT"));
+      await expectCode(applyV04GrayTestObject(
+        db,
+        grayMediaBucket,
+        actors.admin,
+        {
+          action: "CREATE_TEST_ONLY_GRAY_VIDEO",
+          previewToken: grayMediaPreview.previewToken,
+          idempotencyKey: `gray-media-preexisting-${config.runId}`,
+          confirmation: V04_GRAY_TEST_OBJECT_CONFIRMATION,
+          approvalReference: "TEST_ONLY_GATE2_MEDIA_APPROVAL",
+          targetCodeSha: grayMediaOptions.targetCodeSha,
+        },
+        grayMediaOptions,
+      ), "STALE_PREVIEW");
+      assert.equal(grayMediaBucket.deletedKeys.length, 0, "pre-existing object must never be deleted");
+      assert.equal(grayMediaBucket.objects.has(V04_GRAY_TEST_MEDIA.objectKey), true);
+      grayMediaBucket.objects.delete(V04_GRAY_TEST_MEDIA.objectKey);
+      grayMediaBucket.metadata.delete(V04_GRAY_TEST_MEDIA.objectKey);
+
+      await db.prepare(`INSERT INTO videos (
+        id,domain_key,title,brand,description,tags_json,object_key,thumbnail_key,
+        original_name,content_type,file_size,status,rights_confirmed,created_by_email,
+        created_by_name,created_at,updated_at,deleted_at,data_scope,test_run_id,
+        created_by_user_id,deletion_state
+      ) VALUES (?,'AD_VIDEO',?,?,?,?::jsonb,?,NULL,?,?,?,'READY',1,?,?,?, ?,NULL,
+        'TEST_ONLY',?,?,'ACTIVE')`)
+        .bind(
+          V04_GRAY_TEST_MEDIA.videoId, V04_GRAY_TEST_MEDIA.title, V04_GRAY_TEST_MEDIA.brand,
+          V04_GRAY_TEST_MEDIA.description, JSON.stringify(["V0.4", "TEST_ONLY"]),
+          V04_GRAY_TEST_MEDIA.objectKey, V04_GRAY_TEST_MEDIA.originalName,
+          V04_GRAY_TEST_MEDIA.contentType, V04_GRAY_TEST_MEDIA.fileSize,
+          actors.admin.identityKey, actors.admin.displayName,
+          grayMediaNow.toISOString(), grayMediaNow.toISOString(),
+          V04_GRAY_TEST_MEDIA.testRunId, actors.admin.userId,
+        ).run();
+      const databaseOnlyPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      assert.equal(databaseOnlyPreview.ready, false);
+      assert.equal(databaseOnlyPreview.facts.targetState, "EXACT");
+      assert.equal(databaseOnlyPreview.facts.objectState, "ABSENT");
+      assert.equal(databaseOnlyPreview.facts.legalState, "INCONSISTENT");
+      await db.prepare("DELETE FROM videos WHERE id=? AND data_scope='TEST_ONLY'")
+        .bind(V04_GRAY_TEST_MEDIA.videoId).run();
+
+      const orphanLedgerKey = `TEST_ONLY_GRAY_ORPHAN_${config.runId}`;
+      await db.prepare(`INSERT INTO admin_data_operations (
+        operation_key,operation_type,target_video_id,status,actor_identity,actor_name,
+        preview_token,source_hash,target_hash,non_target_hash,backup_json,result_json,
+        created_at,completed_at
+      ) VALUES (?,?,?,'COMPLETED',?,?,?,?,?,?,?::jsonb,?::jsonb,?,?)`)
+        .bind(
+          orphanLedgerKey, "V04_GRAY_TEST_OBJECT_CREATE", V04_GRAY_TEST_MEDIA.videoId,
+          actors.admin.userId, actors.admin.displayName, "TEST_ONLY_TOKEN", "TEST_ONLY_SOURCE",
+          V04_GRAY_TEST_MEDIA.sha256, grayMediaPreview.facts.businessFingerprint,
+          JSON.stringify({ testRunId: V04_GRAY_TEST_MEDIA.testRunId, targetCodeSha: grayMediaOptions.targetCodeSha }),
+          JSON.stringify({ outcome: "APPLIED", status: "APPLIED" }),
+          grayMediaNow.toISOString(), grayMediaNow.toISOString(),
+        ).run();
+      const ledgerOnlyPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      assert.equal(ledgerOnlyPreview.ready, false);
+      assert.equal(ledgerOnlyPreview.facts.targetState, "ABSENT");
+      assert.equal(ledgerOnlyPreview.facts.ledgerAppliedCount, 1);
+      assert.equal(ledgerOnlyPreview.facts.ledgerState, "DRIFT");
+      assert(ledgerOnlyPreview.stopReasons.includes("APPLIED_LEDGER_DRIFT"));
+      await db.prepare("DELETE FROM admin_data_operations WHERE operation_key=?")
+        .bind(orphanLedgerKey).run();
+
       const failedGrayMedia = await applyV04GrayTestObject(
         db,
         grayMediaBucket,
@@ -459,8 +580,20 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
       );
       assert.equal(createdGrayMedia.status, "APPLIED", JSON.stringify(createdGrayMedia));
       assert.equal(createdGrayMedia.alreadyApplied, false);
+      assert.equal(JSON.stringify(createdGrayMedia).includes(actors.admin.userId), false);
+      assert.equal(createdGrayMedia.actorDigest, hashV04GrayUserId(actors.admin.userId));
       assert.equal((await grayMediaBucket.head(V04_GRAY_TEST_MEDIA.objectKey))?.size,
         V04_GRAY_TEST_MEDIA.fileSize);
+      const exactAppliedPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      assert.equal(exactAppliedPreview.ready, true);
+      assert.equal(exactAppliedPreview.alreadyApplied, true);
+      assert.equal(exactAppliedPreview.facts.targetState, "EXACT");
+      assert.equal(exactAppliedPreview.facts.objectState, "EXACT");
+      assert.equal(exactAppliedPreview.facts.ledgerState, "EXACT");
+      assert.equal(exactAppliedPreview.facts.legalState, "EXACT_APPLIED");
+      assert.equal(exactAppliedPreview.facts.ledgerAppliedCount, 1);
       const createdVideo = await db.prepare(`SELECT status,data_scope,test_run_id,file_size,
           created_by_user_id,object_key FROM videos WHERE id=?`)
         .bind(V04_GRAY_TEST_MEDIA.videoId).first<{
@@ -492,6 +625,29 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
       ]);
       assert(concurrentGrayMedia.every((item) => item.status === "APPLIED" && item.alreadyApplied));
       assert.equal(await count(db, "videos", "id=?", [V04_GRAY_TEST_MEDIA.videoId]), 1);
+      const duplicateLedgerKey = `TEST_ONLY_GRAY_DUPLICATE_${config.runId}`;
+      await db.prepare(`INSERT INTO admin_data_operations (
+        operation_key,operation_type,target_video_id,status,actor_identity,actor_name,
+        preview_token,source_hash,target_hash,non_target_hash,backup_json,result_json,
+        created_at,completed_at
+      ) VALUES (?,?,?,'COMPLETED',?,?,?,?,?,?,?::jsonb,?::jsonb,?,?)`)
+        .bind(
+          duplicateLedgerKey, "V04_GRAY_TEST_OBJECT_CREATE", V04_GRAY_TEST_MEDIA.videoId,
+          actors.admin.userId, actors.admin.displayName, "TEST_ONLY_TOKEN_2", "TEST_ONLY_SOURCE_2",
+          V04_GRAY_TEST_MEDIA.sha256, exactAppliedPreview.facts.businessFingerprint,
+          JSON.stringify({ testRunId: V04_GRAY_TEST_MEDIA.testRunId, targetCodeSha: grayMediaOptions.targetCodeSha }),
+          JSON.stringify({ outcome: "APPLIED", status: "APPLIED" }),
+          grayMediaNow.toISOString(), grayMediaNow.toISOString(),
+        ).run();
+      const duplicateLedgerPreview = await previewV04GrayTestObject(
+        db, grayMediaBucket, actors.admin, grayMediaOptions,
+      );
+      assert.equal(duplicateLedgerPreview.ready, false);
+      assert.equal(duplicateLedgerPreview.facts.ledgerAppliedCount, 2);
+      assert.equal(duplicateLedgerPreview.facts.legalState, "INCONSISTENT");
+      assert(duplicateLedgerPreview.stopReasons.includes("MULTIPLE_APPLIED_LEDGER_ROWS"));
+      await db.prepare("DELETE FROM admin_data_operations WHERE operation_key=?")
+        .bind(duplicateLedgerKey).run();
       const trashedGrayMedia = await trashVideo(db, V04_GRAY_TEST_MEDIA.videoId, actors.admin, {
         reason: "TEST_ONLY gray media retention verification",
         idempotencyKey: `gray-media-trash-${config.runId}`,
@@ -515,6 +671,11 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
       assert.equal(nonAdminPreview.ready, false);
       assert(nonAdminPreview.stopReasons.includes("SYSTEM_ADMIN_REQUIRED"));
       evidence.grayTestMediaPreviewZeroWrite = grayMediaPreview.zeroWrite.unchanged;
+      evidence.grayTestMediaStateMatrixFailClosed = !preexistingPreview.ready
+        && !databaseOnlyPreview.ready && !ledgerOnlyPreview.ready && !duplicateLedgerPreview.ready;
+      evidence.grayTestMediaPreexistingObjectPreserved = Number(grayMediaBucket.deletedKeys.length) === 1;
+      evidence.grayTestMediaPublicActorDigestOnly = !JSON.stringify(grayMediaPreview).includes(actors.admin.userId)
+        && !JSON.stringify(createdGrayMedia).includes(actors.admin.userId);
       evidence.grayTestMediaFailureCompensated = failedGrayMedia.compensation === "OBJECT_DELETED";
       evidence.grayTestMediaReadyAndHidden = createdVideo?.status === "READY"
         && createdVideo.data_scope === "TEST_ONLY"

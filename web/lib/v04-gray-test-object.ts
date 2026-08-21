@@ -7,6 +7,7 @@ import {
   V04_WORKFLOW_VERSION,
 } from "./v04-contract";
 import { V04ServiceError } from "./v04-errors";
+import { hashV04GrayUserId } from "./v04-gray-access";
 import { V04_GRAY_TEST_MEDIA, v04GrayTestMediaBytes } from "./v04-gray-test-media";
 import {
   V04_GRAY_TEST_OBJECT_CONFIRMATION,
@@ -54,12 +55,16 @@ type LedgerRow = QueryResultRow & {
   status: string;
   actor_identity: string;
   target_video_id: string;
+  source_hash: string;
+  target_hash: string;
+  non_target_hash: string;
+  backup_json: Record<string, unknown> | null;
   result_json: V04GrayTestObjectApplyResult | null;
 };
 
 type PreviewTokenPayload = {
   version: "V04_GRAY_TEST_OBJECT_PREVIEW_V1";
-  actorUserId: string;
+  actorDigest: string;
   targetCodeSha: string;
   previewHash: string;
   generatedAt: string;
@@ -68,6 +73,31 @@ type PreviewTokenPayload = {
   objectKey: string;
   mediaSha256: string;
 };
+
+type BucketObjectFacts = {
+  state: "ABSENT" | "EXACT" | "DRIFT";
+  etag: string | null;
+  etagDigest: string | null;
+  creationMarker: string | null;
+  creationMarkerDigest: string | null;
+};
+
+export function classifyV04GrayTestObjectState(input: {
+  targetState: "ABSENT" | "EXACT" | "DRIFT";
+  objectState: "ABSENT" | "EXACT" | "DRIFT";
+  ledgerState: "ABSENT" | "EXACT" | "DRIFT";
+  ledgerAppliedCount: number;
+}) {
+  if (input.targetState === "ABSENT" && input.objectState === "ABSENT"
+    && input.ledgerState === "ABSENT" && input.ledgerAppliedCount === 0) {
+    return "CLEAN_CREATE" as const;
+  }
+  if (input.targetState === "EXACT" && input.objectState === "EXACT"
+    && input.ledgerState === "EXACT" && input.ledgerAppliedCount === 1) {
+    return "EXACT_APPLIED" as const;
+  }
+  return "INCONSISTENT" as const;
+}
 
 export function loadV04GrayTestObjectConfig(environment: Environment = process.env) {
   return { enabled: environment.V04_GRAY_TEST_OBJECT_ENABLED === "true" };
@@ -176,26 +206,99 @@ async function businessFingerprint(db: DbClient) {
   return { count: result.results.length, hash: hash(result.results) };
 }
 
-async function ledgerAppliedCount(db: DbClient) {
-  const row = await db.prepare(`SELECT COUNT(*)::bigint AS count FROM admin_data_operations
+async function appliedLedgers(db: DbClient) {
+  const rows = await db.prepare(`SELECT operation_key,status,actor_identity,target_video_id,
+      source_hash,target_hash,non_target_hash,backup_json,result_json
+    FROM admin_data_operations
     WHERE operation_type=? AND target_video_id=? AND status='COMPLETED'
-      AND result_json->>'outcome'='APPLIED'`)
+      AND result_json->>'outcome'='APPLIED'
+    ORDER BY created_at,operation_key`)
     .bind(V04_GRAY_TEST_OBJECT_OPERATION_TYPE, V04_GRAY_TEST_MEDIA.videoId)
-    .first<QueryResultRow & { count: number | string }>();
-  return Number(row?.count ?? 0);
+    .all<LedgerRow>();
+  return rows.results;
 }
 
 async function databaseFingerprint(db: DbClient, actorUserId: string) {
   const system = await systemFacts(db, actorUserId);
   const target = await targetVideo(db);
   const business = await businessFingerprint(db);
-  const ledgerCount = await ledgerAppliedCount(db);
-  return hash({ system, target, business, ledgerCount });
+  const ledgers = await appliedLedgers(db);
+  return hash({ system, target, business, ledgers });
 }
 
 function targetState(row: TargetVideoRow | null, actorUserId: string) {
   if (!row) return "ABSENT" as const;
   return exactTarget(row, actorUserId) ? "EXACT" as const : "DRIFT" as const;
+}
+
+function exactLedger(
+  row: LedgerRow | null,
+  actorUserId: string,
+  targetCodeSha: string,
+) {
+  if (!row?.result_json) return false;
+  const result = row.result_json;
+  return row.status === "COMPLETED"
+    && row.actor_identity === actorUserId
+    && row.target_video_id === V04_GRAY_TEST_MEDIA.videoId
+    && row.source_hash === row.backup_json?.previewHash
+    && row.target_hash === V04_GRAY_TEST_MEDIA.sha256
+    && row.non_target_hash === result.businessFingerprint
+    && result.status === "APPLIED"
+    && result.outcome === "APPLIED"
+    && result.videoId === V04_GRAY_TEST_MEDIA.videoId
+    && result.dataScope === "TEST_ONLY"
+    && result.testRunId === V04_GRAY_TEST_MEDIA.testRunId
+    && result.fileSize === V04_GRAY_TEST_MEDIA.fileSize
+    && result.mediaSha256 === V04_GRAY_TEST_MEDIA.sha256
+    && result.objectKeyDigest === hash(V04_GRAY_TEST_MEDIA.objectKey)
+    && result.actorDigest === hashV04GrayUserId(actorUserId)
+    && result.targetCodeSha === targetCodeSha
+    && typeof result.objectEtagDigest === "string"
+    && typeof result.creationMarkerDigest === "string"
+    && row.backup_json?.testRunId === V04_GRAY_TEST_MEDIA.testRunId
+    && row.backup_json?.targetCodeSha === targetCodeSha
+    && row.backup_json?.targetVideoId === V04_GRAY_TEST_MEDIA.videoId
+    && row.backup_json?.mediaSha256 === V04_GRAY_TEST_MEDIA.sha256
+    && row.backup_json?.actorDigest === hashV04GrayUserId(actorUserId);
+}
+
+async function bucketObjectFacts(
+  bucket: VideoBucket,
+  appliedLedger: LedgerRow | null,
+): Promise<BucketObjectFacts> {
+  const head = await bucket.head(V04_GRAY_TEST_MEDIA.objectKey);
+  if (!head) {
+    return {
+      state: "ABSENT",
+      etag: null,
+      etagDigest: null,
+      creationMarker: null,
+      creationMarkerDigest: null,
+    };
+  }
+  const etag = head.httpEtag?.trim() || null;
+  const creationMarker = head.customMetadata?.["creation-marker"]?.trim() || null;
+  const objectHash = await sha256BucketObject(bucket, V04_GRAY_TEST_MEDIA.objectKey);
+  const etagDigest = etag ? hash(etag) : null;
+  const creationMarkerDigest = creationMarker ? hash(creationMarker) : null;
+  const exact = Boolean(appliedLedger?.result_json
+    && head.size === V04_GRAY_TEST_MEDIA.fileSize
+    && head.contentType === V04_GRAY_TEST_MEDIA.contentType
+    && objectHash === V04_GRAY_TEST_MEDIA.sha256
+    && head.customMetadata?.["data-scope"] === "TEST_ONLY"
+    && head.customMetadata?.["test-run-id"] === V04_GRAY_TEST_MEDIA.testRunId
+    && head.customMetadata?.sha256 === V04_GRAY_TEST_MEDIA.sha256
+    && creationMarker === appliedLedger.operation_key
+    && etagDigest === appliedLedger.result_json.objectEtagDigest
+    && creationMarkerDigest === appliedLedger.result_json.creationMarkerDigest);
+  return {
+    state: exact ? "EXACT" : "DRIFT",
+    etag,
+    etagDigest,
+    creationMarker,
+    creationMarkerDigest,
+  };
 }
 
 export async function previewV04GrayTestObject(
@@ -216,21 +319,35 @@ export async function previewV04GrayTestObject(
   const system = await systemFacts(db, actor.userId);
   const target = await targetVideo(db);
   const business = await businessFingerprint(db);
-  const appliedCount = await ledgerAppliedCount(db);
-  const object = await bucket.head(V04_GRAY_TEST_MEDIA.objectKey);
+  const ledgers = await appliedLedgers(db);
+  const appliedCount = ledgers.length;
+  const appliedLedger = appliedCount === 1 ? ledgers[0] : null;
   const state = targetState(target, actor.userId);
-  const objectState = !object ? "ABSENT" : object.size === V04_GRAY_TEST_MEDIA.fileSize
-    ? "EXACT_SIZE" : "DRIFT_SIZE";
+  const ledgerState = appliedCount === 0
+    ? "ABSENT" as const
+    : appliedCount === 1 && exactLedger(appliedLedger, actor.userId, targetCodeSha)
+      ? "EXACT" as const
+      : "DRIFT" as const;
+  const object = await bucketObjectFacts(bucket, appliedLedger);
+  const legalState = classifyV04GrayTestObjectState({
+    targetState: state,
+    objectState: object.state,
+    ledgerState,
+    ledgerAppliedCount: appliedCount,
+  });
   const stopReasons = [
     !system.actorActive ? "ACTOR_NOT_ACTIVE" : "",
     !system.actorSystemAdmin ? "SYSTEM_ADMIN_REQUIRED" : "",
     !system.contractsActive ? "V04_CONTRACTS_NOT_ACTIVE" : "",
     state === "DRIFT" ? "TARGET_VIDEO_DRIFT" : "",
-    objectState === "DRIFT_SIZE" ? "TARGET_OBJECT_DRIFT" : "",
+    object.state === "DRIFT" ? "TARGET_OBJECT_DRIFT" : "",
+    ledgerState === "DRIFT" ? "APPLIED_LEDGER_DRIFT" : "",
     appliedCount > 1 ? "MULTIPLE_APPLIED_LEDGER_ROWS" : "",
+    legalState === "INCONSISTENT" ? "INCONSISTENT_TARGET_STATE" : "",
   ].filter(Boolean);
+  const actorDigest = hashV04GrayUserId(actor.userId);
   const previewFacts = {
-    actorUserId: actor.userId,
+    actorDigest,
     targetCodeSha,
     generatedAt,
     expiresAt,
@@ -239,7 +356,9 @@ export async function previewV04GrayTestObject(
     actorSystemAdmin: system.actorSystemAdmin,
     contractsActive: system.contractsActive,
     targetState: state,
-    objectState,
+    objectState: object.state,
+    ledgerState,
+    legalState,
     businessVideoCount: business.count,
     businessFingerprint: business.hash,
     ledgerAppliedCount: appliedCount,
@@ -248,7 +367,7 @@ export async function previewV04GrayTestObject(
   const previewHash = hash(previewFacts);
   const payload: PreviewTokenPayload = {
     version: "V04_GRAY_TEST_OBJECT_PREVIEW_V1",
-    actorUserId: actor.userId,
+    actorDigest,
     targetCodeSha,
     previewHash,
     generatedAt,
@@ -264,7 +383,7 @@ export async function previewV04GrayTestObject(
   return {
     mode: "TEST_ONLY_GRAY_MEDIA",
     ready: stopReasons.length === 0,
-    alreadyApplied: state === "EXACT" && appliedCount === 1,
+    alreadyApplied: legalState === "EXACT_APPLIED",
     stopReasons,
     targetCodeSha,
     generatedAt,
@@ -272,7 +391,7 @@ export async function previewV04GrayTestObject(
     previewHash,
     previewToken,
     previewTokenDigest: hash(previewToken),
-    actorUserId: actor.userId,
+    actorDigest,
     plan: {
       videoId: V04_GRAY_TEST_MEDIA.videoId,
       objectKeyDigest: hash(V04_GRAY_TEST_MEDIA.objectKey),
@@ -289,7 +408,9 @@ export async function previewV04GrayTestObject(
       actorSystemAdmin: system.actorSystemAdmin,
       contractsActive: system.contractsActive,
       targetState: state,
-      objectState,
+      objectState: object.state,
+      ledgerState,
+      legalState,
       businessVideoCount: business.count,
       businessFingerprint: business.hash,
       ledgerAppliedCount: appliedCount,
@@ -299,12 +420,33 @@ export async function previewV04GrayTestObject(
 }
 
 function resultFromLedger(row: LedgerRow): V04GrayTestObjectApplyResult {
-  if (!row.result_json) {
+  const result = row.result_json;
+  if (!result) {
     throw new V04ServiceError("IDEMPOTENCY_CONFLICT", "相同 TEST_ONLY 媒体操作仍在执行。", {
       operationKey: row.operation_key,
     });
   }
-  return { ...row.result_json, alreadyApplied: true };
+  return {
+    operationKey: row.operation_key,
+    status: result.status,
+    outcome: result.outcome,
+    alreadyApplied: result.status === "APPLIED",
+    videoId: result.videoId,
+    dataScope: result.dataScope,
+    testRunId: result.testRunId,
+    fileSize: result.fileSize,
+    mediaSha256: result.mediaSha256,
+    objectKeyDigest: result.objectKeyDigest,
+    actorDigest: hashV04GrayUserId(row.actor_identity),
+    objectEtagDigest: result.objectEtagDigest ?? null,
+    creationMarkerDigest: result.creationMarkerDigest ?? null,
+    targetCodeSha: result.targetCodeSha,
+    previewTokenDigest: result.previewTokenDigest,
+    businessFingerprint: result.businessFingerprint,
+    completedAt: result.completedAt,
+    compensation: result.compensation,
+    failure: result.failure,
+  };
 }
 
 async function sha256BucketObject(bucket: VideoBucket, key: string) {
@@ -313,6 +455,22 @@ async function sha256BucketObject(bucket: VideoBucket, key: string) {
   const bytes = new Uint8Array(await new Response(object.body).arrayBuffer());
   if (bytes.byteLength > V04_GRAY_TEST_MEDIA.fileSize) return null;
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function objectIsOwnedByOperation(
+  bucket: VideoBucket,
+  creationMarker: string,
+  etag: string | null,
+) {
+  if (!etag) return false;
+  const head = await bucket.head(V04_GRAY_TEST_MEDIA.objectKey);
+  if (!head || head.httpEtag !== etag
+    || head.customMetadata?.["creation-marker"] !== creationMarker
+    || head.size !== V04_GRAY_TEST_MEDIA.fileSize
+    || head.contentType !== V04_GRAY_TEST_MEDIA.contentType
+    || head.customMetadata?.sha256 !== V04_GRAY_TEST_MEDIA.sha256) return false;
+  return await sha256BucketObject(bucket, V04_GRAY_TEST_MEDIA.objectKey)
+    === V04_GRAY_TEST_MEDIA.sha256;
 }
 
 function failure(stage: string, error: unknown) {
@@ -339,7 +497,8 @@ export async function applyV04GrayTestObject(
   const idempotencyKey = requireText(input.idempotencyKey, "幂等键", 16, 128);
   const approvalReference = requireText(input.approvalReference, "批准引用", 12, 512);
   const payload = parseToken(input.previewToken, options.tokenSecret);
-  if (payload.actorUserId !== actor.userId || payload.targetCodeSha !== targetCodeSha
+  const actorDigest = hashV04GrayUserId(actor.userId);
+  if (payload.actorDigest !== actorDigest || payload.targetCodeSha !== targetCodeSha
     || payload.videoId !== V04_GRAY_TEST_MEDIA.videoId
     || payload.objectKey !== V04_GRAY_TEST_MEDIA.objectKey
     || payload.mediaSha256 !== V04_GRAY_TEST_MEDIA.sha256
@@ -349,7 +508,7 @@ export async function applyV04GrayTestObject(
   const operationDigest = hash({
     type: V04_GRAY_TEST_OBJECT_OPERATION_TYPE,
     idempotencyKey,
-    actorUserId: actor.userId,
+    actorDigest,
     targetCodeSha,
     videoId: V04_GRAY_TEST_MEDIA.videoId,
     previewHash: payload.previewHash,
@@ -362,30 +521,46 @@ export async function applyV04GrayTestObject(
     await tx.prepare("SET LOCAL statement_timeout = '55s'").run();
     await tx.prepare("SELECT pg_advisory_xact_lock(hashtextextended(?,0))")
       .bind(V04_GRAY_TEST_OBJECT_LOCK_KEY).run();
-    const existing = await tx.prepare(`SELECT operation_key,status,actor_identity,target_video_id,result_json
-      FROM admin_data_operations WHERE operation_key=? FOR UPDATE`)
-      .bind(operationKey).first<LedgerRow>();
-    if (existing) {
-      if (existing.actor_identity !== actor.userId || existing.target_video_id !== V04_GRAY_TEST_MEDIA.videoId) {
-        throw new V04ServiceError("IDEMPOTENCY_CONFLICT", "幂等键已绑定另一项操作。");
-      }
-      return resultFromLedger(existing);
-    }
-    const applied = await tx.prepare(`SELECT operation_key,status,actor_identity,target_video_id,result_json
-      FROM admin_data_operations WHERE operation_type=? AND target_video_id=?
-        AND status='COMPLETED' AND result_json->>'outcome'='APPLIED'
-      ORDER BY created_at DESC LIMIT 1 FOR UPDATE`)
-      .bind(V04_GRAY_TEST_OBJECT_OPERATION_TYPE, V04_GRAY_TEST_MEDIA.videoId).first<LedgerRow>();
-    if (applied) return resultFromLedger(applied);
-
     const preview = await previewV04GrayTestObject(tx, bucket, actor, {
       tokenSecret: options.tokenSecret,
       now,
       targetCodeSha,
     });
-    if (!preview.ready || preview.previewHash !== payload.previewHash
-      || preview.actorUserId !== actor.userId || preview.targetCodeSha !== targetCodeSha
-      || !preview.zeroWrite.unchanged) {
+    if (!preview.ready || preview.actorDigest !== actorDigest
+      || preview.targetCodeSha !== targetCodeSha || !preview.zeroWrite.unchanged) {
+      throw new V04ServiceError("STALE_PREVIEW", "TEST_ONLY 媒体事实已经变化。", {
+        stopReasons: preview.stopReasons,
+      });
+    }
+    const existing = await tx.prepare(`SELECT operation_key,status,actor_identity,target_video_id,
+        source_hash,target_hash,non_target_hash,backup_json,result_json
+      FROM admin_data_operations WHERE operation_key=? FOR UPDATE`)
+      .bind(operationKey).first<LedgerRow>();
+    if (existing) {
+      if (existing.actor_identity !== actor.userId
+        || existing.target_video_id !== V04_GRAY_TEST_MEDIA.videoId) {
+        throw new V04ServiceError("IDEMPOTENCY_CONFLICT", "幂等键已绑定另一项操作。");
+      }
+      if (existing.result_json?.outcome === "APPLIED"
+        && (!preview.alreadyApplied || !exactLedger(existing, actor.userId, targetCodeSha))) {
+        throw new V04ServiceError("STALE_PREVIEW", "已执行账本与当前目标事实不一致。");
+      }
+      if (existing.result_json?.outcome === "FAILED"
+        && preview.facts.legalState !== "CLEAN_CREATE") {
+        throw new V04ServiceError("STALE_PREVIEW", "失败操作的目标事实不再处于可重试基线。");
+      }
+      return resultFromLedger(existing);
+    }
+    if (preview.alreadyApplied) {
+      const rows = await appliedLedgers(tx);
+      const applied = rows.length === 1 ? rows[0] : null;
+      if (!applied || !exactLedger(applied, actor.userId, targetCodeSha)) {
+        throw new V04ServiceError("STALE_PREVIEW", "已执行账本与当前目标事实不一致。");
+      }
+      return resultFromLedger(applied);
+    }
+    if (preview.facts.legalState !== "CLEAN_CREATE"
+      || preview.previewHash !== payload.previewHash) {
       throw new V04ServiceError("STALE_PREVIEW", "TEST_ONLY 媒体事实已经变化。", {
         stopReasons: preview.stopReasons,
       });
@@ -403,33 +578,53 @@ export async function applyV04GrayTestObject(
         JSON.stringify({
           approvalReference,
           previewTokenDigest,
+          previewHash: preview.previewHash,
           targetCodeSha,
+          targetVideoId: V04_GRAY_TEST_MEDIA.videoId,
+          mediaSha256: V04_GRAY_TEST_MEDIA.sha256,
+          actorDigest,
           objectKeyDigest: hash(V04_GRAY_TEST_MEDIA.objectKey),
+          testRunId: V04_GRAY_TEST_MEDIA.testRunId,
           targetExisted: false,
           retention: "SOFT_DELETE_90_DAYS_NO_IMMEDIATE_COS_DELETE",
         }),
         now.toISOString(),
       ).run();
     await tx.prepare("SAVEPOINT v04_gray_test_object_body").run();
-    let uploadAttempted = false;
+    const creationMarker = operationKey;
+    let createdObject = false;
+    let createdEtag: string | null = null;
     let stage = "MEDIA_UPLOAD";
     try {
-      uploadAttempted = true;
+      if (await bucket.head(V04_GRAY_TEST_MEDIA.objectKey)) {
+        throw new V04ServiceError("STALE_PREVIEW", "目标对象已存在，拒绝覆盖。");
+      }
       await bucket.put(V04_GRAY_TEST_MEDIA.objectKey, v04GrayTestMediaBytes(), {
         httpMetadata: { contentType: V04_GRAY_TEST_MEDIA.contentType },
+        ifNoneMatch: "*",
         customMetadata: {
           "data-scope": "TEST_ONLY",
           "test-run-id": V04_GRAY_TEST_MEDIA.testRunId,
           "sha256": V04_GRAY_TEST_MEDIA.sha256,
+          "creation-marker": creationMarker,
         },
       });
-      if (options.failAt === "AFTER_UPLOAD") throw new Error("INJECTED_FAILURE");
+      createdObject = true;
       stage = "MEDIA_VERIFY";
       const head = await bucket.head(V04_GRAY_TEST_MEDIA.objectKey);
       const objectHash = await sha256BucketObject(bucket, V04_GRAY_TEST_MEDIA.objectKey);
-      if (!head || head.size !== V04_GRAY_TEST_MEDIA.fileSize || objectHash !== V04_GRAY_TEST_MEDIA.sha256) {
+      if (!head || !head.httpEtag
+        || head.size !== V04_GRAY_TEST_MEDIA.fileSize
+        || head.contentType !== V04_GRAY_TEST_MEDIA.contentType
+        || head.customMetadata?.["data-scope"] !== "TEST_ONLY"
+        || head.customMetadata?.["test-run-id"] !== V04_GRAY_TEST_MEDIA.testRunId
+        || head.customMetadata?.sha256 !== V04_GRAY_TEST_MEDIA.sha256
+        || head.customMetadata?.["creation-marker"] !== creationMarker
+        || objectHash !== V04_GRAY_TEST_MEDIA.sha256) {
         throw new V04ServiceError("TRANSACTION_ROLLED_BACK", "固定 TEST_ONLY 媒体校验失败。");
       }
+      createdEtag = head.httpEtag;
+      if (options.failAt === "AFTER_UPLOAD") throw new Error("INJECTED_FAILURE");
       stage = "DATABASE_INSERT";
       await tx.prepare(`INSERT INTO videos (
         id,domain_key,title,brand,description,tags_json,object_key,thumbnail_key,
@@ -479,7 +674,9 @@ export async function applyV04GrayTestObject(
         fileSize: V04_GRAY_TEST_MEDIA.fileSize,
         mediaSha256: V04_GRAY_TEST_MEDIA.sha256,
         objectKeyDigest: hash(V04_GRAY_TEST_MEDIA.objectKey),
-        actorUserId: actor.userId,
+        actorDigest,
+        objectEtagDigest: hash(createdEtag),
+        creationMarkerDigest: hash(creationMarker),
         targetCodeSha,
         previewTokenDigest,
         businessFingerprint: initialBusinessHash,
@@ -489,14 +686,30 @@ export async function applyV04GrayTestObject(
       await tx.prepare(`UPDATE admin_data_operations SET status='COMPLETED',result_json=?::jsonb,
         completed_at=? WHERE operation_key=? AND status='RUNNING'`)
         .bind(JSON.stringify(result), now.toISOString(), operationKey).run();
+      stage = "FINAL_STATE_INVARIANT";
+      const finalPreview = await previewV04GrayTestObject(tx, bucket, actor, {
+        tokenSecret: options.tokenSecret,
+        now,
+        targetCodeSha,
+      });
+      if (!finalPreview.ready || !finalPreview.alreadyApplied
+        || finalPreview.facts.legalState !== "EXACT_APPLIED"
+        || finalPreview.facts.ledgerAppliedCount !== 1
+        || finalPreview.facts.businessFingerprint !== initialBusinessHash) {
+        throw new V04ServiceError("TRANSACTION_ROLLED_BACK", "创建后的目标、对象与账本不一致。");
+      }
       return result;
     } catch (error) {
       await tx.prepare("ROLLBACK TO SAVEPOINT v04_gray_test_object_body").run();
       let compensation: V04GrayTestObjectApplyResult["compensation"] = "NOT_NEEDED";
-      if (uploadAttempted) {
+      if (createdObject) {
         try {
-          await bucket.delete(V04_GRAY_TEST_MEDIA.objectKey);
-          compensation = "OBJECT_DELETED";
+          if (await objectIsOwnedByOperation(bucket, creationMarker, createdEtag)) {
+            await bucket.delete(V04_GRAY_TEST_MEDIA.objectKey);
+            compensation = "OBJECT_DELETED";
+          } else {
+            compensation = "OBJECT_DELETE_REFUSED";
+          }
         } catch {
           compensation = "OBJECT_DELETE_FAILED";
         }
@@ -512,7 +725,9 @@ export async function applyV04GrayTestObject(
         fileSize: V04_GRAY_TEST_MEDIA.fileSize,
         mediaSha256: V04_GRAY_TEST_MEDIA.sha256,
         objectKeyDigest: hash(V04_GRAY_TEST_MEDIA.objectKey),
-        actorUserId: actor.userId,
+        actorDigest,
+        objectEtagDigest: createdEtag ? hash(createdEtag) : null,
+        creationMarkerDigest: createdObject ? hash(creationMarker) : null,
         targetCodeSha,
         previewTokenDigest,
         businessFingerprint: initialBusinessHash,
