@@ -71,6 +71,7 @@ export type V04DraftSaveAction =
   | { type: "SAVE_OFFLINE"; requestToken: number }
   | { type: "SAVE_CONFLICT"; requestToken: number }
   | { type: "RECOVERY_DISCOVERED"; conflict: boolean; savedAt: string }
+  | { type: "RECOVERY_INTEGRITY_FAILED"; errorCode: "RECOVERY_STORAGE_UNAVAILABLE" | "RECOVERY_CLEANUP_FAILED"; savedAt: string }
   | { type: "SERVER_CONFIRMED"; editVersion: number; savedAt: string }
   | { type: "RESET_FROM_SERVER"; savedAt: string }
   | { type: "RESET_ERROR" };
@@ -144,6 +145,14 @@ export function reduceV04DraftSaveState(
         activeRequestEditVersion: null,
         savedAt: action.savedAt,
         errorCode: "RECOVERY_PENDING",
+      };
+    case "RECOVERY_INTEGRITY_FAILED":
+      return {
+        ...state,
+        status: "ERROR_RETRYABLE",
+        activeRequestEditVersion: null,
+        savedAt: action.savedAt,
+        errorCode: action.errorCode,
       };
     case "SERVER_CONFIRMED":
       return {
@@ -294,6 +303,63 @@ export function discoverV04Recoveries<TPayload, TBasePayload = unknown>(
   } catch {
     return { available: false, records: [] };
   }
+}
+
+export type V04InitialRecoveryResolution<TPayload, TBasePayload = unknown> =
+  | { kind: "CLEAN" }
+  | { kind: "RECOVERY_PENDING"; records: V04RecoveryRecord<TPayload, TBasePayload>[]; conflict: boolean }
+  | {
+      kind: "INTEGRITY_BLOCKED";
+      reason: "RECOVERY_STORAGE_UNAVAILABLE" | "RECOVERY_CLEANUP_FAILED";
+      records: V04RecoveryRecord<TPayload, TBasePayload>[];
+    };
+
+/**
+ * Publishes one fail-closed initial recovery fact. A server-confirmed status is
+ * legal only after storage was fully enumerated and every matching no-op record
+ * was removed. localStorage has no transaction, so a later failed removal
+ * restores every earlier record before the caller may retry.
+ */
+export function resolveV04InitialRecoveryState<TPayload, TBasePayload = unknown>(input: {
+  discovered:
+    | { available: true; records: V04RecoveryRecord<TPayload, TBasePayload>[] }
+    | { available: false; records: [] };
+  server: { revision: number; hash: string };
+  clearRecord: (record: V04RecoveryRecord<TPayload, TBasePayload>) => boolean;
+  restoreRecord: (record: V04RecoveryRecord<TPayload, TBasePayload>) => boolean;
+}): V04InitialRecoveryResolution<TPayload, TBasePayload> {
+  if (!input.discovered.available) {
+    return { kind: "INTEGRITY_BLOCKED", reason: "RECOVERY_STORAGE_UNAVAILABLE", records: [] };
+  }
+  const matching: V04RecoveryRecord<TPayload, TBasePayload>[] = [];
+  const pending: Array<{ record: V04RecoveryRecord<TPayload, TBasePayload>; conflict: boolean }> = [];
+  for (const record of input.discovered.records) {
+    const decision = decideV04Recovery(record, input.server);
+    if (decision.kind === "SERVER_MATCHES") matching.push(record);
+    else if (decision.kind === "RESTORE_AVAILABLE" || decision.kind === "CONFLICT") {
+      pending.push({ record: decision.record, conflict: decision.kind === "CONFLICT" });
+    }
+  }
+  const cleared: V04RecoveryRecord<TPayload, TBasePayload>[] = [];
+  for (const record of matching) {
+    if (!input.clearRecord(record)) {
+      for (const prior of cleared) input.restoreRecord(prior);
+      return {
+        kind: "INTEGRITY_BLOCKED",
+        reason: "RECOVERY_CLEANUP_FAILED",
+        records: [...input.discovered.records],
+      };
+    }
+    cleared.push(record);
+  }
+  if (pending.length) {
+    return {
+      kind: "RECOVERY_PENDING",
+      records: pending.map(({ record }) => record),
+      conflict: pending.length > 1 || pending.some(({ conflict }) => conflict),
+    };
+  }
+  return { kind: "CLEAN" };
 }
 
 export function writeV04Recovery<TPayload, TBasePayload = unknown>(

@@ -44,6 +44,10 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
     "the atomic document identity must be claimed before the first workspace GET");
   assert.match(source, /discoverV04Recoveries[\s\S]*RECOVERY_DISCOVERED[\s\S]*setModel\(next\)/,
     "initial load must publish recovery facts before exposing the server model as saved");
+  assert.match(source, /resolveV04InitialRecoveryState[\s\S]*RECOVERY_INTEGRITY_FAILED[\s\S]*SERVER_CONFIRMED/,
+    "initial recovery storage and cleanup must resolve through one fail-closed decision before SAVED");
+  assert.match(source, /recoveryIntegrityBlocked[\s\S]*重试恢复核验/,
+    "storage integrity failures must stay visible and offer an explicit retry");
   assert.match(source, /writeV04Recovery\(storage/);
   assert.match(source, /discoverV04Recoveries<V04UiDraft, V04Payload>\(storage/);
   assert.match(source, /恢复本地草稿/);
@@ -66,7 +70,7 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
   assert.match(source, /releaseLeaseKeepalive/);
   assert.match(source, /shouldReleaseV04Lease/);
   assert.match(source, /basePayload:[\s\S]*planV04ThreeWayChanges/);
-  assert.match(source, /本机恢复副本不可用/);
+  assert.match(source, /本机恢复记录无法完整读取或安全清理/);
   assert.equal((source.match(/onClick=\{\(event\) => navigateWithSavedDraft\(event,/g) ?? []).length, 3,
     "the brand, case library and readonly-result exits must all flush through the guarded navigation path");
 });

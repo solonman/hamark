@@ -10,6 +10,7 @@ import {
   isV04LeaseFailure,
   readV04Recovery,
   reduceV04DraftSaveState,
+  resolveV04InitialRecoveryState,
   runV04WithTimeout,
   v04SaveFailureMessage,
   v04RecoveryStorageKey,
@@ -101,6 +102,92 @@ test("unavailable browser storage is fail-safe and returns an ephemeral recovery
     serverRevision: 0, serverHash: "hash", payload: {}, dirtyTargets: [],
     writtenAt: "2026-08-22T10:00:00.000Z",
   }), false);
+});
+
+test("initial recovery integrity never publishes SAVED when enumeration is unavailable", () => {
+  const resolution = resolveV04InitialRecoveryState({
+    discovered: { available: false, records: [] },
+    server: { revision: 5, hash: "server-5" },
+    clearRecord: () => true,
+    restoreRecord: () => true,
+  });
+  assert.deepEqual(resolution, {
+    kind: "INTEGRITY_BLOCKED",
+    reason: "RECOVERY_STORAGE_UNAVAILABLE",
+    records: [],
+  });
+  const state = reduceV04DraftSaveState(initialV04DraftSaveState(), {
+    type: "RECOVERY_INTEGRITY_FAILED",
+    errorCode: "RECOVERY_STORAGE_UNAVAILABLE",
+    savedAt: "2026-08-22T12:00:00.000Z",
+  });
+  assert.equal(state.status, "ERROR_RETRYABLE");
+  assert.notEqual(state.status, "SAVED");
+  assert.equal(state.errorCode, "RECOVERY_STORAGE_UNAVAILABLE");
+});
+
+test("SERVER_MATCHES cleanup is fail-closed and keeps the record when removeItem fails", () => {
+  const values = new Map<string, string>();
+  const identity = {
+    userId: "user-a", workspaceId: "workspace-a", roundId: "round-a",
+    tabId: "recovery-123e4567-e89b-42d3-a456-426614174020",
+    payloadSchemaVersion: "AD_VIDEO_PAYLOAD_V1",
+  };
+  const record = {
+    identity, serverRevision: 5, serverHash: "server-5", payload: { value: "confirmed" },
+    dirtyTargets: [], writtenAt: "2026-08-22T12:00:00.000Z",
+  };
+  const key = v04RecoveryStorageKey(identity);
+  values.set(key, JSON.stringify(record));
+  const storage = {
+    get length() { return values.size; },
+    key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: (candidate: string) => values.get(candidate) ?? null,
+    setItem: (candidate: string, value: string) => { values.set(candidate, value); },
+    removeItem: () => { throw new Error("blocked"); },
+  };
+  const discovered = discoverV04Recoveries(storage, [{
+    userId: identity.userId,
+    workspaceId: identity.workspaceId,
+    roundId: identity.roundId,
+    payloadSchemaVersion: identity.payloadSchemaVersion,
+  }], new Date("2026-08-22T12:01:00.000Z"));
+  const resolution = resolveV04InitialRecoveryState({
+    discovered,
+    server: { revision: 5, hash: "server-5" },
+    clearRecord: (candidate) => clearV04Recovery(storage, candidate.identity),
+    restoreRecord: (candidate) => writeV04Recovery(storage, candidate),
+  });
+  assert.equal(resolution.kind, "INTEGRITY_BLOCKED");
+  assert.equal(resolution.kind === "INTEGRITY_BLOCKED" ? resolution.reason : "", "RECOVERY_CLEANUP_FAILED");
+  assert.equal(values.has(key), true, "failed cleanup must retain the matching recovery fact");
+});
+
+test("SERVER_MATCHES cleanup permits SAVED only after the final record is removed", () => {
+  const values = new Map<string, string>();
+  const identity = {
+    userId: "user-a", workspaceId: "workspace-a", roundId: "round-a",
+    tabId: "recovery-123e4567-e89b-42d3-a456-426614174021",
+    payloadSchemaVersion: "AD_VIDEO_PAYLOAD_V1",
+  };
+  const record = {
+    identity, serverRevision: 5, serverHash: "server-5", payload: { value: "confirmed" },
+    dirtyTargets: [], writtenAt: "2026-08-22T12:00:00.000Z",
+  };
+  const key = v04RecoveryStorageKey(identity);
+  values.set(key, JSON.stringify(record));
+  const resolution = resolveV04InitialRecoveryState({
+    discovered: { available: true, records: [record] },
+    server: { revision: 5, hash: "server-5" },
+    clearRecord: () => { values.delete(key); return true; },
+    restoreRecord: () => true,
+  });
+  assert.deepEqual(resolution, { kind: "CLEAN" });
+  assert.equal(values.has(key), false);
+  const saved = reduceV04DraftSaveState(initialV04DraftSaveState(), {
+    type: "SERVER_CONFIRMED", editVersion: 0, savedAt: "2026-08-22T12:01:00.000Z",
+  });
+  assert.equal(saved.status, "SAVED");
 });
 
 test("V0.4 save timeout aborts the in-flight request and lease failures stay explicit", async () => {
