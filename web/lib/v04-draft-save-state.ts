@@ -2,6 +2,7 @@ export const V04_AUTOSAVE_DEBOUNCE_MS = 2_500;
 export const V04_SAVE_TIMEOUT_MS = 15_000;
 export const V04_RECOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RECOVERY_TAB_ID_PATTERN = /^recovery-[a-f0-9-]{36}$/;
+const DOCUMENT_GENERATION_PATTERN = /^document-[a-f0-9-]{36}$/;
 
 export async function runV04WithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
@@ -187,6 +188,8 @@ export type V04RecoveryIdentity = {
 
 export type V04RecoveryRecord<TPayload = unknown, TBasePayload = unknown> = {
   identity: V04RecoveryIdentity;
+  /** Random per live document mount; never a lease/session credential. */
+  documentGeneration?: string;
   serverRevision: number;
   serverHash: string;
   basePayload?: TBasePayload;
@@ -376,6 +379,10 @@ export function writeV04Recovery<TPayload, TBasePayload = unknown>(
       tabId: record.identity.tabId,
       payloadSchemaVersion: record.identity.payloadSchemaVersion,
     },
+    ...(typeof record.documentGeneration === "string" &&
+      DOCUMENT_GENERATION_PATTERN.test(record.documentGeneration)
+      ? { documentGeneration: record.documentGeneration }
+      : {}),
     serverRevision: record.serverRevision,
     serverHash: record.serverHash,
     ...(record.basePayload === undefined ? {} : { basePayload: record.basePayload }),

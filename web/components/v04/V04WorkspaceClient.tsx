@@ -37,6 +37,8 @@ import {
   clearSelectedV04RecoveryRecord,
   deriveV04SubmissionUiState,
   planV04EditAccessRecovery,
+  partitionV04RecoveryRecordsByOwner,
+  planV04LiveDraftRebase,
   planV04RecoveryMerge,
   planV04ThreeWayChanges,
   runV04LeaseBoundMutationWithSingleRecovery,
@@ -99,7 +101,7 @@ const RECOVERY_SUBMIT_BLOCKED_MESSAGE = "仍有未吸收、冲突或尚未安全
 const RECOVERY_INTEGRITY_BLOCKED_MESSAGE = "本机恢复记录无法完整读取或安全清理；为避免误报已保存，编辑、提交和离开均已暂停。请恢复浏览器存储能力后重试核验。";
 
 function recoveryRecordKey(record: V04RecoveryRecord<V04UiDraft, V04Payload>) {
-  return `${record.identity.userId}:${record.identity.workspaceId}:${record.identity.roundId}:${record.identity.tabId}:${record.writtenAt}`;
+  return `${record.identity.userId}:${record.identity.workspaceId}:${record.identity.roundId}:${record.identity.tabId}:${record.documentGeneration ?? `legacy-${record.writtenAt}`}`;
 }
 
 function getBrowserStorage(kind: "localStorage" | "sessionStorage") {
@@ -162,13 +164,18 @@ export default function V04WorkspaceClient({
   const restoreInFlightRef = useRef<Promise<void> | null>(null);
   const materializeKeyRef = useRef(`materialize-${videoId}-${crypto.randomUUID()}`);
   const recoveryTabIdRef = useRef("");
+  const documentGenerationRef = useRef("");
   const recoveryIdentityRef = useRef<V04RecoveryIdentity | null>(null);
+  const currentOwnedRecoveryRef = useRef<V04RecoveryRecord<V04UiDraft, V04Payload> | null>(null);
   const recoveryRecordsAwaitingConfirmationRef = useRef<Array<V04RecoveryRecord<V04UiDraft, V04Payload>>>([]);
+  const initialRecoveryScanCompleteRef = useRef(false);
+  const initialWorkspaceLoadCompleteRef = useRef(false);
   const [recoveryPrompt, setRecoveryPrompt] = useState<RecoveryPrompt | null>(null);
   const recoveryPromptRef = useRef<RecoveryPrompt | null>(null);
   const [recoveryIntegrityBlocked, setRecoveryIntegrityBlocked] = useState(false);
   const recoveryIntegrityBlockedRef = useRef(false);
   const [recoveryStorageAvailable, setRecoveryStorageAvailable] = useState(true);
+  const [resolvingRecovery, setResolvingRecovery] = useState(false);
   const [documentIdentityNotice, setDocumentIdentityNotice] = useState("");
   const [editAccessNotice, setEditAccessNotice] = useState("");
   const [editAccessPending, setEditAccessPending] = useState(false);
@@ -256,6 +263,13 @@ export default function V04WorkspaceClient({
     };
   }, [videoId, viewerUserId]);
 
+  const currentDocumentGeneration = useCallback(() => {
+    if (!documentGenerationRef.current) {
+      documentGenerationRef.current = `document-${crypto.randomUUID().toLowerCase()}`;
+    }
+    return documentGenerationRef.current;
+  }, []);
+
   const migrateRecoveryIdentity = useCallback((server: V04ServerWorkspaceModel) => {
     if (typeof window === "undefined") return;
     const nextIdentity = recoveryIdentityFor(server);
@@ -274,6 +288,11 @@ export default function V04WorkspaceClient({
           setRecoveryStorageAvailable(false);
         } else {
           clearV04Recovery(storage, previousIdentity);
+          if (currentOwnedRecoveryRef.current &&
+            JSON.stringify(currentOwnedRecoveryRef.current.identity) === JSON.stringify(previousIdentity) &&
+            currentOwnedRecoveryRef.current.writtenAt === existing.writtenAt) {
+            currentOwnedRecoveryRef.current = migrated;
+          }
           setRecoveryPrompt((current) => current ? {
             ...current,
             record: { ...current.record, identity: nextIdentity },
@@ -298,8 +317,21 @@ export default function V04WorkspaceClient({
     const comparisonBase = basePayload ?? server.payload;
     const payload = v04UiDraftToPayload(nextDraft, comparisonBase);
     const dirtyTargets = v04PayloadChanges(comparisonBase, payload).map((change) => change.targetKey);
+    const storage = getBrowserStorage("localStorage");
+    if (!dirtyTargets.length) {
+      const current = currentOwnedRecoveryRef.current;
+      if (current && (!storage || !clearV04Recovery(storage, current.identity))) {
+        setRecoveryStorageAvailable(false);
+        setActionError("本机恢复副本未能安全清理；请保持页面打开并立即手动保存。");
+        return null;
+      }
+      currentOwnedRecoveryRef.current = null;
+      if (storage) setRecoveryStorageAvailable(true);
+      return null;
+    }
     const record: V04RecoveryRecord<V04UiDraft, V04Payload> = {
       identity,
+      documentGeneration: currentDocumentGeneration(),
       serverRevision: draftBaseRevisionRef.current ?? server.draftRevision,
       serverHash: draftBaseHashRef.current ?? server.draftContentHash,
       ...(basePayload ? { basePayload: structuredClone(basePayload) } : {}),
@@ -307,15 +339,15 @@ export default function V04WorkspaceClient({
       dirtyTargets,
       writtenAt: new Date().toISOString(),
     };
-    const storage = getBrowserStorage("localStorage");
     if (!storage || !writeV04Recovery(storage, record)) {
       setRecoveryStorageAvailable(false);
       setActionError("本机恢复副本未能写入；请保持页面打开并立即手动保存。");
       return null;
     }
+    currentOwnedRecoveryRef.current = record;
     setRecoveryStorageAvailable(true);
     return record;
-  }, [recoveryIdentityFor]);
+  }, [currentDocumentGeneration, recoveryIdentityFor]);
 
   const clearLeaseProof = useCallback(() => {
     leaseProof.current = null;
@@ -327,6 +359,10 @@ export default function V04WorkspaceClient({
     if (!storage || !clearV04Recovery(storage, identity)) {
       setRecoveryStorageAvailable(false);
       return false;
+    }
+    if (currentOwnedRecoveryRef.current &&
+      JSON.stringify(currentOwnedRecoveryRef.current.identity) === JSON.stringify(identity)) {
+      currentOwnedRecoveryRef.current = null;
     }
     setRecoveryStorageAvailable(true);
     return true;
@@ -362,15 +398,40 @@ export default function V04WorkspaceClient({
       ...recoveryRecordsAwaitingConfirmationRef.current,
       ...(prompt?.records ?? []),
     ]) records.set(recoveryRecordKey(record), record);
-    if (recoveryIdentityRef.current) {
+    if (currentOwnedRecoveryRef.current && recoveryIdentityRef.current) {
       const activeRecord = readV04Recovery<V04UiDraft, V04Payload>(storage, recoveryIdentityRef.current);
       if (activeRecord?.dirtyTargets.length) records.set(recoveryRecordKey(activeRecord), activeRecord);
     }
-    if (!records.size) {
-      setRecoveryIntegrity(false);
-      return true;
+    const partitioned = partitionV04RecoveryRecordsByOwner(
+      [...records.values()],
+      currentOwnedRecoveryRef.current?.documentGeneration === documentGenerationRef.current
+        ? currentOwnedRecoveryRef.current
+        : null,
+      recoveryRecordKey,
+    );
+    let currentOwnedConfirmed = true;
+    if (partitioned.current) {
+      const currentClearance = atomicallyClearConfirmedV04RecoveryRecords(
+        [partitioned.current],
+        (record) => recoveryRecordIsConfirmed(record, server),
+        (record) => clearV04Recovery(storage, record.identity),
+        (record) => writeV04Recovery(storage, record),
+      );
+      if (currentClearance === "CLEARED") {
+        currentOwnedRecoveryRef.current = null;
+      } else if (currentClearance === "STORAGE_FAILED") {
+        setRecoveryStorageAvailable(false);
+        setRecoveryIntegrity(true);
+        return false;
+      } else {
+        currentOwnedConfirmed = false;
+      }
     }
-    const candidates = [...records.values()];
+    if (!partitioned.historical.length) {
+      setRecoveryIntegrity(false);
+      return currentOwnedConfirmed;
+    }
+    const candidates = partitioned.historical;
     const clearance = atomicallyClearConfirmedV04RecoveryRecords(
       candidates,
       (record) => recoveryRecordIsConfirmed(record, server),
@@ -445,22 +506,15 @@ export default function V04WorkspaceClient({
       return decision;
     }
     if (decision === "PRESERVE_LOCAL_COMPARE") {
-      const record = persistRecovery(
+      persistRecovery(
         draftRef.current,
         fresh,
         draftBasePayloadRef.current ?? previous.payload,
       );
-      if (record) {
-        const prompt: RecoveryPrompt = {
-          kind: "CONFLICT",
-          record,
-          records: [record],
-          selectedIndex: 0,
-          comparing: true,
-        };
-        recoveryPromptRef.current = prompt;
-        setRecoveryPrompt(prompt);
-      }
+      // The record belongs to this still-mounted page. It remains the hard
+      // durability fallback, but is not a reopened/foreign recovery prompt.
+      // The subsequent three-way save either rebases disjoint fields or stops
+      // the same-target conflict without overwriting the server.
       setActionError("服务器工作稿已更新；本地内容保持不变。请先对照服务器版本，系统不会自动覆盖任何一方。");
     }
     return decision;
@@ -564,9 +618,10 @@ export default function V04WorkspaceClient({
   }, [acquireLease, clearLeaseProof, reconcileFreshWorkspace, refreshWorkspace]);
 
   const resolveInitialRecoveryIntegrity = useCallback((next: V04ServerWorkspaceModel) => {
+    initialRecoveryScanCompleteRef.current = true;
     const identity = recoveryIdentityFor(next);
     const storage = getBrowserStorage("localStorage");
-    const discoveredFromStorage = storage ? discoverV04Recoveries<V04UiDraft, V04Payload>(storage, [
+    const discoveredRaw = storage ? discoverV04Recoveries<V04UiDraft, V04Payload>(storage, [
       {
         userId: identity.userId,
         workspaceId: identity.workspaceId,
@@ -580,6 +635,13 @@ export default function V04WorkspaceClient({
         payloadSchemaVersion: identity.payloadSchemaVersion,
       },
     ]) : { available: false as const, records: [] as [] };
+    const discoveredFromStorage = discoveredRaw.available
+      ? {
+          available: true as const,
+          records: discoveredRaw.records.filter((record) =>
+            record.documentGeneration !== documentGenerationRef.current),
+        }
+      : discoveredRaw;
     const retained = recoveryRecordsAwaitingConfirmationRef.current;
     const discovered = discoveredFromStorage.available && retained.length
       ? {
@@ -631,7 +693,11 @@ export default function V04WorkspaceClient({
     }
     recoveryPromptRef.current = null;
     setRecoveryPrompt(null);
-    dispatchSaveState({ type: "SERVER_CONFIRMED", editVersion: 0, savedAt: next.lastSavedAt ?? "" });
+    if (currentOwnedRecoveryRef.current || editVersionRef.current > saveCoordinatorRef.current.savedVersion) {
+      dispatchSaveState({ type: "RESET_ERROR" });
+    } else {
+      dispatchSaveState({ type: "SERVER_CONFIRMED", editVersion: 0, savedAt: next.lastSavedAt ?? "" });
+    }
     setActionError("");
     return false;
   }, [dispatchSaveState, recoveryIdentityFor, setRecoveryIntegrity, videoId]);
@@ -642,6 +708,7 @@ export default function V04WorkspaceClient({
       if (!active) throw new Error("V04_WORKSPACE_UNMOUNTED");
       tabToken.current = session.tabToken;
       recoveryTabIdRef.current = session.recoveryTabId;
+      currentDocumentGeneration();
       leaseProof.current = session.leaseProof;
       if (session.identityFailClosed) {
         setDocumentIdentityNotice("标签页隔离状态暂时无法确认，已为当前页面启用独立保护；不会与其他标签页混用，本地恢复副本仍会保留。");
@@ -649,16 +716,29 @@ export default function V04WorkspaceClient({
       return loadWorkspace();
     }).then(async (next) => {
       if (!active) return;
-      const serverDraft = v04WorkspaceToUiCase(next).draft;
-      draftBasePayloadRef.current = structuredClone(next.payload);
-      draftBaseRevisionRef.current = next.draftRevision;
-      draftBaseHashRef.current = next.draftContentHash;
-      draftRef.current = serverDraft;
-      setDraftState(serverDraft);
-      migrateRecoveryIdentity(next);
+      const firstLoad = !initialWorkspaceLoadCompleteRef.current;
+      let initialRecoveryPending = Boolean(recoveryPromptRef.current) || recoveryIntegrityBlockedRef.current;
+      if (firstLoad) {
+        initialWorkspaceLoadCompleteRef.current = true;
+        const serverDraft = v04WorkspaceToUiCase(next).draft;
+        draftBasePayloadRef.current = structuredClone(next.payload);
+        draftBaseRevisionRef.current = next.draftRevision;
+        draftBaseHashRef.current = next.draftContentHash;
+        draftRef.current = serverDraft;
+        setDraftState(serverDraft);
+        migrateRecoveryIdentity(next);
+        initialRecoveryPending = resolveInitialRecoveryIntegrity(next);
+        setModel(next);
+      } else {
+        // A dependency refresh within the same mounted document must never
+        // replay first-load initialization over dirty input. Treat it as an
+        // ordinary fresh server fact and preserve/rebase the live draft.
+        const previous = modelRef.current ?? next;
+        setModel(next);
+        migrateRecoveryIdentity(next);
+        reconcileFreshWorkspace(previous, next, initialRecoveryPending);
+      }
       setLoadError("");
-      const initialRecoveryPending = resolveInitialRecoveryIntegrity(next);
-      setModel(next);
       // A logical empty workspace is a read-only projection until the first
       // actual save. The save path materializes it atomically before leasing.
       if (!next.logicalEmpty) await requestEditAccess(next, { initialRecoveryPending });
@@ -666,7 +746,7 @@ export default function V04WorkspaceClient({
       if (active) setLoadError(reason instanceof V04UiApiError ? reason.message : "公共工作稿暂时无法读取。");
     });
     return () => { active = false; };
-  }, [getWorkspaceSession, loadWorkspace, migrateRecoveryIdentity, requestEditAccess, resolveInitialRecoveryIntegrity, setModel, videoId]);
+  }, [currentDocumentGeneration, getWorkspaceSession, loadWorkspace, migrateRecoveryIdentity, reconcileFreshWorkspace, requestEditAccess, resolveInitialRecoveryIntegrity, setModel, videoId]);
 
   const commitSaveAttempt = useCallback(async (attempt: { version: number; draft: V04StagedDraft }) => {
     if (restoreInFlightRef.current) return false;
@@ -741,9 +821,39 @@ export default function V04WorkspaceClient({
         const serverDraft = v04WorkspaceToUiCase(updated).draft;
         draftRef.current = serverDraft;
         setDraftState(serverDraft);
-        reconcileConfirmedRecoveries(updated);
+        if (!reconcileConfirmedRecoveries(updated) &&
+          !recoveryPromptRef.current && !recoveryIntegrityBlockedRef.current) {
+          dispatchSaveState({
+            type: "SAVE_FAILED",
+            requestToken,
+            retryable: true,
+            errorCode: "SAVE_CONFIRMATION_FAILED",
+          });
+          setActionError("服务器尚未确认本页面的最新修改；本机副本仍保留，可直接重试保存。");
+          return false;
+        }
       } else {
-        persistRecovery(draftRef.current, updated, attempt.draft.basePayload);
+        const previousBase = draftBasePayloadRef.current ?? attempt.draft.basePayload;
+        const pendingPayload = v04UiDraftToPayload(draftRef.current, previousBase);
+        const pendingChanges = v04PayloadChanges(previousBase, pendingPayload);
+        const liveRebase = planV04LiveDraftRebase(
+          pendingChanges,
+          originalChanges,
+          (targetKey) => v04PayloadTargetValue(updated.payload, targetKey),
+        );
+        if (!liveRebase.conflicts.length) {
+          draftBasePayloadRef.current = structuredClone(updated.payload);
+          draftBaseRevisionRef.current = updated.draftRevision;
+          draftBaseHashRef.current = updated.draftContentHash;
+          const currentVersion = editVersionRef.current;
+          persistRecovery(draftRef.current, updated, updated.payload);
+          saveCoordinatorRef.current.stage({
+            version: currentVersion,
+            draft: { draft: cloneV04UiDraft(draftRef.current), basePayload: structuredClone(updated.payload) },
+          });
+        } else {
+          persistRecovery(draftRef.current, updated, previousBase);
+        }
       }
       return true;
     } catch (reason) {
@@ -1402,51 +1512,68 @@ export default function V04WorkspaceClient({
     }
   };
 
-  const keepServerDraft = () => {
+  const keepServerDraft = async () => {
     const promptToClear = recoveryPrompt;
-    if (!promptToClear) return;
-    const result = clearSelectedV04RecoveryRecord(
-      promptToClear.records,
-      promptToClear.selectedIndex,
-      (record) => clearRecoveryRecord(record.identity),
-    );
-    if (result.status === "STORAGE_FAILED") {
-      const message = "本机恢复副本未能安全清理；页面仍保留该副本和对照状态，请重试，提交保持禁用。";
-      setActionError(message);
-      setNavigationIssue({ message, href: "" });
+    if (!promptToClear || resolvingRecovery) return;
+    if (saveCoordinatorRef.current.isRunning || saveMachineRef.current.status === "SAVING") {
+      setActionError("正在确认当前保存，请稍候再选择继续使用服务器内容；本地副本仍保留。");
       return;
     }
-    const remaining = result.remaining;
-    setRecoveryIntegrity(false);
-    if (!remaining.length) {
-      recoveryPromptRef.current = null;
-      setRecoveryPrompt(null);
-      if (recoveryRecordsAwaitingConfirmationRef.current.length && modelRef.current) {
-        finalizeRecoveredDraft(modelRef.current);
-        setNavigationIssue(null);
+    setResolvingRecovery(true);
+    try {
+      const fresh = await refreshWorkspace();
+      const selected = promptToClear.records[promptToClear.selectedIndex];
+      const result = clearSelectedV04RecoveryRecord(
+        promptToClear.records,
+        promptToClear.selectedIndex,
+        (record) => clearRecoveryRecord(record.identity),
+      );
+      if (result.status === "STORAGE_FAILED") {
+        const message = "本机恢复副本未能安全清理；页面仍保留该副本和对照状态，请重试，提交保持禁用。";
+        setActionError(message);
+        setNavigationIssue({ message, href: "" });
         return;
-      } else if (!saveCoordinatorRef.current.isRunning && modelRef.current) {
-        synchronizeCleanServerDraft(modelRef.current);
       }
-    } else {
-      const record = remaining[0];
-      const current = modelRef.current!;
-      const decision = decideV04Recovery(record, {
-        revision: current.draftRevision,
-        hash: current.draftContentHash,
-      });
-      const prompt: RecoveryPrompt = {
-        kind: decision.kind === "CONFLICT" ? "CONFLICT" : "RESTORE_AVAILABLE",
-        record,
-        records: remaining,
-        selectedIndex: 0,
-        comparing: remaining.length > 1 || decision.kind === "CONFLICT",
-      };
-      recoveryPromptRef.current = prompt;
-      setRecoveryPrompt(prompt);
+      if (selected) {
+        const selectedKey = recoveryRecordKey(selected);
+        recoveryRecordsAwaitingConfirmationRef.current = recoveryRecordsAwaitingConfirmationRef.current
+          .filter((record) => recoveryRecordKey(record) !== selectedKey);
+      }
+      const remaining = result.remaining;
+      setRecoveryIntegrity(false);
+      if (!remaining.length) {
+        recoveryPromptRef.current = null;
+        setRecoveryPrompt(null);
+        currentOwnedRecoveryRef.current = null;
+        if (recoveryRecordsAwaitingConfirmationRef.current.length) {
+          finalizeRecoveredDraft(fresh);
+          setNavigationIssue(null);
+          return;
+        }
+        synchronizeCleanServerDraft(fresh);
+      } else {
+        const record = remaining[0];
+        const decision = decideV04Recovery(record, {
+          revision: fresh.draftRevision,
+          hash: fresh.draftContentHash,
+        });
+        const prompt: RecoveryPrompt = {
+          kind: decision.kind === "CONFLICT" ? "CONFLICT" : "RESTORE_AVAILABLE",
+          record,
+          records: remaining,
+          selectedIndex: 0,
+          comparing: remaining.length > 1 || decision.kind === "CONFLICT",
+        };
+        recoveryPromptRef.current = prompt;
+        setRecoveryPrompt(prompt);
+      }
+      setNavigationIssue(null);
+      setActionError("");
+    } catch {
+      setActionError("服务器内容暂时无法重新确认；本地恢复副本保持不变，请稍后重试。");
+    } finally {
+      setResolvingRecovery(false);
     }
-    setNavigationIssue(null);
-    setActionError("");
   };
 
   const selectRecoveryRecord = (selectedIndex: number) => {
@@ -1490,7 +1617,7 @@ export default function V04WorkspaceClient({
     <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{recoveryPending ? "本地恢复副本待处理 · 正文暂时只读" : canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在准备编辑" : "当前无人编辑 · 暂时只读"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交后仍可继续编辑。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{RECOVERY_INTEGRITY_BLOCKED_MESSAGE}</p><button type="button" onClick={() => { if (modelRef.current) resolveInitialRecoveryIntegrity(modelRef.current); }}>重试恢复核验</button></section>}
-    {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={`${record.identity.tabId}:${record.writtenAt}`}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新的本地副本" : `较早的本地副本 ${index + 1}`} · {record.writtenAt} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>此副本基于较早保存状态，服务器内容已有更新。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；不会影响其他标签页。系统会在状态可用后自动恢复编辑，全部副本仍按当前案例汇总供逐份处理。</p>}</div><div><button type="button" onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" onClick={keepServerDraft}>继续使用服务器版本</button></div></section>}
+    {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={recoveryRecordKey(record)}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} disabled={resolvingRecovery} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新的本地副本" : `较早的本地副本 ${index + 1}`} · {record.writtenAt} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>此副本基于较早保存状态，服务器内容已有更新。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；不会影响其他标签页。系统会在状态可用后自动恢复编辑，全部副本仍按当前案例汇总供逐份处理。</p>}</div><div><button type="button" disabled={resolvingRecovery} onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" disabled={resolvingRecovery} onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" disabled={resolvingRecovery} onClick={() => { void keepServerDraft(); }}>{resolvingRecovery ? "正在确认服务器内容…" : "继续使用服务器版本"}</button></div></section>}
     {actionError && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>
     <div className={styles.workspaceGrid}>

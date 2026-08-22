@@ -23,6 +23,8 @@ import {
   classifyV04RecoveryConfirmation,
   clearSelectedV04RecoveryRecord,
   deriveV04SubmissionUiState,
+  partitionV04RecoveryRecordsByOwner,
+  planV04LiveDraftRebase,
   planV04ThreeWayChanges,
   planV04RecoveryMerge,
   shouldDisableV04Submission,
@@ -437,6 +439,115 @@ test("recovery confirmation distinguishes absorbed, pending and conflicting loca
     assert.deepEqual({ flushes, navigations }, { flushes: 0, navigations: 0 });
     assert.match(v04NavigationFailureMessage(result), /恢复副本/);
   });
+});
+
+test("a mounted page recovery stays a durability copy after choosing the server draft", () => {
+  type Recovery = {
+    key: string;
+    before: string;
+    after: string;
+  };
+  const oldReopenedCopy: Recovery = { key: "old-document", before: "server", after: "old-local" };
+  const cleared = clearSelectedV04RecoveryRecord([oldReopenedCopy], 0, () => true);
+  assert.equal(cleared.status, "CLEARED");
+  assert.deepEqual(cleared.remaining, [], "choosing the server draft removes the selected old copy first");
+
+  const currentPageCopy: Recovery = { key: "current-document", before: "server", after: "new-local" };
+  const beforeSave = partitionV04RecoveryRecordsByOwner(
+    [currentPageCopy],
+    currentPageCopy,
+    (record) => record.key,
+  );
+  assert.equal(beforeSave.current, currentPageCopy);
+  assert.deepEqual(beforeSave.historical, [],
+    "this page's dirty fallback must never reappear as a reopened recovery prompt");
+  assert.equal(classifyV04RecoveryConfirmation([{
+    targetKey: "facts.creativeMotif",
+    targetLabel: "创意母题",
+    valueType: "TEXT",
+    beforeValue: currentPageCopy.before,
+    afterValue: currentPageCopy.after,
+  }], () => "server"), "NOT_ABSORBED");
+  assert.equal(effectiveV04SaveStatus(facts({
+    saveStatus: "ERROR_RETRYABLE",
+    editVersion: 1,
+    savedVersion: 0,
+    recoveryPending: beforeSave.historical.length > 0,
+  })), "ERROR_RETRYABLE", "a failed save is visible as unsaved, not as a historical recovery conflict");
+  assert.equal(decideV04ManualSave(facts({
+    saveStatus: "ERROR_RETRYABLE",
+    editVersion: 1,
+    savedVersion: 0,
+    recoveryPending: beforeSave.historical.length > 0,
+  })), "SAVE", "the same mounted page may retry its one serialized save path");
+
+  const stored = new Set([currentPageCopy.key]);
+  assert.equal(atomicallyClearConfirmedV04RecoveryRecords(
+    [currentPageCopy],
+    () => true,
+    (record) => stored.delete(record.key),
+    (record) => { stored.add(record.key); return true; },
+  ), "CLEARED");
+  assert.equal(stored.size, 0, "server confirmation clears the mounted page fallback");
+});
+
+test("a slow v1 confirmation advances the live base without swallowing v2", () => {
+  const v1 = [{
+    targetKey: "facts.creativeMotif", targetLabel: "创意母题", valueType: "TEXT" as const,
+    beforeValue: "", afterValue: "第一段输入",
+  }];
+  const v2 = [{
+    targetKey: "facts.creativeMotif", targetLabel: "创意母题", valueType: "TEXT" as const,
+    beforeValue: "", afterValue: "第一段输入后继续填写",
+  }, {
+    targetKey: "facts.storySynopsis", targetLabel: "故事梗概", valueType: "TEXT" as const,
+    beforeValue: "", afterValue: "第二个字段",
+  }];
+  const server = new Map<string, unknown>([
+    ["facts.creativeMotif", "第一段输入"],
+    ["facts.storySynopsis", ""],
+  ]);
+  const rebased = planV04LiveDraftRebase(v2, v1, (targetKey) => server.get(targetKey));
+  assert.deepEqual(rebased.conflicts, []);
+  assert.deepEqual(rebased.changes.map((change) => ({
+    targetKey: change.targetKey,
+    beforeValue: change.beforeValue,
+    afterValue: change.afterValue,
+  })), [{
+    targetKey: "facts.creativeMotif",
+    beforeValue: "第一段输入",
+    afterValue: "第一段输入后继续填写",
+  }, {
+    targetKey: "facts.storySynopsis",
+    beforeValue: "",
+    afterValue: "第二个字段",
+  }]);
+
+  server.set("facts.creativeMotif", "另一编辑端内容");
+  assert.deepEqual(
+    planV04LiveDraftRebase(v2, v1, (targetKey) => server.get(targetKey)).conflicts,
+    ["facts.creativeMotif"],
+    "an unrelated same-target update remains fail-closed",
+  );
+});
+
+test("document generation hides only this live page and keeps every foreign recovery visible", () => {
+  const records = [
+    { generation: "document-current", writtenAt: "new" },
+    { generation: "document-other-tab", writtenAt: "other" },
+    { generation: "document-old-mount", writtenAt: "old" },
+    { generation: "document-current", writtenAt: "duplicate-write-time" },
+  ];
+  const partitioned = partitionV04RecoveryRecordsByOwner(
+    records,
+    records[0],
+    (record) => record.generation,
+  );
+  assert.equal(partitioned.current?.generation, "document-current");
+  assert.deepEqual(partitioned.historical.map((record) => record.generation), [
+    "document-other-tab",
+    "document-old-mount",
+  ], "other tabs and prior mounts remain visible while repeated current-generation writes dedupe");
 });
 
 test("a newer or unresolved recovery fact always outranks an older SAVED timestamp", () => {

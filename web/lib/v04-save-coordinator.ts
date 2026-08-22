@@ -319,6 +319,36 @@ export function planV04RecoveryMerge(
   return { kind: "MERGE" as const, conflicts: [] as string[], changes: local.changes };
 }
 
+/**
+ * Advances the live base after an older save from this same page is confirmed.
+ * A newer edit to the same target may build on that confirmed intermediate
+ * value; any unrelated same-target server value remains a hard conflict.
+ */
+export function planV04LiveDraftRebase(
+  pendingChanges: readonly V04Change[],
+  confirmedChanges: readonly V04Change[],
+  currentValue: (targetKey: string) => unknown,
+) {
+  const confirmedByTarget = new Map(confirmedChanges.map((change) => [change.targetKey, change]));
+  const rebased: V04Change[] = [];
+  const conflicts: string[] = [];
+  for (const change of pendingChanges) {
+    const current = currentValue(change.targetKey);
+    if (Object.is(current, change.afterValue)) continue;
+    if (Object.is(current, change.beforeValue)) {
+      rebased.push(change);
+      continue;
+    }
+    const confirmed = confirmedByTarget.get(change.targetKey);
+    if (confirmed && Object.is(current, confirmed.afterValue)) {
+      rebased.push({ ...change, beforeValue: current });
+      continue;
+    }
+    conflicts.push(change.targetKey);
+  }
+  return { changes: rebased, conflicts };
+}
+
 export function atomicallyClearConfirmedV04RecoveryRecords<T>(
   records: readonly T[],
   isConfirmed: (record: T) => boolean,
@@ -337,6 +367,29 @@ export function atomicallyClearConfirmedV04RecoveryRecords<T>(
     cleared.push(record);
   }
   return "CLEARED" as const;
+}
+
+/**
+ * A recovery written by the currently mounted document is a durability copy,
+ * not a reopened/foreign draft. Keep it out of the historical recovery prompt
+ * while still allowing the save confirmation path to clear it after the exact
+ * server payload is observed.
+ */
+export function partitionV04RecoveryRecordsByOwner<T>(
+  records: readonly T[],
+  currentOwnedRecord: T | null,
+  recordKey: (record: T) => string,
+) {
+  const currentKey = currentOwnedRecord ? recordKey(currentOwnedRecord) : null;
+  const current = currentKey
+    ? records.find((record) => recordKey(record) === currentKey) ?? currentOwnedRecord
+    : null;
+  return {
+    current,
+    historical: currentKey
+      ? records.filter((record) => recordKey(record) !== currentKey)
+      : [...records],
+  };
 }
 
 export function clearSelectedV04RecoveryRecord<T>(

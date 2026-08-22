@@ -50,6 +50,12 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
     "storage integrity failures must stay visible and offer an explicit retry");
   assert.match(source, /writeV04Recovery\(storage/);
   assert.match(source, /discoverV04Recoveries<V04UiDraft, V04Payload>\(storage/);
+  assert.match(source, /initialRecoveryScanCompleteRef\.current[\s\S]*resolveInitialRecoveryIntegrity/,
+    "a mounted workspace must not rediscover its own active durability copy after refresh");
+  assert.match(source, /initialWorkspaceLoadCompleteRef\.current[\s\S]*firstLoad[\s\S]*reconcileFreshWorkspace\(previous, next/,
+    "a same-mount effect refresh must reconcile server facts without replaying first-load draft initialization");
+  assert.match(source, /currentOwnedRecoveryRef[\s\S]*partitionV04RecoveryRecordsByOwner/,
+    "current-page recovery ownership must stay separate from reopened recovery prompts");
   assert.match(source, /恢复本地草稿/);
   assert.match(source, /对照服务器/);
   assert.match(source, /role="status" aria-live="polite"/);

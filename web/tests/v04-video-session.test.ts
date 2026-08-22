@@ -170,6 +170,30 @@ test("unavailable or uncertain collision detection never reuses a cloned identit
   assert(Date.now() - startedAt < 100, "a synchronous lock error must clear its timer and fail immediately");
 });
 
+test("a WebView temporary identity stays stable for the entire mounted provider session", async () => {
+  let starts = 0;
+  const registry = new V04DocumentIdentityClaimRegistry((scope, signal) => {
+    starts += 1;
+    return claimV04DocumentIdentity({
+      caseId: scope,
+      storage: seededStorage(),
+      lockManager: null,
+      signal,
+      createId: ids("123e4567-e89b-42d3-a456-426614174145"),
+    });
+  });
+  const firstPromise = registry.get(caseId);
+  const secondPromise = registry.get(caseId);
+  assert.equal(firstPromise, secondPromise, "one mounted page shares one in-flight identity claim");
+  const [first, second] = await Promise.all([firstPromise, secondPromise]);
+  assert.equal(starts, 1);
+  assert.equal(first.failClosed, true);
+  assert.deepEqual(second.identity, first.identity,
+    "refreshes and model changes inside the same mount cannot rotate the temporary pair");
+  assert.deepEqual((await registry.get(caseId)).identity, first.identity);
+  registry.dispose();
+});
+
 test("an always-unavailable lock manager stops after three atomic attempts", async () => {
   let attempts = 0;
   const unavailableLocks: V04IdentityLockManager = {

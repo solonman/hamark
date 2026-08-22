@@ -239,7 +239,8 @@ test("V0.4 recovery copies use five dimensions, expire and never carry credentia
     tabId: "tab-a", payloadSchemaVersion: "AD_VIDEO_PAYLOAD_V1",
   };
   const record = {
-    identity, serverRevision: 2, serverHash: "hash-2", payload: { value: "draft" },
+    identity, documentGeneration: "document-123e4567-e89b-42d3-a456-426614174000",
+    serverRevision: 2, serverHash: "hash-2", payload: { value: "draft" },
     dirtyTargets: ["facts.storySynopsis"], writtenAt: "2026-08-19T12:00:00.000Z",
   };
   writeV04Recovery(storage, {
