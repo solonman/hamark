@@ -74,8 +74,9 @@ export function canMutateV04Draft(input: {
   capability: boolean;
   restoring: boolean;
   submitting: boolean;
+  navigating?: boolean;
 }) {
-  return input.capability && !input.restoring && !input.submitting;
+  return input.capability && !input.restoring && !input.submitting && !input.navigating;
 }
 
 export function canStartV04Restore(input: {

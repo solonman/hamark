@@ -167,7 +167,7 @@ test("opening a logical empty V0.4 workspace stays zero-write until the first ac
   );
   assert.match(
     workspace,
-    /if \(!next\.logicalEmpty\) await requestEditAccess\(next\)/,
+    /if \(!next\.logicalEmpty\) await requestEditAccess\(next, \{ initialRecoveryPending \}\)/,
   );
   assert.match(
     workspace,

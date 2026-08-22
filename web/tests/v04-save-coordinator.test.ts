@@ -114,6 +114,7 @@ test("submit and restore lock draft mutation while a clean restore alone may sta
   assert.equal(canMutateV04Draft({ capability: true, restoring: false, submitting: false }), true);
   assert.equal(canMutateV04Draft({ capability: true, restoring: true, submitting: false }), false);
   assert.equal(canMutateV04Draft({ capability: true, restoring: false, submitting: true }), false);
+  assert.equal(canMutateV04Draft({ capability: true, restoring: false, submitting: false, navigating: true }), false);
   assert.equal(canStartV04Restore({
     saveStatus: "SAVED", saveInFlight: false, submitting: false, restoring: false,
     editVersion: 3, savedVersion: 3,

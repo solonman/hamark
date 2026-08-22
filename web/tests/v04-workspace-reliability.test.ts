@@ -12,6 +12,8 @@ test("formal V0.4 workspace uses one serialized save path for autosave, manual s
   assert.match(source, /V04_AUTOSAVE_DEBOUNCE_MS[\s\S]*requestSave\(cloneV04UiDraft\(draftRef\.current\)/);
   assert.match(source, /const manualSave[\s\S]*requestSave\(cloneV04UiDraft\(draftRef\.current\)/);
   assert.match(source, /const submitDraft[\s\S]*await requestSave\(cloneV04UiDraft\(draftRef\.current\)/);
+  assert.doesNotMatch(source, /const submitDisabled =[^\n]*saveMachine\.status === "SAVING"/,
+    "clicking submit during an autosave must join and flush the active coordinator rather than becoming unavailable");
   assert.equal((source.match(/v04UiApi\.save<SaveResult>/g) ?? []).length, 1,
     "all draft saves must share one mutation call site");
   assert.match(source, /changeSetIdsRef[\s\S]*changeSetId[\s\S]*changeSetIdsRef\.current\.delete/);
@@ -26,14 +28,18 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
   assert.match(source, /heartbeatLease[\s\S]*isV04LeaseFailure[\s\S]*clearLeaseProof[\s\S]*canRecoverV04LeaseProof/);
   assert.match(source, /const requestEditAccess[\s\S]*refreshWorkspace\(\)[\s\S]*canRecoverV04LeaseProof[\s\S]*acquireLease/,
     "initial lease failures must become a visible, retryable edit-access state instead of being swallowed");
-  assert.match(source, /planV04EditAccessRecovery[\s\S]*window\.setTimeout[\s\S]*requestEditAccess/,
+  assert.match(source, /planV04EditAccessRecovery[\s\S]*window\.setTimeout[\s\S]*resumeDraft\(true\)/,
     "a readonly page must refresh and reacquire after a stale lease expires");
   assert.match(source, /runV04LeaseBoundMutationWithSingleRecovery/,
     "a save may reacquire and retry the lease exactly once through the tested coordinator");
   assert.match(source, /!current\.viewerCapabilities\.canAcquireLease && !current\.viewerCapabilities\.canEdit/,
     "a same-tab refresh that still holds the lease may POST to rotate its lost proof");
-  assert.equal((source.match(/canRecoverV04LeaseProof\([^)]*viewerCapabilities\)/g) ?? []).length, 5,
-    "initial load, proof-loss recovery, save retry, heartbeat recovery and foreground recovery share the same predicate");
+  assert.match(source, /const resumeDraft[\s\S]*runV04DraftResume[\s\S]*requestEditAccess/,
+    "timer, heartbeat, online and foreground recovery share one single-flight coordinator");
+  assert.match(source, /draftBaseRevisionRef[\s\S]*draftBaseHashRef[\s\S]*decideV04FreshWorkspaceTransition/,
+    "fresh server comparison must retain the revision/hash on which the local draft was based");
+  assert.match(source, /serverRevision: draftBaseRevisionRef\.current[\s\S]*serverHash: draftBaseHashRef\.current/,
+    "a recovery copy must record the original server base rather than relabeling a stale draft as fresh");
   assert.match(source, /getWorkspaceSession\(videoId\)\.then\(\(session\)[\s\S]*tabToken\.current = session\.tabToken[\s\S]*recoveryTabIdRef\.current = session\.recoveryTabId[\s\S]*return refreshWorkspace\(\)/,
     "the atomic document identity must be claimed before the first workspace GET");
   assert.match(source, /writeV04Recovery\(storage/);
@@ -50,11 +56,17 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
   assert.match(source, /!hasDraftEditCapability \? "当前为只读，取得编辑权后才能提交"/,
     "a locally complete draft remains non-submittable until the server grants edit access");
   assert.match(source, /pagehide/);
+  assert.match(source, /beforeunload/);
+  assert.match(source, /addEventListener\("online"/);
+  assert.match(source, /const onHistoryTraversal[\s\S]*persistRecovery[\s\S]*addEventListener\("popstate"/,
+    "browser history traversal must synchronously preserve a local recovery copy without a fragile history loop");
   assert.match(source, /visibilitychange/);
   assert.match(source, /releaseLeaseKeepalive/);
   assert.match(source, /shouldReleaseV04Lease/);
   assert.match(source, /basePayload:[\s\S]*planV04ThreeWayChanges/);
   assert.match(source, /本机恢复副本不可用/);
+  assert.equal((source.match(/onClick=\{\(event\) => navigateWithSavedDraft\(event,/g) ?? []).length, 3,
+    "the brand, case library and readonly-result exits must all flush through the guarded navigation path");
 });
 
 test("formal V0.4 mutations use the 15 second abort boundary and never submit after a failed flush", async () => {
