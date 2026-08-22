@@ -363,9 +363,9 @@ test("deploy updates surface a refresh prompt that flushes autosave first", asyn
   assert.match(notifier, /HOME_NAVIGATION_EVENT/);
   assert.match(notifier, /isProtectedDraftWorkspacePath/);
   assert.match(notifier, /data-v04-page=\\?"workspace/);
-  assert.match(notifier, /navigationWasNotTakenOver && !v04WorkspaceMustTakeOver/);
+  assert.match(notifier, /UpdateReloadCoordinator/);
   assert.match(notifier, /const AUTOSAVE_FLUSH_DELAY_MS = 2500;/);
-  assert.match(notifier, /window\.setTimeout\(reload, AUTOSAVE_FLUSH_DELAY_MS\)/);
+  assert.doesNotMatch(notifier, /window\.setTimeout\(reload, AUTOSAVE_FLUSH_DELAY_MS\)/);
   assert.match(notifier, /RELOAD_TAKEOVER_TIMEOUT_MS/);
   assert.match(notifier, /data\.version !== version/);
   assert.match(notifier, /visibilitychange/);

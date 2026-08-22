@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { UpdateReloadCoordinator } from "@/lib/update-reload-coordinator";
 import {
   HOME_NAVIGATION_EVENT,
   isProtectedDraftWorkspacePath,
@@ -19,6 +20,12 @@ export default function UpdateNotifier({ version }: { version: string }) {
   const [updateReady, setUpdateReady] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const reloadCoordinatorRef = useRef<UpdateReloadCoordinator | null>(null);
+
+  useEffect(() => () => {
+    reloadCoordinatorRef.current?.dispose();
+    reloadCoordinatorRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!version || version === "dev" || updateReady) return;
@@ -60,24 +67,31 @@ export default function UpdateNotifier({ version }: { version: string }) {
   }, [updateReady, version]);
 
   function reloadForUpdate() {
-    if (reloading) return;
+    if (reloading || reloadCoordinatorRef.current) return;
     setReloading(true);
-    const reload = () => window.location.reload();
-    const navigationEvent = new CustomEvent<HomeNavigationEventDetail>(
-      HOME_NAVIGATION_EVENT,
-      { cancelable: true, detail: { continueNavigation: reload } },
-    );
-    const navigationWasNotTakenOver = window.dispatchEvent(navigationEvent);
-    const v04WorkspaceMustTakeOver = isProtectedDraftWorkspacePath(window.location.pathname) &&
-      Boolean(document.querySelector('[data-v04-page="workspace"]'));
-    if (navigationWasNotTakenOver && !v04WorkspaceMustTakeOver) {
-      window.setTimeout(reload, AUTOSAVE_FLUSH_DELAY_MS);
-    } else {
-      // A workspace must explicitly call continueNavigation after its single
-      // save coordinator confirms the latest edit. The timeout only restores
-      // this button after a failed/cancelled takeover; it never reloads.
-      window.setTimeout(() => setReloading(false), RELOAD_TAKEOVER_TIMEOUT_MS);
-    }
+    const coordinator = new UpdateReloadCoordinator({
+      dispatchNavigation: (continueNavigation) => window.dispatchEvent(
+        new CustomEvent<HomeNavigationEventDetail>(HOME_NAVIGATION_EVENT, {
+          cancelable: true,
+          detail: { continueNavigation },
+        }),
+      ),
+      isProtectedWorkspace: () =>
+        isProtectedDraftWorkspacePath(window.location.pathname) &&
+        Boolean(document.querySelector('[data-v04-page="workspace"]')),
+      reload: () => window.location.reload(),
+      schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearScheduled: (handle) => window.clearTimeout(handle),
+      fallbackDelayMs: AUTOSAVE_FLUSH_DELAY_MS,
+      takeoverTimeoutMs: RELOAD_TAKEOVER_TIMEOUT_MS,
+      onTakeoverTimedOut: () => {
+        if (reloadCoordinatorRef.current !== coordinator) return;
+        reloadCoordinatorRef.current = null;
+        setReloading(false);
+      },
+    });
+    reloadCoordinatorRef.current = coordinator;
+    coordinator.request();
   }
 
   if (!updateReady || dismissed) return null;
