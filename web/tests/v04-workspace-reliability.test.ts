@@ -24,6 +24,10 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
     "utf8",
   );
   assert.match(source, /heartbeatLease[\s\S]*isV04LeaseFailure[\s\S]*clearLeaseProof[\s\S]*canRecoverV04LeaseProof/);
+  assert.match(source, /const requestEditAccess[\s\S]*refreshWorkspace\(\)[\s\S]*canRecoverV04LeaseProof[\s\S]*acquireLease/,
+    "initial lease failures must become a visible, retryable edit-access state instead of being swallowed");
+  assert.match(source, /planV04EditAccessRecovery[\s\S]*window\.setTimeout[\s\S]*requestEditAccess/,
+    "a readonly page must refresh and reacquire after a stale lease expires");
   assert.match(source, /runV04LeaseBoundMutationWithSingleRecovery/,
     "a save may reacquire and retry the lease exactly once through the tested coordinator");
   assert.match(source, /!current\.viewerCapabilities\.canAcquireLease && !current\.viewerCapabilities\.canEdit/,
@@ -39,6 +43,12 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
   assert.match(source, /role="status" aria-live="polite"/);
   assert.match(source, /role="alert" aria-live="assertive"/);
   assert.match(source, /className=\{styles\.inlineActionError\}/);
+  assert.match(source, /data-v04-edit-access-blocked[\s\S]*当前字段为只读[\s\S]*刷新并重试编辑权/,
+    "the reason and recovery action remain visible beside a located readonly field");
+  assert.match(source, /visibleSaveLabel[\s\S]*只读 · 编辑权未取得/,
+    "a lease-less readonly page must not continue to claim that all local edits are saved");
+  assert.match(source, /!hasDraftEditCapability \? "当前为只读，取得编辑权后才能提交"/,
+    "a locally complete draft remains non-submittable until the server grants edit access");
   assert.match(source, /pagehide/);
   assert.match(source, /visibilitychange/);
   assert.match(source, /releaseLeaseKeepalive/);

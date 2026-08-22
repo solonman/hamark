@@ -5,6 +5,7 @@ import {
   canMutateV04Draft,
   canRecoverV04LeaseProof,
   canStartV04Restore,
+  planV04EditAccessRecovery,
   planV04ThreeWayChanges,
   runV04LeaseBoundMutationWithSingleRecovery,
   shouldReleaseV04Lease,
@@ -131,6 +132,42 @@ test("lease proof recovery accepts only an acquirable or exact same-tab editable
     "same-tab refresh/lost response may rotate its own proof");
   assert.equal(canRecoverV04LeaseProof({ canAcquireLease: false, canEdit: false }), false,
     "another tab or user remains fail-closed");
+});
+
+test("a publication-missing readonly workspace retries only after a fresh capability allows editing", () => {
+  const now = Date.parse("2026-08-22T05:00:00.000Z");
+  const held = planV04EditAccessRecovery({
+    logicalEmpty: false,
+    canMaterialize: false,
+    canEdit: false,
+    canAcquireLease: false,
+    member: true,
+    leaseExpiresAt: "2026-08-22T05:00:20.000Z",
+  }, now);
+  assert.deepEqual(held, { state: "WAIT_FOR_LEASE", retryAfterMs: 20_250 },
+    "another editing endpoint remains fail-closed while the missing field is readonly");
+
+  const released = planV04EditAccessRecovery({
+    logicalEmpty: false,
+    canMaterialize: false,
+    canEdit: false,
+    canAcquireLease: true,
+    member: true,
+    leaseExpiresAt: null,
+  }, now + 21_000);
+  assert.deepEqual(released, { state: "ACQUIRE_NOW", retryAfterMs: 250 },
+    "a fresh no-holder read model automatically reacquires instead of leaving the field readonly");
+
+  const denied = planV04EditAccessRecovery({
+    logicalEmpty: false,
+    canMaterialize: false,
+    canEdit: false,
+    canAcquireLease: false,
+    member: false,
+    leaseExpiresAt: null,
+  }, now);
+  assert.deepEqual(denied, { state: "DENIED", retryAfterMs: null },
+    "lack of membership never becomes a retry or permission expansion");
 });
 
 test("expired lease invalidates once, reacquires at most once and preserves the same change-set", async () => {

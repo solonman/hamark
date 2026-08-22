@@ -98,6 +98,37 @@ export function canRecoverV04LeaseProof(input: {
   return input.canAcquireLease || input.canEdit;
 }
 
+export type V04EditAccessRecoveryPlan = {
+  state: "EDITABLE" | "ACQUIRE_NOW" | "WAIT_FOR_LEASE" | "DENIED";
+  retryAfterMs: number | null;
+};
+
+export function planV04EditAccessRecovery(input: {
+  logicalEmpty: boolean;
+  canMaterialize: boolean;
+  canEdit: boolean;
+  canAcquireLease: boolean;
+  member: boolean;
+  leaseExpiresAt: string | null;
+}, now = Date.now()): V04EditAccessRecoveryPlan {
+  if (input.canEdit || (input.logicalEmpty && input.canMaterialize)) {
+    return { state: "EDITABLE", retryAfterMs: null };
+  }
+  if (!input.member) return { state: "DENIED", retryAfterMs: null };
+  if (input.canAcquireLease) return { state: "ACQUIRE_NOW", retryAfterMs: 250 };
+  const expiresAt = input.leaseExpiresAt ? Date.parse(input.leaseExpiresAt) : Number.NaN;
+  if (Number.isFinite(expiresAt)) {
+    return {
+      state: "WAIT_FOR_LEASE",
+      retryAfterMs: Math.min(30_000, Math.max(500, expiresAt - now + 250)),
+    };
+  }
+  // A capability response can become stale after an earlier lease request or
+  // network failure. Re-read periodically, but never attempt a mutation until
+  // the fresh read model explicitly allows acquisition or exact-tab recovery.
+  return { state: "WAIT_FOR_LEASE", retryAfterMs: 5_000 };
+}
+
 export function canSubmitV04ServerDraft(input: {
   localPublicationReady: boolean;
   serverPublicationReady: boolean;

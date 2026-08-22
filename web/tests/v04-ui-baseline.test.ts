@@ -146,6 +146,18 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(shot, /disabled=\{readOnly\}/);
   assert.match(shot, /readOnly=\{readOnly\}/);
   assert.match(css, /\.readOnlyEditor input\[readonly\]/);
+  assert.match(workspace, /data-v04-edit-access-blocked/);
+  assert.match(workspace, /刷新并重试编辑权/);
+  assert.match(workspace, /const visibleSaveLabel = !hasDraftEditCapability/,
+    "a readonly workspace must not present a stale server save label as editable success");
+  assert.match(workspace, /当前为只读，取得编辑权后才能提交/,
+    "publication completeness must not masquerade as submit readiness while edit access is absent");
+  assert.match(workspace, /aria-describedby=\{!hasDraftEditCapability \? "v04-edit-access-message"/,
+    "a focused readonly missing field must announce the adjacent access reason");
+  assert.match(css, /\.editAccessBanner \{ position: sticky/,
+    "a deep missing-field location keeps the readonly reason in the field viewport");
+  assert.match(css, /\.readOnlyEditor input\[readonly\][^\n]*cursor: not-allowed/,
+    "a located readonly field remains visibly readonly rather than imitating an editable focus target");
 });
 
 test("opening a logical empty V0.4 workspace stays zero-write until the first actual save", async () => {
@@ -155,7 +167,7 @@ test("opening a logical empty V0.4 workspace stays zero-write until the first ac
   );
   assert.match(
     workspace,
-    /if \(canRecoverV04LeaseProof\(next\.viewerCapabilities\) && !next\.logicalEmpty\)/,
+    /if \(!next\.logicalEmpty\) await requestEditAccess\(next\)/,
   );
   assert.match(
     workspace,
