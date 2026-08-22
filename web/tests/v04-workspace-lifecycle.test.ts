@@ -17,9 +17,11 @@ import {
   type V04LocalDraftFacts,
 } from "../lib/v04-workspace-lifecycle";
 import {
+  atomicallyClearConfirmedV04RecoveryRecords,
   classifyV04RecoveryConfirmation,
-  clearConfirmedV04RecoveryRecords,
+  clearSelectedV04RecoveryRecord,
   planV04ThreeWayChanges,
+  shouldDisableV04Submission,
   V04LatestSaveCoordinator,
 } from "../lib/v04-save-coordinator";
 import { cloneV04UiDraft, emptyV04UiDraft } from "../lib/v04-ui-model";
@@ -369,9 +371,14 @@ test("clean deploy-update reloads immediately while an unmounted pending takeove
 test("submit success can immediately navigate to either formal header destination", async () => {
   const navigation = new V04GuardedNavigationCoordinator();
   const destinations: string[] = [];
+  let submissions = 0;
+  const confirmedSubmission = Promise.resolve().then(() => {
+    submissions += 1;
+    return true;
+  });
   for (const destination of ["/", "/videos/video-test"]) {
     const result = await runV04SubmissionAwareNavigation({
-      pendingSubmission: Promise.resolve(true),
+      pendingSubmission: confirmedSubmission,
       runNavigation: () => navigation.run({
         // Model a React frame that still renders SAVING even though the one
         // authoritative coordinator has confirmed the submitted edit.
@@ -383,6 +390,7 @@ test("submit success can immediately navigate to either formal header destinatio
     });
     assert.equal(result, "NAVIGATED");
   }
+  assert.equal(submissions, 1, "both links observe the same confirmed immutable submission");
   assert.deepEqual(destinations, ["/", "/videos/video-test"]);
 });
 
@@ -428,18 +436,72 @@ test("recovery confirmation distinguishes absorbed, pending and conflicting loca
 });
 
 test("confirmed recovery storage, ref and state advance as one fail-closed decision", () => {
-  const records = ["confirmed", "unabsorbed", "conflict", "storage-failed"] as const;
-  const clearCalls: string[] = [];
-  const remaining = clearConfirmedV04RecoveryRecords(
+  const records = ["one", "two"] as const;
+  const storage = new Set<string>(records);
+  let submissions = 0;
+  const confirmed = atomicallyClearConfirmedV04RecoveryRecords(
     records,
-    (record) => record === "confirmed" || record === "storage-failed",
-    (record) => {
-      clearCalls.push(record);
-      return record === "confirmed";
-    },
+    () => true,
+    (record) => storage.delete(record),
+    (record) => { storage.add(record); return true; },
   );
-  assert.deepEqual(clearCalls, ["confirmed", "storage-failed"]);
-  assert.deepEqual(remaining, ["unabsorbed", "conflict", "storage-failed"]);
+  if (confirmed === "CLEARED") submissions += 1;
+  assert.equal(confirmed, "CLEARED");
+  assert.equal(submissions, 1);
+  assert.deepEqual([...storage], []);
+
+  for (const unresolved of ["NOT_ABSORBED", "CONFLICT"] as const) {
+    const unresolvedStorage = new Set<string>(records);
+    let unresolvedSubmissions = 0;
+    const result = atomicallyClearConfirmedV04RecoveryRecords(
+      records,
+      (record) => record !== "two" && unresolved === "NOT_ABSORBED",
+      (record) => unresolvedStorage.delete(record),
+      (record) => { unresolvedStorage.add(record); return true; },
+    );
+    if (result === "CLEARED") unresolvedSubmissions += 1;
+    assert.equal(result, "UNCONFIRMED");
+    assert.equal(unresolvedSubmissions, 0);
+    assert.deepEqual([...unresolvedStorage], [...records]);
+  }
+
+  const failedStorage = new Set<string>(records);
+  let failedSubmissions = 0;
+  const storageFailure = atomicallyClearConfirmedV04RecoveryRecords(
+    records,
+    () => true,
+    (record) => record === "two" ? false : failedStorage.delete(record),
+    (record) => { failedStorage.add(record); return true; },
+  );
+  if (storageFailure === "CLEARED") failedSubmissions += 1;
+  assert.equal(storageFailure, "STORAGE_FAILED");
+  assert.equal(failedSubmissions, 0);
+  assert.deepEqual([...failedStorage].sort(), [...records].sort(), "an earlier delete is rolled back");
+});
+
+test("submission and keep-server controls stay fail-closed while recovery is pending", () => {
+  assert.equal(shouldDisableV04Submission({
+    canEdit: true,
+    publicationReady: true,
+    submitting: false,
+    recoveryPending: true,
+    noChangesToSubmit: false,
+  }), true);
+  assert.equal(shouldDisableV04Submission({
+    canEdit: true,
+    publicationReady: true,
+    submitting: false,
+    recoveryPending: false,
+    noChangesToSubmit: false,
+  }), false);
+
+  const records = ["local-copy"];
+  const failed = clearSelectedV04RecoveryRecord(records, 0, () => false);
+  assert.equal(failed.status, "STORAGE_FAILED");
+  assert.deepEqual(failed.remaining, records, "prompt state stays aligned with retained storage");
+  const cleared = clearSelectedV04RecoveryRecord(records, 0, () => true);
+  assert.equal(cleared.status, "CLEARED");
+  assert.deepEqual(cleared.remaining, []);
 });
 
 test("an active update takeover drains once and honors the latest distinct link target", async () => {

@@ -141,6 +141,17 @@ export function canSubmitV04ServerDraft(input: {
     input.editVersion <= input.savedVersion;
 }
 
+export function shouldDisableV04Submission(input: {
+  canEdit: boolean;
+  publicationReady: boolean;
+  submitting: boolean;
+  recoveryPending: boolean;
+  noChangesToSubmit: boolean;
+}) {
+  return !input.canEdit || !input.publicationReady || input.submitting ||
+    input.recoveryPending || input.noChangesToSubmit;
+}
+
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === "object") {
@@ -185,19 +196,39 @@ export function classifyV04RecoveryConfirmation(
   return "CONFIRMED" as const;
 }
 
-export function clearConfirmedV04RecoveryRecords<T>(
+export function atomicallyClearConfirmedV04RecoveryRecords<T>(
   records: readonly T[],
   isConfirmed: (record: T) => boolean,
   clearRecord: (record: T) => boolean,
+  restoreRecord: (record: T) => boolean,
 ) {
-  const remaining: T[] = [];
+  if (!records.every(isConfirmed)) return "UNCONFIRMED" as const;
+  const cleared: T[] = [];
   for (const record of records) {
-    // State/ref callers may remove a record only after its matching storage
-    // entry was removed successfully. Unconfirmed and storage-failed copies
-    // remain visible and continue to block navigation.
-    if (!isConfirmed(record) || !clearRecord(record)) remaining.push(record);
+    if (!clearRecord(record)) {
+      // localStorage has no transaction primitive. Restore any earlier entry
+      // so UI state/ref and the complete recovery set stay fail-closed.
+      for (const prior of cleared) restoreRecord(prior);
+      return "STORAGE_FAILED" as const;
+    }
+    cleared.push(record);
   }
-  return remaining;
+  return "CLEARED" as const;
+}
+
+export function clearSelectedV04RecoveryRecord<T>(
+  records: readonly T[],
+  selectedIndex: number,
+  clearRecord: (record: T) => boolean,
+) {
+  const record = records[selectedIndex];
+  if (!record || !clearRecord(record)) {
+    return { status: "STORAGE_FAILED" as const, remaining: [...records] };
+  }
+  return {
+    status: "CLEARED" as const,
+    remaining: records.filter((_, index) => index !== selectedIndex),
+  };
 }
 
 export async function runV04LeaseBoundMutationWithSingleRecovery<T>(input: {
