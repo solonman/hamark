@@ -128,7 +128,9 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(workspace, /onRestore=\{canEdit \? restoreVersion : undefined\}/);
   assert.match(workspace, /readOnly=\{!canEdit\}/);
   assert.match(workspace, /disabled=\{!canEdit\}[\s\S]*新增镜头/);
-  assert.match(workspace, /disabled=\{!canEdit\}[\s\S]*提交并更新案例/);
+  assert.match(workspace, /const submitActionProps =[\s\S]*disabled: submitDisabled \|\| submitUi\.disabled/);
+  assert.equal((workspace.match(/\{\.\.\.submitActionProps\}/g) ?? []).length, 2,
+    "fixed header and module four must use the same submission action and disabled reason");
   assert.match(workspace, /disabled=\{!canEdit\}[\s\S]*setExpertPreference/);
 
   assert.match(workspace, /第二模块[\s\S]*onClick=\{\(\) => toggleModule\(2\)\}/);
@@ -149,10 +151,10 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(shot, /readOnly=\{readOnly\}/);
   assert.match(css, /\.readOnlyEditor input\[readonly\]/);
   assert.match(workspace, /data-v04-edit-access-blocked/);
-  assert.match(workspace, /刷新并重试编辑权/);
+  assert.match(workspace, /重新尝试编辑/);
   assert.match(workspace, /const visibleSaveLabel = recoveryPending[\s\S]*!hasDraftEditCapability/,
     "a readonly workspace must not present a stale server save label as editable success");
-  assert.match(workspace, /当前为只读，取得编辑权后才能提交/,
+  assert.match(workspace, /deriveV04SubmissionUiState\([\s\S]*canEdit,[\s\S]*otherEditor:/,
     "publication completeness must not masquerade as submit readiness while edit access is absent");
   assert.match(workspace, /aria-describedby=\{recoveryPending \? "v04-recovery-message" : !hasDraftEditCapability \? "v04-edit-access-message"/,
     "a focused readonly missing field must announce the adjacent access reason");

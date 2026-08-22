@@ -152,6 +152,113 @@ export function shouldDisableV04Submission(input: {
     input.recoveryPending || input.noChangesToSubmit;
 }
 
+export type V04SubmissionUiState = {
+  state:
+    | "SUBMITTING"
+    | "RECOVERY_BLOCKED"
+    | "BUSY"
+    | "PREPARING_EDIT"
+    | "OTHER_EDITOR"
+    | "INCOMPLETE"
+    | "CURRENT_SUBMITTED"
+    | "RETRY"
+    | "READY";
+  disabled: boolean;
+  buttonLabel: string;
+  headline: string;
+  reason: string;
+};
+
+/**
+ * One user-facing submission truth for the fixed header and module four.
+ * The caller still owns the single submit transaction; this helper only makes
+ * it impossible for the two controls to disagree about availability/result.
+ */
+export function deriveV04SubmissionUiState(input: {
+  canEdit: boolean;
+  editAccessPending: boolean;
+  otherEditor: boolean;
+  publicationReady: boolean;
+  submitting: boolean;
+  busy: boolean;
+  recoveryPending: boolean;
+  recoveryIntegrityBlocked: boolean;
+  noChangesToSubmit: boolean;
+  outcome: "IDLE" | "SUCCEEDED" | "FAILED";
+  submissionNumber: number;
+  errorMessage?: string;
+}): V04SubmissionUiState {
+  if (input.submitting) return {
+    state: "SUBMITTING",
+    disabled: true,
+    buttonLabel: "正在保存并提交…",
+    headline: "正在保存并提交当前版本",
+    reason: "系统会先确认最新填写已保存，再创建唯一的只读成果版本。",
+  };
+  if (input.recoveryPending) return {
+    state: "RECOVERY_BLOCKED",
+    disabled: true,
+    buttonLabel: "处理本地草稿后提交",
+    headline: input.recoveryIntegrityBlocked ? "本机恢复记录尚未核验" : "请先处理本地恢复副本",
+    reason: input.recoveryIntegrityBlocked
+      ? "本机恢复记录尚未完整读取或安全清理；核验完成前不会提交。"
+      : "仍有未吸收或冲突的本地内容；处理完成前不会创建只读成果。",
+  };
+  if (input.busy) return {
+    state: "BUSY",
+    disabled: true,
+    buttonLabel: "当前操作完成后提交",
+    headline: "正在完成当前操作",
+    reason: "当前操作完成后即可继续提交，已填内容不会丢失。",
+  };
+  if (!input.canEdit) {
+    if (input.otherEditor) return {
+      state: "OTHER_EDITOR",
+      disabled: true,
+      buttonLabel: "暂时只读",
+      headline: "另一位同事正在编辑",
+      reason: "当前页面保持只读；对方结束后系统会自动重试，已保留的本地内容不会覆盖服务器。",
+    };
+    return {
+      state: "PREPARING_EDIT",
+      disabled: true,
+      buttonLabel: input.editAccessPending ? "正在准备编辑…" : "等待恢复编辑",
+      headline: input.editAccessPending ? "正在准备可编辑状态" : "当前暂时只读",
+      reason: "系统会自动重试；也可使用页面中的“重新尝试编辑”按钮。",
+    };
+  }
+  if (!input.publicationReady) return {
+    state: "INCOMPLETE",
+    disabled: true,
+    buttonLabel: "完成必填项后提交",
+    headline: "发布条件尚未满足",
+    reason: "请完成上方未填写项目；定位后可直接继续填写。",
+  };
+  if (input.noChangesToSubmit) return {
+    state: "CURRENT_SUBMITTED",
+    disabled: true,
+    buttonLabel: "当前内容已提交",
+    headline: input.outcome === "SUCCEEDED"
+      ? `提交成功 · V${input.submissionNumber}`
+      : "当前内容已提交",
+    reason: "工作稿与最新只读成果一致；继续编辑后可再次提交。",
+  };
+  if (input.outcome === "FAILED") return {
+    state: "RETRY",
+    disabled: false,
+    buttonLabel: "重试提交",
+    headline: "提交未完成 · 可重试",
+    reason: input.errorMessage || "本地内容仍保留；请确认网络后重试。",
+  };
+  return {
+    state: "READY",
+    disabled: false,
+    buttonLabel: "提交并更新案例",
+    headline: "可以提交并更新案例",
+    reason: "提交会先串行保存最新修改，再创建不可变版本；保存失败时绝不会提交。",
+  };
+}
+
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === "object") {

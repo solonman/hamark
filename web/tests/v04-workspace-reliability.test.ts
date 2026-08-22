@@ -55,12 +55,14 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
   assert.match(source, /role="status" aria-live="polite"/);
   assert.match(source, /role="alert" aria-live="assertive"/);
   assert.match(source, /className=\{styles\.inlineActionError\}/);
-  assert.match(source, /data-v04-edit-access-blocked[\s\S]*当前字段为只读[\s\S]*刷新并重试编辑权/,
+  assert.match(source, /data-v04-edit-access-blocked[\s\S]*当前字段暂时只读[\s\S]*重新尝试编辑/,
     "the reason and recovery action remain visible beside a located readonly field");
-  assert.match(source, /visibleSaveLabel[\s\S]*只读 · 编辑权未取得/,
+  assert.match(source, /visibleSaveLabel[\s\S]*只读 · 正在恢复编辑状态/,
     "a lease-less readonly page must not continue to claim that all local edits are saved");
-  assert.match(source, /!hasDraftEditCapability \? "当前为只读，取得编辑权后才能提交"/,
-    "a locally complete draft remains non-submittable until the server grants edit access");
+  assert.match(source, /deriveV04SubmissionUiState[\s\S]*otherEditor:[\s\S]*data-submit-state/,
+    "both submission controls must derive a visible shared state from the same facts");
+  assert.equal((source.match(/\{submitUi\.buttonLabel\}/g) ?? []).length, 2,
+    "fixed-header and module-four controls show the same stateful label");
   assert.match(source, /pagehide/);
   assert.match(source, /beforeunload/);
   assert.match(source, /addEventListener\("online"/);

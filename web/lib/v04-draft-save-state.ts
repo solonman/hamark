@@ -24,10 +24,10 @@ export function isV04LeaseFailure(code: string) {
 export function v04SaveFailureMessage(code: string) {
   switch (code) {
     case "LEASE_HELD_BY_OTHER":
-      return "另一个编辑端已取得编辑权。你的本地草稿已保留，不会覆盖服务器内容。";
+      return "另一位同事正在编辑。你的本地草稿已保留，不会覆盖服务器内容。";
     case "LEASE_REQUIRED":
     case "LEASE_EXPIRED":
-      return "编辑权已失效，系统将安全重新取得后再保存一次。";
+      return "编辑状态刚刚更新，系统会自动恢复并再保存一次；本地内容已保留。";
     case "REVISION_CONFLICT":
       return "服务器工作稿已被其他编辑更新。你的本地草稿已保留，请先对照服务器版本。";
     case "REQUEST_TIMEOUT":

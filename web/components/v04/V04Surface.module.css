@@ -88,6 +88,7 @@
 .siteUtilities > span { overflow: hidden; max-width: 120px; color: var(--v04-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .saveCluster { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }
 .headerSubmit { border-color: rgba(223, 255, 79, .55) !important; color: var(--v04-accent) !important; }
+.headerSubmit:disabled { cursor: not-allowed; border-color: var(--v04-line) !important; color: var(--v04-muted) !important; opacity: .52; }
 .navigationAlert {
   position: fixed; top: 78px; right: 18px; z-index: 60;
   display: flex; width: min(430px, calc(100vw - 36px)); align-items: center; gap: 12px;

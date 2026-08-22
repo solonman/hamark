@@ -157,7 +157,7 @@ async function expectCode(operation: Promise<unknown>, code: V04ServiceError["co
 
 function actor(runId: string, key: string): V04Actor {
   return {
-    userId: `user_${runId}_${key}`,
+    userId: `user_test_${runId}_${key}`,
     identityKey: `test-only:${runId}:${key}`,
     displayName: `TEST_ONLY ${key}`,
     sessionId: `session_${runId}_${key}`,

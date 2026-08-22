@@ -35,6 +35,7 @@ import {
   classifyV04RecoveryConfirmation,
   atomicallyClearConfirmedV04RecoveryRecords,
   clearSelectedV04RecoveryRecord,
+  deriveV04SubmissionUiState,
   planV04EditAccessRecovery,
   planV04RecoveryMerge,
   planV04ThreeWayChanges,
@@ -183,7 +184,7 @@ export default function V04WorkspaceClient({
   const [comments, setComments] = useState(false);
   const [commentTarget, setCommentTarget] = useState<V04CommentComposeTarget | null>(null);
   const [ai, setAi] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitOutcome, setSubmitOutcome] = useState<"IDLE" | "SUCCEEDED" | "FAILED">("IDLE");
   const [actionError, setActionError] = useState("");
   const [navigationIssue, setNavigationIssue] = useState<{ message: string; href: string } | null>(null);
   const [draggedShotId, setDraggedShotId] = useState<string | null>(null);
@@ -528,8 +529,8 @@ export default function V04WorkspaceClient({
         }
         if (!canRecoverV04LeaseProof(current.viewerCapabilities)) {
           setEditAccessNotice(current.lease
-            ? "工作稿当前由另一编辑端维护；本页已保护为只读。租约释放或到期后会自动重试。"
-            : "当前身份暂未取得编辑权；本页已保护为只读，系统会继续安全重试。");
+            ? "另一位同事正在编辑；本页已保护为只读。对方结束后系统会自动重试。"
+            : "当前暂时无法进入编辑状态；本页已保护为只读，系统会继续自动重试。");
           return false;
         }
         await acquireLease(current);
@@ -548,8 +549,8 @@ export default function V04WorkspaceClient({
         try { refreshed = await refreshWorkspace(); } catch { /* keep the actionable local notice */ }
         if (refreshed) reconcileFreshWorkspace(refreshed, refreshed);
         setEditAccessNotice(refreshed?.lease || apiError?.code === "LEASE_HELD_BY_OTHER"
-          ? "工作稿当前由另一编辑端维护；本页已保护为只读。租约释放或到期后会自动重试。"
-          : "编辑权尚未取得，可能是网络或租约状态刚刚变化。已保留当前页面，可点击重试。");
+          ? "另一位同事正在编辑；本页已保护为只读。对方结束后系统会自动重试。"
+          : "编辑状态可能因网络变化暂时不可用。页面内容已保留，可点击重新尝试。");
         return false;
       } finally {
         setEditAccessPending(false);
@@ -643,7 +644,7 @@ export default function V04WorkspaceClient({
       recoveryTabIdRef.current = session.recoveryTabId;
       leaseProof.current = session.leaseProof;
       if (session.identityFailClosed) {
-        setDocumentIdentityNotice("标签页隔离能力不可确认，已为当前页面启用独立临时身份；不会复用其他标签页租约，本地恢复副本仍会保留。");
+        setDocumentIdentityNotice("标签页隔离状态暂时无法确认，已为当前页面启用独立保护；不会与其他标签页混用，本地恢复副本仍会保留。");
       }
       return loadWorkspace();
     }).then(async (next) => {
@@ -958,7 +959,7 @@ export default function V04WorkspaceClient({
       },
     });
     setActionError("");
-    setSubmitted(false);
+    setSubmitOutcome("IDLE");
   };
 
   const manualSave = async () => {
@@ -1072,7 +1073,7 @@ export default function V04WorkspaceClient({
   const visibleSaveLabel = recoveryPending
     ? saveLabel
     : !hasDraftEditCapability
-    ? editAccessPending ? "正在取得编辑权…" : "只读 · 编辑权未取得"
+    ? editAccessPending ? "正在准备编辑…" : "只读 · 正在恢复编辑状态"
     : saveLabel;
 
   const submitDraft = () => {
@@ -1081,6 +1082,7 @@ export default function V04WorkspaceClient({
     const operation = (async () => {
       setSubmitting(true);
       setActionError("");
+      setSubmitOutcome("IDLE");
       try {
         if (recoveryPromptRef.current || recoveryIntegrityBlockedRef.current) {
           const fresh = await refreshWorkspace();
@@ -1089,6 +1091,7 @@ export default function V04WorkspaceClient({
               ? RECOVERY_INTEGRITY_BLOCKED_MESSAGE
               : RECOVERY_SUBMIT_BLOCKED_MESSAGE;
             setActionError(message);
+            setSubmitOutcome("FAILED");
             setNavigationIssue({ message, href: "" });
             return false;
           }
@@ -1096,18 +1099,23 @@ export default function V04WorkspaceClient({
         }
         if (!evaluateV04FixturePublication(draftRef.current).ready) {
           setActionError("请先完成第四模块列出的必填项，再提交。");
+          setSubmitOutcome("FAILED");
           return false;
         }
         let flushPasses = 0;
         let saveCompleted = false;
         do {
           const targetVersion = editVersionRef.current;
-          if (!await requestSave(cloneV04UiDraft(draftRef.current), targetVersion)) return false;
+          if (!await requestSave(cloneV04UiDraft(draftRef.current), targetVersion)) {
+            setSubmitOutcome("FAILED");
+            return false;
+          }
           saveCompleted = true;
           flushPasses += 1;
         } while (editVersionRef.current > saveCoordinatorRef.current.savedVersion && flushPasses < 3);
         if (editVersionRef.current > saveCoordinatorRef.current.savedVersion) {
           setActionError("你仍在输入新内容；请结束输入后再点击提交，已填内容仍保留。");
+          setSubmitOutcome("FAILED");
           return false;
         }
         const current = modelRef.current;
@@ -1121,6 +1129,7 @@ export default function V04WorkspaceClient({
           savedVersion: saveCoordinatorRef.current.savedVersion,
         })) {
           setActionError("服务器复核发现仍有必填项未保存；本地内容已保留，请重试保存后再提交。");
+          setSubmitOutcome("FAILED");
           return false;
         }
         const proof = await acquireLease(current);
@@ -1152,15 +1161,22 @@ export default function V04WorkspaceClient({
         } else {
           persistRecovery(draftRef.current, refreshed);
         }
-        setSubmitted(true);
+        setSubmitOutcome("SUCCEEDED");
         setActionError("");
         return true;
       } catch (reason) {
         const apiError = reason instanceof V04UiApiError ? reason : null;
+        if (apiError?.code === "NO_CHANGES_TO_SUBMIT") {
+          try { await refreshWorkspace(); } catch { /* the immutable submission already exists */ }
+          setSubmitOutcome("SUCCEEDED");
+          setActionError("");
+          return true;
+        }
         if (apiError && isV04LeaseFailure(apiError.code)) {
           clearLeaseProof();
           try { await refreshWorkspace(); } catch { /* preserve local recovery */ }
         }
+        setSubmitOutcome("FAILED");
         setActionError(v04SaveFailureMessage(apiError?.code ?? "SUBMIT_FAILED"));
         return false;
       } finally {
@@ -1173,18 +1189,36 @@ export default function V04WorkspaceClient({
     });
     return operation;
   };
+  const noChangesToSubmit = Boolean((saveMachine.status === "SAVED" || saveMachine.status === "CLEAN") &&
+    model?.latestSubmission?.contentHash === model?.draftContentHash);
+  const submitUi = deriveV04SubmissionUiState({
+    canEdit,
+    editAccessPending,
+    otherEditor: Boolean(item?.activeEditor),
+    publicationReady: publication.ready,
+    submitting,
+    busy: restoring || navigating,
+    recoveryPending,
+    recoveryIntegrityBlocked,
+    noChangesToSubmit,
+    outcome: submitOutcome,
+    submissionNumber: model?.submissionCount ?? 0,
+    errorMessage: actionError,
+  });
   const submitDisabled = shouldDisableV04Submission({
     canEdit,
     publicationReady: publication.ready,
-    submitting,
+    submitting: submitting || restoring || navigating,
     recoveryPending,
-    noChangesToSubmit: Boolean((saveMachine.status === "SAVED" || saveMachine.status === "CLEAN") &&
-      model?.latestSubmission?.contentHash === model?.draftContentHash),
+    noChangesToSubmit,
   });
   const submitActionProps = {
     type: "button" as const,
-    disabled: submitDisabled,
+    disabled: submitDisabled || submitUi.disabled,
     onClick: () => { void submitDraft(); },
+    "data-submit-state": submitUi.state,
+    "aria-describedby": "v04-submit-status",
+    title: submitUi.reason,
   };
 
   const restoreVersion = async (source: { sourceType: "BASELINE" | "WORKING" | "SUBMISSION"; sourceId: string }) => {
@@ -1441,7 +1475,7 @@ export default function V04WorkspaceClient({
     : null);
 
   return <main className={styles.surface} data-v04-page="workspace">
-    <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!hasDraftEditCapability || submitting || restoring || navigating}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
+    <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!hasDraftEditCapability || submitting || restoring || navigating}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>{submitUi.buttonLabel}</button></div></header>
     {fixedNavigationIssue && <aside className={styles.navigationAlert} role="alert" aria-live="assertive"><span>{fixedNavigationIssue.message}</span>{(recoveryPrompt || recoveryIntegrityBlocked || fixedNavigationIssue.href) && <button type="button" disabled={navigating} onClick={() => {
       if (recoveryIntegrityBlocked && modelRef.current) {
         resolveInitialRecoveryIntegrity(modelRef.current);
@@ -1453,16 +1487,16 @@ export default function V04WorkspaceClient({
       }
       if (fixedNavigationIssue.href) void guardWorkspaceNavigation(() => router.push(fixedNavigationIssue.href), fixedNavigationIssue.href);
     }}>{recoveryIntegrityBlocked ? "重试恢复核验" : recoveryPrompt ? "处理恢复副本" : navigating ? "正在重试…" : "重试离开"}</button>}</aside>}
-    <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{recoveryPending ? "本地恢复副本待处理 · 正文暂时只读" : canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在安全取得编辑权" : "当前无人编辑 · 编辑权尚未取得"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
+    <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{recoveryPending ? "本地恢复副本待处理 · 正文暂时只读" : canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在准备编辑" : "当前无人编辑 · 暂时只读"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交后仍可继续编辑。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{RECOVERY_INTEGRITY_BLOCKED_MESSAGE}</p><button type="button" onClick={() => { if (modelRef.current) resolveInitialRecoveryIntegrity(modelRef.current); }}>重试恢复核验</button></section>}
-    {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={`${record.identity.tabId}:${record.writtenAt}`}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新" : `副本 ${index + 1}`} · {record.writtenAt} · rev {record.serverRevision} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>本地草稿基于 rev {recoveryPrompt.record.serverRevision}；当前服务器为 rev {model.draftRevision}。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；旧租约不会被强制释放，系统会在其到期后安全重取编辑权，全部副本按当前案例汇总供逐份处理。</p>}</div><div><button type="button" onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" onClick={keepServerDraft}>继续使用服务器版本</button></div></section>}
+    {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={`${record.identity.tabId}:${record.writtenAt}`}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新" : `副本 ${index + 1}`} · {record.writtenAt} · rev {record.serverRevision} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>本地草稿基于 rev {recoveryPrompt.record.serverRevision}；当前服务器为 rev {model.draftRevision}。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；不会影响其他标签页。系统会在状态可用后自动恢复编辑，全部副本仍按当前案例汇总供逐份处理。</p>}</div><div><button type="button" onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" onClick={keepServerDraft}>继续使用服务器版本</button></div></section>}
     {actionError && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>
     <div className={styles.workspaceGrid}>
       <V04WorkspaceNavigation draft={draft} onLocate={locate} />
       <div className={styles.editorColumn}>
-        {!hasDraftEditCapability && <section id="v04-edit-access-message" className={styles.editAccessBanner} role="status" aria-live="polite" data-v04-edit-access-blocked><div><b>当前字段为只读</b><span>{editAccessNotice || (item.activeEditor ? "另一编辑端正在维护这份公共工作稿；释放后系统会自动重试。" : "系统正在核对租约状态并安全取得编辑权。")}</span></div><button type="button" disabled={editAccessPending} onClick={() => { void requestEditAccess(); }}>{editAccessPending ? "正在重试…" : "刷新并重试编辑权"}</button></section>}
+        {!hasDraftEditCapability && <section id="v04-edit-access-message" className={styles.editAccessBanner} role="status" aria-live="polite" data-v04-edit-access-blocked><div><b>当前字段暂时只读</b><span>{editAccessNotice || (item.activeEditor ? "另一位同事正在编辑；对方结束后系统会自动重试。" : "系统正在核对当前状态并准备编辑，页面内容会保持不变。")}</span></div><button type="button" disabled={editAccessPending} onClick={() => { void requestEditAccess(); }}>{editAccessPending ? "正在重试…" : "重新尝试编辑"}</button></section>}
         <div aria-readonly={!canEdit} aria-describedby={recoveryPending ? "v04-recovery-message" : !hasDraftEditCapability ? "v04-edit-access-message" : undefined} className={`${styles.editorFieldset} ${!canEdit ? styles.readOnlyEditor : ""}`} onFocusCapture={(event) => {
           const element = event.target as HTMLElement;
           if (!element.matches("input,textarea")) return;
@@ -1491,7 +1525,7 @@ export default function V04WorkspaceClient({
             <section className={styles.gradeSection} id="field-overallGrade" tabIndex={canEdit ? undefined : 0}><label>整体创意评价 <em>发布必填</em> <button type="button" onClick={() => openComment({ targetKey: "facts.overallCreativeRating", targetLabel: "整体创意评价", moduleLabel: "第二模块｜全片事实与核心判断", originalExcerpt: draft.overallGrade })}>批注</button></label><div>{(["S", "A", "B", "C"] as const).map((grade) => { const description = { S: "极少见的强创意；母题、张力按钮、机制与表达高度统一。", A: "明确且有力量的优秀创意；至少一个环节突出，品牌连接自然。", B: "创意成立且完成度合格；结构可识别，机制或品牌拥有权一般。", C: "主要依赖常规表达或执行包装；张力按钮不清或品牌连接牵强。" }[grade]; return <button type="button" key={grade} disabled={!canEdit} className={draft.overallGrade === grade ? styles.isSelected : ""} onClick={() => updateDraft((next) => { next.overallGrade = grade; })}><b>{grade}</b><span>{description}</span></button>; })}</div></section><Field id="field-gradeReason" label="评价理由" value={draft.gradeReason} readOnly={!canEdit} tall targetKey="facts.ratingReason" onComment={openComment} onChange={(value) => updateDraft((next) => { next.gradeReason = value; })} />
           </>}</section>
           <section className={`${styles.editorModule} ${collapsed.has(3) ? styles.collapsed : ""}`} id="module-3"><header><small>第三模块</small><h2>第三模块｜主导感知类型发生路径</h2><button type="button" onClick={() => toggleModule(3)}>{collapsed.has(3) ? "展开" : "收起"}</button></header>{!collapsed.has(3) && <><div className={styles.pathSelector}>{V04_UI_PATHS.map((path) => <button type="button" key={path.id} disabled={!canEdit} className={draft.primaryPath === path.id ? styles.isSelected : ""} onClick={() => updateDraft((next) => { next.primaryPath = path.id; next.auxiliaryPaths = next.auxiliaryPaths.filter((item) => item !== path.id); })}><b>{path.label}</b><span>点击显示 5 项条件</span></button>)}</div><div className={styles.fieldGrid}>{V04_UI_PATHS.find((path) => path.id === draft.primaryPath)?.fields.map((label, index) => <Field key={label} id={`field-path-${index}`} label={label} value={draft.primaryPathAnswers[draft.primaryPath][index]} readOnly={!canEdit} moduleLabel="第三模块｜主导感知类型发生路径" targetKey={`path.primaryDetails.${pathKeys[draft.primaryPath][index]}`} onComment={openComment} onChange={(value) => updateDraft((next) => { next.primaryPathAnswers[next.primaryPath][index] = value; })} />)}</div><section className={styles.inlineChoices}><label>辅助路径 · 与主导互斥</label>{V04_UI_PATHS.filter((path) => path.id !== draft.primaryPath).map((path) => <button type="button" key={path.id} disabled={!canEdit} className={draft.auxiliaryPaths.includes(path.id) ? styles.isSelected : ""} onClick={() => updateDraft((next) => { next.auxiliaryPaths = next.auxiliaryPaths.includes(path.id) ? next.auxiliaryPaths.filter((item) => item !== path.id) : [...next.auxiliaryPaths, path.id].slice(0, 2); if (!next.auxiliaryPathDetails[path.id]) next.auxiliaryPathDetails[path.id] = { description: "", role: "" }; })}>{pathLabels[path.id]}</button>)}</section>{draft.auxiliaryPaths.map((path) => <div className={styles.fieldGrid} key={path}><Field id={`field-aux-${path}-description`} label={`${pathLabels[path]}｜辅助路径说明`} value={draft.auxiliaryPathDetails[path]?.description ?? ""} readOnly={!canEdit} moduleLabel="第三模块｜主导感知类型发生路径" targetKey={`path.auxiliary:${path}.description`} onComment={openComment} onChange={(value) => updateDraft((next) => { next.auxiliaryPathDetails[path] = { description: value, role: next.auxiliaryPathDetails[path]?.role ?? "" }; })} /><Field id={`field-aux-${path}-role`} label={`${pathLabels[path]}｜创意作用`} value={draft.auxiliaryPathDetails[path]?.role ?? ""} readOnly={!canEdit} moduleLabel="第三模块｜主导感知类型发生路径" targetKey={`path.auxiliary:${path}.creativeRole`} onComment={openComment} onChange={(value) => updateDraft((next) => { next.auxiliaryPathDetails[path] = { description: next.auxiliaryPathDetails[path]?.description ?? "", role: value }; })} /></div>)}</>}</section>
-          <section className={styles.editorModule} id="module-4"><header><small>第四模块</small><h2>第四模块｜提交</h2><p>只显示发布完整度、未填写项目和提交动作。</p></header><section className={styles.missingPanel}><header><b>未填写项目 · {publication.missing.length}</b><span>发布必填 {publication.ready ? "全部完成" : "尚未完成"}</span></header>{publication.missing.map((missing) => <button type="button" key={missing.id} onClick={() => locate(missing.id)}><span>{missing.module} · {missing.scope}</span><b>{missing.label}</b></button>)}</section><div className={styles.submitCard}><div><h3>{!hasDraftEditCapability ? "当前为只读，取得编辑权后才能提交" : recoveryPending ? recoveryIntegrityBlocked ? "本机恢复完整性尚未确认" : "请先处理本地恢复副本" : submitted ? `提交成功 · V${model.submissionCount}` : publication.ready ? saveMachine.status === "SAVED" || saveMachine.status === "CLEAN" ? "可以提交并更新案例" : "最新修改尚未完成服务器保存" : "发布条件尚未满足"}</h3><p>{recoveryPending ? recoveryIntegrityBlocked ? RECOVERY_INTEGRITY_BLOCKED_MESSAGE : RECOVERY_SUBMIT_BLOCKED_MESSAGE : "提交会先串行保存最新修改，再创建不可变版本；保存失败时绝不会提交。"}</p><span className={styles.inlineSaveStatus} role="status" aria-live="polite">{visibleSaveLabel}</span>{actionError && <p className={styles.inlineActionError} role="alert">{actionError}</p>}</div><button {...submitActionProps}>提交并更新案例</button></div>{model.viewerCapabilities.canExpertReview && model.latestSubmission && <section className={styles.gradeSection}><label>专家优选 · {model.expertPreference ? `当前绑定 V${model.expertPreference.submissionNumber}；选择下方等级将改选 V${model.latestSubmission.submissionNumber}` : `选择等级并精确绑定 V${model.latestSubmission.submissionNumber}`}</label><div>{(["S", "A", "B", "C"] as const).map((grade) => <button type="button" key={grade} disabled={!canEdit} className={model.expertPreference?.submissionId === model.latestSubmission?.id && model.expertPreference?.grade === grade ? styles.isSelected : ""} onClick={() => { void setExpertPreference(grade); }}>{grade}</button>)}{model.expertPreference && <button type="button" disabled={!canEdit} onClick={() => { void withdrawExpertPreference(); }}>撤回优选</button>}</div></section>}</section>
+          <section className={styles.editorModule} id="module-4"><header><small>第四模块</small><h2>第四模块｜提交</h2><p>只显示发布完整度、未填写项目和提交动作。</p></header><section className={styles.missingPanel}><header><b>未填写项目 · {publication.missing.length}</b><span>发布必填 {publication.ready ? "全部完成" : "尚未完成"}</span></header>{publication.missing.map((missing) => <button type="button" key={missing.id} onClick={() => locate(missing.id)}><span>{missing.module} · {missing.scope}</span><b>{missing.label}</b></button>)}</section><div className={styles.submitCard} data-submit-state={submitUi.state}><div id="v04-submit-status"><h3>{submitUi.headline}</h3><p>{submitUi.reason}</p><span className={styles.inlineSaveStatus} role="status" aria-live="polite">{visibleSaveLabel}</span>{actionError && <p className={styles.inlineActionError} role="alert">{actionError}</p>}</div><button {...submitActionProps}>{submitUi.buttonLabel}</button></div>{model.viewerCapabilities.canExpertReview && model.latestSubmission && <section className={styles.gradeSection}><label>专家优选 · {model.expertPreference ? `当前绑定 V${model.expertPreference.submissionNumber}；选择下方等级将改选 V${model.latestSubmission.submissionNumber}` : `选择等级并精确绑定 V${model.latestSubmission.submissionNumber}`}</label><div>{(["S", "A", "B", "C"] as const).map((grade) => <button type="button" key={grade} disabled={!canEdit} className={model.expertPreference?.submissionId === model.latestSubmission?.id && model.expertPreference?.grade === grade ? styles.isSelected : ""} onClick={() => { void setExpertPreference(grade); }}>{grade}</button>)}{model.expertPreference && <button type="button" disabled={!canEdit} onClick={() => { void withdrawExpertPreference(); }}>撤回优选</button>}</div></section>}</section>
         </div>
       </div>
     </div>

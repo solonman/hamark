@@ -22,6 +22,7 @@ import {
   atomicallyClearConfirmedV04RecoveryRecords,
   classifyV04RecoveryConfirmation,
   clearSelectedV04RecoveryRecord,
+  deriveV04SubmissionUiState,
   planV04ThreeWayChanges,
   planV04RecoveryMerge,
   shouldDisableV04Submission,
@@ -591,6 +592,80 @@ test("submission and keep-server controls stay fail-closed while recovery is pen
   const cleared = clearSelectedV04RecoveryRecord(records, 0, () => true);
   assert.equal(cleared.status, "CLEARED");
   assert.deepEqual(cleared.remaining, []);
+});
+
+test("fixed-header and module-four submission controls share one truthful human state", () => {
+  const common = {
+    canEdit: true,
+    editAccessPending: false,
+    otherEditor: false,
+    publicationReady: true,
+    submitting: false,
+    busy: false,
+    recoveryPending: false,
+    recoveryIntegrityBlocked: false,
+    noChangesToSubmit: false,
+    outcome: "IDLE" as const,
+    submissionNumber: 1,
+  };
+  assert.deepEqual(deriveV04SubmissionUiState(common), {
+    state: "READY",
+    disabled: false,
+    buttonLabel: "提交并更新案例",
+    headline: "可以提交并更新案例",
+    reason: "提交会先串行保存最新修改，再创建不可变版本；保存失败时绝不会提交。",
+  });
+  assert.equal(deriveV04SubmissionUiState({ ...common, submitting: true }).buttonLabel,
+    "正在保存并提交…");
+  assert.equal(deriveV04SubmissionUiState({
+    ...common,
+    noChangesToSubmit: true,
+    outcome: "SUCCEEDED",
+    submissionNumber: 2,
+  }).headline, "提交成功 · V2");
+  assert.equal(deriveV04SubmissionUiState({
+    ...common,
+    noChangesToSubmit: true,
+    outcome: "SUCCEEDED",
+  }).buttonLabel, "当前内容已提交");
+  assert.deepEqual(deriveV04SubmissionUiState({
+    ...common,
+    outcome: "FAILED",
+    errorMessage: "网络暂不可用",
+  }), {
+    state: "RETRY",
+    disabled: false,
+    buttonLabel: "重试提交",
+    headline: "提交未完成 · 可重试",
+    reason: "网络暂不可用",
+  });
+});
+
+test("submission UI fails closed with a visible natural-language reason", () => {
+  const common = {
+    canEdit: true,
+    editAccessPending: false,
+    otherEditor: false,
+    publicationReady: true,
+    submitting: false,
+    busy: false,
+    recoveryPending: false,
+    recoveryIntegrityBlocked: false,
+    noChangesToSubmit: false,
+    outcome: "IDLE" as const,
+    submissionNumber: 0,
+  };
+  for (const state of [
+    deriveV04SubmissionUiState({ ...common, publicationReady: false }),
+    deriveV04SubmissionUiState({ ...common, recoveryPending: true }),
+    deriveV04SubmissionUiState({ ...common, canEdit: false, editAccessPending: true }),
+    deriveV04SubmissionUiState({ ...common, canEdit: false, otherEditor: true }),
+  ]) {
+    assert.equal(state.disabled, true);
+    assert(state.buttonLabel.length > 0);
+    assert(state.reason.length > 0);
+    assert.doesNotMatch(`${state.buttonLabel}${state.headline}${state.reason}`, /租约|token|编辑权/);
+  }
 });
 
 test("an active update takeover drains once and honors the latest distinct link target", async () => {
