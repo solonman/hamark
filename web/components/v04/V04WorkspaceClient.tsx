@@ -7,7 +7,6 @@ import {
   clearV04Recovery,
   decideV04Recovery,
   discoverV04Recoveries,
-  getOrCreateV04RecoveryTabIdSafely,
   initialV04DraftSaveState,
   isV04LeaseFailure,
   readV04Recovery,
@@ -103,9 +102,8 @@ export default function V04WorkspaceClient({
     workspaceHref: `/v04-shadow/videos/${videoId}/workspace`,
   };
   const { getWorkspaceSession, setWorkspaceLeaseProof } = useV04VideoSession();
-  const [workspaceSession] = useState(() => getWorkspaceSession(videoId));
-  const tabToken = useRef(workspaceSession.tabToken);
-  const leaseProof = useRef<LeaseProof | null>(workspaceSession.leaseProof);
+  const tabToken = useRef("");
+  const leaseProof = useRef<LeaseProof | null>(null);
   const modelRef = useRef<V04ServerWorkspaceModel | null>(null);
   const [model, setModelState] = useState<V04ServerWorkspaceModel | null>(null);
   const [draft, setDraftState] = useState<V04UiDraft>(() => emptyV04UiDraft());
@@ -131,6 +129,7 @@ export default function V04WorkspaceClient({
   const recoveryIdentityRef = useRef<V04RecoveryIdentity | null>(null);
   const [recoveryPrompt, setRecoveryPrompt] = useState<RecoveryPrompt | null>(null);
   const [recoveryStorageAvailable, setRecoveryStorageAvailable] = useState(true);
+  const [documentIdentityNotice, setDocumentIdentityNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -172,14 +171,7 @@ export default function V04WorkspaceClient({
   }, []);
 
   const recoveryIdentityFor = useCallback((server: V04ServerWorkspaceModel): V04RecoveryIdentity => {
-    if (!recoveryTabIdRef.current) {
-      const resolved = getOrCreateV04RecoveryTabIdSafely(
-        getBrowserStorage("sessionStorage"),
-        `${viewerUserId}:${videoId}`,
-      );
-      recoveryTabIdRef.current = resolved.tabId;
-      if (!resolved.persisted) setRecoveryStorageAvailable(false);
-    }
+    if (!recoveryTabIdRef.current) throw new Error("V04_DOCUMENT_IDENTITY_NOT_READY");
     return {
       userId: viewerUserId,
       workspaceId: server.workspaceId ?? `logical-${videoId}`,
@@ -302,7 +294,16 @@ export default function V04WorkspaceClient({
 
   useEffect(() => {
     let active = true;
-    void refreshWorkspace().then(async (next) => {
+    void getWorkspaceSession(videoId).then((session) => {
+      if (!active) throw new Error("V04_WORKSPACE_UNMOUNTED");
+      tabToken.current = session.tabToken;
+      recoveryTabIdRef.current = session.recoveryTabId;
+      leaseProof.current = session.leaseProof;
+      if (session.identityFailClosed) {
+        setDocumentIdentityNotice("标签页隔离能力不可确认，已为当前页面启用独立临时身份；不会复用其他标签页租约，本地恢复副本仍会保留。");
+      }
+      return refreshWorkspace();
+    }).then(async (next) => {
       if (!active) return;
       const serverDraft = v04WorkspaceToUiCase(next).draft;
       draftBasePayloadRef.current = structuredClone(next.payload);
@@ -362,7 +363,7 @@ export default function V04WorkspaceClient({
       if (active) setLoadError(reason instanceof V04UiApiError ? reason.message : "公共工作稿暂时无法读取。");
     });
     return () => { active = false; };
-  }, [acquireLease, migrateRecoveryIdentity, recoveryIdentityFor, refreshWorkspace, videoId]);
+  }, [acquireLease, getWorkspaceSession, migrateRecoveryIdentity, recoveryIdentityFor, refreshWorkspace, videoId]);
 
   const commitSaveAttempt = useCallback(async (attempt: { version: number; draft: V04StagedDraft }) => {
     if (restoreInFlightRef.current) return false;
@@ -898,6 +899,7 @@ export default function V04WorkspaceClient({
   return <main className={styles.surface} data-v04-page="workspace">
     <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref}>案例库</Link><Link href={links.detailHref}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{saveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || saveMachine.status === "SAVING" || submitting}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
     <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : "当前无人编辑 · 正在安全重新取得编辑权"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span><span role="status" aria-live="polite">{saveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
+    {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="status" aria-live="polite"><p>本机恢复副本不可用；编辑仍可继续，请保持页面打开并及时手动保存。</p></section>}
     {recoveryPrompt && <section className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={`${record.identity.tabId}:${record.writtenAt}`}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新" : `副本 ${index + 1}`} · {record.writtenAt} · rev {record.serverRevision} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>本地草稿基于 rev {recoveryPrompt.record.serverRevision}；当前服务器为 rev {model.draftRevision}。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}</div><div><button type="button" onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" onClick={keepServerDraft}>继续使用服务器版本</button></div></section>}
     {actionError && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}

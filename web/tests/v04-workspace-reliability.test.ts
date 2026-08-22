@@ -30,6 +30,8 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
     "a same-tab refresh that still holds the lease may POST to rotate its lost proof");
   assert.equal((source.match(/canRecoverV04LeaseProof\([^)]*viewerCapabilities\)/g) ?? []).length, 5,
     "initial load, proof-loss recovery, save retry, heartbeat recovery and foreground recovery share the same predicate");
+  assert.match(source, /getWorkspaceSession\(videoId\)\.then\(\(session\)[\s\S]*tabToken\.current = session\.tabToken[\s\S]*recoveryTabIdRef\.current = session\.recoveryTabId[\s\S]*return refreshWorkspace\(\)/,
+    "the atomic document identity must be claimed before the first workspace GET");
   assert.match(source, /writeV04Recovery\(storage/);
   assert.match(source, /discoverV04Recoveries<V04UiDraft, V04Payload>\(storage/);
   assert.match(source, /恢复本地草稿/);
