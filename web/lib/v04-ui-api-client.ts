@@ -19,7 +19,7 @@ export class V04UiApiError extends Error {
   ) {
     super(message);
     this.name = "V04UiApiError";
-    this.retryable = status >= 500 || status === 408 || status === 429;
+    this.retryable = status === 0 || status >= 500 || status === 408 || status === 429;
   }
 }
 
@@ -94,14 +94,22 @@ export function createV04UiApiClient(fetcher: FetchLike = fetch) {
     if (options.body !== undefined) headers.set("Content-Type", "application/json");
     if (options.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
     if (options.tabToken) headers.set("X-V04-Tab-Token", options.tabToken);
-    const response = await fetcher(path, {
-      method: options.method ?? "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: options.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetcher(path, {
+        method: options.method ?? "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        signal: options.signal,
+      });
+    } catch (reason) {
+      if (options.signal?.aborted || (reason instanceof DOMException && reason.name === "AbortError")) {
+        throw new V04UiApiError(408, "REQUEST_TIMEOUT", "服务器响应超时，本地内容已保留，可直接重试。", id);
+      }
+      throw new V04UiApiError(0, "NETWORK_ERROR", "网络连接失败，本地内容已保留。", id);
+    }
     return parseResponse<T>(response, id);
   }
 
@@ -126,25 +134,41 @@ export function createV04UiApiClient(fetcher: FetchLike = fetch) {
       request<T>(videoPath(videoId, "/submissions"), { tabToken, signal }),
     comments: <T = unknown>(videoId: string, tabToken?: string, signal?: AbortSignal) =>
       request<T>(videoPath(videoId, "/comments"), { tabToken, signal }),
-    materialize: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string) =>
+    materialize: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string, signal?: AbortSignal) =>
       request<T>(videoPath(videoId, "/workspace/materialize"), {
-        method: "POST", body, idempotencyKey,
+        method: "POST", body, idempotencyKey, signal,
       }),
-    acquireLease: <T = unknown>(videoId: string, body: unknown) =>
-      request<T>(videoPath(videoId, "/lease"), { method: "POST", body }),
-    heartbeatLease: <T = unknown>(videoId: string, body: unknown) =>
-      request<T>(videoPath(videoId, "/lease"), { method: "PATCH", body }),
-    releaseLease: <T = unknown>(videoId: string, body: unknown) =>
-      request<T>(videoPath(videoId, "/lease"), { method: "DELETE", body }),
+    acquireLease: <T = unknown>(videoId: string, body: unknown, signal?: AbortSignal) =>
+      request<T>(videoPath(videoId, "/lease"), { method: "POST", body, signal }),
+    heartbeatLease: <T = unknown>(videoId: string, body: unknown, signal?: AbortSignal) =>
+      request<T>(videoPath(videoId, "/lease"), { method: "PATCH", body, signal }),
+    releaseLease: <T = unknown>(videoId: string, body: unknown, signal?: AbortSignal) =>
+      request<T>(videoPath(videoId, "/lease"), { method: "DELETE", body, signal }),
+    releaseLeaseKeepalive: (videoId: string, body: unknown, tabToken: string) => {
+      const id = requestId();
+      void fetcher(videoPath(videoId, "/lease"), {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+        keepalive: true,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Request-Id": id,
+          "X-V04-Tab-Token": tabToken,
+        },
+        body: JSON.stringify(body),
+      }).catch(() => undefined);
+    },
     forceReleaseLease: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string) =>
       request<T>(videoPath(videoId, "/lease/force-release"), {
         method: "POST", body, idempotencyKey,
       }),
-    save: <T = unknown>(videoId: string, body: unknown, tabToken: string) =>
-      request<T>(videoPath(videoId, "/workspace"), { method: "PUT", body, tabToken }),
-    submit: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string, tabToken: string) =>
+    save: <T = unknown>(videoId: string, body: unknown, tabToken: string, signal?: AbortSignal) =>
+      request<T>(videoPath(videoId, "/workspace"), { method: "PUT", body, tabToken, signal }),
+    submit: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string, tabToken: string, signal?: AbortSignal) =>
       request<T>(videoPath(videoId, "/submissions"), {
-        method: "POST", body, idempotencyKey, tabToken,
+        method: "POST", body, idempotencyKey, tabToken, signal,
       }),
     grantExpertPreference: <T = unknown>(
       videoId: string,
@@ -158,9 +182,9 @@ export function createV04UiApiClient(fetcher: FetchLike = fetch) {
       request<T>(videoPath(videoId, "/expert-preference"), {
         method: "DELETE", body, idempotencyKey,
       }),
-    restore: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string, tabToken: string) =>
+    restore: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string, tabToken: string, signal?: AbortSignal) =>
       request<T>(videoPath(videoId, "/restore"), {
-        method: "POST", body, idempotencyKey, tabToken,
+        method: "POST", body, idempotencyKey, tabToken, signal,
       }),
     createComment: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string) =>
       request<T>(videoPath(videoId, "/comments"), {

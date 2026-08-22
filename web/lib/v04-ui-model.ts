@@ -400,6 +400,62 @@ export function v04PayloadChanges(before: V04DraftPayloadV1, after: V04DraftPayl
   return changes;
 }
 
+function locateV04UiPayloadTarget(payload: V04DraftPayloadV1, targetKey: string) {
+  const groupMatch = /^shotGroup:([^.]+)\.(.+)$/.exec(targetKey);
+  if (groupMatch) {
+    const group = payload.script.shotGroups.find((entry) => entry.id === groupMatch[1]);
+    if (!group) return null;
+    const keys: Record<string, keyof typeof group> = {
+      bridgeName: "bridgeName",
+      primaryCreativeRole: "primaryCreativeRole",
+      auxiliaryCreativeRole: "auxiliaryCreativeRole",
+      keyCreativeDescription: "keyCreativeDescription",
+    };
+    const key = keys[groupMatch[2]];
+    return key ? { object: group as unknown as Record<string, unknown>, key } : null;
+  }
+  const shotMatch = /^shot:([^.]+)\.(.+)$/.exec(targetKey);
+  if (shotMatch) {
+    const shot = payload.script.shotGroups.flatMap((group) => group.shots)
+      .find((entry) => entry.id === shotMatch[1]);
+    return shot ? { object: shot as unknown as Record<string, unknown>, key: shotMatch[2] } : null;
+  }
+  if (targetKey.startsWith("facts.") && !targetKey.slice(6).includes(".")) {
+    return {
+      object: payload.factsAndCoreJudgement as unknown as Record<string, unknown>,
+      key: targetKey.slice(6),
+    };
+  }
+  if (targetKey.startsWith("path.") && !targetKey.slice(5).includes(".")) {
+    return {
+      object: payload.perceptionPath as unknown as Record<string, unknown>,
+      key: targetKey.slice(5),
+    };
+  }
+  if (targetKey === "script.structure") {
+    return { object: payload.script as unknown as Record<string, unknown>, key: "shotGroups" };
+  }
+  return null;
+}
+
+export function v04PayloadTargetValue(payload: V04DraftPayloadV1, targetKey: string) {
+  const target = locateV04UiPayloadTarget(payload, targetKey);
+  return target ? structuredClone(target.object[target.key]) : undefined;
+}
+
+export function applyV04PayloadValues(
+  payload: V04DraftPayloadV1,
+  changes: readonly Pick<V04Change, "targetKey" | "afterValue">[],
+) {
+  const next = structuredClone(payload);
+  for (const change of changes) {
+    const target = locateV04UiPayloadTarget(next, change.targetKey);
+    if (!target) throw new Error("UNADDRESSABLE_RECOVERY_TARGET");
+    target.object[target.key] = structuredClone(change.afterValue);
+  }
+  return next;
+}
+
 export function v04CardToUiCase(video: VideoItem, card: V04ServerCardModel): V04UiCase {
   const encodedId = encodeURIComponent(video.id);
   return {

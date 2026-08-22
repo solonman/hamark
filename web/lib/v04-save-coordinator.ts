@@ -1,0 +1,161 @@
+import type { V04Change } from "./v04-contract";
+
+export type V04PendingSave<TDraft> = {
+  version: number;
+  draft: TDraft;
+};
+
+export class V04LatestSaveCoordinator<TDraft> {
+  private desired: V04PendingSave<TDraft> | null = null;
+  private active: Promise<boolean> | null = null;
+  private confirmedVersion = 0;
+
+  get savedVersion() {
+    return this.confirmedVersion;
+  }
+
+  get isRunning() {
+    return this.active !== null;
+  }
+
+  stage(attempt: V04PendingSave<TDraft>) {
+    if (!this.desired || attempt.version >= this.desired.version) this.desired = attempt;
+  }
+
+  markServerConfirmed(version: number) {
+    this.confirmedVersion = Math.max(this.confirmedVersion, version);
+  }
+
+  resetFromServer(version = 0) {
+    if (this.active) throw new Error("SAVE_IN_FLIGHT");
+    this.desired = null;
+    this.confirmedVersion = version;
+  }
+
+  private async drain(save: (attempt: V04PendingSave<TDraft>) => Promise<boolean>) {
+    try {
+      while (true) {
+        while (this.desired && this.desired.version > this.confirmedVersion) {
+          const target = this.desired;
+          if (!await save(target)) return false;
+          this.markServerConfirmed(target.version);
+        }
+        // A stage() scheduled by the save callback's final microtask must be
+        // observed before this promise becomes externally resolved.
+        await Promise.resolve();
+        if (!this.desired || this.desired.version <= this.confirmedVersion) return true;
+      }
+    } finally {
+      // Clear before the returned promise settles. This removes the window in
+      // which a caller could receive an already-resolved active promise while
+      // a newer staged edit remained undrained.
+      this.active = null;
+    }
+  }
+
+  flush(save: (attempt: V04PendingSave<TDraft>) => Promise<boolean>) {
+    if (this.active) return this.active;
+    this.active = this.drain(save);
+    return this.active;
+  }
+}
+
+export function shouldReleaseV04Lease(input: {
+  saveStatus: string;
+  saveInFlight: boolean;
+  editVersion: number;
+  savedVersion: number;
+}) {
+  return !input.saveInFlight && input.editVersion <= input.savedVersion &&
+    (input.saveStatus === "CLEAN" || input.saveStatus === "SAVED");
+}
+
+export function canMutateV04Draft(input: {
+  capability: boolean;
+  restoring: boolean;
+  submitting: boolean;
+}) {
+  return input.capability && !input.restoring && !input.submitting;
+}
+
+export function canStartV04Restore(input: {
+  saveStatus: string;
+  saveInFlight: boolean;
+  submitting: boolean;
+  restoring: boolean;
+  editVersion: number;
+  savedVersion: number;
+}) {
+  return !input.saveInFlight && !input.submitting && !input.restoring &&
+    input.editVersion <= input.savedVersion &&
+    (input.saveStatus === "CLEAN" || input.saveStatus === "SAVED");
+}
+
+export function canRecoverV04LeaseProof(input: {
+  canAcquireLease: boolean;
+  canEdit: boolean;
+}) {
+  return input.canAcquireLease || input.canEdit;
+}
+
+export function canSubmitV04ServerDraft(input: {
+  localPublicationReady: boolean;
+  serverPublicationReady: boolean;
+  saveCompleted: boolean;
+  editVersion: number;
+  savedVersion: number;
+}) {
+  return input.localPublicationReady && input.serverPublicationReady && input.saveCompleted &&
+    input.editVersion <= input.savedVersion;
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right, "en"))
+      .map(([key, nested]) => [key, stableValue(nested)]));
+  }
+  return value;
+}
+
+function sameValue(left: unknown, right: unknown) {
+  return JSON.stringify(stableValue(left)) === JSON.stringify(stableValue(right));
+}
+
+export function planV04ThreeWayChanges(
+  originalChanges: readonly V04Change[],
+  currentValue: (targetKey: string) => unknown,
+) {
+  const changes: V04Change[] = [];
+  const alreadyApplied: string[] = [];
+  const conflicts: string[] = [];
+  for (const change of originalChanges) {
+    const current = currentValue(change.targetKey);
+    if (sameValue(current, change.afterValue)) {
+      alreadyApplied.push(change.targetKey);
+    } else if (sameValue(current, change.beforeValue)) {
+      changes.push({ ...change, beforeValue: structuredClone(current) });
+    } else {
+      conflicts.push(change.targetKey);
+    }
+  }
+  return { changes, alreadyApplied, conflicts };
+}
+
+export async function runV04LeaseBoundMutationWithSingleRecovery<T>(input: {
+  run: () => Promise<T>;
+  leaseFailureCode: (reason: unknown) => string | null;
+  invalidate: () => void;
+  canReacquire: (code: string) => Promise<boolean>;
+}) {
+  try {
+    return await input.run();
+  } catch (reason) {
+    const code = input.leaseFailureCode(reason);
+    if (!code) throw reason;
+    input.invalidate();
+    if (!await input.canReacquire(code)) throw reason;
+    return input.run();
+  }
+}

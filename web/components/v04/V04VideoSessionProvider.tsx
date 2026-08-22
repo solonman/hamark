@@ -16,6 +16,28 @@ type SessionValue = {
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
+const WORKSPACE_TAB_TOKEN = /^v04-workspace-[a-f0-9-]{36}$/;
+
+export function getOrCreateV04WorkspaceTabToken(
+  caseId: string,
+  storage: Pick<Storage, "getItem" | "setItem"> | null,
+  createId: () => string = () => crypto.randomUUID(),
+) {
+  const key = `hamark:v04:workspace-tab:${encodeURIComponent(caseId)}`;
+  try {
+    const existing = storage?.getItem(key);
+    if (existing && WORKSPACE_TAB_TOKEN.test(existing)) return { tabToken: existing, persisted: true };
+    if (!storage) throw new Error("SESSION_STORAGE_UNAVAILABLE");
+    const tabToken = `v04-workspace-${createId().toLowerCase()}`;
+    if (!WORKSPACE_TAB_TOKEN.test(tabToken)) throw new Error("INVALID_WORKSPACE_TAB_TOKEN");
+    storage.setItem(key, tabToken);
+    return { tabToken, persisted: true };
+  } catch {
+    const tabToken = `v04-workspace-${createId().toLowerCase()}`;
+    if (!WORKSPACE_TAB_TOKEN.test(tabToken)) throw new Error("INVALID_WORKSPACE_TAB_TOKEN");
+    return { tabToken, persisted: false };
+  }
+}
 
 export function V04VideoSessionProvider({ children }: { children: React.ReactNode }) {
   const [drafts, setDrafts] = useState<Record<string, V04UiDraft>>({});
@@ -28,7 +50,12 @@ export function V04VideoSessionProvider({ children }: { children: React.ReactNod
   const getWorkspaceSession = useCallback((caseId: string) => {
     const existing = workspaceSessions.current.get(caseId);
     if (existing) return existing;
-    const created = { tabToken: `v04-workspace-${crypto.randomUUID()}`, leaseProof: null };
+    let storage: Storage | null = null;
+    try { storage = window.sessionStorage; } catch { /* retain an in-memory tab identity */ }
+    const created = {
+      tabToken: getOrCreateV04WorkspaceTabToken(caseId, storage).tabToken,
+      leaseProof: null,
+    };
     workspaceSessions.current.set(caseId, created);
     return created;
   }, []);

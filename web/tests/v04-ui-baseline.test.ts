@@ -40,8 +40,16 @@ test("fixture UI carries three pages, four modules, 12 shot fields and approved 
 test("tracked shadow runtime remains an adapter and does not create a second data truth", async () => {
   for (const relative of runtimeFiles) {
     const source = await readFile(new URL(`../${relative}`, import.meta.url), "utf8");
-    for (const forbidden of ["DATABASE_URL", "getDbClient", "localStorage", "indexedDB"]) {
+    for (const forbidden of ["DATABASE_URL", "getDbClient", "indexedDB"]) {
       assert.ok(!source.includes(forbidden), `${relative} contains ${forbidden}`);
+    }
+    if (relative !== "components/v04/V04WorkspaceClient.tsx") {
+      assert.ok(!source.includes("localStorage"), `${relative} contains localStorage`);
+    } else {
+      assert.match(source, /writeV04Recovery\(storage/);
+      assert.match(source, /discoverV04Recoveries<V04UiDraft, V04Payload>\(storage/);
+      assert.doesNotMatch(source, /localStorage\.(?:setItem|getItem|removeItem)\(/,
+        "workspace recovery must pass through the credential-stripping recovery contract");
     }
   }
   const [library, cardsRoute, readModels] = await Promise.all([
@@ -147,7 +155,7 @@ test("opening a logical empty V0.4 workspace stays zero-write until the first ac
   );
   assert.match(
     workspace,
-    /if \(next\.viewerCapabilities\.canAcquireLease && !next\.logicalEmpty\)/,
+    /if \(canRecoverV04LeaseProof\(next\.viewerCapabilities\) && !next\.logicalEmpty\)/,
   );
   assert.match(
     workspace,

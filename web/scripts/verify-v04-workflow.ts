@@ -705,7 +705,14 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
       const tabA1 = `tab_${config.runId}_a1`;
       const tabA2 = `tab_${config.runId}_a2`;
       const tabB = `tab_${config.runId}_b`;
+      const leaseAInitial = await acquireV04Lease(db, videoId, actors.a, { tabToken: tabA1 });
+      // Simulate a committed acquire whose response was lost: the same actor,
+      // auth session and exact browser-tab identity can rotate the proof,
+      // while other tabs/users remain blocked below.
       const leaseA = await acquireV04Lease(db, videoId, actors.a, { tabToken: tabA1 });
+      assert.equal((leaseA as typeof leaseA & { recovered?: boolean }).recovered, true);
+      assert.equal(leaseA.leaseVersion, leaseAInitial.leaseVersion + 1);
+      assert.notEqual(leaseA.leaseToken, leaseAInitial.leaseToken);
       const leaseAProof = proof(leaseA, tabA1);
       const leaseAReplay = await acquireV04Lease(db, videoId, actors.a, {
         tabToken: tabA1,
@@ -955,6 +962,15 @@ export async function runV04WorkflowVerification(env: Environment = process.env)
         lease: leaseAProof,
       });
       assert(restored.revision > saveModified.revision);
+      const restoredReplay = await restoreV04Draft(db, videoId, actors.a, {
+        sourceType: "SUBMISSION",
+        sourceId: submission1.submissionId,
+        idempotencyKey: `restore_${config.runId}_1`,
+        reason: "TEST_ONLY restore retry after an uncertain response",
+        lease: leaseAProof,
+      });
+      assert.equal(restoredReplay.revision, restored.revision);
+      assert.equal(restoredReplay.contentHash, restored.contentHash);
       const detailAfterRestore = await loadV04CaseDetailReadModel(db, videoId);
       assert.equal(detailAfterRestore.latestSubmission?.submissionNumber, 2,
         "restore must not move latest submission pointer");

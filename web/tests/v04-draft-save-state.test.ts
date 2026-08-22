@@ -3,9 +3,15 @@ import test from "node:test";
 import {
   clearV04Recovery,
   decideV04Recovery,
+  discoverV04Recoveries,
+  getOrCreateV04RecoveryTabId,
+  getOrCreateV04RecoveryTabIdSafely,
   initialV04DraftSaveState,
+  isV04LeaseFailure,
   readV04Recovery,
   reduceV04DraftSaveState,
+  runV04WithTimeout,
+  v04SaveFailureMessage,
   v04RecoveryStorageKey,
   V04_AUTOSAVE_DEBOUNCE_MS,
   V04_RECOVERY_TTL_MS,
@@ -42,6 +48,76 @@ test("V0.4 save reducer keeps latest edit dirty when an older request resolves",
   });
   assert.equal(state.status, "SAVED");
   assert.equal(state.savedEditVersion, 2);
+});
+
+test("closed-tab recovery is discoverable by safe scope and independent tab copies never overwrite", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    get length() { return values.size; },
+    key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
+  };
+  const scope = {
+    userId: "user-a", workspaceId: "workspace-a", roundId: "round-a",
+    payloadSchemaVersion: "AD_VIDEO_PAYLOAD_V1",
+  };
+  const tabA = { ...scope, tabId: "recovery-123e4567-e89b-42d3-a456-426614174000" };
+  const tabB = { ...scope, tabId: "recovery-123e4567-e89b-42d3-a456-426614174001" };
+  assert.equal(writeV04Recovery(storage, {
+    identity: tabA, serverRevision: 4, serverHash: "hash-4", basePayload: { x: "x0", y: "y0" },
+    payload: { x: "x-from-a" }, dirtyTargets: ["facts.x"], writtenAt: "2026-08-22T10:00:00.000Z",
+  }), true);
+  assert.equal(writeV04Recovery(storage, {
+    identity: tabB, serverRevision: 5, serverHash: "hash-5", basePayload: { x: "x0", y: "y1" },
+    payload: { y: "y-from-b" }, dirtyTargets: ["facts.y"], writtenAt: "2026-08-22T10:01:00.000Z",
+  }), true);
+
+  const reopened = discoverV04Recoveries(storage, [scope], new Date("2026-08-22T10:02:00.000Z"));
+  assert.equal(reopened.available, true);
+  assert.deepEqual(reopened.records.map((record) => record.identity.tabId), [tabB.tabId, tabA.tabId]);
+  assert.deepEqual(reopened.records.map((record) => record.dirtyTargets), [["facts.y"], ["facts.x"]]);
+  assert.equal(values.size, 2, "discovery must not merge, replace or delete another tab's copy");
+});
+
+test("unavailable browser storage is fail-safe and returns an ephemeral recovery identity", () => {
+  const broken = {
+    getItem: () => { throw new Error("blocked"); },
+    setItem: () => { throw new Error("blocked"); },
+    removeItem: () => { throw new Error("blocked"); },
+    key: () => { throw new Error("blocked"); },
+    get length() { throw new Error("blocked"); },
+  };
+  const firstUuid = "123e4567-e89b-42d3-a456-426614174002";
+  const fallback = getOrCreateV04RecoveryTabIdSafely(broken, "scope", () => firstUuid);
+  assert.deepEqual(fallback, { tabId: `recovery-${firstUuid}`, persisted: false });
+  assert.equal(discoverV04Recoveries(broken, []).available, false);
+  assert.equal(writeV04Recovery(broken, {
+    identity: {
+      userId: "user-a", workspaceId: "workspace-a", roundId: "round-a",
+      tabId: fallback.tabId, payloadSchemaVersion: "AD_VIDEO_PAYLOAD_V1",
+    },
+    serverRevision: 0, serverHash: "hash", payload: {}, dirtyTargets: [],
+    writtenAt: "2026-08-22T10:00:00.000Z",
+  }), false);
+});
+
+test("V0.4 save timeout aborts the in-flight request and lease failures stay explicit", async () => {
+  let aborted = false;
+  await assert.rejects(runV04WithTimeout((signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => {
+      aborted = true;
+      reject(new DOMException("aborted", "AbortError"));
+    });
+  }), 5), /aborted/);
+  assert.equal(aborted, true);
+  assert.equal(isV04LeaseFailure("LEASE_REQUIRED"), true);
+  assert.equal(isV04LeaseFailure("LEASE_EXPIRED"), true);
+  assert.equal(isV04LeaseFailure("LEASE_HELD_BY_OTHER"), true);
+  assert.equal(isV04LeaseFailure("REVISION_CONFLICT"), false);
+  assert.match(v04SaveFailureMessage("LEASE_HELD_BY_OTHER"), /本地草稿已保留/);
+  assert.match(v04SaveFailureMessage("REQUEST_TIMEOUT"), /同一变更集/);
 });
 
 test("V0.4 save reducer distinguishes offline, retryable, fatal and conflict states", () => {
@@ -97,4 +173,21 @@ test("V0.4 recovery copies use five dimensions, expire and never carry credentia
     new Date(Date.parse(record.writtenAt) + V04_RECOVERY_TTL_MS + 1)).kind, "EXPIRED");
   clearV04Recovery(storage, identity);
   assert.equal(readV04Recovery(storage, identity), null);
+});
+
+test("V0.4 recovery tab identity survives reload without persisting lease or session proof", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+  };
+  const uuid = "123e4567-e89b-42d3-a456-426614174000";
+  const first = getOrCreateV04RecoveryTabId(storage, "user-a:video-a", () => uuid);
+  const reloaded = getOrCreateV04RecoveryTabId(storage, "user-a:video-a", () => {
+    assert.fail("reload should reuse the recovery-only tab id");
+  });
+  assert.equal(first, `recovery-${uuid}`);
+  assert.equal(reloaded, first);
+  const serialized = JSON.stringify([...values]);
+  assert.doesNotMatch(serialized, /lease|sessionToken|credential/i);
 });

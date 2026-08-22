@@ -48,6 +48,44 @@ test("V0.4 UI client turns empty and non-JSON failures into diagnostic errors", 
   });
 });
 
+test("V0.4 UI client classifies timeout/network failures and releases only the exact tab proof with keepalive", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const api = createV04UiApiClient(async (input, init) => {
+    calls.push({ url: String(input), init });
+    if (String(input).endsWith("/workspace")) throw new DOMException("aborted", "AbortError");
+    return Response.json({ released: true });
+  });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(api.save("video-a", {}, "tab-a", controller.signal), (error: unknown) => {
+    assert(error instanceof V04UiApiError);
+    assert.equal(error.code, "REQUEST_TIMEOUT");
+    assert.equal(error.retryable, true);
+    return true;
+  });
+  api.releaseLeaseKeepalive("video-a", {
+    tabToken: "tab-a", leaseToken: "lease-a", leaseVersion: 3,
+  }, "tab-a");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const release = calls.at(-1);
+  assert.equal(release?.init?.method, "DELETE");
+  assert.equal(release?.init?.keepalive, true);
+  assert.equal(new Headers(release?.init?.headers).get("x-v04-tab-token"), "tab-a");
+  assert.deepEqual(JSON.parse(String(release?.init?.body)), {
+    tabToken: "tab-a", leaseToken: "lease-a", leaseVersion: 3,
+  });
+
+  const network = createV04UiApiClient(async () => { throw new TypeError("secret network detail"); });
+  await assert.rejects(network.cards(), (error: unknown) => {
+    assert(error instanceof V04UiApiError);
+    assert.equal(error.code, "NETWORK_ERROR");
+    assert.equal(error.status, 0);
+    assert.equal(error.retryable, true);
+    assert.doesNotMatch(error.message, /secret/i);
+    return true;
+  });
+});
+
 test("all V0.4 GET adapters are no-store and shadow pages no longer load case fixtures", () => {
   const roots = [
     "../app/api/videos/analysis/v04/cards/route.ts",

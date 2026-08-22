@@ -503,11 +503,10 @@ export async function acquireV04Lease(
           release_reason = 'EXPIRED' WHERE id = ? AND status = 'ACTIVE'`,
       ).bind(iso(now), active.id).run();
     } else if (active) {
-      if (
-        active.holder_user_id === actor.userId && active.session_id === actor.sessionId &&
-        active.tab_token_hash === tabHash && active.lease_token_hash === existingLeaseHash &&
-        Number(active.lease_version) === Number(input.existingLeaseVersion)
-      ) {
+      const sameStableTab = active.holder_user_id === actor.userId &&
+        active.session_id === actor.sessionId && active.tab_token_hash === tabHash;
+      if (sameStableTab && active.lease_token_hash === existingLeaseHash &&
+        Number(active.lease_version) === Number(input.existingLeaseVersion)) {
         const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
         await transaction.prepare(
           `UPDATE collaboration_edit_leases SET last_heartbeat_at = ?::timestamptz,
@@ -519,6 +518,35 @@ export async function acquireV04Lease(
           leaseVersion: Number(active.lease_version),
           expiresAt: iso(expiresAt),
           reused: true,
+        };
+      }
+      if (sameStableTab) {
+        // The server may have committed the first acquisition after the
+        // browser timed out and discarded its response. Only the same stable
+        // actor, auth session and exact per-tab token may rotate that orphaned
+        // proof; another tab or user remains fail-closed.
+        const recoveredLeaseToken = randomToken();
+        const recoveredLeaseTokenHash = await hashToken(recoveredLeaseToken);
+        const recoveredLeaseVersion = Number(active.lease_version) + 1;
+        const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
+        await transaction.prepare(
+          `UPDATE collaboration_edit_leases SET lease_token_hash = ?, lease_version = ?,
+            last_heartbeat_at = ?::timestamptz, expires_at = ?::timestamptz
+          WHERE id = ? AND status = 'ACTIVE'`,
+        ).bind(
+          recoveredLeaseTokenHash, recoveredLeaseVersion, iso(now), iso(expiresAt), active.id,
+        ).run();
+        await insertAudit(transaction, actor, "V04_LEASE_PROOF_RECOVERED", "V04_WORKSPACE", workspace.id, {
+          leaseId: active.id,
+          leaseVersion: recoveredLeaseVersion,
+        });
+        return {
+          leaseId: active.id,
+          leaseToken: recoveredLeaseToken,
+          leaseVersion: recoveredLeaseVersion,
+          expiresAt: iso(expiresAt),
+          reused: true,
+          recovered: true,
         };
       }
       throw new V04ServiceError(
