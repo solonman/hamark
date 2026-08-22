@@ -9,6 +9,11 @@ export type HomeNavigationEventDetail = {
   continueNavigation: () => void;
 };
 
+export function isProtectedDraftWorkspacePath(pathname: string) {
+  return /^\/videos\/[^/]+\/practice(?:\/|$)/.test(pathname) ||
+    /^\/v04-shadow\/videos\/[^/]+\/workspace(?:\/|$)/.test(pathname);
+}
+
 export default function GlobalHomeButton({ hideForV04Default = false }: { hideForV04Default?: boolean }) {
   const pathname = usePathname();
   const isHome = pathname === "/";

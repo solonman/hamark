@@ -191,3 +191,29 @@ test("V0.4 recovery tab identity survives reload without persisting lease or ses
   const serialized = JSON.stringify([...values]);
   assert.doesNotMatch(serialized, /lease|sessionToken|credential/i);
 });
+
+test("an older confirmed save never clears a recovery copy that contains a newer local edit", () => {
+  const record = {
+    identity: {
+      userId: "user-a", workspaceId: "workspace-a", roundId: "round-a",
+      tabId: "recovery-123e4567-e89b-42d3-a456-426614174000",
+      payloadSchemaVersion: "AD_VIDEO_PAYLOAD_V1",
+    },
+    serverRevision: 7,
+    serverHash: "server-v7",
+    basePayload: { facts: { storySynopsis: "server-v7" } },
+    payload: { facts: { storySynopsis: "newer local v2" } },
+    dirtyTargets: ["facts.storySynopsis"],
+    writtenAt: "2026-08-22T08:00:00.000Z",
+  };
+  assert.equal(decideV04Recovery(record, {
+    revision: 7,
+    hash: "server-v7",
+  }, new Date("2026-08-22T08:00:01.000Z")).kind, "RESTORE_AVAILABLE",
+  "matching the older server base is not proof that the newer local version was saved");
+  assert.equal(decideV04Recovery(record, {
+    revision: 8,
+    hash: "server-v8-partial-save",
+  }, new Date("2026-08-22T08:00:01.000Z")).kind, "CONFLICT",
+  "a partial server advance preserves the newest local copy for three-way comparison");
+});

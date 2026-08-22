@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState, type MouseEvent } from "react";
+import { HOME_NAVIGATION_EVENT } from "@/app/components/GlobalHomeButton";
 import { V04_PAYLOAD_SCHEMA_VERSION, V04_VOCABULARY_VERSION, type V04ChoiceValue, type V04ShotFieldKey } from "@/lib/v04-contract";
 import {
   clearV04Recovery,
@@ -37,11 +38,12 @@ import {
 } from "@/lib/v04-save-coordinator";
 import {
   decideV04FreshWorkspaceTransition,
+  installV04NavigationTakeover,
   normalizeV04LocalDraftFacts,
   runV04DraftResume,
-  runV04GuardedNavigation,
   shouldProtectV04Unload,
   shouldRetryV04DraftOnResume,
+  V04GuardedNavigationCoordinator,
   V04SingleFlight,
   type V04LocalDraftFacts,
 } from "@/lib/v04-workspace-lifecycle";
@@ -151,7 +153,7 @@ export default function V04WorkspaceClient({
   const [editAccessRetryVersion, setEditAccessRetryVersion] = useState(0);
   const editAccessAttemptRef = useRef<Promise<boolean> | null>(null);
   const resumeCoordinatorRef = useRef(new V04SingleFlight());
-  const navigationInFlightRef = useRef<Promise<void> | null>(null);
+  const navigationCoordinatorRef = useRef(new V04GuardedNavigationCoordinator());
   const [navigating, setNavigating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -628,6 +630,46 @@ export default function V04WorkspaceClient({
     return saveCoordinatorRef.current.flush(commitSaveAttempt);
   }, [commitSaveAttempt]);
 
+  const guardWorkspaceNavigation = useCallback(async (navigate: () => void) => {
+    setNavigating(true);
+    try {
+      const result = await navigationCoordinatorRef.current.run({
+        facts: localDraftFacts,
+        preserveRecovery: () => { persistRecovery(draftRef.current); },
+        flush: () => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current),
+        navigate,
+      });
+      if (result === "BLOCKED_CONFLICT") {
+        setActionError("本地草稿与服务器版本存在冲突，请先完成对照；页面未离开，内容仍保留。");
+      } else if (result === "BLOCKED_SAVE_FAILED") {
+        setActionError("最新修改尚未保存到服务器，已阻止刷新或离开；本机恢复副本仍保留，可重试保存。");
+      } else if (result === "BLOCKED_SAVE_PENDING") {
+        setActionError("保存期间又有新修改，已阻止刷新或离开；请保存最新内容后重试。");
+      }
+      return result;
+    } finally {
+      if (!navigationCoordinatorRef.current.isRunning) setNavigating(false);
+    }
+  }, [localDraftFacts, persistRecovery, requestSave]);
+
+  useEffect(() => {
+    return installV04NavigationTakeover(window, HOME_NAVIGATION_EVENT, {
+      // This is synchronous and precedes every await. Even a browser/process
+      // interruption leaves the newest local edit discoverable after reload.
+      preserveRecovery: () => { persistRecovery(draftRef.current); },
+      run: (navigate) => { void guardWorkspaceNavigation(navigate); },
+    });
+  }, [guardWorkspaceNavigation, persistRecovery]);
+
+  useEffect(() => {
+    // React development Strict Mode may run an effect cleanup/setup cycle
+    // without rebuilding refs. Replace the disposed coordinator on each setup
+    // while keeping the prior generation cancelled against late navigation.
+    const coordinator = new V04GuardedNavigationCoordinator();
+    navigationCoordinatorRef.current = coordinator;
+    return () => coordinator.dispose();
+  }, []);
+
   const resumeDraft = useCallback((forceAcquire = false) => resumeCoordinatorRef.current.run(() =>
     runV04DraftResume({
       facts: localDraftFacts,
@@ -759,7 +801,6 @@ export default function V04WorkspaceClient({
 
   const manualSave = async () => {
     if (!canEdit) return;
-    if (saveMachine.status === "SAVING") return;
     const active = document.activeElement as HTMLElement | null;
     const context = focusContext.current?.element === active
       ? focusContext.current
@@ -782,28 +823,7 @@ export default function V04WorkspaceClient({
   const navigateWithSavedDraft = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    if (navigationInFlightRef.current) return;
-    const operation = (async () => {
-      setNavigating(true);
-      const result = await runV04GuardedNavigation({
-        facts: localDraftFacts,
-        preserveRecovery: () => { persistRecovery(draftRef.current); },
-        flush: () => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current),
-        navigate: () => router.push(href),
-      });
-      if (result === "BLOCKED_CONFLICT") {
-        setActionError("本地草稿与服务器版本存在冲突，请先完成对照；页面未离开，内容仍保留。");
-      } else if (result === "BLOCKED_SAVE_FAILED") {
-        setActionError("最新修改尚未保存到服务器，已阻止离开；本机恢复副本仍保留，可重试保存。");
-      } else if (result === "BLOCKED_SAVE_PENDING") {
-        setActionError("保存期间又有新修改，已阻止离开；请保存最新内容后重试。");
-      }
-    })().finally(() => setNavigating(false));
-    navigationInFlightRef.current = operation;
-    const clearNavigation = () => {
-      if (navigationInFlightRef.current === operation) navigationInFlightRef.current = null;
-    };
-    void operation.then(clearNavigation, clearNavigation);
+    void guardWorkspaceNavigation(() => router.push(href));
   };
 
   const updateGroup = (groupId: string, updater: (group: V04UiShotGroup) => void) => updateDraft((next) => { const group = next.shotGroups.find((entry) => entry.id === groupId); if (group) updater(group); });
@@ -1144,7 +1164,7 @@ export default function V04WorkspaceClient({
   if (!item || !model) return <main className={styles.surface} data-v04-page="workspace"><section className={styles.emptyState}><h2>正在读取公共工作稿…</h2></section></main>;
 
   return <main className={styles.surface} data-v04-page="workspace">
-    <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || saveMachine.status === "SAVING" || submitting}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
+    <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || submitting}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
     <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在安全取得编辑权" : "当前无人编辑 · 编辑权尚未取得"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="status" aria-live="polite"><p>本机恢复副本不可用；编辑仍可继续，请保持页面打开并及时手动保存。</p></section>}

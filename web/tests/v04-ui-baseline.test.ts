@@ -122,6 +122,8 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(workspace, /aria-readonly=\{!canEdit\}/);
   assert.match(workspace, /const updateDraft[\s\S]*if \(!canEdit\) return;/);
   assert.match(workspace, /const manualSave[\s\S]*if \(!canEdit\) return;/);
+  assert.doesNotMatch(workspace, /const manualSave[\s\S]{0,180}saveMachine\.status === "SAVING"\) return/,
+    "manual save must join and drain an active autosave instead of becoming a no-op");
   assert.match(workspace, /const submitDraft[\s\S]*if \(!canEdit\) return;/);
   assert.match(workspace, /onRestore=\{canEdit \? restoreVersion : undefined\}/);
   assert.match(workspace, /readOnly=\{!canEdit\}/);

@@ -93,9 +93,11 @@ export async function runV04GuardedNavigation(input: {
   preserveRecovery: () => void;
   flush: () => Promise<boolean>;
   navigate: () => void;
+  canNavigate?: () => boolean;
 }) {
   const plan = decideV04InternalNavigation(input.facts());
   if (plan === "NAVIGATE") {
+    if (input.canNavigate && !input.canNavigate()) return "CANCELLED" as const;
     input.navigate();
     return "NAVIGATED" as const;
   }
@@ -103,8 +105,66 @@ export async function runV04GuardedNavigation(input: {
   input.preserveRecovery();
   if (!await input.flush()) return "BLOCKED_SAVE_FAILED" as const;
   if (!isV04DraftConfirmedAfterFlush(input.facts())) return "BLOCKED_SAVE_PENDING" as const;
+  if (input.canNavigate && !input.canNavigate()) return "CANCELLED" as const;
   input.navigate();
   return "NAVIGATED" as const;
+}
+
+export type V04GuardedNavigationResult = Awaited<ReturnType<typeof runV04GuardedNavigation>>;
+
+/**
+ * Owns every navigation that may leave a V0.4 workspace, including the global
+ * deploy-update reload event. Concurrent clicks join one operation, and an
+ * unmounted workspace can cancel a late save response before it reloads.
+ */
+export class V04GuardedNavigationCoordinator {
+  private active: Promise<V04GuardedNavigationResult> | null = null;
+  private disposed = false;
+
+  private async execute(input: Parameters<typeof runV04GuardedNavigation>[0]) {
+    try {
+      return await runV04GuardedNavigation({
+        ...input,
+        canNavigate: () => !this.disposed && (input.canNavigate?.() ?? true),
+      });
+    } finally {
+      this.active = null;
+    }
+  }
+
+  get isRunning() {
+    return this.active !== null;
+  }
+
+  run(input: Parameters<typeof runV04GuardedNavigation>[0]) {
+    if (this.disposed) return Promise.resolve("CANCELLED" as const);
+    if (this.active) return this.active;
+    const operation = this.execute(input);
+    this.active = operation;
+    return operation;
+  }
+
+  dispose() {
+    this.disposed = true;
+  }
+}
+
+export function installV04NavigationTakeover(
+  target: Pick<EventTarget, "addEventListener" | "removeEventListener">,
+  eventName: string,
+  input: {
+    preserveRecovery: () => void;
+    run: (navigate: () => void) => void;
+  },
+) {
+  const handler = (rawEvent: Event) => {
+    const event = rawEvent as CustomEvent<{ continueNavigation: () => void }>;
+    event.preventDefault();
+    input.preserveRecovery();
+    input.run(event.detail.continueNavigation);
+  };
+  target.addEventListener(eventName, handler);
+  return () => target.removeEventListener(eventName, handler);
 }
 
 export async function runV04DraftResume(input: {

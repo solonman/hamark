@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import {
   HOME_NAVIGATION_EVENT,
+  isProtectedDraftWorkspacePath,
   type HomeNavigationEventDetail,
 } from "./GlobalHomeButton";
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_CHECK_GAP_MS = 60 * 1000;
-// 练习页的自动保存在停止输入约 2.5 秒后触发；没有页面接管保存时，
-// 刷新前先把这个窗口等完，让最后的修改落库。
+// 非工作稿页没有页面接管时的短延迟。工作稿绝不走此回退：
+// 它必须等自己的唯一保存协调器显式续行。
 const AUTOSAVE_FLUSH_DELAY_MS = 2500;
 // 练习页接管保存后若一直没刷新（例如保存失败留在原页），恢复按钮供重试。
 const RELOAD_TAKEOVER_TIMEOUT_MS = 10 * 1000;
@@ -66,9 +67,15 @@ export default function UpdateNotifier({ version }: { version: string }) {
       HOME_NAVIGATION_EVENT,
       { cancelable: true, detail: { continueNavigation: reload } },
     );
-    if (window.dispatchEvent(navigationEvent)) {
+    const navigationWasNotTakenOver = window.dispatchEvent(navigationEvent);
+    const v04WorkspaceMustTakeOver = isProtectedDraftWorkspacePath(window.location.pathname) &&
+      Boolean(document.querySelector('[data-v04-page="workspace"]'));
+    if (navigationWasNotTakenOver && !v04WorkspaceMustTakeOver) {
       window.setTimeout(reload, AUTOSAVE_FLUSH_DELAY_MS);
     } else {
+      // A workspace must explicitly call continueNavigation after its single
+      // save coordinator confirms the latest edit. The timeout only restores
+      // this button after a failed/cancelled takeover; it never reloads.
       window.setTimeout(() => setReloading(false), RELOAD_TAKEOVER_TIMEOUT_MS);
     }
   }

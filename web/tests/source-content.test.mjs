@@ -358,11 +358,15 @@ test("deploy updates surface a refresh prompt that flushes autosave first", asyn
   assert.match(route, /VERCEL_GIT_COMMIT_SHA/);
   assert.match(route, /"Cache-Control": "no-store"/);
   assert.match(layout, /<UpdateNotifier version=\{process\.env\.VERCEL_GIT_COMMIT_SHA \|\| "dev"\} \/>/);
-  // 刷新前必须先给自动保存留出落库机会：练习页通过导航保护事件完整保存，
-  // 其他页面等 2.5 秒防抖窗口过去。
+  // 工作稿必须由页面唯一保存协调器显式续行；即使监听器尚未挂载，
+  // 也不允许 UpdateNotifier 在 2.5 秒后盲刷工作稿。
   assert.match(notifier, /HOME_NAVIGATION_EVENT/);
+  assert.match(notifier, /isProtectedDraftWorkspacePath/);
+  assert.match(notifier, /data-v04-page=\\?"workspace/);
+  assert.match(notifier, /navigationWasNotTakenOver && !v04WorkspaceMustTakeOver/);
   assert.match(notifier, /const AUTOSAVE_FLUSH_DELAY_MS = 2500;/);
   assert.match(notifier, /window\.setTimeout\(reload, AUTOSAVE_FLUSH_DELAY_MS\)/);
+  assert.match(notifier, /RELOAD_TAKEOVER_TIMEOUT_MS/);
   assert.match(notifier, /data\.version !== version/);
   assert.match(notifier, /visibilitychange/);
   assert.match(styles, /\.update-toast \{/);
