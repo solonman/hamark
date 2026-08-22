@@ -13,8 +13,11 @@ import {
 
 class WritableStorage {
   values = new Map<string, string>();
+  get length() { return this.values.size; }
   setItem(key: string, value: string) { this.values.set(key, value); }
+  getItem(key: string) { return this.values.get(key) ?? null; }
   removeItem(key: string) { this.values.delete(key); }
+  key(index: number) { return [...this.values.keys()][index] ?? null; }
 }
 
 const fullEnvironment = (overrides: Partial<V04BrowserEnvironment> = {}): V04BrowserEnvironment => ({
@@ -69,7 +72,13 @@ test("missing structured clone, UUID, lifecycle and observers fail before a V1.9
 });
 
 test("blocked storage and absent, rejected or hanging Web Locks fail closed", async () => {
-  const brokenStorage = { setItem() { throw new Error("blocked"); }, removeItem() {} };
+  const brokenStorage = {
+    get length() { return 0; },
+    setItem() { throw new Error("blocked"); },
+    getItem() { return null; },
+    removeItem() {},
+    key() { return null; },
+  };
   const absent = await probeV04BrowserCompatibility({
     mode: "EDIT",
     environment: fullEnvironment({ sessionStorage: brokenStorage, localStorage: null, lockManager: null }),
@@ -106,6 +115,113 @@ test("blocked storage and absent, rejected or hanging Web Locks fail closed", as
   assert.deepEqual(hanging.issues, ["WEB_LOCKS_UNAVAILABLE"]);
   assert.equal((hangingSignal as AbortSignal | null)?.aborted, true);
   assert(Date.now() - startedAt < 250, "a hanging capability probe must not hang the first workspace GET");
+});
+
+test("editing storage probes verify readback, deletion and local key enumeration before children mount", async () => {
+  type StorageFactory = () => WritableStorage;
+  const cases: Array<{
+    name: string;
+    issue: "SESSION_STORAGE_UNAVAILABLE" | "LOCAL_STORAGE_UNAVAILABLE";
+    target: "sessionStorage" | "localStorage";
+    makeStorage: StorageFactory;
+    removalUnavailable?: boolean;
+  }> = [
+    {
+      name: "session getItem throws",
+      issue: "SESSION_STORAGE_UNAVAILABLE",
+      target: "sessionStorage",
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        getItem() { throw new Error("blocked"); },
+      }),
+    },
+    {
+      name: "session getItem returns the wrong value",
+      issue: "SESSION_STORAGE_UNAVAILABLE",
+      target: "sessionStorage",
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        getItem() { return "wrong"; },
+      }),
+    },
+    {
+      name: "session remove is a no-op",
+      issue: "SESSION_STORAGE_UNAVAILABLE",
+      target: "sessionStorage",
+      removalUnavailable: true,
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        removeItem() { /* deliberately does not remove */ },
+      }),
+    },
+    {
+      name: "local getItem throws",
+      issue: "LOCAL_STORAGE_UNAVAILABLE",
+      target: "localStorage",
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        getItem() { throw new Error("blocked"); },
+      }),
+    },
+    {
+      name: "local length throws",
+      issue: "LOCAL_STORAGE_UNAVAILABLE",
+      target: "localStorage",
+      makeStorage: () => {
+        const storage = new WritableStorage();
+        Object.defineProperty(storage, "length", { get() { throw new Error("blocked"); } });
+        return storage;
+      },
+    },
+    {
+      name: "local key enumeration throws",
+      issue: "LOCAL_STORAGE_UNAVAILABLE",
+      target: "localStorage",
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        key() { throw new Error("blocked"); },
+      }),
+    },
+    {
+      name: "local enumeration cannot find the probe key",
+      issue: "LOCAL_STORAGE_UNAVAILABLE",
+      target: "localStorage",
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        key() { return "an-existing-unrelated-key"; },
+      }),
+    },
+    {
+      name: "local remove is a no-op",
+      issue: "LOCAL_STORAGE_UNAVAILABLE",
+      target: "localStorage",
+      removalUnavailable: true,
+      makeStorage: () => Object.assign(new WritableStorage(), {
+        removeItem() { /* deliberately does not remove */ },
+      }),
+    },
+  ];
+
+  for (const storageCase of cases) {
+    const storage = storageCase.makeStorage();
+    const result = await probeV04BrowserCompatibility({
+      mode: "EDIT",
+      environment: fullEnvironment({ [storageCase.target]: storage }),
+    });
+    assert.equal(result.supported, false, storageCase.name);
+    assert.deepEqual(result.issues, [storageCase.issue], storageCase.name);
+    const probeRemains = [...storage.values.keys()].some((key) => key.startsWith("hamark:v04:probe:"));
+    assert.equal(
+      probeRemains,
+      storageCase.removalUnavailable ?? false,
+      `${storageCase.name}: cleanup is mandatory whenever storage removal actually works`,
+    );
+  }
+
+  const gate = await readFile(
+    new URL("../components/v04/V04BrowserCompatibilityGate.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(gate, /if \(supported === null\) return <V04BrowserCompatibilityMessage/);
+  assert.match(gate, /if \(!supported\) return <V04BrowserCompatibilityMessage/);
+  assert.ok(
+    gate.indexOf("if (!supported)") < gate.indexOf("return children"),
+    "negative storage results must block before identity/workspace children mount",
+  );
 });
 
 test("known legacy office engines and IE/EdgeHTML are server-blocked before client editing", () => {

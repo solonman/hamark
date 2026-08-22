@@ -29,7 +29,7 @@ export type V04BrowserCapabilityIssue =
   | "LOCAL_STORAGE_UNAVAILABLE"
   | "WEB_LOCKS_UNAVAILABLE";
 
-type ProbeStorage = Pick<Storage, "setItem" | "removeItem">;
+type ProbeStorage = Pick<Storage, "setItem" | "getItem" | "removeItem" | "key" | "length">;
 
 export type V04BrowserLockManager = {
   request: <T>(
@@ -125,19 +125,34 @@ function staticIssues(environment: V04BrowserEnvironment): V04BrowserCapabilityI
   return issues;
 }
 
-function probeStorage(storage: ProbeStorage | null, key: string) {
+function probeStorage(input: {
+  storage: ProbeStorage | null;
+  key: string;
+  value: string;
+  enumerate: boolean;
+}) {
+  const { storage, key, value, enumerate } = input;
   if (!storage) return false;
-  let wrote = false;
   try {
-    storage.setItem(key, "1");
-    wrote = true;
-    storage.removeItem(key);
-    return true;
-  } catch {
-    if (wrote) {
-      try { storage.removeItem(key); } catch { /* fail closed below */ }
+    storage.setItem(key, value);
+    if (storage.getItem(key) !== value) return false;
+    if (enumerate) {
+      let foundProbeKey = false;
+      const length = storage.length;
+      for (let index = 0; index < length; index += 1) {
+        if (storage.key(index) === key) {
+          foundProbeKey = true;
+          break;
+        }
+      }
+      if (!foundProbeKey) return false;
     }
+    storage.removeItem(key);
+    return storage.getItem(key) === null;
+  } catch {
     return false;
+  } finally {
+    try { storage.removeItem(key); } catch { /* best-effort cleanup; probe fails closed above */ }
   }
 }
 
@@ -175,11 +190,22 @@ export async function probeV04BrowserCompatibility(input: {
   const environment = input.environment ?? getV04BrowserEnvironment();
   const issues = staticIssues(environment);
   if (input.mode === "EDIT") {
-    const probeId = environment.createId?.() ?? "unavailable";
-    if (!probeStorage(environment.sessionStorage, `hamark:v04:probe:session:${probeId}`)) {
+    const sessionProbeId = environment.createId?.() ?? "unavailable-session";
+    const localProbeId = environment.createId?.() ?? "unavailable-local";
+    if (!probeStorage({
+      storage: environment.sessionStorage,
+      key: `hamark:v04:probe:session:${sessionProbeId}`,
+      value: `hamark:v04:probe-value:session:${sessionProbeId}`,
+      enumerate: false,
+    })) {
       issues.push("SESSION_STORAGE_UNAVAILABLE");
     }
-    if (!probeStorage(environment.localStorage, `hamark:v04:probe:local:${probeId}`)) {
+    if (!probeStorage({
+      storage: environment.localStorage,
+      key: `hamark:v04:probe:local:${localProbeId}`,
+      value: `hamark:v04:probe-value:local:${localProbeId}`,
+      enumerate: true,
+    })) {
       issues.push("LOCAL_STORAGE_UNAVAILABLE");
     }
     if (!await probeWebLock(environment, input.lockTimeoutMs ?? 1_500)) {
