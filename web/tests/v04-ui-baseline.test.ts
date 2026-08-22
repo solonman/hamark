@@ -150,11 +150,11 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(css, /\.readOnlyEditor input\[readonly\]/);
   assert.match(workspace, /data-v04-edit-access-blocked/);
   assert.match(workspace, /刷新并重试编辑权/);
-  assert.match(workspace, /const visibleSaveLabel = !hasDraftEditCapability/,
+  assert.match(workspace, /const visibleSaveLabel = recoveryPending[\s\S]*!hasDraftEditCapability/,
     "a readonly workspace must not present a stale server save label as editable success");
   assert.match(workspace, /当前为只读，取得编辑权后才能提交/,
     "publication completeness must not masquerade as submit readiness while edit access is absent");
-  assert.match(workspace, /aria-describedby=\{!hasDraftEditCapability \? "v04-edit-access-message"/,
+  assert.match(workspace, /aria-describedby=\{recoveryPending \? "v04-recovery-message" : !hasDraftEditCapability \? "v04-edit-access-message"/,
     "a focused readonly missing field must announce the adjacent access reason");
   assert.match(css, /\.editAccessBanner \{ position: sticky/,
     "a deep missing-field location keeps the readonly reason in the field viewport");

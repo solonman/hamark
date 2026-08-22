@@ -196,6 +196,22 @@ export function classifyV04RecoveryConfirmation(
   return "CONFIRMED" as const;
 }
 
+export function planV04RecoveryMerge(
+  originalChanges: readonly V04Change[],
+  serverValue: (targetKey: string) => unknown,
+  localValue: (targetKey: string) => unknown,
+) {
+  const server = planV04ThreeWayChanges(originalChanges, serverValue);
+  if (server.conflicts.length) {
+    return { kind: "SERVER_CONFLICT" as const, conflicts: server.conflicts, changes: [] as V04Change[] };
+  }
+  const local = planV04ThreeWayChanges(originalChanges, localValue);
+  if (local.conflicts.length) {
+    return { kind: "LOCAL_CONFLICT" as const, conflicts: local.conflicts, changes: [] as V04Change[] };
+  }
+  return { kind: "MERGE" as const, conflicts: [] as string[], changes: local.changes };
+}
+
 export function atomicallyClearConfirmedV04RecoveryRecords<T>(
   records: readonly T[],
   isConfirmed: (record: T) => boolean,

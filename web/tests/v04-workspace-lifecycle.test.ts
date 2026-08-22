@@ -4,6 +4,8 @@ import {
   decideV04FreshWorkspaceSync,
   decideV04FreshWorkspaceTransition,
   decideV04InternalNavigation,
+  decideV04ManualSave,
+  effectiveV04SaveStatus,
   ensureV04NavigationCoordinator,
   hasV04ServerDraftChanged,
   installV04NavigationTakeover,
@@ -21,6 +23,7 @@ import {
   classifyV04RecoveryConfirmation,
   clearSelectedV04RecoveryRecord,
   planV04ThreeWayChanges,
+  planV04RecoveryMerge,
   shouldDisableV04Submission,
   V04LatestSaveCoordinator,
 } from "../lib/v04-save-coordinator";
@@ -433,6 +436,92 @@ test("recovery confirmation distinguishes absorbed, pending and conflicting loca
     assert.deepEqual({ flushes, navigations }, { flushes: 0, navigations: 0 });
     assert.match(v04NavigationFailureMessage(result), /恢复副本/);
   });
+});
+
+test("a newer or unresolved recovery fact always outranks an older SAVED timestamp", () => {
+  const serverSaved = facts({
+    saveStatus: "SAVED",
+    editVersion: 3,
+    savedVersion: 3,
+    recoveryPending: true,
+  });
+  assert.equal(effectiveV04SaveStatus(serverSaved), "RECOVERY_PENDING");
+  assert.equal(decideV04ManualSave(serverSaved), "BLOCK_RECOVERY");
+  assert.equal(decideV04InternalNavigation(serverSaved), "BLOCK_RECOVERY");
+
+  const reactFrameBehind = facts({
+    saveStatus: "DIRTY",
+    editVersion: 3,
+    savedVersion: 3,
+    recoveryPending: true,
+  });
+  assert.equal(effectiveV04SaveStatus(reactFrameBehind), "RECOVERY_PENDING",
+    "normalization must never turn a pending recovery back into SAVED");
+});
+
+test("fill, manual save, fresh confirmation, leave and re-enter read the server value with no recovery", async () => {
+  const change = {
+    targetKey: "facts.creativeMotif", targetLabel: "创意母题", valueType: "TEXT" as const,
+    beforeValue: "", afterValue: "服务器已确认的最新填写",
+  };
+  const server = new Map<string, unknown>([[change.targetKey, change.beforeValue]]);
+  const recoveryStorage = new Set(["current-tab-recovery"]);
+  const coordinator = new V04LatestSaveCoordinator<typeof change>();
+  coordinator.stage({ version: 1, draft: change });
+  assert.equal(await coordinator.flush(async (attempt) => {
+    server.set(attempt.draft.targetKey, attempt.draft.afterValue);
+    return true;
+  }), true);
+  assert.equal(classifyV04RecoveryConfirmation([change], (key) => server.get(key)), "CONFIRMED");
+  const clearance = atomicallyClearConfirmedV04RecoveryRecords(
+    [...recoveryStorage],
+    () => classifyV04RecoveryConfirmation([change], (key) => server.get(key)) === "CONFIRMED",
+    (record) => recoveryStorage.delete(record),
+    (record) => { recoveryStorage.add(record); return true; },
+  );
+  assert.equal(clearance, "CLEARED");
+  assert.equal(recoveryStorage.size, 0);
+  const reentered = facts({
+    saveStatus: "SAVED", editVersion: 0, savedVersion: 0, recoveryPending: false,
+  });
+  assert.equal(effectiveV04SaveStatus(reentered), "SAVED");
+  assert.equal(server.get(change.targetKey), "服务器已确认的最新填写");
+});
+
+test("independent recovery copies merge only non-overlapping targets and retain same-target conflicts", () => {
+  const server = new Map<string, unknown>([["facts.x", "x0"], ["facts.y", "y0"]]);
+  const local = new Map(server);
+  const first = [{
+    targetKey: "facts.x", targetLabel: "X", valueType: "TEXT" as const,
+    beforeValue: "x0", afterValue: "x-from-a",
+  }];
+  const second = [{
+    targetKey: "facts.y", targetLabel: "Y", valueType: "TEXT" as const,
+    beforeValue: "y0", afterValue: "y-from-b",
+  }];
+  const mergeA = planV04RecoveryMerge(first, (key) => server.get(key), (key) => local.get(key));
+  assert.equal(mergeA.kind, "MERGE");
+  for (const change of mergeA.changes) local.set(change.targetKey, change.afterValue);
+  const mergeB = planV04RecoveryMerge(second, (key) => server.get(key), (key) => local.get(key));
+  assert.equal(mergeB.kind, "MERGE");
+  for (const change of mergeB.changes) local.set(change.targetKey, change.afterValue);
+  assert.deepEqual(Object.fromEntries(local), { "facts.x": "x-from-a", "facts.y": "y-from-b" });
+
+  const sameTarget = planV04RecoveryMerge(
+    [{
+      targetKey: "facts.x", targetLabel: "X", valueType: "TEXT" as const,
+      beforeValue: "x0", afterValue: "x-from-other-tab",
+    }],
+    (key) => server.get(key),
+    (key) => local.get(key),
+  );
+  assert.equal(sameTarget.kind, "LOCAL_CONFLICT");
+  assert.deepEqual(sameTarget.conflicts, ["facts.x"]);
+
+  server.set("facts.y", "server-new-y");
+  const serverConflict = planV04RecoveryMerge(second, (key) => server.get(key), (key) => local.get(key));
+  assert.equal(serverConflict.kind, "SERVER_CONFLICT");
+  assert.deepEqual(serverConflict.conflicts, ["facts.y"]);
 });
 
 test("confirmed recovery storage, ref and state advance as one fail-closed decision", () => {

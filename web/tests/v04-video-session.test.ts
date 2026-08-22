@@ -11,6 +11,7 @@ import {
   writeV04Recovery,
   type V04RecoveryIdentity,
 } from "../lib/v04-draft-save-state.ts";
+import { planV04EditAccessRecovery } from "../lib/v04-save-coordinator.ts";
 
 class MemoryStorage {
   constructor(private readonly values = new Map<string, string>()) {}
@@ -244,6 +245,58 @@ test("rotated documents keep independent recovery keys and both copies stay disc
   assert.equal(found.available, true);
   if (found.available) assert.deepEqual(new Set(found.records.map((record) => record.identity.tabId)),
     new Set([original.recoveryTabId, rotated]));
+});
+
+test("a fail-closed temporary identity can rediscover the old draft and only takes over after the old lease is gone", async () => {
+  const storage = new MemoryStorage();
+  const createFirst = ids("123e4567-e89b-42d3-a456-426614174160");
+  const createReentry = ids("123e4567-e89b-42d3-a456-426614174161");
+  const first = await claimV04DocumentIdentity({
+    caseId, storage: seededStorage(), lockManager: null, createId: createFirst,
+  });
+  const scope = (tabId: string): V04RecoveryIdentity => ({
+    userId: "user-test", workspaceId: "workspace-test", roundId: "round-test",
+    tabId, payloadSchemaVersion: "V04_PAYLOAD_V1",
+  });
+  assert.equal(writeV04Recovery(storage, {
+    identity: scope(first.identity.recoveryTabId),
+    serverRevision: 5,
+    serverHash: "b".repeat(64),
+    basePayload: { value: "server" },
+    payload: { value: "latest-local" },
+    dirtyTargets: ["facts.creativeMotif"],
+    writtenAt: new Date().toISOString(),
+  }), true);
+
+  const reentry = await claimV04DocumentIdentity({
+    caseId, storage: seededStorage(), lockManager: null, createId: createReentry,
+  });
+  assert.equal(first.failClosed, true);
+  assert.equal(reentry.failClosed, true);
+  assert.notEqual(reentry.identity.workspaceTabToken, first.identity.workspaceTabToken,
+    "an uncertain reload must not impersonate the prior document lease");
+  assert.notEqual(reentry.identity.recoveryTabId, first.identity.recoveryTabId);
+
+  const found = discoverV04Recoveries(storage, [{
+    userId: "user-test", workspaceId: "workspace-test", roundId: "round-test",
+    payloadSchemaVersion: "V04_PAYLOAD_V1",
+  }]);
+  assert.equal(found.available, true);
+  if (found.available) {
+    assert.equal(found.records.length, 1);
+    assert.deepEqual(found.records[0].dirtyTargets, ["facts.creativeMotif"]);
+  }
+
+  const now = Date.now();
+  assert.deepEqual(planV04EditAccessRecovery({
+    logicalEmpty: false, canMaterialize: false, canEdit: false,
+    canAcquireLease: false, member: true,
+    leaseExpiresAt: new Date(now + 20_000).toISOString(),
+  }, now), { state: "WAIT_FOR_LEASE", retryAfterMs: 20_250 });
+  assert.deepEqual(planV04EditAccessRecovery({
+    logicalEmpty: false, canMaterialize: false, canEdit: false,
+    canAcquireLease: true, member: true, leaseExpiresAt: null,
+  }, now), { state: "ACQUIRE_NOW", retryAfterMs: 250 });
 });
 
 test("disposing an abort-aware pending claim rejects before a late result can become an owner", async () => {

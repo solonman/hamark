@@ -217,3 +217,21 @@ test("an older confirmed save never clears a recovery copy that contains a newer
   }, new Date("2026-08-22T08:00:01.000Z")).kind, "CONFLICT",
   "a partial server advance preserves the newest local copy for three-way comparison");
 });
+
+test("re-entry publishes RECOVERY_DISCOVERED instead of an older server SAVED fact", () => {
+  let state = reduceV04DraftSaveState(initialV04DraftSaveState(), {
+    type: "SERVER_CONFIRMED",
+    editVersion: 0,
+    savedAt: "2026-08-22T07:25:29.375Z",
+  });
+  assert.equal(state.status, "SAVED");
+  state = reduceV04DraftSaveState(state, {
+    type: "RECOVERY_DISCOVERED",
+    conflict: true,
+    savedAt: "2026-08-22T07:25:29.375Z",
+  });
+  assert.equal(state.status, "CONFLICT");
+  assert.equal(state.errorCode, "RECOVERY_PENDING");
+  assert.equal(state.savedAt, "2026-08-22T07:25:29.375Z",
+    "the timestamp remains historical server evidence, not a claim that the recovery was absorbed");
+});

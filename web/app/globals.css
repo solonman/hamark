@@ -691,7 +691,56 @@ a {
   padding: clamp(24px, 4vw, 44px);
   border-radius: 24px;
   background: var(--paper);
+  color: #11120f;
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.36);
+}
+
+.upload-dialog .eyebrow,
+.upload-dialog .file-drop small,
+.upload-dialog .upload-progress span {
+  color: #55574f;
+}
+
+.upload-dialog .file-drop,
+.upload-dialog .form-grid label > span,
+.upload-dialog .rights-check,
+.upload-dialog .dialog-actions button {
+  color: #242620;
+}
+
+.upload-dialog .file-drop {
+  border-color: #66675f;
+}
+
+.upload-dialog .form-grid input,
+.upload-dialog .form-grid textarea {
+  border-bottom-color: #66675f;
+  color: #11120f;
+  caret-color: #11120f;
+}
+
+.upload-dialog .form-grid input:focus,
+.upload-dialog .form-grid textarea:focus {
+  border-color: #9f2818;
+}
+
+.upload-dialog .form-grid input::placeholder,
+.upload-dialog .form-grid textarea::placeholder {
+  color: #5b5d55;
+  opacity: 1;
+}
+
+.upload-dialog .file-drop:disabled,
+.upload-dialog .form-grid input:disabled,
+.upload-dialog .form-grid textarea:disabled,
+.upload-dialog .rights-check:has(input:disabled) {
+  color: #4f514a;
+  opacity: 1;
+}
+
+.upload-dialog .form-error {
+  color: #9f2818;
+  font-weight: 700;
 }
 
 .dialog-head {

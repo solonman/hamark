@@ -40,8 +40,10 @@ test("formal V0.4 workspace invalidates stale leases, preserves local recovery a
     "fresh server comparison must retain the revision/hash on which the local draft was based");
   assert.match(source, /serverRevision: draftBaseRevisionRef\.current[\s\S]*serverHash: draftBaseHashRef\.current/,
     "a recovery copy must record the original server base rather than relabeling a stale draft as fresh");
-  assert.match(source, /getWorkspaceSession\(videoId\)\.then\(\(session\)[\s\S]*tabToken\.current = session\.tabToken[\s\S]*recoveryTabIdRef\.current = session\.recoveryTabId[\s\S]*return refreshWorkspace\(\)/,
+  assert.match(source, /getWorkspaceSession\(videoId\)\.then\(\(session\)[\s\S]*tabToken\.current = session\.tabToken[\s\S]*recoveryTabIdRef\.current = session\.recoveryTabId[\s\S]*return loadWorkspace\(\)/,
     "the atomic document identity must be claimed before the first workspace GET");
+  assert.match(source, /discoverV04Recoveries[\s\S]*RECOVERY_DISCOVERED[\s\S]*setModel\(next\)/,
+    "initial load must publish recovery facts before exposing the server model as saved");
   assert.match(source, /writeV04Recovery\(storage/);
   assert.match(source, /discoverV04Recoveries<V04UiDraft, V04Payload>\(storage/);
   assert.match(source, /恢复本地草稿/);

@@ -70,6 +70,7 @@ export type V04DraftSaveAction =
   | { type: "SAVE_FAILED"; requestToken: number; retryable: boolean; errorCode: string }
   | { type: "SAVE_OFFLINE"; requestToken: number }
   | { type: "SAVE_CONFLICT"; requestToken: number }
+  | { type: "RECOVERY_DISCOVERED"; conflict: boolean; savedAt: string }
   | { type: "SERVER_CONFIRMED"; editVersion: number; savedAt: string }
   | { type: "RESET_FROM_SERVER"; savedAt: string }
   | { type: "RESET_ERROR" };
@@ -136,6 +137,14 @@ export function reduceV04DraftSaveState(
     case "SAVE_CONFLICT":
       if (action.requestToken !== state.activeRequestToken) return state;
       return { ...state, status: "CONFLICT", activeRequestEditVersion: null };
+    case "RECOVERY_DISCOVERED":
+      return {
+        ...state,
+        status: action.conflict ? "CONFLICT" : "DIRTY",
+        activeRequestEditVersion: null,
+        savedAt: action.savedAt,
+        errorCode: "RECOVERY_PENDING",
+      };
     case "SERVER_CONFIRMED":
       return {
         ...state,

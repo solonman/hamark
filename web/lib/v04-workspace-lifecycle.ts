@@ -9,11 +9,20 @@ export type V04LocalDraftFacts = {
 };
 
 export function normalizeV04LocalDraftFacts(input: V04LocalDraftFacts): V04LocalDraftFacts {
-  if (!input.saveInFlight && input.editVersion <= input.savedVersion &&
+  if (!input.recoveryPending && !input.saveInFlight && input.editVersion <= input.savedVersion &&
     (input.saveStatus === "DIRTY" || input.saveStatus === "SAVING")) {
     return { ...input, saveStatus: "SAVED" };
   }
   return input;
+}
+
+export function effectiveV04SaveStatus(input: V04LocalDraftFacts) {
+  if (input.recoveryPending) return "RECOVERY_PENDING" as const;
+  return normalizeV04LocalDraftFacts(input).saveStatus;
+}
+
+export function decideV04ManualSave(input: V04LocalDraftFacts) {
+  return input.recoveryPending ? "BLOCK_RECOVERY" as const : "SAVE" as const;
 }
 
 export function isV04LocalDraftClean(input: V04LocalDraftFacts) {

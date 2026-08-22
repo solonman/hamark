@@ -35,6 +35,7 @@ import {
   atomicallyClearConfirmedV04RecoveryRecords,
   clearSelectedV04RecoveryRecord,
   planV04EditAccessRecovery,
+  planV04RecoveryMerge,
   planV04ThreeWayChanges,
   runV04LeaseBoundMutationWithSingleRecovery,
   shouldDisableV04Submission,
@@ -43,6 +44,8 @@ import {
 } from "@/lib/v04-save-coordinator";
 import {
   decideV04FreshWorkspaceTransition,
+  decideV04ManualSave,
+  effectiveV04SaveStatus,
   ensureV04NavigationCoordinator,
   installV04NavigationTakeover,
   normalizeV04LocalDraftFacts,
@@ -91,6 +94,10 @@ const pathKeys = {
   PERCEPTION: ["perceptionRule", "repetitionVariation", "audiovisualRelation", "payoff", "mainCarrier"],
 } as const;
 const RECOVERY_SUBMIT_BLOCKED_MESSAGE = "仍有未吸收、冲突或尚未安全清理的本地恢复副本；请先恢复、对照或继续使用服务器版本，系统不会创建提交。";
+
+function recoveryRecordKey(record: V04RecoveryRecord<V04UiDraft, V04Payload>) {
+  return `${record.identity.userId}:${record.identity.workspaceId}:${record.identity.roundId}:${record.identity.tabId}:${record.writtenAt}`;
+}
 
 function getBrowserStorage(kind: "localStorage" | "sessionStorage") {
   if (typeof window === "undefined") return null;
@@ -153,8 +160,11 @@ export default function V04WorkspaceClient({
   const materializeKeyRef = useRef(`materialize-${videoId}-${crypto.randomUUID()}`);
   const recoveryTabIdRef = useRef("");
   const recoveryIdentityRef = useRef<V04RecoveryIdentity | null>(null);
+  const recoveryRecordsAwaitingConfirmationRef = useRef<Array<V04RecoveryRecord<V04UiDraft, V04Payload>>>([]);
   const [recoveryPrompt, setRecoveryPrompt] = useState<RecoveryPrompt | null>(null);
   const recoveryPromptRef = useRef<RecoveryPrompt | null>(null);
+  const [recoveryIntegrityBlocked, setRecoveryIntegrityBlocked] = useState(false);
+  const recoveryIntegrityBlockedRef = useRef(false);
   const [recoveryStorageAvailable, setRecoveryStorageAvailable] = useState(true);
   const [documentIdentityNotice, setDocumentIdentityNotice] = useState("");
   const [editAccessNotice, setEditAccessNotice] = useState("");
@@ -179,9 +189,10 @@ export default function V04WorkspaceClient({
   const focusContext = useRef<{ element: HTMLElement; scrollY: number } | null>(null);
   const item = useMemo(() => model ? v04WorkspaceToUiCase(model) : null, [model]);
   const hasDraftEditCapability = Boolean(model?.viewerCapabilities.canEdit || (model?.logicalEmpty && model.viewerCapabilities.canMaterialize));
+  const recoveryPending = Boolean(recoveryPrompt) || recoveryIntegrityBlocked;
   const canEdit = canMutateV04Draft({
     capability: hasDraftEditCapability,
-    restoring,
+    restoring: restoring || recoveryPending,
     submitting,
     navigating,
   });
@@ -223,8 +234,13 @@ export default function V04WorkspaceClient({
     saveInFlight: saveCoordinatorRef.current.isRunning,
     editVersion: editVersionRef.current,
     savedVersion: saveCoordinatorRef.current.savedVersion,
-    recoveryPending: Boolean(recoveryPromptRef.current),
+    recoveryPending: Boolean(recoveryPromptRef.current) || recoveryIntegrityBlockedRef.current,
   }), []);
+
+  const setRecoveryIntegrity = useCallback((blocked: boolean) => {
+    recoveryIntegrityBlockedRef.current = blocked;
+    setRecoveryIntegrityBlocked(blocked);
+  }, []);
 
   const recoveryIdentityFor = useCallback((server: V04ServerWorkspaceModel): V04RecoveryIdentity => {
     if (!recoveryTabIdRef.current) throw new Error("V04_DOCUMENT_IDENTITY_NOT_READY");
@@ -292,7 +308,9 @@ export default function V04WorkspaceClient({
     if (!storage || !writeV04Recovery(storage, record)) {
       setRecoveryStorageAvailable(false);
       setActionError("本机恢复副本未能写入；请保持页面打开并立即手动保存。");
+      return null;
     }
+    setRecoveryStorageAvailable(true);
     return record;
   }, [recoveryIdentityFor]);
 
@@ -307,6 +325,7 @@ export default function V04WorkspaceClient({
       setRecoveryStorageAvailable(false);
       return false;
     }
+    setRecoveryStorageAvailable(true);
     return true;
   }, []);
 
@@ -329,48 +348,62 @@ export default function V04WorkspaceClient({
 
   const reconcileConfirmedRecoveries = useCallback((server: V04ServerWorkspaceModel) => {
     const prompt = recoveryPromptRef.current;
-    if (!prompt) {
-      if (recoveryIdentityRef.current) clearRecoveryRecord(recoveryIdentityRef.current);
-      return true;
-    }
     const storage = getBrowserStorage("localStorage");
     if (!storage) {
       setRecoveryStorageAvailable(false);
+      setRecoveryIntegrity(true);
       return false;
     }
+    const records = new Map<string, V04RecoveryRecord<V04UiDraft, V04Payload>>();
+    for (const record of [
+      ...recoveryRecordsAwaitingConfirmationRef.current,
+      ...(prompt?.records ?? []),
+    ]) records.set(recoveryRecordKey(record), record);
+    if (recoveryIdentityRef.current) {
+      const activeRecord = readV04Recovery<V04UiDraft, V04Payload>(storage, recoveryIdentityRef.current);
+      if (activeRecord?.dirtyTargets.length) records.set(recoveryRecordKey(activeRecord), activeRecord);
+    }
+    if (!records.size) {
+      setRecoveryIntegrity(false);
+      return true;
+    }
+    const candidates = [...records.values()];
     const clearance = atomicallyClearConfirmedV04RecoveryRecords(
-      prompt.records,
+      candidates,
       (record) => recoveryRecordIsConfirmed(record, server),
       (record) => clearV04Recovery(storage, record.identity),
       (record) => writeV04Recovery(storage, record),
     );
     if (clearance === "CLEARED") {
+      recoveryRecordsAwaitingConfirmationRef.current = [];
       recoveryPromptRef.current = null;
       setRecoveryPrompt(null);
+      setRecoveryStorageAvailable(true);
+      setRecoveryIntegrity(false);
       return true;
     }
-    if (clearance === "STORAGE_FAILED") setRecoveryStorageAvailable(false);
-    if (clearance === "UNCONFIRMED") {
-      const selectedIndex = Math.max(0, prompt.records.indexOf(prompt.record));
-      const record = prompt.records[selectedIndex] ?? prompt.records[0];
-      if (record) {
-        const decision = decideV04Recovery(record, {
-          revision: server.draftRevision,
-          hash: server.draftContentHash,
-        });
-        const nextPrompt: RecoveryPrompt = {
-          ...prompt,
-          kind: decision.kind === "RESTORE_AVAILABLE" ? "RESTORE_AVAILABLE" : "CONFLICT",
-          record,
-          selectedIndex,
-          comparing: prompt.records.length > 1 || decision.kind !== "RESTORE_AVAILABLE",
-        };
-        recoveryPromptRef.current = nextPrompt;
-        setRecoveryPrompt(nextPrompt);
-      }
+    if (clearance === "STORAGE_FAILED") {
+      setRecoveryStorageAvailable(false);
+      setRecoveryIntegrity(true);
     }
+    const selected = prompt?.record;
+    const selectedIndex = selected ? Math.max(0, candidates.findIndex((record) => recoveryRecordKey(record) === recoveryRecordKey(selected))) : 0;
+    const record = candidates[selectedIndex] ?? candidates[0];
+    const decision = decideV04Recovery(record, {
+      revision: server.draftRevision,
+      hash: server.draftContentHash,
+    });
+    const nextPrompt: RecoveryPrompt = {
+      kind: decision.kind === "RESTORE_AVAILABLE" ? "RESTORE_AVAILABLE" : "CONFLICT",
+      record,
+      records: candidates,
+      selectedIndex,
+      comparing: true,
+    };
+    recoveryPromptRef.current = nextPrompt;
+    setRecoveryPrompt(nextPrompt);
     return false;
-  }, [clearRecoveryRecord, recoveryRecordIsConfirmed]);
+  }, [recoveryRecordIsConfirmed, setRecoveryIntegrity]);
 
   const synchronizeCleanServerDraft = useCallback((server: V04ServerWorkspaceModel) => {
     const serverDraft = v04WorkspaceToUiCase(server).draft;
@@ -430,12 +463,14 @@ export default function V04WorkspaceClient({
     return decision;
   }, [localDraftFacts, persistRecovery, synchronizeCleanServerDraft]);
 
+  const loadWorkspace = useCallback(() => runV04WithTimeout((signal) =>
+    v04UiApi.workspace<V04ServerWorkspaceModel>(videoId, tabToken.current, signal)), [videoId]);
+
   const refreshWorkspace = useCallback(async () => {
-    const next = await runV04WithTimeout((signal) =>
-      v04UiApi.workspace<V04ServerWorkspaceModel>(videoId, tabToken.current, signal));
+    const next = await loadWorkspace();
     setModel(next);
     return next;
-  }, [setModel, videoId]);
+  }, [loadWorkspace, setModel]);
 
   const acquireLease = useCallback(async (current: V04ServerWorkspaceModel) => {
     if (current.logicalEmpty) {
@@ -535,7 +570,7 @@ export default function V04WorkspaceClient({
       if (session.identityFailClosed) {
         setDocumentIdentityNotice("标签页隔离能力不可确认，已为当前页面启用独立临时身份；不会复用其他标签页租约，本地恢复副本仍会保留。");
       }
-      return refreshWorkspace();
+      return loadWorkspace();
     }).then(async (next) => {
       if (!active) return;
       const serverDraft = v04WorkspaceToUiCase(next).draft;
@@ -545,7 +580,6 @@ export default function V04WorkspaceClient({
       draftRef.current = serverDraft;
       setDraftState(serverDraft);
       migrateRecoveryIdentity(next);
-      dispatchSaveState({ type: "SERVER_CONFIRMED", editVersion: 0, savedAt: next.lastSavedAt ?? "" });
       setLoadError("");
       let initialRecoveryPending = false;
       if (typeof window !== "undefined") {
@@ -589,8 +623,17 @@ export default function V04WorkspaceClient({
           initialRecoveryPending = true;
           recoveryPromptRef.current = prompt;
           setRecoveryPrompt(prompt);
+          dispatchSaveState({
+            type: "RECOVERY_DISCOVERED",
+            conflict: candidates.length > 1 || candidates.some((candidate) => candidate.kind === "CONFLICT"),
+            savedAt: next.lastSavedAt ?? "",
+          });
         }
       }
+      if (!initialRecoveryPending) {
+        dispatchSaveState({ type: "SERVER_CONFIRMED", editVersion: 0, savedAt: next.lastSavedAt ?? "" });
+      }
+      setModel(next);
       // A logical empty workspace is a read-only projection until the first
       // actual save. The save path materializes it atomically before leasing.
       if (!next.logicalEmpty) await requestEditAccess(next, { initialRecoveryPending });
@@ -598,7 +641,7 @@ export default function V04WorkspaceClient({
       if (active) setLoadError(reason instanceof V04UiApiError ? reason.message : "公共工作稿暂时无法读取。");
     });
     return () => { active = false; };
-  }, [dispatchSaveState, getWorkspaceSession, migrateRecoveryIdentity, recoveryIdentityFor, refreshWorkspace, requestEditAccess, videoId]);
+  }, [dispatchSaveState, getWorkspaceSession, loadWorkspace, migrateRecoveryIdentity, recoveryIdentityFor, requestEditAccess, setModel, videoId]);
 
   const commitSaveAttempt = useCallback(async (attempt: { version: number; draft: V04StagedDraft }) => {
     if (restoreInFlightRef.current) return false;
@@ -652,6 +695,17 @@ export default function V04WorkspaceClient({
       });
       const updated = await refreshWorkspace();
       migrateRecoveryIdentity(updated);
+      const confirmation = classifyV04RecoveryConfirmation(
+        originalChanges,
+        (targetKey) => v04PayloadTargetValue(updated.payload, targetKey),
+      );
+      if (confirmation !== "CONFIRMED") {
+        throw new V04UiApiError(
+          confirmation === "CONFLICT" ? 409 : 503,
+          confirmation === "CONFLICT" ? "REVISION_CONFLICT" : "SAVE_CONFIRMATION_FAILED",
+          "服务器尚未确认最新草稿内容，本地恢复副本保持不变。",
+        );
+      }
       const savedTime = updated.lastSavedAt ?? result?.savedAt ?? new Date().toISOString();
       dispatchSaveState({ type: "SAVE_SUCCEEDED", requestToken, editVersion: attempt.version, savedAt: savedTime });
       changeSetIdsRef.current.delete(attempt.version);
@@ -783,12 +837,12 @@ export default function V04WorkspaceClient({
   }, [editAccessRetryVersion, hasDraftEditCapability, model, restoring, resumeDraft, submitting]);
 
   useEffect(() => {
-    if (saveMachine.status !== "DIRTY") return;
+    if (saveMachine.status !== "DIRTY" || recoveryPending) return;
     const timer = window.setTimeout(() => {
       void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current);
     }, V04_AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [requestSave, saveMachine.status, saveMachine.editVersion]);
+  }, [recoveryPending, requestSave, saveMachine.status, saveMachine.editVersion]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -884,6 +938,11 @@ export default function V04WorkspaceClient({
   };
 
   const manualSave = async () => {
+    if (decideV04ManualSave(localDraftFacts()) === "BLOCK_RECOVERY") {
+      setActionError("当前存在未吸收或冲突的本地恢复副本；请先在恢复区选择要保存的草稿，系统不会保存另一份稿件。 ");
+      document.querySelector<HTMLElement>('[aria-label="本地草稿恢复"]')?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
     if (!canEdit) return;
     const active = document.activeElement as HTMLElement | null;
     const context = focusContext.current?.element === active
@@ -964,17 +1023,29 @@ export default function V04WorkspaceClient({
     setPendingLocateId(`shot-${shotId}`);
   };
   const toggleModule = (number: number) => setCollapsed((current) => { const next = new Set(current); if (next.has(number)) next.delete(number); else next.add(number); return next; });
-  const saveLabel = navigating ? "正在保存最新修改后离开…"
+  const effectiveSaveStatus = effectiveV04SaveStatus({
+    saveStatus: saveMachine.status,
+    saveInFlight: saveMachine.status === "SAVING",
+    editVersion: saveMachine.editVersion,
+    savedVersion: saveMachine.savedEditVersion,
+    recoveryPending,
+  });
+  const saveLabel = recoveryPending ? recoveryIntegrityBlocked
+    ? "未确认保存 · 本机恢复副本尚未安全清理"
+    : `未确认保存 · ${recoveryPrompt?.records.length ?? 1} 份本地恢复副本待处理`
+    : navigating ? "正在保存最新修改后离开…"
     : restoring ? "正在恢复历史版本…草稿编辑已暂时锁定"
     : submitting ? "正在保存并提交当前版本…草稿编辑已暂时锁定"
-    : saveMachine.status === "DIRTY" ? "有未保存修改"
-    : saveMachine.status === "SAVING" ? "正在保存…"
-      : saveMachine.status === "OFFLINE_LOCAL" ? "已保留本地副本 · 等待网络"
-        : saveMachine.status === "CONFLICT" ? "已保留本地副本 · 需对照"
-          : saveMachine.status === "ERROR_RETRYABLE" ? "保存未完成 · 可重试"
-            : saveMachine.status === "ERROR_FATAL" ? "保存被阻止 · 请处理"
+    : effectiveSaveStatus === "DIRTY" ? "有未保存修改"
+    : effectiveSaveStatus === "SAVING" ? "正在保存…"
+      : effectiveSaveStatus === "OFFLINE_LOCAL" ? "已保留本地副本 · 等待网络"
+        : effectiveSaveStatus === "CONFLICT" ? "已保留本地副本 · 需对照"
+          : effectiveSaveStatus === "ERROR_RETRYABLE" ? "保存未完成 · 可重试"
+            : effectiveSaveStatus === "ERROR_FATAL" ? "保存被阻止 · 请处理"
               : `已保存${saveMachine.savedAt || model?.lastSavedAt ? ` · ${saveMachine.savedAt || model?.lastSavedAt}` : ""}`;
-  const visibleSaveLabel = !hasDraftEditCapability
+  const visibleSaveLabel = recoveryPending
+    ? saveLabel
+    : !hasDraftEditCapability
     ? editAccessPending ? "正在取得编辑权…" : "只读 · 编辑权未取得"
     : saveLabel;
 
@@ -985,7 +1056,7 @@ export default function V04WorkspaceClient({
       setSubmitting(true);
       setActionError("");
       try {
-        if (recoveryPromptRef.current) {
+        if (recoveryPromptRef.current || recoveryIntegrityBlockedRef.current) {
           const fresh = await refreshWorkspace();
           if (!reconcileConfirmedRecoveries(fresh)) {
             setActionError(RECOVERY_SUBMIT_BLOCKED_MESSAGE);
@@ -1077,7 +1148,7 @@ export default function V04WorkspaceClient({
     canEdit,
     publicationReady: publication.ready,
     submitting,
-    recoveryPending: Boolean(recoveryPrompt),
+    recoveryPending,
     noChangesToSubmit: Boolean((saveMachine.status === "SAVED" || saveMachine.status === "CLEAN") &&
       model?.latestSubmission?.contentHash === model?.draftContentHash),
   });
@@ -1174,6 +1245,42 @@ export default function V04WorkspaceClient({
     }
   };
 
+  const finalizeRecoveredDraft = (current: V04ServerWorkspaceModel) => {
+    draftBasePayloadRef.current = structuredClone(current.payload);
+    draftBaseRevisionRef.current = current.draftRevision;
+    draftBaseHashRef.current = current.draftContentHash;
+    editVersionRef.current += 1;
+    dispatchSaveState({ type: "EDIT" });
+    const aggregate = persistRecovery(draftRef.current, current, current.payload);
+    if (!aggregate) {
+      setRecoveryIntegrity(true);
+      const records = recoveryRecordsAwaitingConfirmationRef.current;
+      if (records.length) {
+        const prompt: RecoveryPrompt = {
+          kind: "CONFLICT",
+          record: records[0],
+          records,
+          selectedIndex: 0,
+          comparing: true,
+        };
+        recoveryPromptRef.current = prompt;
+        setRecoveryPrompt(prompt);
+      }
+      setActionError("恢复稿已保留在当前页面，但本机副本未能安全写入；保存保持阻止，请勿关闭页面。 ");
+      return false;
+    }
+    recoveryRecordsAwaitingConfirmationRef.current.push(aggregate);
+    saveCoordinatorRef.current.stage({
+      version: editVersionRef.current,
+      draft: { draft: cloneV04UiDraft(draftRef.current), basePayload: structuredClone(current.payload) },
+    });
+    recoveryPromptRef.current = null;
+    setRecoveryPrompt(null);
+    setRecoveryIntegrity(false);
+    setActionError("已安全合并所选本地草稿；服务器的非冲突变化已保留，等待正常自动保存。 ");
+    return true;
+  };
+
   const restoreLocalRecovery = () => {
     if (!recoveryPrompt) return;
     try {
@@ -1186,34 +1293,48 @@ export default function V04WorkspaceClient({
       }
       const recoveredPayload = v04UiDraftToPayload(recoveryPrompt.record.payload, basePayload);
       const originalChanges = v04PayloadChanges(basePayload, recoveredPayload);
-      const plan = planV04ThreeWayChanges(
+      const activePayload = v04UiDraftToPayload(draftRef.current, current.payload);
+      const plan = planV04RecoveryMerge(
         originalChanges,
         (targetKey) => v04PayloadTargetValue(current.payload, targetKey),
+        (targetKey) => v04PayloadTargetValue(activePayload, targetKey),
       );
-      if (plan.conflicts.length) {
-        setRecoveryPrompt((prompt) => prompt ? { ...prompt, kind: "CONFLICT", comparing: true } : null);
-        setActionError(`服务器已有 ${plan.conflicts.length} 个同字段变化；恢复保持在对照态，未自动保存或覆盖。`);
+      if (plan.kind !== "MERGE") {
+        const nextPrompt = { ...recoveryPrompt, kind: "CONFLICT" as const, comparing: true };
+        recoveryPromptRef.current = nextPrompt;
+        setRecoveryPrompt(nextPrompt);
+        setActionError(`${plan.kind === "SERVER_CONFLICT" ? "服务器" : "另一份本地副本"}已有 ${plan.conflicts.length} 个同字段变化；恢复保持在对照态，未自动保存或覆盖。`);
         return;
       }
-      const mergedPayload = applyV04PayloadValues(current.payload, plan.changes);
+      const mergedPayload = applyV04PayloadValues(activePayload, plan.changes);
       const recovered = cloneV04UiDraft(v04WorkspaceToUiCase({ ...current, payload: mergedPayload }).draft);
       draftRef.current = recovered;
       setDraftState(recovered);
-      draftBasePayloadRef.current = structuredClone(current.payload);
-      draftBaseRevisionRef.current = current.draftRevision;
-      draftBaseHashRef.current = current.draftContentHash;
-      editVersionRef.current += 1;
-      dispatchSaveState({ type: "EDIT" });
-      persistRecovery(recovered, current, current.payload);
-      saveCoordinatorRef.current.stage({
-        version: editVersionRef.current,
-        draft: { draft: cloneV04UiDraft(recovered), basePayload: structuredClone(current.payload) },
-      });
-      recoveryPromptRef.current = null;
-      setRecoveryPrompt(null);
-      setActionError("已安全合并本地草稿；服务器的非冲突变化已保留，等待正常自动保存。");
+      recoveryRecordsAwaitingConfirmationRef.current.push(recoveryPrompt.record);
+      const remaining = recoveryPrompt.records.filter((_, index) => index !== recoveryPrompt.selectedIndex);
+      if (remaining.length) {
+        const record = remaining[0];
+        const decision = decideV04Recovery(record, {
+          revision: current.draftRevision,
+          hash: current.draftContentHash,
+        });
+        const nextPrompt: RecoveryPrompt = {
+          kind: decision.kind === "CONFLICT" ? "CONFLICT" : "RESTORE_AVAILABLE",
+          record,
+          records: remaining,
+          selectedIndex: 0,
+          comparing: true,
+        };
+        recoveryPromptRef.current = nextPrompt;
+        setRecoveryPrompt(nextPrompt);
+        setActionError(`所选恢复稿已加入待保存草稿；还有 ${remaining.length} 份独立副本，请继续逐份恢复、对照或保留服务器版本。`);
+        return;
+      }
+      finalizeRecoveredDraft(current);
     } catch {
-      setRecoveryPrompt((prompt) => prompt ? { ...prompt, comparing: true } : null);
+      const nextPrompt = recoveryPromptRef.current ? { ...recoveryPromptRef.current, comparing: true } : null;
+      recoveryPromptRef.current = nextPrompt;
+      setRecoveryPrompt(nextPrompt);
       setActionError("本地恢复副本无法安全解析；服务器版本保持不变，未自动写入。");
     }
   };
@@ -1233,10 +1354,15 @@ export default function V04WorkspaceClient({
       return;
     }
     const remaining = result.remaining;
+    setRecoveryIntegrity(false);
     if (!remaining.length) {
       recoveryPromptRef.current = null;
       setRecoveryPrompt(null);
-      if (!saveCoordinatorRef.current.isRunning && modelRef.current) {
+      if (recoveryRecordsAwaitingConfirmationRef.current.length && modelRef.current) {
+        finalizeRecoveredDraft(modelRef.current);
+        setNavigationIssue(null);
+        return;
+      } else if (!saveCoordinatorRef.current.isRunning && modelRef.current) {
         synchronizeCleanServerDraft(modelRef.current);
       }
     } else {
@@ -1268,23 +1394,25 @@ export default function V04WorkspaceClient({
       revision: modelRef.current.draftRevision,
       hash: modelRef.current.draftContentHash,
     });
-    setRecoveryPrompt({
+    const nextPrompt: RecoveryPrompt = {
       ...recoveryPrompt,
       kind: decision.kind === "CONFLICT" ? "CONFLICT" : "RESTORE_AVAILABLE",
       record,
       selectedIndex,
       comparing: true,
-    });
+    };
+    recoveryPromptRef.current = nextPrompt;
+    setRecoveryPrompt(nextPrompt);
   };
 
   if (loadError) return <main className={styles.surface} data-v04-page="workspace"><section className={styles.emptyState}><h2>公共工作稿读取失败</h2><p>{loadError}</p><Link href={links.libraryHref}>返回案例库</Link></section></main>;
   if (!item || !model) return <main className={styles.surface} data-v04-page="workspace"><section className={styles.emptyState}><h2>正在读取公共工作稿…</h2></section></main>;
-  const fixedNavigationIssue = navigationIssue ?? (recoveryPrompt
+  const fixedNavigationIssue = navigationIssue ?? (recoveryPending
     ? { message: RECOVERY_SUBMIT_BLOCKED_MESSAGE, href: "" }
     : null);
 
   return <main className={styles.surface} data-v04-page="workspace">
-    <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || submitting}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
+    <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!hasDraftEditCapability || submitting || restoring || navigating}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
     {fixedNavigationIssue && <aside className={styles.navigationAlert} role="alert" aria-live="assertive"><span>{fixedNavigationIssue.message}</span>{(recoveryPrompt || fixedNavigationIssue.href) && <button type="button" disabled={navigating} onClick={() => {
       if (recoveryPromptRef.current) {
         document.querySelector<HTMLElement>('[aria-label="本地草稿恢复"]')?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -1292,17 +1420,17 @@ export default function V04WorkspaceClient({
       }
       if (fixedNavigationIssue.href) void guardWorkspaceNavigation(() => router.push(fixedNavigationIssue.href), fixedNavigationIssue.href);
     }}>{recoveryPrompt ? "处理恢复副本" : navigating ? "正在重试…" : "重试离开"}</button>}</aside>}
-    <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在安全取得编辑权" : "当前无人编辑 · 编辑权尚未取得"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
+    <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{recoveryPending ? "本地恢复副本待处理 · 正文暂时只读" : canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在安全取得编辑权" : "当前无人编辑 · 编辑权尚未取得"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="status" aria-live="polite"><p>本机恢复副本不可用；编辑仍可继续，请保持页面打开并及时手动保存。</p></section>}
-    {recoveryPrompt && <section className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={`${record.identity.tabId}:${record.writtenAt}`}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新" : `副本 ${index + 1}`} · {record.writtenAt} · rev {record.serverRevision} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>本地草稿基于 rev {recoveryPrompt.record.serverRevision}；当前服务器为 rev {model.draftRevision}。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}</div><div><button type="button" onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" onClick={keepServerDraft}>继续使用服务器版本</button></div></section>}
+    {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={`${record.identity.tabId}:${record.writtenAt}`}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新" : `副本 ${index + 1}`} · {record.writtenAt} · rev {record.serverRevision} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>本地草稿基于 rev {recoveryPrompt.record.serverRevision}；当前服务器为 rev {model.draftRevision}。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；旧租约不会被强制释放，系统会在其到期后安全重取编辑权，全部副本按当前案例汇总供逐份处理。</p>}</div><div><button type="button" onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" onClick={keepServerDraft}>继续使用服务器版本</button></div></section>}
     {actionError && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>
     <div className={styles.workspaceGrid}>
       <V04WorkspaceNavigation draft={draft} onLocate={locate} />
       <div className={styles.editorColumn}>
         {!hasDraftEditCapability && <section id="v04-edit-access-message" className={styles.editAccessBanner} role="status" aria-live="polite" data-v04-edit-access-blocked><div><b>当前字段为只读</b><span>{editAccessNotice || (item.activeEditor ? "另一编辑端正在维护这份公共工作稿；释放后系统会自动重试。" : "系统正在核对租约状态并安全取得编辑权。")}</span></div><button type="button" disabled={editAccessPending} onClick={() => { void requestEditAccess(); }}>{editAccessPending ? "正在重试…" : "刷新并重试编辑权"}</button></section>}
-        <div aria-readonly={!canEdit} aria-describedby={!hasDraftEditCapability ? "v04-edit-access-message" : undefined} className={`${styles.editorFieldset} ${!canEdit ? styles.readOnlyEditor : ""}`} onFocusCapture={(event) => {
+        <div aria-readonly={!canEdit} aria-describedby={recoveryPending ? "v04-recovery-message" : !hasDraftEditCapability ? "v04-edit-access-message" : undefined} className={`${styles.editorFieldset} ${!canEdit ? styles.readOnlyEditor : ""}`} onFocusCapture={(event) => {
           const element = event.target as HTMLElement;
           if (!element.matches("input,textarea")) return;
           focusContext.current = { element, scrollY: window.scrollY };
@@ -1330,7 +1458,7 @@ export default function V04WorkspaceClient({
             <section className={styles.gradeSection} id="field-overallGrade" tabIndex={canEdit ? undefined : 0}><label>整体创意评价 <em>发布必填</em> <button type="button" onClick={() => openComment({ targetKey: "facts.overallCreativeRating", targetLabel: "整体创意评价", moduleLabel: "第二模块｜全片事实与核心判断", originalExcerpt: draft.overallGrade })}>批注</button></label><div>{(["S", "A", "B", "C"] as const).map((grade) => { const description = { S: "极少见的强创意；母题、张力按钮、机制与表达高度统一。", A: "明确且有力量的优秀创意；至少一个环节突出，品牌连接自然。", B: "创意成立且完成度合格；结构可识别，机制或品牌拥有权一般。", C: "主要依赖常规表达或执行包装；张力按钮不清或品牌连接牵强。" }[grade]; return <button type="button" key={grade} disabled={!canEdit} className={draft.overallGrade === grade ? styles.isSelected : ""} onClick={() => updateDraft((next) => { next.overallGrade = grade; })}><b>{grade}</b><span>{description}</span></button>; })}</div></section><Field id="field-gradeReason" label="评价理由" value={draft.gradeReason} readOnly={!canEdit} tall targetKey="facts.ratingReason" onComment={openComment} onChange={(value) => updateDraft((next) => { next.gradeReason = value; })} />
           </>}</section>
           <section className={`${styles.editorModule} ${collapsed.has(3) ? styles.collapsed : ""}`} id="module-3"><header><small>第三模块</small><h2>第三模块｜主导感知类型发生路径</h2><button type="button" onClick={() => toggleModule(3)}>{collapsed.has(3) ? "展开" : "收起"}</button></header>{!collapsed.has(3) && <><div className={styles.pathSelector}>{V04_UI_PATHS.map((path) => <button type="button" key={path.id} disabled={!canEdit} className={draft.primaryPath === path.id ? styles.isSelected : ""} onClick={() => updateDraft((next) => { next.primaryPath = path.id; next.auxiliaryPaths = next.auxiliaryPaths.filter((item) => item !== path.id); })}><b>{path.label}</b><span>点击显示 5 项条件</span></button>)}</div><div className={styles.fieldGrid}>{V04_UI_PATHS.find((path) => path.id === draft.primaryPath)?.fields.map((label, index) => <Field key={label} id={`field-path-${index}`} label={label} value={draft.primaryPathAnswers[draft.primaryPath][index]} readOnly={!canEdit} moduleLabel="第三模块｜主导感知类型发生路径" targetKey={`path.primaryDetails.${pathKeys[draft.primaryPath][index]}`} onComment={openComment} onChange={(value) => updateDraft((next) => { next.primaryPathAnswers[next.primaryPath][index] = value; })} />)}</div><section className={styles.inlineChoices}><label>辅助路径 · 与主导互斥</label>{V04_UI_PATHS.filter((path) => path.id !== draft.primaryPath).map((path) => <button type="button" key={path.id} disabled={!canEdit} className={draft.auxiliaryPaths.includes(path.id) ? styles.isSelected : ""} onClick={() => updateDraft((next) => { next.auxiliaryPaths = next.auxiliaryPaths.includes(path.id) ? next.auxiliaryPaths.filter((item) => item !== path.id) : [...next.auxiliaryPaths, path.id].slice(0, 2); if (!next.auxiliaryPathDetails[path.id]) next.auxiliaryPathDetails[path.id] = { description: "", role: "" }; })}>{pathLabels[path.id]}</button>)}</section>{draft.auxiliaryPaths.map((path) => <div className={styles.fieldGrid} key={path}><Field id={`field-aux-${path}-description`} label={`${pathLabels[path]}｜辅助路径说明`} value={draft.auxiliaryPathDetails[path]?.description ?? ""} readOnly={!canEdit} moduleLabel="第三模块｜主导感知类型发生路径" targetKey={`path.auxiliary:${path}.description`} onComment={openComment} onChange={(value) => updateDraft((next) => { next.auxiliaryPathDetails[path] = { description: value, role: next.auxiliaryPathDetails[path]?.role ?? "" }; })} /><Field id={`field-aux-${path}-role`} label={`${pathLabels[path]}｜创意作用`} value={draft.auxiliaryPathDetails[path]?.role ?? ""} readOnly={!canEdit} moduleLabel="第三模块｜主导感知类型发生路径" targetKey={`path.auxiliary:${path}.creativeRole`} onComment={openComment} onChange={(value) => updateDraft((next) => { next.auxiliaryPathDetails[path] = { description: next.auxiliaryPathDetails[path]?.description ?? "", role: value }; })} /></div>)}</>}</section>
-          <section className={styles.editorModule} id="module-4"><header><small>第四模块</small><h2>第四模块｜提交</h2><p>只显示发布完整度、未填写项目和提交动作。</p></header><section className={styles.missingPanel}><header><b>未填写项目 · {publication.missing.length}</b><span>发布必填 {publication.ready ? "全部完成" : "尚未完成"}</span></header>{publication.missing.map((missing) => <button type="button" key={missing.id} onClick={() => locate(missing.id)}><span>{missing.module} · {missing.scope}</span><b>{missing.label}</b></button>)}</section><div className={styles.submitCard}><div><h3>{!hasDraftEditCapability ? "当前为只读，取得编辑权后才能提交" : recoveryPrompt ? "请先处理本地恢复副本" : submitted ? `提交成功 · V${model.submissionCount}` : publication.ready ? saveMachine.status === "SAVED" || saveMachine.status === "CLEAN" ? "可以提交并更新案例" : "最新修改尚未完成服务器保存" : "发布条件尚未满足"}</h3><p>{recoveryPrompt ? RECOVERY_SUBMIT_BLOCKED_MESSAGE : "提交会先串行保存最新修改，再创建不可变版本；保存失败时绝不会提交。"}</p><span className={styles.inlineSaveStatus} role="status" aria-live="polite">{visibleSaveLabel}</span>{actionError && <p className={styles.inlineActionError} role="alert">{actionError}</p>}</div><button {...submitActionProps}>提交并更新案例</button></div>{model.viewerCapabilities.canExpertReview && model.latestSubmission && <section className={styles.gradeSection}><label>专家优选 · {model.expertPreference ? `当前绑定 V${model.expertPreference.submissionNumber}；选择下方等级将改选 V${model.latestSubmission.submissionNumber}` : `选择等级并精确绑定 V${model.latestSubmission.submissionNumber}`}</label><div>{(["S", "A", "B", "C"] as const).map((grade) => <button type="button" key={grade} disabled={!canEdit} className={model.expertPreference?.submissionId === model.latestSubmission?.id && model.expertPreference?.grade === grade ? styles.isSelected : ""} onClick={() => { void setExpertPreference(grade); }}>{grade}</button>)}{model.expertPreference && <button type="button" disabled={!canEdit} onClick={() => { void withdrawExpertPreference(); }}>撤回优选</button>}</div></section>}</section>
+          <section className={styles.editorModule} id="module-4"><header><small>第四模块</small><h2>第四模块｜提交</h2><p>只显示发布完整度、未填写项目和提交动作。</p></header><section className={styles.missingPanel}><header><b>未填写项目 · {publication.missing.length}</b><span>发布必填 {publication.ready ? "全部完成" : "尚未完成"}</span></header>{publication.missing.map((missing) => <button type="button" key={missing.id} onClick={() => locate(missing.id)}><span>{missing.module} · {missing.scope}</span><b>{missing.label}</b></button>)}</section><div className={styles.submitCard}><div><h3>{!hasDraftEditCapability ? "当前为只读，取得编辑权后才能提交" : recoveryPending ? "请先处理本地恢复副本" : submitted ? `提交成功 · V${model.submissionCount}` : publication.ready ? saveMachine.status === "SAVED" || saveMachine.status === "CLEAN" ? "可以提交并更新案例" : "最新修改尚未完成服务器保存" : "发布条件尚未满足"}</h3><p>{recoveryPending ? RECOVERY_SUBMIT_BLOCKED_MESSAGE : "提交会先串行保存最新修改，再创建不可变版本；保存失败时绝不会提交。"}</p><span className={styles.inlineSaveStatus} role="status" aria-live="polite">{visibleSaveLabel}</span>{actionError && <p className={styles.inlineActionError} role="alert">{actionError}</p>}</div><button {...submitActionProps}>提交并更新案例</button></div>{model.viewerCapabilities.canExpertReview && model.latestSubmission && <section className={styles.gradeSection}><label>专家优选 · {model.expertPreference ? `当前绑定 V${model.expertPreference.submissionNumber}；选择下方等级将改选 V${model.latestSubmission.submissionNumber}` : `选择等级并精确绑定 V${model.latestSubmission.submissionNumber}`}</label><div>{(["S", "A", "B", "C"] as const).map((grade) => <button type="button" key={grade} disabled={!canEdit} className={model.expertPreference?.submissionId === model.latestSubmission?.id && model.expertPreference?.grade === grade ? styles.isSelected : ""} onClick={() => { void setExpertPreference(grade); }}>{grade}</button>)}{model.expertPreference && <button type="button" disabled={!canEdit} onClick={() => { void withdrawExpertPreference(); }}>撤回优选</button>}</div></section>}</section>
         </div>
       </div>
     </div>
