@@ -63,6 +63,7 @@ import {
   type V04LocalDraftFacts,
 } from "@/lib/v04-workspace-lifecycle";
 import { useV04VideoSession } from "./V04VideoSessionProvider";
+import { V04_UNSAFE_EDITING_MESSAGE } from "@/lib/v04-browser-compat";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V04WorkspaceNavigation from "./V04WorkspaceNavigation";
 import V04ShotEditor from "./V04ShotEditor";
@@ -743,7 +744,13 @@ export default function V04WorkspaceClient({
       // actual save. The save path materializes it atomically before leasing.
       if (!next.logicalEmpty) await requestEditAccess(next, { initialRecoveryPending });
     }).catch((reason: unknown) => {
-      if (active) setLoadError(reason instanceof V04UiApiError ? reason.message : "公共工作稿暂时无法读取。");
+      if (active) setLoadError(
+        reason instanceof V04UiApiError
+          ? reason.message
+          : reason instanceof Error && reason.message === V04_UNSAFE_EDITING_MESSAGE
+            ? V04_UNSAFE_EDITING_MESSAGE
+            : "公共工作稿暂时无法读取。",
+      );
     });
     return () => { active = false; };
   }, [currentDocumentGeneration, getWorkspaceSession, loadWorkspace, migrateRecoveryIdentity, reconcileFreshWorkspace, requestEditAccess, resolveInitialRecoveryIntegrity, setModel, videoId]);

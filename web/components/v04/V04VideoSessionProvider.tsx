@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { claimV04DocumentIdentity, V04DocumentIdentityClaimRegistry } from "@/lib/v04-document-identity";
+import { V04_UNSAFE_EDITING_MESSAGE } from "@/lib/v04-browser-compat";
 import type { V04UiDraft } from "@/lib/v04-ui-model";
 
 type VideoState = { caseId: string; currentTime: number; minimized: boolean; floating: boolean };
@@ -50,6 +51,10 @@ export function V04VideoSessionProvider({ children }: { children: React.ReactNod
       session: null,
     };
     entry.promise = identityClaims.get(caseId).then((claim) => {
+      if (claim.failClosed) {
+        claim.release();
+        throw new Error(V04_UNSAFE_EDITING_MESSAGE);
+      }
       entry.session = {
         tabToken: claim.identity.workspaceTabToken,
         recoveryTabId: claim.identity.recoveryTabId,
