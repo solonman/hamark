@@ -108,6 +108,29 @@ test("detail and workspace preserve V1.9 structural interaction contracts", asyn
   assert.match(css, /\.readingThree, \.readingTwo, \.readingOne \{ grid-template-columns: 1fr; \}/);
 });
 
+test("workspace visible copy never exposes internal coordination terminology", async () => {
+  const workspace = await readFile(
+    new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url),
+    "utf8",
+  );
+  const visibleWorkspace = workspace.slice(workspace.indexOf("return <main"));
+  const recoveryStart = visibleWorkspace.indexOf("id=\"v04-recovery-message\"");
+  const recoveryEnd = visibleWorkspace.indexOf("{actionError &&", recoveryStart);
+  const recoverySurface = visibleWorkspace.slice(recoveryStart, recoveryEnd);
+
+  assert.ok(recoveryStart >= 0 && recoveryEnd > recoveryStart, "recovery surface must remain rendered");
+  assert.match(recoverySurface, /最新的本地副本/);
+  assert.match(recoverySurface, /较早的本地副本/);
+  assert.match(recoverySurface, /此副本基于较早保存状态，服务器内容已有更新/);
+  assert.match(recoverySurface, /恢复本地草稿/);
+  assert.match(recoverySurface, /对照服务器/);
+  assert.doesNotMatch(
+    visibleWorkspace,
+    /(?:租约|重新获得编辑权|\blease\b|\btoken\b|\brevision\b|\bhash\b|\brev\b)/i,
+    "rendered workspace copy must use natural language instead of internal coordination terms",
+  );
+});
+
 test("observer workspace keeps local reading interactions while every mutation remains locked", async () => {
   const [workspace, navigation, choice, shot, comments, css] = await Promise.all([
     readFile(new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url), "utf8"),
