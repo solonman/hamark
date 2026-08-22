@@ -334,14 +334,14 @@ export function planV04LiveDraftRebase(
   const conflicts: string[] = [];
   for (const change of pendingChanges) {
     const current = currentValue(change.targetKey);
-    if (Object.is(current, change.afterValue)) continue;
-    if (Object.is(current, change.beforeValue)) {
+    if (sameValue(current, change.afterValue)) continue;
+    if (sameValue(current, change.beforeValue)) {
       rebased.push(change);
       continue;
     }
     const confirmed = confirmedByTarget.get(change.targetKey);
-    if (confirmed && Object.is(current, confirmed.afterValue)) {
-      rebased.push({ ...change, beforeValue: current });
+    if (confirmed && sameValue(current, confirmed.afterValue)) {
+      rebased.push({ ...change, beforeValue: structuredClone(current) });
       continue;
     }
     conflicts.push(change.targetKey);

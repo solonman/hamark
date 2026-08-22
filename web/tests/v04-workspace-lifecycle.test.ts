@@ -531,6 +531,106 @@ test("a slow v1 confirmation advances the live base without swallowing v2", () =
   );
 });
 
+test("a slow save advances structured V0.4 values by stable deep value semantics", () => {
+  const vocabularyVersion = "AD_VIDEO_VOCABULARY_V1";
+  const cases = [
+    {
+      targetKey: "bridge.primaryRole",
+      before: { selectedOptionIds: [], customText: "", advancedText: "", vocabularyVersion },
+      v1: { selectedOptionIds: ["ESTABLISH_SCENE"], customText: "", advancedText: "", vocabularyVersion },
+      v2: { selectedOptionIds: ["ESTABLISH_SCENE", "BUILD_TENSION"], customText: "", advancedText: "", vocabularyVersion },
+    },
+    {
+      targetKey: "facts.mainMechanism.selectedOptionIds",
+      before: [],
+      v1: ["INSIGHT_RESONANCE"],
+      v2: ["INSIGHT_RESONANCE", "EMOTIONAL_RELEASE"],
+    },
+    {
+      targetKey: "path.primaryDetails",
+      before: {},
+      v1: { emotionalFoundation: "先建立情感底板" },
+      v2: { emotionalFoundation: "先建立情感底板", emotionalAccumulation: "再逐步累积" },
+    },
+    {
+      targetKey: "path.auxiliaryTypes",
+      before: [],
+      v1: [{ type: "FUN", description: "制造偏离", creativeRole: "辅助转折" }],
+      v2: [
+        { type: "FUN", description: "制造偏离", creativeRole: "辅助转折" },
+        { type: "PERCEPTION", description: "重组音画", creativeRole: "辅助兑现" },
+      ],
+    },
+  ] as const;
+
+  for (const entry of cases) {
+    const confirmed = [{
+      targetKey: entry.targetKey,
+      targetLabel: entry.targetKey,
+      valueType: "MULTI_SELECT" as const,
+      beforeValue: structuredClone(entry.before),
+      afterValue: structuredClone(entry.v1),
+    }];
+    const pending = [{
+      targetKey: entry.targetKey,
+      targetLabel: entry.targetKey,
+      valueType: "MULTI_SELECT" as const,
+      beforeValue: structuredClone(entry.before),
+      afterValue: structuredClone(entry.v2),
+    }];
+    const independentServerValue = structuredClone(entry.v1);
+    const rebased = planV04LiveDraftRebase(
+      pending,
+      confirmed,
+      () => independentServerValue,
+    );
+    assert.deepEqual(rebased.conflicts, [], `${entry.targetKey} must not conflict by reference identity`);
+    assert.equal(rebased.changes.length, 1);
+    assert.deepEqual(rebased.changes[0].beforeValue, entry.v1);
+    assert.deepEqual(rebased.changes[0].afterValue, entry.v2);
+
+    const alreadyApplied = planV04LiveDraftRebase(
+      pending,
+      confirmed,
+      () => structuredClone(entry.v2),
+    );
+    assert.deepEqual(alreadyApplied, { changes: [], conflicts: [] },
+      `${entry.targetKey} already applied must drop from the queue`);
+  }
+
+  const externalConflict = planV04LiveDraftRebase([{
+    targetKey: "path.primaryDetails",
+    targetLabel: "主导路径",
+    valueType: "MULTI_SELECT",
+    beforeValue: {},
+    afterValue: { emotionalFoundation: "本页继续填写" },
+  }], [{
+    targetKey: "path.primaryDetails",
+    targetLabel: "主导路径",
+    valueType: "MULTI_SELECT",
+    beforeValue: {},
+    afterValue: { emotionalFoundation: "本页较早保存" },
+  }], () => structuredClone({ emotionalFoundation: "另一编辑端修改" }));
+  assert.deepEqual(externalConflict.conflicts, ["path.primaryDetails"],
+    "a real external same-target structured change remains fail-closed");
+
+  const disjoint = planV04LiveDraftRebase([{
+    targetKey: "path.auxiliaryTypes",
+    targetLabel: "辅助路径",
+    valueType: "MULTI_SELECT",
+    beforeValue: [],
+    afterValue: [{ type: "FUN", description: "本页新增", creativeRole: "辅助" }],
+  }], [{
+    targetKey: "path.primaryDetails",
+    targetLabel: "主导路径",
+    valueType: "MULTI_SELECT",
+    beforeValue: {},
+    afterValue: { emotionalFoundation: "另一字段已保存" },
+  }], () => structuredClone([]));
+  assert.equal(disjoint.conflicts.length, 0);
+  assert.equal(disjoint.changes.length, 1, "a disjoint structured field remains rebaseable");
+});
+
 test("document generation hides only this live page and keeps every foreign recovery visible", () => {
   const records = [
     { generation: "document-current", writtenAt: "new" },
