@@ -88,6 +88,15 @@
 .siteUtilities > span { overflow: hidden; max-width: 120px; color: var(--v04-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .saveCluster { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }
 .headerSubmit { border-color: rgba(223, 255, 79, .55) !important; color: var(--v04-accent) !important; }
+.navigationAlert {
+  position: fixed; top: 78px; right: 18px; z-index: 60;
+  display: flex; width: min(430px, calc(100vw - 36px)); align-items: center; gap: 12px;
+  border: 1px solid rgba(255, 174, 120, .55); border-radius: 12px;
+  background: rgba(31, 25, 20, .97); box-shadow: 0 16px 42px rgba(0, 0, 0, .38);
+  padding: 12px 14px; color: var(--v04-ink);
+}
+.navigationAlert span { flex: 1; font-size: 11px; line-height: 1.5; }
+.navigationAlert button { flex: 0 0 auto; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-accent); padding: 7px 10px; font-size: 10px; }
 
 .libraryHero { width: min(1340px, calc(100% - 48px)); margin: 0 auto; padding: clamp(48px, 8vw, 110px) 0 42px; }
 .libraryHero p, .workspaceTitle p, .detailIntro > p:first-child { margin: 0 0 8px; color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
@@ -374,6 +383,7 @@
   .brandWordmark span { font-size: 13px; }
   .saveCluster > span { display: none; }
   .saveCluster button { padding: 7px 8px; font-size: 10px; }
+  .navigationAlert { top: 112px; right: 8px; width: calc(100vw - 16px); }
   .productHeader { grid-template-columns: 1fr auto; gap: 8px; min-height: 58px; padding: 8px 12px; }
   .productHeader nav { order: 3; grid-column: 1 / -1; justify-content: flex-start; overflow-x: auto; }
   .productHeader > div > b { display: none; }

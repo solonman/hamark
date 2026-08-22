@@ -17,6 +17,7 @@ import {
   v04SaveFailureMessage,
   V04_AUTOSAVE_DEBOUNCE_MS,
   writeV04Recovery,
+  type V04DraftSaveAction,
   type V04RecoveryIdentity,
   type V04RecoveryRecord,
 } from "@/lib/v04-draft-save-state";
@@ -30,6 +31,8 @@ import {
   canMutateV04Draft,
   canRecoverV04LeaseProof,
   canStartV04Restore,
+  classifyV04RecoveryConfirmation,
+  clearConfirmedV04RecoveryRecords,
   planV04EditAccessRecovery,
   planV04ThreeWayChanges,
   runV04LeaseBoundMutationWithSingleRecovery,
@@ -38,13 +41,16 @@ import {
 } from "@/lib/v04-save-coordinator";
 import {
   decideV04FreshWorkspaceTransition,
+  ensureV04NavigationCoordinator,
   installV04NavigationTakeover,
   normalizeV04LocalDraftFacts,
   runV04DraftResume,
+  runV04SubmissionAwareNavigation,
   shouldProtectV04Unload,
   shouldRetryV04DraftOnResume,
   V04GuardedNavigationCoordinator,
   V04SingleFlight,
+  v04NavigationFailureMessage,
   type V04LocalDraftFacts,
 } from "@/lib/v04-workspace-lifecycle";
 import { useV04VideoSession } from "./V04VideoSessionProvider";
@@ -139,7 +145,7 @@ export default function V04WorkspaceClient({
   const changeSetIdsRef = useRef(new Map<number, string>());
   const submitKeysRef = useRef(new Map<string, string>());
   const restoreKeysRef = useRef(new Map<string, string>());
-  const submitInFlightRef = useRef<Promise<void> | null>(null);
+  const submitInFlightRef = useRef<Promise<boolean> | null>(null);
   const restoreInFlightRef = useRef<Promise<void> | null>(null);
   const materializeKeyRef = useRef(`materialize-${videoId}-${crypto.randomUUID()}`);
   const recoveryTabIdRef = useRef("");
@@ -164,6 +170,7 @@ export default function V04WorkspaceClient({
   const [ai, setAi] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [navigationIssue, setNavigationIssue] = useState<{ message: string; href: string } | null>(null);
   const [draggedShotId, setDraggedShotId] = useState<string | null>(null);
   const [pendingLocateId, setPendingLocateId] = useState<string | null>(null);
   const focusContext = useRef<{ element: HTMLElement; scrollY: number } | null>(null);
@@ -187,6 +194,13 @@ export default function V04WorkspaceClient({
   useEffect(() => {
     saveMachineRef.current = saveMachine;
   }, [saveMachine]);
+
+  const dispatchSaveState = useCallback((action: V04DraftSaveAction) => {
+    // React may render the reducer one frame later. Navigation and submit
+    // guards use this synchronous mirror as their authoritative fact source.
+    saveMachineRef.current = reduceV04DraftSaveState(saveMachineRef.current, action);
+    dispatchSave(action);
+  }, []);
 
   useEffect(() => {
     recoveryPromptRef.current = recoveryPrompt;
@@ -293,6 +307,56 @@ export default function V04WorkspaceClient({
     return true;
   }, []);
 
+  const recoveryRecordIsConfirmed = useCallback((
+    record: V04RecoveryRecord<V04UiDraft, V04Payload>,
+    server: V04ServerWorkspaceModel,
+  ) => {
+    if (!record.basePayload) return false;
+    try {
+      const intendedPayload = v04UiDraftToPayload(record.payload, record.basePayload);
+      const originalChanges = v04PayloadChanges(record.basePayload, intendedPayload);
+      return classifyV04RecoveryConfirmation(
+        originalChanges,
+        (targetKey) => v04PayloadTargetValue(server.payload, targetKey),
+      ) === "CONFIRMED";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const reconcileConfirmedRecoveries = useCallback((server: V04ServerWorkspaceModel) => {
+    const prompt = recoveryPromptRef.current;
+    if (!prompt) {
+      if (recoveryIdentityRef.current) clearRecoveryRecord(recoveryIdentityRef.current);
+      return;
+    }
+    const remaining = clearConfirmedV04RecoveryRecords(
+      prompt.records,
+      (record) => recoveryRecordIsConfirmed(record, server),
+      (record) => clearRecoveryRecord(record.identity),
+    );
+    if (!remaining.length) {
+      recoveryPromptRef.current = null;
+      setRecoveryPrompt(null);
+      return;
+    }
+    const selectedIndex = Math.max(0, remaining.indexOf(prompt.record));
+    const record = remaining[selectedIndex] ?? remaining[0];
+    const decision = decideV04Recovery(record, {
+      revision: server.draftRevision,
+      hash: server.draftContentHash,
+    });
+    const nextPrompt: RecoveryPrompt = {
+      kind: decision.kind === "RESTORE_AVAILABLE" ? "RESTORE_AVAILABLE" : "CONFLICT",
+      record,
+      records: remaining,
+      selectedIndex,
+      comparing: remaining.length > 1 || decision.kind !== "RESTORE_AVAILABLE",
+    };
+    recoveryPromptRef.current = nextPrompt;
+    setRecoveryPrompt(nextPrompt);
+  }, [clearRecoveryRecord, recoveryRecordIsConfirmed]);
+
   const synchronizeCleanServerDraft = useCallback((server: V04ServerWorkspaceModel) => {
     const serverDraft = v04WorkspaceToUiCase(server).draft;
     draftBasePayloadRef.current = structuredClone(server.payload);
@@ -303,11 +367,11 @@ export default function V04WorkspaceClient({
     editVersionRef.current = 0;
     saveCoordinatorRef.current.resetFromServer(0);
     changeSetIdsRef.current.clear();
-    dispatchSave({
+    dispatchSaveState({
       type: "RESET_FROM_SERVER",
       savedAt: server.lastSavedAt ?? new Date().toISOString(),
     });
-  }, []);
+  }, [dispatchSaveState]);
 
   const reconcileFreshWorkspace = useCallback((
     previous: V04ServerWorkspaceModel,
@@ -466,7 +530,7 @@ export default function V04WorkspaceClient({
       draftRef.current = serverDraft;
       setDraftState(serverDraft);
       migrateRecoveryIdentity(next);
-      dispatchSave({ type: "SERVER_CONFIRMED", editVersion: 0, savedAt: next.lastSavedAt ?? "" });
+      dispatchSaveState({ type: "SERVER_CONFIRMED", editVersion: 0, savedAt: next.lastSavedAt ?? "" });
       setLoadError("");
       let initialRecoveryPending = false;
       if (typeof window !== "undefined") {
@@ -519,7 +583,7 @@ export default function V04WorkspaceClient({
       if (active) setLoadError(reason instanceof V04UiApiError ? reason.message : "公共工作稿暂时无法读取。");
     });
     return () => { active = false; };
-  }, [getWorkspaceSession, migrateRecoveryIdentity, recoveryIdentityFor, refreshWorkspace, requestEditAccess, videoId]);
+  }, [dispatchSaveState, getWorkspaceSession, migrateRecoveryIdentity, recoveryIdentityFor, refreshWorkspace, requestEditAccess, videoId]);
 
   const commitSaveAttempt = useCallback(async (attempt: { version: number; draft: V04StagedDraft }) => {
     if (restoreInFlightRef.current) return false;
@@ -527,10 +591,10 @@ export default function V04WorkspaceClient({
     if (!initial) return false;
     let current: V04ServerWorkspaceModel = initial;
     const requestToken = ++requestTokenRef.current;
-    dispatchSave({ type: "SAVE_STARTED", requestToken, editVersion: attempt.version });
+    dispatchSaveState({ type: "SAVE_STARTED", requestToken, editVersion: attempt.version });
     setActionError("");
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      dispatchSave({ type: "SAVE_OFFLINE", requestToken });
+      dispatchSaveState({ type: "SAVE_OFFLINE", requestToken });
       setActionError(v04SaveFailureMessage("NETWORK_ERROR"));
       return false;
     }
@@ -574,7 +638,7 @@ export default function V04WorkspaceClient({
       const updated = await refreshWorkspace();
       migrateRecoveryIdentity(updated);
       const savedTime = updated.lastSavedAt ?? result?.savedAt ?? new Date().toISOString();
-      dispatchSave({ type: "SAVE_SUCCEEDED", requestToken, editVersion: attempt.version, savedAt: savedTime });
+      dispatchSaveState({ type: "SAVE_SUCCEEDED", requestToken, editVersion: attempt.version, savedAt: savedTime });
       changeSetIdsRef.current.delete(attempt.version);
       if (editVersionRef.current === attempt.version) {
         draftBasePayloadRef.current = structuredClone(updated.payload);
@@ -583,9 +647,7 @@ export default function V04WorkspaceClient({
         const serverDraft = v04WorkspaceToUiCase(updated).draft;
         draftRef.current = serverDraft;
         setDraftState(serverDraft);
-        if (typeof window !== "undefined" && recoveryIdentityRef.current) {
-          clearRecoveryRecord(recoveryIdentityRef.current);
-        }
+        reconcileConfirmedRecoveries(updated);
       } else {
         persistRecovery(draftRef.current, updated, attempt.draft.basePayload);
       }
@@ -604,11 +666,11 @@ export default function V04WorkspaceClient({
         } catch { /* keep the local recovery copy */ }
       }
       if (apiError.code === "REVISION_CONFLICT") {
-        dispatchSave({ type: "SAVE_CONFLICT", requestToken });
+        dispatchSaveState({ type: "SAVE_CONFLICT", requestToken });
       } else if (apiError.code === "NETWORK_ERROR") {
-        dispatchSave({ type: "SAVE_OFFLINE", requestToken });
+        dispatchSaveState({ type: "SAVE_OFFLINE", requestToken });
       } else {
-        dispatchSave({
+        dispatchSaveState({
           type: "SAVE_FAILED",
           requestToken,
           retryable: apiError.retryable || isV04LeaseFailure(apiError.code),
@@ -618,7 +680,7 @@ export default function V04WorkspaceClient({
       setActionError(v04SaveFailureMessage(apiError.code));
       return false;
     }
-  }, [acquireLease, clearLeaseProof, clearRecoveryRecord, migrateRecoveryIdentity, persistRecovery, reconcileFreshWorkspace, refreshWorkspace, videoId]);
+  }, [acquireLease, clearLeaseProof, dispatchSaveState, migrateRecoveryIdentity, persistRecovery, reconcileConfirmedRecoveries, reconcileFreshWorkspace, refreshWorkspace, videoId]);
 
   const requestSave = useCallback((nextDraft = cloneV04UiDraft(draftRef.current), version = editVersionRef.current) => {
     const basePayload = draftBasePayloadRef.current ?? modelRef.current?.payload;
@@ -630,25 +692,32 @@ export default function V04WorkspaceClient({
     return saveCoordinatorRef.current.flush(commitSaveAttempt);
   }, [commitSaveAttempt]);
 
-  const guardWorkspaceNavigation = useCallback(async (navigate: () => void) => {
+  const guardWorkspaceNavigation = useCallback(async (navigate: () => void, href = "") => {
     setNavigating(true);
+    setNavigationIssue(null);
+    const coordinator = ensureV04NavigationCoordinator(navigationCoordinatorRef.current);
+    navigationCoordinatorRef.current = coordinator;
     try {
-      const result = await navigationCoordinatorRef.current.run({
-        facts: localDraftFacts,
-        preserveRecovery: () => { persistRecovery(draftRef.current); },
-        flush: () => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current),
-        navigate,
+      const result = await runV04SubmissionAwareNavigation({
+        pendingSubmission: submitInFlightRef.current,
+        runNavigation: () => coordinator.run({
+          facts: localDraftFacts,
+          preserveRecovery: () => { persistRecovery(draftRef.current); },
+          flush: () => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current),
+          navigate,
+          navigationKey: href || "UPDATE_RELOAD",
+        }),
       });
-      if (result === "BLOCKED_CONFLICT") {
-        setActionError("本地草稿与服务器版本存在冲突，请先完成对照；页面未离开，内容仍保留。");
-      } else if (result === "BLOCKED_SAVE_FAILED") {
-        setActionError("最新修改尚未保存到服务器，已阻止刷新或离开；本机恢复副本仍保留，可重试保存。");
-      } else if (result === "BLOCKED_SAVE_PENDING") {
-        setActionError("保存期间又有新修改，已阻止刷新或离开；请保存最新内容后重试。");
+      const message = v04NavigationFailureMessage(result);
+      if (message) {
+        setActionError(message);
+        setNavigationIssue({ message, href });
+      } else if (result === "NAVIGATED") {
+        setNavigationIssue(null);
       }
       return result;
     } finally {
-      if (!navigationCoordinatorRef.current.isRunning) setNavigating(false);
+      if (!coordinator.isRunning) setNavigating(false);
     }
   }, [localDraftFacts, persistRecovery, requestSave]);
 
@@ -667,7 +736,7 @@ export default function V04WorkspaceClient({
     // while keeping the prior generation cancelled against late navigation.
     const coordinator = new V04GuardedNavigationCoordinator();
     navigationCoordinatorRef.current = coordinator;
-    return () => coordinator.dispose();
+    return () => navigationCoordinatorRef.current.dispose();
   }, []);
 
   const resumeDraft = useCallback((forceAcquire = false) => resumeCoordinatorRef.current.run(() =>
@@ -786,7 +855,7 @@ export default function V04WorkspaceClient({
     draftRef.current = next;
     setDraftState(next);
     editVersionRef.current += 1;
-    dispatchSave({ type: "EDIT" });
+    dispatchSaveState({ type: "EDIT" });
     persistRecovery(next);
     saveCoordinatorRef.current.stage({
       version: editVersionRef.current,
@@ -823,7 +892,7 @@ export default function V04WorkspaceClient({
   const navigateWithSavedDraft = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    void guardWorkspaceNavigation(() => router.push(href));
+    void guardWorkspaceNavigation(() => router.push(href), href);
   };
 
   const updateGroup = (groupId: string, updater: (group: V04UiShotGroup) => void) => updateDraft((next) => { const group = next.shotGroups.find((entry) => entry.id === groupId); if (group) updater(group); });
@@ -903,22 +972,22 @@ export default function V04WorkspaceClient({
       try {
         if (!evaluateV04FixturePublication(draftRef.current).ready) {
           setActionError("请先完成第四模块列出的必填项，再提交。");
-          return;
+          return false;
         }
         let flushPasses = 0;
         let saveCompleted = false;
         do {
           const targetVersion = editVersionRef.current;
-          if (!await requestSave(cloneV04UiDraft(draftRef.current), targetVersion)) return;
+          if (!await requestSave(cloneV04UiDraft(draftRef.current), targetVersion)) return false;
           saveCompleted = true;
           flushPasses += 1;
         } while (editVersionRef.current > saveCoordinatorRef.current.savedVersion && flushPasses < 3);
         if (editVersionRef.current > saveCoordinatorRef.current.savedVersion) {
           setActionError("你仍在输入新内容；请结束输入后再点击提交，已填内容仍保留。");
-          return;
+          return false;
         }
         const current = modelRef.current;
-        if (!current) return;
+        if (!current) return false;
         const serverPublication = evaluateV04FixturePublication(v04WorkspaceToUiCase(current).draft);
         if (!canSubmitV04ServerDraft({
           localPublicationReady: evaluateV04FixturePublication(draftRef.current).ready,
@@ -928,7 +997,7 @@ export default function V04WorkspaceClient({
           savedVersion: saveCoordinatorRef.current.savedVersion,
         })) {
           setActionError("服务器复核发现仍有必填项未保存；本地内容已保留，请重试保存后再提交。");
-          return;
+          return false;
         }
         const proof = await acquireLease(current);
         const source = modelRef.current!;
@@ -949,14 +1018,19 @@ export default function V04WorkspaceClient({
           draftBaseHashRef.current = refreshed.draftContentHash;
           draftRef.current = serverDraft;
           setDraftState(serverDraft);
-          if (typeof window !== "undefined" && recoveryIdentityRef.current) {
-            clearRecoveryRecord(recoveryIdentityRef.current);
-          }
+          saveCoordinatorRef.current.markServerConfirmed(editVersionRef.current);
+          dispatchSaveState({
+            type: "SERVER_CONFIRMED",
+            editVersion: editVersionRef.current,
+            savedAt: refreshed.lastSavedAt ?? new Date().toISOString(),
+          });
+          reconcileConfirmedRecoveries(refreshed);
         } else {
           persistRecovery(draftRef.current, refreshed);
         }
         setSubmitted(true);
         setActionError("");
+        return true;
       } catch (reason) {
         const apiError = reason instanceof V04UiApiError ? reason : null;
         if (apiError && isV04LeaseFailure(apiError.code)) {
@@ -964,6 +1038,7 @@ export default function V04WorkspaceClient({
           try { await refreshWorkspace(); } catch { /* preserve local recovery */ }
         }
         setActionError(v04SaveFailureMessage(apiError?.code ?? "SUBMIT_FAILED"));
+        return false;
       } finally {
         setSubmitting(false);
       }
@@ -1021,7 +1096,7 @@ export default function V04WorkspaceClient({
         editVersionRef.current = 0;
         saveCoordinatorRef.current.resetFromServer(0);
         changeSetIdsRef.current.clear();
-        dispatchSave({
+        dispatchSaveState({
           type: "RESET_FROM_SERVER",
           savedAt: refreshed.lastSavedAt ?? new Date().toISOString(),
         });
@@ -1098,7 +1173,7 @@ export default function V04WorkspaceClient({
       draftBaseRevisionRef.current = current.draftRevision;
       draftBaseHashRef.current = current.draftContentHash;
       editVersionRef.current += 1;
-      dispatchSave({ type: "EDIT" });
+      dispatchSaveState({ type: "EDIT" });
       persistRecovery(recovered, current, current.payload);
       saveCoordinatorRef.current.stage({
         version: editVersionRef.current,
@@ -1165,6 +1240,13 @@ export default function V04WorkspaceClient({
 
   return <main className={styles.surface} data-v04-page="workspace">
     <header className={styles.siteHeader} data-v04-fixed-header><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link><nav className={styles.siteNav}><span className={styles.headerCaseTitle} data-v04-case-title title={item.title}>{item.title}</span><Link href={links.libraryHref} onClick={(event) => navigateWithSavedDraft(event, links.libraryHref)}>案例库</Link><Link href={links.detailHref} onClick={(event) => navigateWithSavedDraft(event, links.detailHref)}>{links.detailLabel ?? "只读成果"}</Link><Link href={links.workspaceHref} className={styles.activeNav}>{links.workspaceLabel ?? "公共工作稿"}</Link></nav><div className={styles.saveCluster}><span role="status" aria-live="polite">{visibleSaveLabel}</span><button onClick={() => setHistory(true)}>历史</button><button onPointerDown={(event) => event.preventDefault()} onClick={manualSave} disabled={!canEdit || submitting}>保存</button><button className={styles.headerSubmit} {...submitActionProps}>提交并更新案例</button></div></header>
+    {navigationIssue && <aside className={styles.navigationAlert} role="alert" aria-live="assertive"><span>{navigationIssue.message}</span>{(recoveryPrompt || navigationIssue.href) && <button type="button" disabled={navigating} onClick={() => {
+      if (recoveryPromptRef.current) {
+        document.querySelector<HTMLElement>('[aria-label="本地草稿恢复"]')?.scrollIntoView({ block: "center", behavior: "smooth" });
+        return;
+      }
+      if (navigationIssue.href) void guardWorkspaceNavigation(() => router.push(navigationIssue.href), navigationIssue.href);
+    }}>{recoveryPrompt ? "处理恢复副本" : navigating ? "正在重试…" : "重试离开"}</button>}</aside>}
     <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在安全取得编辑权" : "当前无人编辑 · 编辑权尚未取得"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交不释放编辑权。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="status" aria-live="polite"><p>本机恢复副本不可用；编辑仍可继续，请保持页面打开并及时手动保存。</p></section>}

@@ -175,6 +175,31 @@ export function planV04ThreeWayChanges(
   return { changes, alreadyApplied, conflicts };
 }
 
+export function classifyV04RecoveryConfirmation(
+  originalChanges: readonly V04Change[],
+  currentValue: (targetKey: string) => unknown,
+) {
+  const plan = planV04ThreeWayChanges(originalChanges, currentValue);
+  if (plan.conflicts.length) return "CONFLICT" as const;
+  if (plan.changes.length) return "NOT_ABSORBED" as const;
+  return "CONFIRMED" as const;
+}
+
+export function clearConfirmedV04RecoveryRecords<T>(
+  records: readonly T[],
+  isConfirmed: (record: T) => boolean,
+  clearRecord: (record: T) => boolean,
+) {
+  const remaining: T[] = [];
+  for (const record of records) {
+    // State/ref callers may remove a record only after its matching storage
+    // entry was removed successfully. Unconfirmed and storage-failed copies
+    // remain visible and continue to block navigation.
+    if (!isConfirmed(record) || !clearRecord(record)) remaining.push(record);
+  }
+  return remaining;
+}
+
 export async function runV04LeaseBoundMutationWithSingleRecovery<T>(input: {
   run: () => Promise<T>;
   leaseFailureCode: (reason: unknown) => string | null;

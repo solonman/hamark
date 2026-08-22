@@ -4,16 +4,21 @@ import {
   decideV04FreshWorkspaceSync,
   decideV04FreshWorkspaceTransition,
   decideV04InternalNavigation,
+  ensureV04NavigationCoordinator,
   hasV04ServerDraftChanged,
   installV04NavigationTakeover,
   runV04DraftResume,
   runV04GuardedNavigation,
+  runV04SubmissionAwareNavigation,
   shouldProtectV04Unload,
   V04GuardedNavigationCoordinator,
   V04SingleFlight,
+  v04NavigationFailureMessage,
   type V04LocalDraftFacts,
 } from "../lib/v04-workspace-lifecycle";
 import {
+  classifyV04RecoveryConfirmation,
+  clearConfirmedV04RecoveryRecords,
   planV04ThreeWayChanges,
   V04LatestSaveCoordinator,
 } from "../lib/v04-save-coordinator";
@@ -359,4 +364,160 @@ test("clean deploy-update reloads immediately while an unmounted pending takeove
   releaseSave();
   assert.equal(await operation, "CANCELLED");
   assert.equal(lateReloads, 0);
+});
+
+test("submit success can immediately navigate to either formal header destination", async () => {
+  const navigation = new V04GuardedNavigationCoordinator();
+  const destinations: string[] = [];
+  for (const destination of ["/", "/videos/video-test"]) {
+    const result = await runV04SubmissionAwareNavigation({
+      pendingSubmission: Promise.resolve(true),
+      runNavigation: () => navigation.run({
+        // Model a React frame that still renders SAVING even though the one
+        // authoritative coordinator has confirmed the submitted edit.
+        facts: () => facts({ saveStatus: "SAVING", editVersion: 4, savedVersion: 4 }),
+        preserveRecovery: () => undefined,
+        flush: async () => { throw new Error("confirmed submission must not save again"); },
+        navigate: () => { destinations.push(destination); },
+      }),
+    });
+    assert.equal(result, "NAVIGATED");
+  }
+  assert.deepEqual(destinations, ["/", "/videos/video-test"]);
+});
+
+test("navigation waits for an in-flight idempotent submit and blocks a failed submit visibly", async () => {
+  let settleSubmit!: (value: boolean) => void;
+  const pending = new Promise<boolean>((resolve) => { settleSubmit = resolve; });
+  let navigations = 0;
+  const operation = runV04SubmissionAwareNavigation({
+    pendingSubmission: pending,
+    runNavigation: async () => { navigations += 1; return "NAVIGATED"; },
+  });
+  assert.equal(navigations, 0);
+  settleSubmit(true);
+  assert.equal(await operation, "NAVIGATED");
+  assert.equal(navigations, 1);
+
+  const failed = await runV04SubmissionAwareNavigation({
+    pendingSubmission: Promise.resolve(false),
+    runNavigation: async () => { throw new Error("a failed submit must not leave"); },
+  });
+  assert.equal(failed, "BLOCKED_SUBMIT_FAILED");
+  assert.match(v04NavigationFailureMessage(failed), /提交未完成/);
+});
+
+test("recovery confirmation distinguishes absorbed, pending and conflicting local copies", () => {
+  const changes = [{ targetKey: "facts.commercialIntent", beforeValue: "", afterValue: "已填写" }];
+  assert.equal(classifyV04RecoveryConfirmation(changes, () => "已填写"), "CONFIRMED");
+  assert.equal(classifyV04RecoveryConfirmation(changes, () => ""), "NOT_ABSORBED");
+  assert.equal(classifyV04RecoveryConfirmation(changes, () => "服务器不同值"), "CONFLICT");
+
+  let flushes = 0;
+  let navigations = 0;
+  return runV04GuardedNavigation({
+    facts: () => facts({ recoveryPending: true, editVersion: 1, savedVersion: 1 }),
+    preserveRecovery: () => undefined,
+    flush: async () => { flushes += 1; return true; },
+    navigate: () => { navigations += 1; },
+  }).then((result) => {
+    assert.equal(result, "BLOCKED_RECOVERY");
+    assert.deepEqual({ flushes, navigations }, { flushes: 0, navigations: 0 });
+    assert.match(v04NavigationFailureMessage(result), /恢复副本/);
+  });
+});
+
+test("confirmed recovery storage, ref and state advance as one fail-closed decision", () => {
+  const records = ["confirmed", "unabsorbed", "conflict", "storage-failed"] as const;
+  const clearCalls: string[] = [];
+  const remaining = clearConfirmedV04RecoveryRecords(
+    records,
+    (record) => record === "confirmed" || record === "storage-failed",
+    (record) => {
+      clearCalls.push(record);
+      return record === "confirmed";
+    },
+  );
+  assert.deepEqual(clearCalls, ["confirmed", "storage-failed"]);
+  assert.deepEqual(remaining, ["unabsorbed", "conflict", "storage-failed"]);
+});
+
+test("an active update takeover drains once and honors the latest distinct link target", async () => {
+  const navigation = new V04GuardedNavigationCoordinator();
+  let releaseSave!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseSave = resolve; });
+  let current = facts({ saveStatus: "DIRTY", editVersion: 1 });
+  const destinations: string[] = [];
+  const update = navigation.run({
+    facts: () => current,
+    preserveRecovery: () => undefined,
+    flush: async () => {
+      await gate;
+      current = facts({ saveStatus: "SAVED", editVersion: 1, savedVersion: 1 });
+      return true;
+    },
+    navigate: () => { destinations.push("reload"); },
+  });
+  const library = navigation.run({
+    facts: () => current,
+    preserveRecovery: () => undefined,
+    flush: async () => true,
+    navigate: () => { destinations.push("library"); },
+    navigationKey: "library",
+  });
+  const detail = navigation.run({
+    facts: () => current,
+    preserveRecovery: () => undefined,
+    flush: async () => true,
+    navigate: () => { destinations.push("detail"); },
+    navigationKey: "detail",
+  });
+  releaseSave();
+  assert.deepEqual(await Promise.all([update, library, detail]), ["NAVIGATED", "NAVIGATED", "NAVIGATED"]);
+  assert.deepEqual(destinations, ["detail"], "the latest explicit link replaces the stale reload destination");
+});
+
+test("a retired coordinator and a throwing router callback cannot swallow later links", async () => {
+  const retired = new V04GuardedNavigationCoordinator();
+  retired.dispose();
+  const current = ensureV04NavigationCoordinator(retired);
+  assert.notEqual(current, retired);
+  assert.equal(current.isDisposed, false);
+
+  const failed = await runV04SubmissionAwareNavigation({
+    pendingSubmission: null,
+    runNavigation: () => current.run({
+      facts: () => facts(),
+      preserveRecovery: () => undefined,
+      flush: async () => true,
+      navigate: () => { throw new Error("router failed"); },
+    }),
+  });
+  assert.equal(failed, "NAVIGATION_FAILED");
+  assert.equal(current.isRunning, false);
+  assert.match(v04NavigationFailureMessage(failed), /跳转未完成/);
+
+  let navigations = 0;
+  assert.equal(await current.run({
+    facts: () => facts(),
+    preserveRecovery: () => undefined,
+    flush: async () => true,
+    navigate: () => { navigations += 1; },
+  }), "NAVIGATED");
+  assert.equal(navigations, 1);
+});
+
+test("every prevented-navigation outcome has a visible reason", () => {
+  for (const result of [
+    "BLOCKED_RECOVERY",
+    "BLOCKED_CONFLICT",
+    "BLOCKED_SAVE_FAILED",
+    "BLOCKED_SAVE_PENDING",
+    "BLOCKED_SUBMIT_FAILED",
+    "CANCELLED",
+    "NAVIGATION_FAILED",
+  ] as const) {
+    assert.notEqual(v04NavigationFailureMessage(result), "", result);
+  }
+  assert.equal(v04NavigationFailureMessage("NAVIGATED"), "");
 });

@@ -51,6 +51,7 @@ export function decideV04FreshWorkspaceTransition(input: {
 }
 
 export function decideV04InternalNavigation(input: V04LocalDraftFacts) {
+  if (input.recoveryPending) return "BLOCK_RECOVERY" as const;
   if (isV04LocalDraftClean(input)) return "NAVIGATE" as const;
   if (input.saveStatus === "CONFLICT") return "BLOCK_CONFLICT" as const;
   return "FLUSH_THEN_NAVIGATE" as const;
@@ -96,6 +97,7 @@ export async function runV04GuardedNavigation(input: {
   canNavigate?: () => boolean;
 }) {
   const plan = decideV04InternalNavigation(input.facts());
+  if (plan === "BLOCK_RECOVERY") return "BLOCKED_RECOVERY" as const;
   if (plan === "NAVIGATE") {
     if (input.canNavigate && !input.canNavigate()) return "CANCELLED" as const;
     input.navigate();
@@ -111,6 +113,9 @@ export async function runV04GuardedNavigation(input: {
 }
 
 export type V04GuardedNavigationResult = Awaited<ReturnType<typeof runV04GuardedNavigation>>;
+export type V04GuardedNavigationInput = Parameters<typeof runV04GuardedNavigation>[0] & {
+  navigationKey?: string;
+};
 
 /**
  * Owns every navigation that may leave a V0.4 workspace, including the global
@@ -120,15 +125,25 @@ export type V04GuardedNavigationResult = Awaited<ReturnType<typeof runV04Guarded
 export class V04GuardedNavigationCoordinator {
   private active: Promise<V04GuardedNavigationResult> | null = null;
   private disposed = false;
+  private pendingNavigate: (() => void) | null = null;
+  private pendingNavigationKey: string | null = null;
 
-  private async execute(input: Parameters<typeof runV04GuardedNavigation>[0]) {
+  private async execute(input: V04GuardedNavigationInput) {
     try {
       return await runV04GuardedNavigation({
         ...input,
+        navigate: () => {
+          const navigate = this.pendingNavigate;
+          this.pendingNavigate = null;
+          this.pendingNavigationKey = null;
+          navigate?.();
+        },
         canNavigate: () => !this.disposed && (input.canNavigate?.() ?? true),
       });
     } finally {
       this.active = null;
+      this.pendingNavigate = null;
+      this.pendingNavigationKey = null;
     }
   }
 
@@ -136,8 +151,20 @@ export class V04GuardedNavigationCoordinator {
     return this.active !== null;
   }
 
-  run(input: Parameters<typeof runV04GuardedNavigation>[0]) {
+  get isDisposed() {
+    return this.disposed;
+  }
+
+  run(input: V04GuardedNavigationInput) {
     if (this.disposed) return Promise.resolve("CANCELLED" as const);
+    // A later internal link supersedes an older deploy-update continuation.
+    // Every caller still joins the same save, but the final destination is the
+    // most recent explicit user intent rather than a stale reload callback.
+    const navigationKey = input.navigationKey ?? "DEFAULT";
+    if (!this.active || this.pendingNavigationKey !== navigationKey) {
+      this.pendingNavigate = input.navigate;
+      this.pendingNavigationKey = navigationKey;
+    }
     if (this.active) return this.active;
     const operation = this.execute(input);
     this.active = operation;
@@ -146,6 +173,54 @@ export class V04GuardedNavigationCoordinator {
 
   dispose() {
     this.disposed = true;
+    this.pendingNavigate = null;
+    this.pendingNavigationKey = null;
+  }
+}
+
+export function ensureV04NavigationCoordinator(
+  current: V04GuardedNavigationCoordinator,
+) {
+  return current.isDisposed ? new V04GuardedNavigationCoordinator() : current;
+}
+
+export async function runV04SubmissionAwareNavigation(input: {
+  pendingSubmission: Promise<boolean> | null;
+  runNavigation: () => Promise<V04GuardedNavigationResult>;
+}) {
+  try {
+    if (input.pendingSubmission && !await input.pendingSubmission) {
+      return "BLOCKED_SUBMIT_FAILED" as const;
+    }
+    return await input.runNavigation();
+  } catch {
+    return "NAVIGATION_FAILED" as const;
+  }
+}
+
+export type V04WorkspaceNavigationResult =
+  | V04GuardedNavigationResult
+  | "BLOCKED_SUBMIT_FAILED"
+  | "NAVIGATION_FAILED";
+
+export function v04NavigationFailureMessage(result: V04WorkspaceNavigationResult) {
+  switch (result) {
+    case "BLOCKED_RECOVERY":
+      return "仍有一份未吸收或冲突的本地恢复副本。请先在页面中选择恢复、对照或继续使用服务器版本。";
+    case "BLOCKED_CONFLICT":
+      return "本地草稿与服务器版本存在冲突，请先完成对照；页面未离开，内容仍保留。";
+    case "BLOCKED_SAVE_FAILED":
+      return "最新修改尚未保存到服务器，已阻止刷新或离开；本机恢复副本仍保留，可重试保存。";
+    case "BLOCKED_SAVE_PENDING":
+      return "保存期间又有新修改，已阻止刷新或离开；请保存最新内容后重试。";
+    case "BLOCKED_SUBMIT_FAILED":
+      return "提交未完成，已阻止离开。请查看第四模块的原因并重试；本地内容仍保留。";
+    case "CANCELLED":
+      return "页面状态刚刚更新，本次离开已安全取消；请重试。";
+    case "NAVIGATION_FAILED":
+      return "页面跳转未完成，内容仍保留在当前页；请重试。";
+    case "NAVIGATED":
+      return "";
   }
 }
 
