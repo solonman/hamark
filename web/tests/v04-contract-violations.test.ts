@@ -97,3 +97,13 @@ test("bridge and shot ids never collide, and a draft that already collides heals
   assert.match(source, /mutate\(next\);\s*ensureUniqueV04DraftIds\(next\);/, "every edit leaves the draft uniquely keyed");
   assert.match(source, /ensureUniqueV04DraftIds\(recordDraft\)/, "a recovery copy is healed before it is merged");
 });
+
+test("a blocked navigation always offers an explicit way out once the local copy is written", async () => {
+  const source = await readFile(new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url), "utf8");
+  assert.match(source, /data-v04-force-leave/, "the escape is a visible control on the navigation alert");
+  const escape = source.slice(source.indexOf("data-v04-force-leave"));
+  assert.match(escape.slice(0, 700), /persistRecovery\(draftRef\.current\);\s*forceLeaveRef\.current = true;/,
+    "the recovery copy is written before the unload guard is lifted");
+  assert.match(source, /forceLeaveRef\.current \|\| !shouldProtectV04Unload/,
+    "the beforeunload guard yields to the explicit choice");
+});

@@ -200,6 +200,8 @@ export default function V04WorkspaceClient({
   const [submitOutcome, setSubmitOutcome] = useState<"IDLE" | "SUCCEEDED" | "FAILED">("IDLE");
   const [actionError, setActionError] = useState("");
   const [navigationIssue, setNavigationIssue] = useState<{ message: string; href: string } | null>(null);
+  const blockedNavigationRef = useRef<{ navigate: () => void; href: string } | null>(null);
+  const forceLeaveRef = useRef(false);
   const [contractViolations, setContractViolations] = useState<V04ContractViolation[]>([]);
   const [conflictFields, setConflictFieldsState] = useState<V04ConflictField[]>([]);
   const conflictFieldsRef = useRef<V04ConflictField[]>([]);
@@ -1043,8 +1045,10 @@ export default function V04WorkspaceClient({
       if (message) {
         setActionError(message);
         setNavigationIssue({ message, href });
+        blockedNavigationRef.current = { navigate, href };
       } else if (result === "NAVIGATED") {
         setNavigationIssue(null);
+        blockedNavigationRef.current = null;
       }
       return result;
     } finally {
@@ -1155,7 +1159,7 @@ export default function V04WorkspaceClient({
       }
     };
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!shouldProtectV04Unload(localDraftFacts())) return;
+      if (forceLeaveRef.current || !shouldProtectV04Unload(localDraftFacts())) return;
       persistRecovery(draftRef.current);
       event.preventDefault();
       event.returnValue = "";
@@ -1771,7 +1775,16 @@ export default function V04WorkspaceClient({
         return;
       }
       if (fixedNavigationIssue.href) void guardWorkspaceNavigation(() => router.push(fixedNavigationIssue.href), fixedNavigationIssue.href);
-    }}>{recoveryIntegrityBlocked ? "重试恢复核验" : recoveryPrompt ? "处理恢复副本" : navigating ? "正在重试…" : "重试离开"}</button>}</aside>}
+    }}>{recoveryIntegrityBlocked ? "重试恢复核验" : recoveryPrompt ? "处理恢复副本" : navigating ? "正在重试…" : "重试离开"}</button>}{navigationIssue && !recoveryIntegrityBlocked && <button type="button" data-v04-force-leave disabled={navigating} onClick={() => {
+      // The guard exists to protect unsaved work; the recovery copy already
+      // does that. A save that can never succeed must not trap the editor.
+      persistRecovery(draftRef.current);
+      forceLeaveRef.current = true;
+      const blocked = blockedNavigationRef.current;
+      if (blocked?.href) router.push(blocked.href);
+      else if (blocked) blocked.navigate();
+      else router.push(links.libraryHref);
+    }}>仍要离开 · 本机副本已保留</button>}</aside>}
     <section className={styles.workspaceStatus} data-viewer-user-id={viewerUserId}><div><b>{recoveryPending ? "本地恢复副本待处理 · 正文暂时只读" : canEdit ? `${viewerName} 正在编辑公共工作稿` : item.activeEditor ? `只读旁观 · ${item.activeEditor} 正在编辑` : editAccessPending ? "当前无人编辑 · 正在准备编辑" : "当前无人编辑 · 暂时只读"}</b><span>保存写入当前公共工作稿；提交才创建不可变版本，提交后仍可继续编辑。</span><span role="status" aria-live="polite">{visibleSaveLabel}</span></div><strong>{V04_UI_STATE_LABELS[item.workState]}</strong></section>
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{RECOVERY_INTEGRITY_BLOCKED_MESSAGE}</p><button type="button" onClick={() => { if (modelRef.current) resolveInitialRecoveryIntegrity(modelRef.current); }}>重试恢复核验</button></section>}
