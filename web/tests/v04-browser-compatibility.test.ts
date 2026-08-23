@@ -52,6 +52,47 @@ test("the official current browser capability set passes read and editing probes
   assert.deepEqual(editing.issues, []);
 });
 
+test("modern Chrome Web Locks semantics accept the probe and never combine signal with ifAvailable", async () => {
+  const existingApplicationLockName = "hamark:v04:document:already-held";
+  const requestedNames: string[] = [];
+  const chromeLockManager: V04BrowserLockManager = {
+    request: async (name, options, callback) => {
+      requestedNames.push(name);
+      assert.equal("ifAvailable" in options, false, "signal + ifAvailable is forbidden by Web Locks");
+      assert.equal(options.mode, "exclusive");
+      assert.equal(options.signal.aborted, false);
+      assert.notEqual(name, existingApplicationLockName, "the capability probe must not contend with an app lock");
+      return callback({ name });
+    },
+  };
+  const existingSessionStorage = new WritableStorage();
+  const existingLocalStorage = new WritableStorage();
+  existingSessionStorage.setItem("existing-session-key", "untouched");
+  existingLocalStorage.setItem("existing-local-key", "untouched");
+  let nextId = 0;
+  const environment = fullEnvironment({
+    sessionStorage: existingSessionStorage,
+    localStorage: existingLocalStorage,
+    lockManager: chromeLockManager,
+    createId: () => `modern-chrome-probe-${nextId += 1}`,
+  });
+
+  const [strictFirst, strictSecond] = await Promise.all([
+    probeV04BrowserCompatibility({ mode: "EDIT", environment }),
+    probeV04BrowserCompatibility({ mode: "EDIT", environment }),
+  ]);
+  assert.deepEqual(strictFirst, { supported: true, issues: [] });
+  assert.deepEqual(strictSecond, { supported: true, issues: [] });
+  assert.equal(new Set(requestedNames).size, 2, "concurrent/StrictMode probes use independent lock names");
+  assert.equal(existingSessionStorage.getItem("existing-session-key"), "untouched");
+  assert.equal(existingLocalStorage.getItem("existing-local-key"), "untouched");
+  assert.equal(
+    [...existingSessionStorage.values.keys(), ...existingLocalStorage.values.keys()]
+      .some((key) => key.startsWith("hamark:v04:probe:")),
+    false,
+  );
+});
+
 test("missing structured clone, UUID, lifecycle and observers fail before a V1.9 surface mounts", async () => {
   const result = await probeV04BrowserCompatibility({
     mode: "READ",
