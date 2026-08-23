@@ -34,7 +34,7 @@ type ProbeStorage = Pick<Storage, "setItem" | "getItem" | "removeItem" | "key" |
 export type V04BrowserLockManager = {
   request: <T>(
     name: string,
-    options: { mode: "exclusive"; ifAvailable: true },
+    options: { mode: "exclusive"; signal: AbortSignal },
     callback: (lock: unknown | null) => Promise<T> | T,
   ) => Promise<T>;
 };
@@ -171,10 +171,7 @@ async function probeWebLock(environment: V04BrowserEnvironment, timeoutMs: numbe
     });
     const requested = Promise.resolve(environment.lockManager.request(
       `hamark:v04:browser-capability:${environment.createId()}`,
-      // Web Locks rejects with NotSupportedError when `signal` is combined with
-      // `ifAvailable`. The non-blocking request cannot hang, so the abort
-      // controller only guards a broken implementation via the race below.
-      { mode: "exclusive", ifAvailable: true },
+      { mode: "exclusive", signal: controller.signal },
       (lock) => Boolean(lock) && !controller.signal.aborted,
     )).catch(() => false);
     return await Promise.race([requested, timedOut]);
