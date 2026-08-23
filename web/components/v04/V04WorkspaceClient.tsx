@@ -23,6 +23,8 @@ import {
   type V04RecoveryRecord,
 } from "@/lib/v04-draft-save-state";
 import type { V04ServerWorkspaceModel, V04UiDraft, V04UiShotGroup } from "@/lib/v04-ui-model";
+import { listV04ContractViolations, type V04ContractViolation } from "@/lib/v04-contract-rules";
+import { readV04ContractViolations, v04ContractViolationMessage, v04ViolationLocateId } from "@/lib/v04-contract-violations";
 import { applyV04PayloadValues, cloneV04UiDraft, emptyV04UiDraft, planV04ConflictResolution, v04PayloadChanges, v04PayloadTargetValue, v04PayloadToUiDraft, v04UiDraftToPayload, v04WorkspaceToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
 import { summarizeV04ConflictDifferences } from "@/lib/v04-conflict-resolution";
 import { blankV04Shot, evaluateV04FixturePublication, locateV04Target, moveV04Shot, nextV04Timecode, numberedV04Shots, v04GroupPrimaryRoleTargetId, v04GroupTitleTargetId, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
@@ -200,8 +202,11 @@ export default function V04WorkspaceClient({
   const [submitOutcome, setSubmitOutcome] = useState<"IDLE" | "SUCCEEDED" | "FAILED">("IDLE");
   const [actionError, setActionError] = useState("");
   const [navigationIssue, setNavigationIssue] = useState<{ message: string; href: string } | null>(null);
+  const [contractViolations, setContractViolations] = useState<V04ContractViolation[]>([]);
   const [conflictFields, setConflictFieldsState] = useState<V04ConflictField[]>([]);
   const conflictFieldsRef = useRef<V04ConflictField[]>([]);
+  const idempotencyRetriedRef = useRef(new Set<number>());
+  const commitSaveAttemptRef = useRef<((attempt: { version: number; draft: V04StagedDraft }) => Promise<boolean>) | null>(null);
   const [comparingConflict, setComparingConflict] = useState(false);
   const [resolvingConflict, setResolvingConflict] = useState(false);
   const resolvingConflictRef = useRef(false);
@@ -786,6 +791,19 @@ export default function V04WorkspaceClient({
       `change-${videoId}-${tabToken.current}-${attempt.version}-${crypto.randomUUID()}`;
     changeSetIdsRef.current.set(attempt.version, changeSetId);
     const originalPayload = v04UiDraftToPayload(attempt.draft.draft, attempt.draft.basePayload);
+    const violations = listV04ContractViolations(originalPayload);
+    if (violations.length) {
+      // The server would reject this draft for good; no retry can pass until
+      // the named field changes. Say which field, and let the next edit
+      // resume autosave instead of leaving a dead "retry".
+      setContractViolations(violations);
+      dispatchSaveState({
+        type: "SAVE_FAILED", requestToken, retryable: false, errorCode: "CONTRACT_VIOLATION",
+      });
+      setActionError(v04ContractViolationMessage(violations));
+      return false;
+    }
+    setContractViolations([]);
     const originalChanges = v04PayloadChanges(attempt.draft.basePayload, originalPayload);
     try {
       let result: SaveResult | null = null;
@@ -840,6 +858,8 @@ export default function V04WorkspaceClient({
         );
       }
       const savedTime = updated.lastSavedAt ?? result?.savedAt ?? new Date().toISOString();
+      idempotencyRetriedRef.current.delete(attempt.version);
+      setContractViolations([]);
       setConflictFields([]);
       setComparingConflict(false);
       dispatchSaveState({ type: "SAVE_SUCCEEDED", requestToken, editVersion: attempt.version, savedAt: savedTime });
@@ -900,6 +920,22 @@ export default function V04WorkspaceClient({
         } catch { /* keep the local recovery copy */ }
       }
       let conflictDetail = "";
+      if (apiError.code === "IDEMPOTENCY_CONFLICT" && !idempotencyRetriedRef.current.has(attempt.version)) {
+        // The change-set id was already used for different content — an
+        // earlier attempt landed but its response was lost and the remainder
+        // differs. The three-way plan already dropped what the server holds;
+        // a fresh id for the remainder is safe, exactly once.
+        idempotencyRetriedRef.current.add(attempt.version);
+        changeSetIdsRef.current.delete(attempt.version);
+        return commitSaveAttemptRef.current!(attempt);
+      }
+      if (apiError.code === "CHOICE_RULE_VIOLATION" || apiError.code === "INVALID_PAYLOAD_SCHEMA") {
+        const named = readV04ContractViolations(apiError.details);
+        setContractViolations(named);
+        dispatchSaveState({ type: "SAVE_FAILED", requestToken, retryable: false, errorCode: apiError.code });
+        setActionError(named.length ? v04ContractViolationMessage(named) : apiError.message);
+        return false;
+      }
       if (apiError.code === "REVISION_CONFLICT") {
         const fields = describeV04ConflictTargets(
           readV04ConflictTargets(apiError.details),
@@ -923,6 +959,8 @@ export default function V04WorkspaceClient({
       return false;
     }
   }, [acquireLease, clearLeaseProof, dispatchSaveState, migrateRecoveryIdentity, persistRecovery, reconcileConfirmedRecoveries, reconcileFreshWorkspace, refreshWorkspace, setConflictFields, videoId]);
+
+  useEffect(() => { commitSaveAttemptRef.current = commitSaveAttempt; }, [commitSaveAttempt]);
 
   const requestSave = useCallback((nextDraft = cloneV04UiDraft(draftRef.current), version = editVersionRef.current) => {
     const basePayload = draftBasePayloadRef.current ?? modelRef.current?.payload;
@@ -1198,7 +1236,19 @@ export default function V04WorkspaceClient({
   };
 
   const updateGroup = (groupId: string, updater: (group: V04UiShotGroup) => void) => updateDraft((next) => { const group = next.shotGroups.find((entry) => entry.id === groupId); if (group) updater(group); });
-  const updateChoice = (field: "primaryMechanism" | "auxiliaryMechanism" | "storyReference", value: V04ChoiceValue) => updateDraft((next) => { next[field] = value; });
+  const updateChoice = (field: "primaryMechanism" | "auxiliaryMechanism" | "storyReference", value: V04ChoiceValue) => updateDraft((next) => {
+    next[field] = value;
+    // The contract forbids one option in both mechanism slots. The auxiliary
+    // panel hides the primary's option, but a selection made earlier would
+    // stay behind and make every later save fail; drop it here, the same way
+    // the bridge roles do.
+    if (field === "primaryMechanism") {
+      next.auxiliaryMechanism = {
+        ...next.auxiliaryMechanism,
+        selectedOptionIds: next.auxiliaryMechanism.selectedOptionIds.filter((id) => !value.selectedOptionIds.includes(id)),
+      };
+    }
+  });
   const locate = (id: string) => {
     const moduleNumber = id === "module-2" || id.startsWith("field-") && !id.startsWith("field-path-") && !/^field-aux-(LOVE|FUN|PERCEPTION)-/.test(id)
       ? 2
@@ -1728,7 +1778,7 @@ export default function V04WorkspaceClient({
     {!recoveryStorageAvailable && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{RECOVERY_INTEGRITY_BLOCKED_MESSAGE}</p><button type="button" onClick={() => { if (modelRef.current) resolveInitialRecoveryIntegrity(modelRef.current); }}>重试恢复核验</button></section>}
     {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={recoveryRecordKey(record)}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} disabled={resolvingRecovery} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新的本地副本" : `较早的本地副本 ${index + 1}`} · {record.writtenAt} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>此副本基于较早保存状态，服务器内容已有更新。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；不会影响其他标签页。系统会在状态可用后自动恢复编辑，全部副本仍按当前案例汇总供逐份处理。</p>}</div><div><button type="button" disabled={resolvingRecovery} onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" disabled={resolvingRecovery} onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" disabled={resolvingRecovery} onClick={() => { void keepServerDraft(); }}>{resolvingRecovery ? "正在确认服务器内容…" : "继续使用服务器版本"}</button></div></section>}
     {saveConflict && <section className={`${styles.recoveryBanner} ${styles.conflictBanner}`} role="alertdialog" aria-label="工作稿版本冲突" data-v04-save-conflict><div><b>本地草稿与服务器版本存在冲突</b><span>{actionError || v04SaveFailureMessage("REVISION_CONFLICT")}</span>{conflictFields.length > 0 && <ul className={styles.conflictFields}>{conflictFields.map((field) => <li key={field.targetKey}>{field.targetLabel}</li>)}</ul>}{conflictComparison.map((row) => <dl key={row.targetKey} className={styles.conflictCompare}><dt>{row.targetLabel}</dt>{row.differences.map((difference, index) => <dd key={`${row.targetKey}-${difference.path}-${index}`}>{difference.path && <i>{difference.path}</i>}<span>服务器当前值</span><b>{difference.serverText}</b><span>本地值</span><b>{difference.localText}</b></dd>)}{row.hidden > 0 && <dd><span>另有 {row.hidden} 处差异未展开</span></dd>}</dl>)}<p>系统不会自动覆盖任何一方。本地内容已保留在本机恢复副本中；处理完成前不会保存或提交。两个选择都只作用于上列冲突字段，双方在其他字段上的修改都会保留；同一冲突字段只能保留一方，请先展开对照再选择。</p></div><div><button type="button" disabled={resolvingConflict || !conflictFields.length} onClick={() => { void resolveConflict(() => resolveConflictWith("LOCAL")); }}>{resolvingConflict ? "正在处理…" : "保留我的内容 · 仅冲突字段"}</button><button type="button" disabled={resolvingConflict || !conflictFields.length} onClick={() => { void resolveConflict(() => resolveConflictWith("SERVER")); }}>改用服务器版本 · 仅冲突字段</button><button type="button" disabled={resolvingConflict} onClick={() => setComparingConflict((current) => !current)}>{comparingConflict ? "收起对照" : "对照服务器"}</button><button type="button" disabled={resolvingConflict} onClick={() => { void resolveConflict(() => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current)); }}>重试保存</button></div></section>}
-    {actionError && !saveConflict && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
+    {actionError && !saveConflict && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{contractViolations.length > 0 && <ul className={styles.conflictFields} data-v04-contract-violations>{contractViolations.map((violation) => <li key={`${violation.targetKey}-${violation.message}`}>{violation.targetLabel}：{violation.message}{v04ViolationLocateId(violation.targetKey) && <button type="button" onClick={() => locate(v04ViolationLocateId(violation.targetKey)!)}>定位</button>}</li>)}</ul>}{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>
     <div className={styles.workspaceGrid}>
       <V04WorkspaceNavigation draft={draft} onLocate={locate} />

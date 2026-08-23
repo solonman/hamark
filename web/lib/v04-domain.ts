@@ -186,6 +186,8 @@ export function assertV04PayloadContract(payload: V04DraftPayloadV1) {
   }
 }
 
+export { listV04ContractViolations, type V04ContractViolation } from "./v04-contract-rules";
+
 export function hasAnyV04DraftData(payload: V04DraftPayloadV1) {
   const withoutContract = {
     ...payload,
@@ -437,7 +439,8 @@ export function v04ValueConflictTargets(
   return conflicts;
 }
 
-export function applyV04ChangeSet(payload: V04DraftPayloadV1, changes: readonly V04Change[]) {
+/** Applies the change set without the contract check, for diagnosing why it failed. */
+export function applyV04ChangeSetUnchecked(payload: V04DraftPayloadV1, changes: readonly V04Change[]) {
   const next = clonePayload(payload);
   for (const change of changes) {
     const target = locateTarget(next, change.targetKey);
@@ -447,6 +450,11 @@ export function applyV04ChangeSet(payload: V04DraftPayloadV1, changes: readonly 
     }
     target.object[target.key] = structuredClone(change.afterValue);
   }
+  return next;
+}
+
+export function applyV04ChangeSet(payload: V04DraftPayloadV1, changes: readonly V04Change[]) {
+  const next = applyV04ChangeSetUnchecked(payload, changes);
   assertV04PayloadContract(next);
   return next;
 }

@@ -12,6 +12,7 @@ import {
 } from "./v04-contract";
 import {
   applyV04ChangeSet,
+  applyV04ChangeSetUnchecked,
   assertV04PayloadContract,
   canonicalV04ChangeSet,
   decideV04ChangeSet,
@@ -19,6 +20,7 @@ import {
   emptyV04DraftPayload,
   hashV04Payload,
   hasAnyV04DraftData,
+  listV04ContractViolations,
   v04ValueConflictTargets,
   validateV04Publication,
 } from "./v04-domain";
@@ -813,6 +815,19 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
             serverHash,
             conflictTargets: v04ValueConflictTargets(before, input.changes),
           },
+        );
+      }
+      if (error instanceof Error &&
+        (error.message === "CHOICE_RULE_VIOLATION" || error.message === "INVALID_PAYLOAD_SCHEMA")) {
+        // A contract violation is final for this draft: no retry can pass
+        // until the editor changes the named field. Name it.
+        const violations = listV04ContractViolations(applyV04ChangeSetUnchecked(before, input.changes));
+        throw new V04ServiceError(
+          error.message,
+          violations.length
+            ? `工作稿不符合冻结规则：${violations.map((item) => `${item.targetLabel}（${item.message}）`).join("；")}`
+            : "工作稿不符合冻结规则。",
+          { violations },
         );
       }
       throw error;

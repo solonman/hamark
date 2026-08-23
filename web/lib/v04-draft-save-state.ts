@@ -35,6 +35,12 @@ export function v04SaveFailureMessage(code: string) {
       return "保存超时，本地草稿已保留。可直接重试，系统会沿用同一变更集，不会重复写入。";
     case "NETWORK_ERROR":
       return "网络暂不可用，内容已保留在本机恢复副本中。";
+    case "CHOICE_RULE_VIOLATION":
+    case "INVALID_PAYLOAD_SCHEMA":
+    case "CONTRACT_VIOLATION":
+      return "工作稿有字段不符合固定规则；修正该字段后会自动保存，重试不会改变结果。本地内容已保留。";
+    case "IDEMPOTENCY_CONFLICT":
+      return "保存编号与服务器记录不一致，系统已更换编号；本地内容已保留，可直接重试。";
     case "PUBLICATION_INCOMPLETE":
       return "服务器复核发现仍有必填项未保存，请完成并保存后再提交。";
     case "NO_CHANGES_TO_SUBMIT":
