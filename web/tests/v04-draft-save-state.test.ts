@@ -323,3 +323,28 @@ test("re-entry publishes RECOVERY_DISCOVERED instead of an older server SAVED fa
   assert.equal(state.savedAt, "2026-08-22T07:25:29.375Z",
     "the timestamp remains historical server evidence, not a claim that the recovery was absorbed");
 });
+
+test("a keystroke never silently clears an unresolved conflict", () => {
+  let state = initialV04DraftSaveState();
+  state = reduceV04DraftSaveState(state, { type: "EDIT" });
+  state = reduceV04DraftSaveState(state, { type: "SAVE_STARTED", requestToken: 1, editVersion: 1 });
+  state = reduceV04DraftSaveState(state, { type: "SAVE_CONFLICT", requestToken: 1 });
+  assert.equal(state.status, "CONFLICT");
+
+  const typed = reduceV04DraftSaveState(state, { type: "EDIT" });
+  assert.equal(typed.status, "CONFLICT", "editing must not restart autosave against the same conflict");
+  assert.equal(typed.editVersion, 2, "the edit still counts as unsaved work");
+
+  // Only an explicit resolution or a fresh save attempt may leave the state.
+  assert.equal(reduceV04DraftSaveState(typed, { type: "RESET_ERROR" }).status, "DIRTY");
+  assert.equal(
+    reduceV04DraftSaveState(typed, { type: "SAVE_STARTED", requestToken: 2, editVersion: 2 }).status,
+    "SAVING",
+    "the conflict banner's retry must still be able to start a save",
+  );
+
+  // A normal edit outside a conflict is unchanged.
+  const dirty = reduceV04DraftSaveState(initialV04DraftSaveState(), { type: "EDIT" });
+  assert.equal(dirty.status, "DIRTY");
+  assert.equal(dirty.errorCode, null);
+});

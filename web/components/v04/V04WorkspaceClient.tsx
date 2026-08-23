@@ -23,7 +23,7 @@ import {
   type V04RecoveryRecord,
 } from "@/lib/v04-draft-save-state";
 import type { V04ServerWorkspaceModel, V04UiDraft, V04UiShotGroup } from "@/lib/v04-ui-model";
-import { applyV04PayloadValues, cloneV04UiDraft, emptyV04UiDraft, v04PayloadChanges, v04PayloadTargetValue, v04UiDraftToPayload, v04WorkspaceToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
+import { applyV04PayloadValues, cloneV04UiDraft, emptyV04UiDraft, v04PayloadChanges, v04PayloadTargetValue, v04PayloadToUiDraft, v04UiDraftToPayload, v04WorkspaceToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
 import { blankV04Shot, evaluateV04FixturePublication, locateV04Target, moveV04Shot, nextV04Timecode, numberedV04Shots, v04GroupPrimaryRoleTargetId, v04GroupTitleTargetId, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_STORY_OPTIONS } from "@/lib/v04-ui-fixture";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
@@ -36,6 +36,9 @@ import {
   atomicallyClearConfirmedV04RecoveryRecords,
   clearSelectedV04RecoveryRecord,
   deriveV04SubmissionUiState,
+  describeV04ConflictTargets,
+  readV04ConflictTargets,
+  v04ConflictFieldsMessage,
   planV04EditAccessRecovery,
   partitionV04RecoveryRecordsByOwner,
   planV04LiveDraftRebase,
@@ -45,6 +48,7 @@ import {
   shouldDisableV04Submission,
   shouldReleaseV04Lease,
   V04LatestSaveCoordinator,
+  type V04ConflictField,
 } from "@/lib/v04-save-coordinator";
 import {
   decideV04FreshWorkspaceTransition,
@@ -100,6 +104,13 @@ const pathKeys = {
 } as const;
 const RECOVERY_SUBMIT_BLOCKED_MESSAGE = "仍有未吸收、冲突或尚未安全清理的本地恢复副本；请先恢复、对照或继续使用服务器版本，系统不会创建提交。";
 const RECOVERY_INTEGRITY_BLOCKED_MESSAGE = "本机恢复记录无法完整读取或安全清理；为避免误报已保存，编辑、提交和离开均已暂停。请恢复浏览器存储能力后重试核验。";
+
+function describeV04ConflictValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "（空）";
+  if (Array.isArray(value)) return value.length ? value.map(describeV04ConflictValue).join("、") : "（空）";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
 
 function recoveryRecordKey(record: V04RecoveryRecord<V04UiDraft, V04Payload>) {
   return `${record.identity.userId}:${record.identity.workspaceId}:${record.identity.roundId}:${record.identity.tabId}:${record.documentGeneration ?? `legacy-${record.writtenAt}`}`;
@@ -195,6 +206,15 @@ export default function V04WorkspaceClient({
   const [submitOutcome, setSubmitOutcome] = useState<"IDLE" | "SUCCEEDED" | "FAILED">("IDLE");
   const [actionError, setActionError] = useState("");
   const [navigationIssue, setNavigationIssue] = useState<{ message: string; href: string } | null>(null);
+  const [conflictFields, setConflictFieldsState] = useState<V04ConflictField[]>([]);
+  const conflictFieldsRef = useRef<V04ConflictField[]>([]);
+  const [comparingConflict, setComparingConflict] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const resolvingConflictRef = useRef(false);
+  const setConflictFields = useCallback((fields: V04ConflictField[]) => {
+    conflictFieldsRef.current = fields;
+    setConflictFieldsState(fields);
+  }, []);
   const [draggedShotId, setDraggedShotId] = useState<string | null>(null);
   const [pendingLocateId, setPendingLocateId] = useState<string | null>(null);
   const focusContext = useRef<{ element: HTMLElement; scrollY: number } | null>(null);
@@ -784,7 +804,10 @@ export default function V04WorkspaceClient({
             (targetKey) => v04PayloadTargetValue(server.payload, targetKey),
           );
           if (plan.conflicts.length) {
-            throw new V04UiApiError(409, "REVISION_CONFLICT", "服务器工作稿已更新，本地草稿未覆盖冲突字段。");
+            throw new V04UiApiError(
+              409, "REVISION_CONFLICT", "服务器工作稿已更新，本地草稿未覆盖冲突字段。",
+              "", { conflictTargets: plan.conflicts },
+            );
           }
           const changes = plan.changes;
           if (!changes.length) return null;
@@ -807,18 +830,24 @@ export default function V04WorkspaceClient({
       });
       const updated = await refreshWorkspace();
       migrateRecoveryIdentity(updated);
-      const confirmation = classifyV04RecoveryConfirmation(
+      const confirmationPlan = planV04ThreeWayChanges(
         originalChanges,
         (targetKey) => v04PayloadTargetValue(updated.payload, targetKey),
       );
+      const confirmation = confirmationPlan.conflicts.length
+        ? "CONFLICT" as const
+        : confirmationPlan.changes.length ? "NOT_ABSORBED" as const : "CONFIRMED" as const;
       if (confirmation !== "CONFIRMED") {
         throw new V04UiApiError(
           confirmation === "CONFLICT" ? 409 : 503,
           confirmation === "CONFLICT" ? "REVISION_CONFLICT" : "SAVE_CONFIRMATION_FAILED",
           "服务器尚未确认最新草稿内容，本地恢复副本保持不变。",
+          "", { conflictTargets: confirmationPlan.conflicts },
         );
       }
       const savedTime = updated.lastSavedAt ?? result?.savedAt ?? new Date().toISOString();
+      setConflictFields([]);
+      setComparingConflict(false);
       dispatchSaveState({ type: "SAVE_SUCCEEDED", requestToken, editVersion: attempt.version, savedAt: savedTime });
       changeSetIdsRef.current.delete(attempt.version);
       if (editVersionRef.current === attempt.version) {
@@ -876,7 +905,15 @@ export default function V04WorkspaceClient({
           reconcileFreshWorkspace(refreshed, refreshed);
         } catch { /* keep the local recovery copy */ }
       }
+      let conflictDetail = "";
       if (apiError.code === "REVISION_CONFLICT") {
+        const fields = describeV04ConflictTargets(
+          readV04ConflictTargets(apiError.details),
+          originalChanges,
+        );
+        setConflictFields(fields);
+        setComparingConflict(false);
+        conflictDetail = fields.length ? ` ${v04ConflictFieldsMessage(fields)}` : "";
         dispatchSaveState({ type: "SAVE_CONFLICT", requestToken });
       } else if (apiError.code === "NETWORK_ERROR") {
         dispatchSaveState({ type: "SAVE_OFFLINE", requestToken });
@@ -888,10 +925,10 @@ export default function V04WorkspaceClient({
           errorCode: apiError.code,
         });
       }
-      setActionError(v04SaveFailureMessage(apiError.code));
+      setActionError(`${v04SaveFailureMessage(apiError.code)}${conflictDetail}`);
       return false;
     }
-  }, [acquireLease, clearLeaseProof, dispatchSaveState, migrateRecoveryIdentity, persistRecovery, reconcileConfirmedRecoveries, reconcileFreshWorkspace, refreshWorkspace, videoId]);
+  }, [acquireLease, clearLeaseProof, dispatchSaveState, migrateRecoveryIdentity, persistRecovery, reconcileConfirmedRecoveries, reconcileFreshWorkspace, refreshWorkspace, setConflictFields, videoId]);
 
   const requestSave = useCallback((nextDraft = cloneV04UiDraft(draftRef.current), version = editVersionRef.current) => {
     const basePayload = draftBasePayloadRef.current ?? modelRef.current?.payload;
@@ -902,6 +939,59 @@ export default function V04WorkspaceClient({
     });
     return saveCoordinatorRef.current.flush(commitSaveAttempt);
   }, [commitSaveAttempt]);
+
+  /**
+   * Resolves a live conflict by taking the server value for the conflicting
+   * targets only. Every non-conflicting local edit survives and is saved on the
+   * refreshed base, so this narrows the draft rather than discarding it.
+   */
+  const adoptServerConflictValues = useCallback(async () => {
+    const conflicting = conflictFieldsRef.current;
+    if (!conflicting.length || !modelRef.current) return false;
+    let fresh: V04ServerWorkspaceModel;
+    try {
+      fresh = await refreshWorkspace();
+    } catch {
+      setActionError("暂时无法读取服务器版本；本地内容仍保留，请确认网络后重试。");
+      return false;
+    }
+    const base = draftBasePayloadRef.current ?? fresh.payload;
+    let resolved;
+    try {
+      resolved = applyV04PayloadValues(
+        v04UiDraftToPayload(draftRef.current, base),
+        conflicting.map((field) => ({
+          targetKey: field.targetKey,
+          afterValue: v04PayloadTargetValue(fresh.payload, field.targetKey),
+        })),
+      );
+    } catch {
+      setActionError("冲突字段已不在当前工作稿结构中；请刷新页面后在本地恢复副本中逐份处理。");
+      return false;
+    }
+    const nextDraft = v04PayloadToUiDraft(resolved);
+    draftRef.current = nextDraft;
+    setDraftState(nextDraft);
+    draftBasePayloadRef.current = structuredClone(fresh.payload);
+    draftBaseRevisionRef.current = fresh.draftRevision;
+    draftBaseHashRef.current = fresh.draftContentHash;
+    setConflictFields([]);
+    setComparingConflict(false);
+    persistRecovery(nextDraft, fresh, fresh.payload);
+    dispatchSaveState({ type: "RESET_ERROR" });
+    setActionError("");
+    return requestSave(cloneV04UiDraft(nextDraft), editVersionRef.current);
+  }, [dispatchSaveState, persistRecovery, refreshWorkspace, requestSave, setConflictFields]);
+
+  const resolveConflict = useCallback((action: () => Promise<boolean>) => {
+    if (resolvingConflictRef.current) return Promise.resolve(false);
+    resolvingConflictRef.current = true;
+    setResolvingConflict(true);
+    return action().finally(() => {
+      resolvingConflictRef.current = false;
+      setResolvingConflict(false);
+    });
+  }, []);
 
   const guardWorkspaceNavigation = useCallback(async (navigate: () => void, href = "") => {
     setNavigating(true);
@@ -1308,6 +1398,19 @@ export default function V04WorkspaceClient({
   };
   const noChangesToSubmit = Boolean((saveMachine.status === "SAVED" || saveMachine.status === "CLEAN") &&
     model?.latestSubmission?.contentHash === model?.draftContentHash);
+  const saveConflict = saveMachine.status === "CONFLICT";
+  const conflictComparison = useMemo(() => {
+    if (!comparingConflict || !conflictFields.length || !model) return [];
+    // The server payload is a legal merge base for a read-only comparison: a
+    // conflicting target is by definition one this draft edited, so the draft
+    // supplies that value and the base only fills untouched fields.
+    const localPayload = v04UiDraftToPayload(draft, model.payload);
+    return conflictFields.map((field) => ({
+      ...field,
+      serverValue: describeV04ConflictValue(v04PayloadTargetValue(model.payload, field.targetKey)),
+      localValue: describeV04ConflictValue(v04PayloadTargetValue(localPayload, field.targetKey)),
+    }));
+  }, [comparingConflict, conflictFields, draft, model]);
   const submitUi = deriveV04SubmissionUiState({
     canEdit,
     editAccessPending,
@@ -1317,6 +1420,7 @@ export default function V04WorkspaceClient({
     busy: restoring || navigating,
     recoveryPending,
     recoveryIntegrityBlocked,
+    saveConflict,
     noChangesToSubmit,
     outcome: submitOutcome,
     submissionNumber: model?.submissionCount ?? 0,
@@ -1327,6 +1431,7 @@ export default function V04WorkspaceClient({
     publicationReady: publication.ready,
     submitting: submitting || restoring || navigating,
     recoveryPending,
+    saveConflict,
     noChangesToSubmit,
   });
   const submitActionProps = {
@@ -1625,7 +1730,8 @@ export default function V04WorkspaceClient({
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{RECOVERY_INTEGRITY_BLOCKED_MESSAGE}</p><button type="button" onClick={() => { if (modelRef.current) resolveInitialRecoveryIntegrity(modelRef.current); }}>重试恢复核验</button></section>}
     {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={recoveryRecordKey(record)}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} disabled={resolvingRecovery} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新的本地副本" : `较早的本地副本 ${index + 1}`} · {record.writtenAt} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>此副本基于较早保存状态，服务器内容已有更新。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；不会影响其他标签页。系统会在状态可用后自动恢复编辑，全部副本仍按当前案例汇总供逐份处理。</p>}</div><div><button type="button" disabled={resolvingRecovery} onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" disabled={resolvingRecovery} onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" disabled={resolvingRecovery} onClick={() => { void keepServerDraft(); }}>{resolvingRecovery ? "正在确认服务器内容…" : "继续使用服务器版本"}</button></div></section>}
-    {actionError && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
+    {saveConflict && <section className={`${styles.recoveryBanner} ${styles.conflictBanner}`} role="alertdialog" aria-label="工作稿版本冲突" data-v04-save-conflict><div><b>本地草稿与服务器版本存在冲突</b><span>{actionError || v04SaveFailureMessage("REVISION_CONFLICT")}</span>{conflictFields.length > 0 && <ul className={styles.conflictFields}>{conflictFields.map((field) => <li key={field.targetKey}>{field.targetLabel}</li>)}</ul>}{conflictComparison.map((row) => <dl key={row.targetKey} className={styles.conflictCompare}><dt>{row.targetLabel}</dt><dd><span>服务器当前值</span><b>{row.serverValue}</b></dd><dd><span>本地值</span><b>{row.localValue}</b></dd></dl>)}<p>系统不会自动覆盖任何一方。本地内容已保留在本机恢复副本中；处理完成前不会保存或提交。</p></div><div><button type="button" disabled={resolvingConflict} onClick={() => { void resolveConflict(() => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current)); }}>{resolvingConflict ? "正在处理…" : "重试保存"}</button><button type="button" disabled={resolvingConflict} onClick={() => setComparingConflict((current) => !current)}>{comparingConflict ? "收起对照" : "对照服务器"}</button><button type="button" disabled={resolvingConflict || !conflictFields.length} onClick={() => { void resolveConflict(adoptServerConflictValues); }}>改用服务器版本 · 仅冲突字段</button></div></section>}
+    {actionError && !saveConflict && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>
     <div className={styles.workspaceGrid}>
       <V04WorkspaceNavigation draft={draft} onLocate={locate} />

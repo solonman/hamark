@@ -21,6 +21,9 @@ import {
 import {
   atomicallyClearConfirmedV04RecoveryRecords,
   classifyV04RecoveryConfirmation,
+  describeV04ConflictTargets,
+  readV04ConflictTargets,
+  v04ConflictFieldsMessage,
   clearSelectedV04RecoveryRecord,
   deriveV04SubmissionUiState,
   partitionV04RecoveryRecordsByOwner,
@@ -786,6 +789,7 @@ test("submission and keep-server controls stay fail-closed while recovery is pen
     publicationReady: true,
     submitting: false,
     recoveryPending: true,
+    saveConflict: false,
     noChangesToSubmit: false,
   }), true);
   assert.equal(shouldDisableV04Submission({
@@ -793,6 +797,7 @@ test("submission and keep-server controls stay fail-closed while recovery is pen
     publicationReady: true,
     submitting: false,
     recoveryPending: false,
+    saveConflict: false,
     noChangesToSubmit: false,
   }), false);
 
@@ -815,6 +820,7 @@ test("fixed-header and module-four submission controls share one truthful human 
     busy: false,
     recoveryPending: false,
     recoveryIntegrityBlocked: false,
+    saveConflict: false,
     noChangesToSubmit: false,
     outcome: "IDLE" as const,
     submissionNumber: 1,
@@ -862,6 +868,7 @@ test("submission UI fails closed with a visible natural-language reason", () => 
     busy: false,
     recoveryPending: false,
     recoveryIntegrityBlocked: false,
+    saveConflict: false,
     noChangesToSubmit: false,
     outcome: "IDLE" as const,
     submissionNumber: 0,
@@ -957,4 +964,100 @@ test("every prevented-navigation outcome has a visible reason", () => {
     assert.notEqual(v04NavigationFailureMessage(result), "", result);
   }
   assert.equal(v04NavigationFailureMessage("NAVIGATED"), "");
+});
+
+test("a save conflict names its conflicting fields instead of asking for an unguided comparison", () => {
+  const sent = [
+    { targetKey: "facts.brand", targetLabel: "品牌", valueType: "TEXT" as const, beforeValue: "", afterValue: "A" },
+    { targetKey: "path.primaryType", targetLabel: "主导路径", valueType: "SINGLE_SELECT" as const, beforeValue: "", afterValue: "B" },
+  ];
+  // The server reports stable keys only; labels come from this page's change set.
+  const fields = describeV04ConflictTargets(
+    readV04ConflictTargets({ conflictTargets: ["facts.brand", "shot:s1.camera", "facts.brand", ""] }),
+    sent,
+  );
+  assert.deepEqual(fields, [
+    { targetKey: "facts.brand", targetLabel: "品牌" },
+    { targetKey: "shot:s1.camera", targetLabel: "shot:s1.camera" },
+  ], "duplicates and blanks drop out; an unlabelled server target still stays visible");
+  assert.match(v04ConflictFieldsMessage(fields), /品牌/);
+  assert.match(v04ConflictFieldsMessage(fields), /shot:s1\.camera/);
+
+  assert.deepEqual(readV04ConflictTargets(undefined), []);
+  assert.deepEqual(readV04ConflictTargets({}), []);
+  assert.deepEqual(readV04ConflictTargets({ conflictTargets: "facts.brand" }), []);
+  assert.deepEqual(readV04ConflictTargets({ conflictTargets: [1, null, "facts.brand"] }), ["facts.brand"]);
+  assert.equal(v04ConflictFieldsMessage([]), "", "no named target must not render an empty field list");
+
+  const many = describeV04ConflictTargets(
+    ["a", "b", "c", "d", "e", "f"],
+    [],
+  );
+  assert.match(v04ConflictFieldsMessage(many), /等 6 项/);
+});
+
+test("an unresolved save conflict blocks submission instead of offering a doomed submit", () => {
+  const common = {
+    canEdit: true,
+    editAccessPending: false,
+    otherEditor: false,
+    publicationReady: true,
+    submitting: false,
+    busy: false,
+    recoveryPending: false,
+    recoveryIntegrityBlocked: false,
+    saveConflict: false,
+    noChangesToSubmit: false,
+    outcome: "IDLE" as const,
+    submissionNumber: 1,
+  };
+  assert.equal(deriveV04SubmissionUiState(common).state, "READY");
+  const blocked = deriveV04SubmissionUiState({ ...common, saveConflict: true });
+  assert.equal(blocked.state, "CONFLICT_BLOCKED");
+  assert.equal(blocked.disabled, true);
+  assert(blocked.reason.length > 0);
+  assert.doesNotMatch(`${blocked.buttonLabel}${blocked.headline}${blocked.reason}`, /租约|token|编辑权/);
+  assert.equal(shouldDisableV04Submission({
+    canEdit: true,
+    publicationReady: true,
+    submitting: false,
+    recoveryPending: false,
+    saveConflict: true,
+    noChangesToSubmit: false,
+  }), true, "the control and its explanation must never disagree about availability");
+});
+
+test("a live conflict offers a visible way out instead of a dead end", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const [workspace, css] = await Promise.all([
+    readFile(new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8"),
+  ]);
+
+  // Both conflict throws must carry the targets the banner renders.
+  const throwSites = workspace.match(/new V04UiApiError\(\s*409/g) ?? [];
+  assert(throwSites.length >= 1, "the client raises its own conflicts");
+  for (const block of workspace.split("REVISION_CONFLICT").slice(1, 3)) {
+    assert.match(block.slice(0, 400), /conflictTargets/,
+      "a client-raised conflict must name its targets");
+  }
+
+  // The banner and its three controls exist and are reachable while blocked.
+  assert.match(workspace, /data-v04-save-conflict/);
+  assert.match(workspace, /重试保存/);
+  assert.match(workspace, /对照服务器/);
+  assert.match(workspace, /改用服务器版本/);
+  assert.match(workspace, /adoptServerConflictValues/);
+  assert.match(css, /\.conflictBanner/);
+
+  // The generic error banner must not double-render the same conflict text.
+  assert.match(workspace, /actionError && !saveConflict/);
+
+  // Adopting the server value must narrow the draft, never replace it wholesale.
+  const adopt = workspace.slice(workspace.indexOf("const adoptServerConflictValues"));
+  assert.match(adopt.slice(0, 1600), /applyV04PayloadValues/);
+  assert.match(adopt.slice(0, 1600), /conflicting\.map/,
+    "only the conflicting targets take the server value");
+  assert.match(adopt.slice(0, 1600), /persistRecovery/,
+    "the narrowed draft is still written to the local recovery copy");
 });

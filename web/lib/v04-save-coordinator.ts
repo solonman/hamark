@@ -146,16 +146,18 @@ export function shouldDisableV04Submission(input: {
   publicationReady: boolean;
   submitting: boolean;
   recoveryPending: boolean;
+  saveConflict: boolean;
   noChangesToSubmit: boolean;
 }) {
   return !input.canEdit || !input.publicationReady || input.submitting ||
-    input.recoveryPending || input.noChangesToSubmit;
+    input.recoveryPending || input.saveConflict || input.noChangesToSubmit;
 }
 
 export type V04SubmissionUiState = {
   state:
     | "SUBMITTING"
     | "RECOVERY_BLOCKED"
+    | "CONFLICT_BLOCKED"
     | "BUSY"
     | "PREPARING_EDIT"
     | "OTHER_EDITOR"
@@ -183,6 +185,7 @@ export function deriveV04SubmissionUiState(input: {
   busy: boolean;
   recoveryPending: boolean;
   recoveryIntegrityBlocked: boolean;
+  saveConflict: boolean;
   noChangesToSubmit: boolean;
   outcome: "IDLE" | "SUCCEEDED" | "FAILED";
   submissionNumber: number;
@@ -203,6 +206,13 @@ export function deriveV04SubmissionUiState(input: {
     reason: input.recoveryIntegrityBlocked
       ? "本机恢复记录尚未完整读取或安全清理；核验完成前不会提交。"
       : "仍有未吸收或冲突的本地内容；处理完成前不会创建只读成果。",
+  };
+  if (input.saveConflict) return {
+    state: "CONFLICT_BLOCKED",
+    disabled: true,
+    buttonLabel: "处理冲突后提交",
+    headline: "本地草稿与服务器版本存在冲突",
+    reason: "提交会先保存最新修改，冲突未处理前必然失败。请先在上方处理冲突字段；本地内容仍保留。",
   };
   if (input.busy) return {
     state: "BUSY",
@@ -291,6 +301,48 @@ export function planV04ThreeWayChanges(
     }
   }
   return { changes, alreadyApplied, conflicts };
+}
+
+export type V04ConflictField = {
+  targetKey: string;
+  targetLabel: string;
+};
+
+/**
+ * The save API names every conflicting stable target key but carries no field
+ * labels. Labels only exist on the change set this page tried to send, so a
+ * target the server names alone still renders as its stable key rather than
+ * silently disappearing from the conflict list.
+ */
+export function describeV04ConflictTargets(
+  targetKeys: readonly string[],
+  labelledChanges: readonly Pick<V04Change, "targetKey" | "targetLabel">[],
+): V04ConflictField[] {
+  const labels = new Map(labelledChanges.map((change) => [change.targetKey, change.targetLabel]));
+  const seen = new Set<string>();
+  const fields: V04ConflictField[] = [];
+  for (const targetKey of targetKeys) {
+    if (typeof targetKey !== "string" || !targetKey || seen.has(targetKey)) continue;
+    seen.add(targetKey);
+    const label = labels.get(targetKey);
+    fields.push({ targetKey, targetLabel: label && label.trim() ? label : targetKey });
+  }
+  return fields;
+}
+
+export function readV04ConflictTargets(details: unknown): string[] {
+  if (!details || typeof details !== "object") return [];
+  const value = (details as Record<string, unknown>).conflictTargets;
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
+
+export function v04ConflictFieldsMessage(fields: readonly V04ConflictField[]) {
+  if (!fields.length) return "";
+  const shown = fields.slice(0, 5).map((field) => field.targetLabel).join("、");
+  return fields.length > 5
+    ? `冲突字段：${shown} 等 ${fields.length} 项。`
+    : `冲突字段：${shown}。`;
 }
 
 export function classifyV04RecoveryConfirmation(

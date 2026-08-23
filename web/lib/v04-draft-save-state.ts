@@ -95,12 +95,17 @@ export function reduceV04DraftSaveState(
 ): V04DraftSaveState {
   switch (action.type) {
     case "EDIT":
-      return {
-        ...state,
-        status: "DIRTY",
-        editVersion: state.editVersion + 1,
-        errorCode: null,
-      };
+      // An unresolved conflict stays visible and keeps autosave stopped. A
+      // keystroke must not silently clear the warning and resume retrying,
+      // because the same target would only conflict again.
+      return state.status === "CONFLICT"
+        ? { ...state, editVersion: state.editVersion + 1 }
+        : {
+          ...state,
+          status: "DIRTY",
+          editVersion: state.editVersion + 1,
+          errorCode: null,
+        };
     case "SAVE_STARTED":
       if (action.requestToken <= state.activeRequestToken || action.editVersion > state.editVersion) {
         return state;
