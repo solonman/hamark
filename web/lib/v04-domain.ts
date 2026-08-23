@@ -300,6 +300,61 @@ export function validateV04Publication(payload: V04DraftPayloadV1) {
   return { publicationReady: items.length === 0, missingItems: items };
 }
 
+export type V04ContentSummary = {
+  bridgeCount: number;
+  shotCount: number;
+  filledFieldCount: number;
+  empty: boolean;
+};
+
+/**
+ * How much filled content a payload carries. Restoring a historical version
+ * replaces the whole working draft, so the version list is only safe to act on
+ * when each entry says what it holds — an empty initial baseline and a full
+ * script must not look alike in the drawer.
+ */
+export function summarizeV04PayloadContent(payload: V04DraftPayloadV1): V04ContentSummary {
+  let filledFieldCount = 0;
+  let shotCount = 0;
+  const countText = (value: unknown) => { if (trim(value)) filledFieldCount += 1; };
+  const countChoice = (value: V04ChoiceValue | undefined) => {
+    if (value && (value.selectedOptionIds.length > 0 || trim(value.customText) ||
+      trim(value.advancedText))) filledFieldCount += 1;
+  };
+  for (const group of payload.script.shotGroups) {
+    countText(group.bridgeName);
+    countText(group.keyCreativeDescription);
+    countChoice(group.primaryCreativeRole);
+    countChoice(group.auxiliaryCreativeRole);
+    for (const shot of group.shots) {
+      shotCount += 1;
+      for (const [key, value] of Object.entries(shot)) {
+        if (key !== "id" && key !== "orderIndex") countText(value);
+      }
+    }
+  }
+  const facts = payload.factsAndCoreJudgement;
+  for (const [key, value] of Object.entries(facts)) {
+    if (key === "creativeCarriers") {
+      if (Array.isArray(value) && value.length > 0) filledFieldCount += 1;
+    } else if (typeof value === "string") countText(value);
+    else countChoice(value as V04ChoiceValue);
+  }
+  countText(payload.perceptionPath.primaryType);
+  for (const value of Object.values(payload.perceptionPath.primaryDetails)) countText(value);
+  for (const auxiliary of payload.perceptionPath.auxiliaryTypes) {
+    countText(auxiliary.description);
+    countText(auxiliary.creativeRole);
+  }
+  const bridgeCount = payload.script.shotGroups.length;
+  return {
+    bridgeCount,
+    shotCount,
+    filledFieldCount,
+    empty: bridgeCount === 0 && shotCount === 0 && filledFieldCount === 0,
+  };
+}
+
 export type V04ConflictDecision = {
   kind: "APPLY" | "REBASE" | "CONFLICT";
   conflictTargets: string[];

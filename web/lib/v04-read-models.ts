@@ -11,7 +11,9 @@ import {
   emptyV04DraftPayload,
   hashV04Payload,
   hasAnyV04DraftData,
+  summarizeV04PayloadContent,
   validateV04Publication,
+  type V04ContentSummary,
 } from "./v04-domain";
 import { V04ServiceError } from "./v04-errors";
 import type { V04Actor } from "./v04-workspace-service";
@@ -76,6 +78,27 @@ type SubmissionReadRow = QueryResultRow & {
 
 const parseJson = <T>(value: string | T): T =>
   typeof value === "string" ? JSON.parse(value) as T : value;
+
+/** Working snapshots whose payload is read so the drawer can describe them. */
+const SUMMARIZED_WORKING_REVISIONS = 60;
+
+// Timestamps reach this read model both as ISO text and as driver Date objects.
+// Sorting them as raw strings interleaved a weekday-prefixed date with an ISO
+// one, which put the newest working revision below an empty initial baseline in
+// the version list. One normalized instant keeps the order and the rendered
+// time honest.
+function isoEventTime(value: unknown) {
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
+}
+
+function contentSummaryOf(value: unknown): V04ContentSummary | null {
+  try {
+    return summarizeV04PayloadContent(parseJson<V04DraftPayloadV1>(value as string | V04DraftPayloadV1));
+  } catch {
+    return null;
+  }
+}
 
 async function getVideo(db: DbClient, videoId: string) {
   const row = await db.prepare(
@@ -820,20 +843,27 @@ export async function loadV04HistoryReadModel(
     };
   }
 
-  const [baselines, working, submissionRows, releases, revisions, comments, payload, rows] = await Promise.all([
+  const [baselines, working, olderWorking, submissionRows, releases, revisions, comments, payload, rows] = await Promise.all([
     db.prepare(
       `SELECT id, source_kind, source_object_type, source_object_id, content_hash,
-        created_by_user_id AS actor_user_id, created_at
+        created_by_user_id AS actor_user_id, created_at, payload_json
       FROM collaboration_baselines WHERE workspace_id = ?`,
     ).bind(workspace.id).all<QueryResultRow>(),
     db.prepare(
+      `SELECT id, revision, content_hash, created_by_user_id AS actor_user_id, created_at, payload_json
+      FROM annotation_snapshots
+      WHERE annotation_id = ? AND workflow_version = ? AND snapshot_kind = 'WORKING'
+      ORDER BY revision DESC LIMIT ${SUMMARIZED_WORKING_REVISIONS}`,
+    ).bind(workspace.canonical_annotation_id, V04_WORKFLOW_VERSION).all<QueryResultRow>(),
+    db.prepare(
       `SELECT id, revision, content_hash, created_by_user_id AS actor_user_id, created_at
       FROM annotation_snapshots
-      WHERE annotation_id = ? AND workflow_version = ? AND snapshot_kind = 'WORKING'`,
+      WHERE annotation_id = ? AND workflow_version = ? AND snapshot_kind = 'WORKING'
+      ORDER BY revision DESC OFFSET ${SUMMARIZED_WORKING_REVISIONS}`,
     ).bind(workspace.canonical_annotation_id, V04_WORKFLOW_VERSION).all<QueryResultRow>(),
     db.prepare(
       `SELECT id, submission_number, source_revision, content_hash,
-        submitted_by_user_id AS actor_user_id, submitted_at AS created_at
+        submitted_by_user_id AS actor_user_id, submitted_at AS created_at, payload_json
       FROM annotation_submission_snapshots WHERE workspace_id = ?`,
     ).bind(workspace.id).all<QueryResultRow>(),
     db.prepare(
@@ -858,22 +888,47 @@ export async function loadV04HistoryReadModel(
     currentPayload(db, workspace),
     submissions(db, workspace.id),
   ]);
-  const events: Array<QueryResultRow & { createdAt: string; eventType: string }> = [
-    ...baselines.results.map((row) => ({ ...row, createdAt: String(row.created_at), eventType: "INITIAL_BASELINE" })),
-    ...working.results.map((row) => ({ ...row, createdAt: String(row.created_at), eventType: "WORKING_SESSION" })),
-    ...submissionRows.results.map((row) => ({ ...row, createdAt: String(row.created_at), eventType: "SUBMISSION" })),
-    ...releases.results.map((row) => ({ ...row, createdAt: String(row.created_at), eventType: "EXPERT" })),
+  const events: Array<QueryResultRow & {
+    createdAt: string;
+    eventType: string;
+    contentSummary?: V04ContentSummary | null;
+  }> = [
+    ...baselines.results.map(({ payload_json, ...row }) => ({
+      ...row,
+      createdAt: isoEventTime(row.created_at),
+      eventType: "INITIAL_BASELINE",
+      contentSummary: contentSummaryOf(payload_json),
+    })),
+    ...working.results.map(({ payload_json, ...row }) => ({
+      ...row,
+      createdAt: isoEventTime(row.created_at),
+      eventType: "WORKING_SESSION",
+      contentSummary: contentSummaryOf(payload_json),
+    })),
+    ...olderWorking.results.map((row) => ({
+      ...row,
+      createdAt: isoEventTime(row.created_at),
+      eventType: "WORKING_SESSION",
+      contentSummary: null,
+    })),
+    ...submissionRows.results.map(({ payload_json, ...row }) => ({
+      ...row,
+      createdAt: isoEventTime(row.created_at),
+      eventType: "SUBMISSION",
+      contentSummary: contentSummaryOf(payload_json),
+    })),
+    ...releases.results.map((row) => ({ ...row, createdAt: isoEventTime(row.created_at), eventType: "EXPERT" })),
     ...revisions.results.map((row) => ({
       ...row,
-      createdAt: String(row.created_at),
+      createdAt: isoEventTime(row.created_at),
       eventType: row.source_kind === "HISTORY_RESTORE" ? "RESTORE" : "REVISION",
     })),
     ...comments.results.map((row) => ({
       ...row,
-      createdAt: String(row.created_at),
+      createdAt: isoEventTime(row.created_at),
       eventType: "COMMENT",
     })),
-  ].toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+  ].toSorted((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
   const sessions: Array<{
     actorUserId: string | null;
     actorName: string;
@@ -913,6 +968,8 @@ export async function loadV04HistoryReadModel(
     state: workflowFacts(payload, workspace, rows).state,
     sessions,
     events,
+    currentSummary: summarizeV04PayloadContent(payload),
+    summarizedRevisionLimit: SUMMARIZED_WORKING_REVISIONS,
     viewerCapabilities: await viewerCapabilities(
       video,
       workspace,
