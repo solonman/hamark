@@ -49,3 +49,20 @@ export function createV04MetadataQueue(limit = 1) {
 }
 
 export const v04MetadataQueue = createV04MetadataQueue(1);
+
+/** 只读成果页顶部展示位与页面顶栏之间的判定基线（顶栏 70px + 一点余量）。 */
+export const V04_DETAIL_DOCK_HEADER_OFFSET = 86;
+const V04_DETAIL_DOCK_VISIBLE_RATIO = 0.4;
+
+/**
+ * 只读成果页向下滚动、顶部展示位只剩不到四成还露在顶栏下方时，播放器收进右下角。
+ * 展示位的高度由调用方原地保留，所以判定只看展示位在视口里的位置：收起动作本身
+ * 不会改变这个位置，也就不会在临界点上反复收起、展开。
+ */
+export function shouldDockV04DetailPlayer(
+  heroTop: number,
+  heroHeight: number,
+  headerOffset = V04_DETAIL_DOCK_HEADER_OFFSET,
+) {
+  return heroTop + heroHeight * V04_DETAIL_DOCK_VISIBLE_RATIO < headerOffset;
+}

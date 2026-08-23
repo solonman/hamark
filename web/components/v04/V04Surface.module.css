@@ -183,7 +183,8 @@
 .versionSwitch button:disabled { border-color: rgba(223,255,79,.4); color: var(--v04-accent); }
 
 .videoShell { z-index: 24; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 18px; background: #050505; box-shadow: 0 18px 60px rgba(0,0,0,.32); }
-.videoHero { position: relative; width: min(1160px, calc(100% - 48px)); margin: 0 auto 36px; }
+.videoHeroSlot { width: min(1160px, calc(100% - 48px)); margin: 0 auto 36px; scroll-margin-top: 86px; }
+.videoHero { position: relative; width: 100%; }
 .videoFloating { position: fixed; right: 24px; bottom: 24px; width: min(360px, calc(100vw - 32px)); }
 .videoMinimized { width: auto; border-radius: 999px; }
 .videoStage { position: relative; aspect-ratio: 16 / 9; }
@@ -421,7 +422,7 @@
   .readingShot { padding-left: 14px; }
   .readingThree, .readingTwo, .readingOne { grid-template-columns: 1fr; }
   .readingShotBlock > div + div { border-left: 0; }
-  .videoHero { width: calc(100% - 24px); }
+  .videoHeroSlot { width: calc(100% - 24px); }
   .videoFloating { right: 9px; bottom: 9px; width: calc(100vw - 18px); }
   .workspaceTools { right: 9px; bottom: calc(56.25vw + 100px); }
   .submitCard { align-items: stretch; flex-direction: column; }

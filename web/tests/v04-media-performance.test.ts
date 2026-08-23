@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { createV04MetadataQueue } from "../lib/v04-media-loading.ts";
+import {
+  createV04MetadataQueue,
+  shouldDockV04DetailPlayer,
+  V04_DETAIL_DOCK_HEADER_OFFSET,
+} from "../lib/v04-media-loading.ts";
 import { CosVideoBucket } from "../storage/cos.ts";
 
 const readProjectFile = (relative: string) =>
@@ -124,4 +128,31 @@ test("library metadata queue is FIFO, single-concurrency and cancellable", async
   blocked.resolve();
   await flushTasks();
   assert.equal(pendingRan, false);
+});
+
+test("只读成果页的播放器在顶部展示位滚出视野后收进右下角", () => {
+  const heroHeight = 700;
+
+  // 展示位还完整停在顶栏下方：留在页面顶部的大画面。
+  assert.equal(shouldDockV04DetailPlayer(120, heroHeight), false);
+  // 只剩不到四成露在顶栏下方：收进右下角。
+  assert.equal(shouldDockV04DetailPlayer(V04_DETAIL_DOCK_HEADER_OFFSET - heroHeight * 0.4 - 1, heroHeight), true);
+  // 往回滚一像素就回到展示位，判定没有死区。
+  assert.equal(shouldDockV04DetailPlayer(V04_DETAIL_DOCK_HEADER_OFFSET - heroHeight * 0.4 + 1, heroHeight), false);
+  // 展示位整个滚过去之后当然保持收起。
+  assert.equal(shouldDockV04DetailPlayer(-heroHeight, heroHeight), true);
+});
+
+test("只读成果页收起播放器时原地留出占位，工作稿页仍是常驻浮窗", async () => {
+  const player = await readProjectFile("components/v04/V04VideoPlayer.tsx");
+
+  assert.match(player, /shouldDockV04DetailPlayer/);
+  assert.match(player, /const dockable = surface === "detail" && !video\.floating/);
+  assert.match(player, /const floating = surface === "workspace" \|\| video\.floating \|\| docked/);
+  // 收起后仍按当前宽度把展示位的高度留在原地，正文不会因为收起而上跳。
+  assert.match(player, /slot\.style\.height = next \? `\$\{heroHeight\}px` : ""/);
+  assert.match(player, /addEventListener\("scroll", schedule, \{ passive: true \}\)/);
+  assert.match(player, /addEventListener\("resize", schedule\)/);
+  assert.match(player, /removeEventListener\("scroll", schedule\)/);
+  assert.match(player, /cancelAnimationFrame\(frame\)/);
 });
