@@ -107,3 +107,23 @@ test("a blocked navigation always offers an explicit way out once the local copy
   assert.match(source, /forceLeaveRef\.current \|\| !shouldProtectV04Unload/,
     "the beforeunload guard yields to the explicit choice");
 });
+
+test("the V1.9 detail surface offers a reversible delete only to who may actually delete", async () => {
+  const detail = await readFile(new URL("../components/v04/V04DetailClient.tsx", import.meta.url), "utf8");
+  assert.match(detail, /model\.viewerCapabilities\.canTrash && <button[^>]*data-v04-trash-case/,
+    "the control is gated on the server's own capability, not re-derived in the page");
+  assert.match(detail, /data-v04-trash-confirm/, "deleting takes a second, explicit confirmation");
+  assert.match(detail, /保留 90 天/, "the confirmation states that the case is recoverable");
+  assert.match(detail, /原始视频文件不会被清理/);
+  assert.match(detail, /v04UiApi\.trash\(videoId, \{ reason: [^}]+\}, trashKey\.current\)/,
+    "it goes through the product's own trash route with a stable idempotency key");
+  assert.doesNotMatch(detail, /purge|PURGE/, "the read surface never offers an irreversible purge");
+
+  const readModels = await readFile(new URL("../lib/v04-read-models.ts", import.meta.url), "utf8");
+  assert.match(readModels, /canTrash: roles\.member && \(uploader \|\| roles\.systemAdmin\)/,
+    "capability matches the rule trashVideo enforces");
+
+  const lifecycle = await readFile(new URL("../lib/v04-video-lifecycle.ts", import.meta.url), "utf8");
+  assert.match(lifecycle, /if \(!isUploader && !admin\) \{\s*throw new V04ServiceError\("FORBIDDEN"/,
+    "the service still fails closed regardless of what the page offers");
+});

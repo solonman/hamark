@@ -262,6 +262,10 @@ async function viewerCapabilities(
     canSubmit: roles.member && holdsLease && publicationReady,
     canExpertReview: roles.expert,
     canForceRelease: roles.systemAdmin && Boolean(lease),
+    // Same rule the trash service enforces, so the control is only offered
+    // where it would actually succeed. The read model is the single place
+    // this is decided; the surfaces do not re-derive it.
+    canTrash: roles.member && (uploader || roles.systemAdmin),
   };
 }
 

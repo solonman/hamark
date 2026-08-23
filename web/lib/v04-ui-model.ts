@@ -81,6 +81,7 @@ export type V04UiCapabilities = {
   canSubmit: boolean;
   canExpertReview: boolean;
   canForceRelease: boolean;
+  canTrash?: boolean;
 };
 
 export type V04UiCase = {

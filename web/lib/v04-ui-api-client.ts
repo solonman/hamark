@@ -186,6 +186,10 @@ export function createV04UiApiClient(fetcher: FetchLike = fetch) {
       request<T>(videoPath(videoId, "/restore"), {
         method: "POST", body, idempotencyKey, tabToken, signal,
       }),
+    trash: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string, signal?: AbortSignal) =>
+      request<T>(`/api/videos/${encodeURIComponent(videoId)}/trash`, {
+        method: "POST", body, idempotencyKey, signal,
+      }),
     createComment: <T = unknown>(videoId: string, body: unknown, idempotencyKey: string) =>
       request<T>(videoPath(videoId, "/comments"), {
         method: "POST", body, idempotencyKey,
