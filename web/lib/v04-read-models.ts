@@ -856,7 +856,8 @@ export async function loadV04HistoryReadModel(
       ORDER BY revision DESC LIMIT ${SUMMARIZED_WORKING_REVISIONS}`,
     ).bind(workspace.canonical_annotation_id, V04_WORKFLOW_VERSION).all<QueryResultRow>(),
     db.prepare(
-      `SELECT id, revision, content_hash, created_by_user_id AS actor_user_id, created_at
+      `SELECT id, revision, content_hash, created_by_user_id AS actor_user_id, created_at,
+        length(payload_json) AS payload_bytes
       FROM annotation_snapshots
       WHERE annotation_id = ? AND workflow_version = ? AND snapshot_kind = 'WORKING'
       ORDER BY revision DESC OFFSET ${SUMMARIZED_WORKING_REVISIONS}`,
@@ -905,11 +906,14 @@ export async function loadV04HistoryReadModel(
       eventType: "WORKING_SESSION",
       contentSummary: contentSummaryOf(payload_json),
     })),
-    ...olderWorking.results.map((row) => ({
+    // Beyond the summarized window the stored payload size still separates a
+    // blank draft from a full script, at no transfer cost.
+    ...olderWorking.results.map(({ payload_bytes, ...row }) => ({
       ...row,
       createdAt: isoEventTime(row.created_at),
       eventType: "WORKING_SESSION",
       contentSummary: null,
+      payloadBytes: Number(payload_bytes) || 0,
     })),
     ...submissionRows.results.map(({ payload_json, ...row }) => ({
       ...row,

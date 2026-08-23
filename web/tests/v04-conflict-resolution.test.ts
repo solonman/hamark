@@ -179,6 +179,8 @@ test("a history version says what it holds before it can replace the draft", asy
   assert.equal(summary.empty, false);
   assert.match(describeV04ContentSummary(summary), /1 个桥段 · 2 个镜头 · 5 项已填/);
   assert.match(describeV04ContentSummary(null), /未读取/);
+  assert.match(describeV04ContentSummary(null, 32_768), /内容体积约 32 KB/,
+    "beyond the summarized window the stored size still separates a blank draft from a script");
 
   assert.match(describeV04RestoreLoss(summary, empty), /少 1 个桥段、2 个镜头、5 项已填内容/,
     "restoring a smaller version must state what it would take away first");
@@ -204,7 +206,7 @@ test("restoring a smaller history version takes an explicit second confirmation"
   const { readFile } = await import("node:fs/promises");
   const drawer = await readFile(
     new URL("../components/v04/V04HistoryDrawer.tsx", import.meta.url), "utf8");
-  assert.match(drawer, /describeV04ContentSummary\(event\.contentSummary\)/,
+  assert.match(drawer, /describeV04ContentSummary\(event\.contentSummary, event\.payloadBytes\)/,
     "every restorable version states its own content before it can be chosen");
   assert.match(drawer, /当前工作稿：/, "the live draft is shown for comparison");
   assert.match(drawer, /describeV04RestoreLoss\(currentSummary, event\.contentSummary\)/);

@@ -19,6 +19,7 @@ type HistoryEvent = {
   revision?: number;
   grade?: string;
   contentSummary?: V04ContentSummary | null;
+  payloadBytes?: number;
 };
 
 type HistoryModel = {
@@ -65,7 +66,7 @@ export default function V04HistoryDrawer({ videoId, open, onClose, onRestore }: 
     const source = sourceType(event);
     const label = event.eventType === "SUBMISSION" ? `不可变提交 V${event.submission_number ?? "—"}` : event.eventType === "WORKING_SESSION" ? `工作稿修订 ${event.revision ?? "—"}` : event.eventType === "INITIAL_BASELINE" ? "初始基线" : event.eventType;
     const loss = source ? describeV04RestoreLoss(currentSummary, event.contentSummary) : "";
-    return <article key={`${event.eventType}-${event.id}`}><b>{label}</b><span>{formatV04HistoryTime(event.createdAt)}{event.actor_name_snapshot ? ` · ${event.actor_name_snapshot}` : ""}{event.grade ? ` · ${event.grade}` : ""}</span>{source && <span data-v04-history-summary>{describeV04ContentSummary(event.contentSummary)}</span>}{onRestore && source && (confirming === event.id
+    return <article key={`${event.eventType}-${event.id}`}><b>{label}</b><span>{formatV04HistoryTime(event.createdAt)}{event.actor_name_snapshot ? ` · ${event.actor_name_snapshot}` : ""}{event.grade ? ` · ${event.grade}` : ""}</span>{source && <span data-v04-history-summary>{describeV04ContentSummary(event.contentSummary, event.payloadBytes)}</span>}{onRestore && source && (confirming === event.id
       ? <><span role="alert" className={styles.historyWarning}>{loss}恢复后当前内容仍可从本列表找回。</span><div className={styles.historyConfirm}><button type="button" onClick={() => startRestore(event)}>确认恢复此版本</button><button type="button" onClick={() => setConfirming("")}>取消</button></div></>
       : <button type="button" disabled={restoring === event.id} onClick={() => { if (loss) setConfirming(event.id); else startRestore(event); }}>{restoring === event.id ? "正在恢复…" : "以此版本创建恢复稿"}</button>)}</article>;
   }) : <p>尚无历史事件。</p>}</aside>;

@@ -6,8 +6,15 @@ export function formatV04HistoryTime(value: string) {
   return parsed.toLocaleString("zh-CN", { hour12: false });
 }
 
-export function describeV04ContentSummary(summary: V04ContentSummary | null | undefined) {
-  if (!summary) return "内容摘要未读取（版本较早）";
+export function describeV04ContentSummary(
+  summary: V04ContentSummary | null | undefined,
+  payloadBytes?: number,
+) {
+  if (!summary) {
+    return payloadBytes
+      ? `内容体积约 ${Math.max(1, Math.round(payloadBytes / 1024))} KB · 摘要未读取（版本较早）`
+      : "内容摘要未读取（版本较早）";
+  }
   if (summary.empty) return "空白版本 · 不含任何内容";
   return `${summary.bridgeCount} 个桥段 · ${summary.shotCount} 个镜头 · ${summary.filledFieldCount} 项已填`;
 }
