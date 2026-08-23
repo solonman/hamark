@@ -1042,22 +1042,32 @@ test("a live conflict offers a visible way out instead of a dead end", async () 
       "a client-raised conflict must name its targets");
   }
 
-  // The banner and its three controls exist and are reachable while blocked.
+  // The banner and its controls exist and are reachable while blocked.
   assert.match(workspace, /data-v04-save-conflict/);
   assert.match(workspace, /重试保存/);
   assert.match(workspace, /对照服务器/);
   assert.match(workspace, /改用服务器版本/);
-  assert.match(workspace, /adoptServerConflictValues/);
+  assert.match(workspace, /保留我的内容/,
+    "retrying the same base can only conflict again, so keeping the local value must be offered too");
+  assert.match(workspace, /resolveConflictWith\("LOCAL"\)/);
+  assert.match(workspace, /resolveConflictWith\("SERVER"\)/);
   assert.match(css, /\.conflictBanner/);
 
   // The generic error banner must not double-render the same conflict text.
   assert.match(workspace, /actionError && !saveConflict/);
 
-  // Adopting the server value must narrow the draft, never replace it wholesale.
-  const adopt = workspace.slice(workspace.indexOf("const adoptServerConflictValues"));
-  assert.match(adopt.slice(0, 1600), /applyV04PayloadValues/);
-  assert.match(adopt.slice(0, 1600), /conflicting\.map/,
-    "only the conflicting targets take the server value");
-  assert.match(adopt.slice(0, 1600), /persistRecovery/,
-    "the narrowed draft is still written to the local recovery copy");
+  // Both resolutions rebuild the draft on the server version through the tested
+  // planner, so neither side's untouched work is discarded.
+  const resolve = workspace.slice(workspace.indexOf("const resolveConflictWith"));
+  assert.match(resolve.slice(0, 1800), /planV04ConflictResolution\(\{[\s\S]*server: fresh\.payload/);
+  assert.match(resolve.slice(0, 1800), /prefer,/,
+    "one resolution path serves both directions");
+  assert.match(resolve.slice(0, 1800), /persistRecovery/,
+    "the resolved draft is still written to the local recovery copy");
+  assert.match(resolve.slice(0, 1800), /unaddressableTargets\.length/,
+    "edits the server can no longer address must be reported, not silently dropped");
+
+  // The comparison must name concrete fields, because one stable target can
+  // carry the whole script.
+  assert.match(workspace, /summarizeV04ConflictDifferences/);
 });

@@ -359,6 +359,29 @@ function locateTarget(payload: V04DraftPayloadV1, targetKey: string) {
   return null;
 }
 
+/**
+ * The stable targets whose recorded original value no longer matches the
+ * server's current value. This is the only fact that decides whether a change
+ * set can still be applied: a revision or hash difference alone means the
+ * server moved on, not that this change set collides with it. Naming the
+ * targets that actually collide keeps a conflict resolvable, because the
+ * editor can only choose per target between the two real values.
+ */
+export function v04ValueConflictTargets(
+  payload: V04DraftPayloadV1,
+  changes: readonly V04Change[],
+) {
+  const conflicts: string[] = [];
+  for (const change of changes) {
+    const target = locateTarget(payload, change.targetKey);
+    if (!target || !Object.is(target.object[target.key], change.beforeValue) &&
+      canonicalJson(target.object[target.key]) !== canonicalJson(change.beforeValue)) {
+      conflicts.push(change.targetKey);
+    }
+  }
+  return conflicts;
+}
+
 export function applyV04ChangeSet(payload: V04DraftPayloadV1, changes: readonly V04Change[]) {
   const next = clonePayload(payload);
   for (const change of changes) {

@@ -456,6 +456,61 @@ export function applyV04PayloadValues(
   return next;
 }
 
+export type V04ConflictResolutionPlan = {
+  payload: V04DraftPayloadV1;
+  keptTargets: string[];
+  droppedTargets: string[];
+  unaddressableTargets: string[];
+};
+
+/**
+ * Rebuilds the draft on top of the server's current payload after a version
+ * conflict, keeping every local edit that is not being handed to the server.
+ *
+ * Starting from the server payload rather than from the local one matters in
+ * both directions: a colleague's edit to a target this page never touched
+ * survives instead of being silently reverted on the next save, and choosing
+ * "server wins" narrows to the named conflict targets instead of discarding
+ * the whole local draft.
+ */
+export function planV04ConflictResolution(input: {
+  server: V04DraftPayloadV1;
+  base: V04DraftPayloadV1;
+  local: V04DraftPayloadV1;
+  conflictTargets: readonly string[];
+  prefer: "LOCAL" | "SERVER";
+}): V04ConflictResolutionPlan {
+  const conflicting = new Set(input.conflictTargets);
+  // The primary perception type and its detail fields are one answer: keeping a
+  // local type change while taking the server's details (or the reverse) would
+  // leave details that belong to a different path. They resolve together.
+  if (input.prefer === "SERVER" &&
+    (conflicting.has("path.primaryType") || conflicting.has("path.primaryDetails"))) {
+    conflicting.add("path.primaryType");
+    conflicting.add("path.primaryDetails");
+  }
+  const payload = structuredClone(input.server);
+  const keptTargets: string[] = [];
+  const droppedTargets: string[] = [];
+  const unaddressableTargets: string[] = [];
+  for (const change of v04PayloadChanges(input.base, input.local)) {
+    if (input.prefer === "SERVER" && conflicting.has(change.targetKey)) {
+      droppedTargets.push(change.targetKey);
+      continue;
+    }
+    const target = locateV04UiPayloadTarget(payload, change.targetKey);
+    if (!target) {
+      // The target no longer exists on the server: another editor removed the
+      // bridge or shot this edit belongs to. It cannot be replayed here.
+      unaddressableTargets.push(change.targetKey);
+      continue;
+    }
+    target.object[target.key] = structuredClone(change.afterValue);
+    keptTargets.push(change.targetKey);
+  }
+  return { payload, keptTargets, droppedTargets, unaddressableTargets };
+}
+
 export function v04CardToUiCase(video: VideoItem, card: V04ServerCardModel): V04UiCase {
   const encodedId = encodeURIComponent(video.id);
   return {

@@ -23,7 +23,8 @@ import {
   type V04RecoveryRecord,
 } from "@/lib/v04-draft-save-state";
 import type { V04ServerWorkspaceModel, V04UiDraft, V04UiShotGroup } from "@/lib/v04-ui-model";
-import { applyV04PayloadValues, cloneV04UiDraft, emptyV04UiDraft, v04PayloadChanges, v04PayloadTargetValue, v04PayloadToUiDraft, v04UiDraftToPayload, v04WorkspaceToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
+import { applyV04PayloadValues, cloneV04UiDraft, emptyV04UiDraft, planV04ConflictResolution, v04PayloadChanges, v04PayloadTargetValue, v04PayloadToUiDraft, v04UiDraftToPayload, v04WorkspaceToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
+import { summarizeV04ConflictDifferences } from "@/lib/v04-conflict-resolution";
 import { blankV04Shot, evaluateV04FixturePublication, locateV04Target, moveV04Shot, nextV04Timecode, numberedV04Shots, v04GroupPrimaryRoleTargetId, v04GroupTitleTargetId, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_STORY_OPTIONS } from "@/lib/v04-ui-fixture";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
@@ -104,13 +105,6 @@ const pathKeys = {
 } as const;
 const RECOVERY_SUBMIT_BLOCKED_MESSAGE = "仍有未吸收、冲突或尚未安全清理的本地恢复副本；请先恢复、对照或继续使用服务器版本，系统不会创建提交。";
 const RECOVERY_INTEGRITY_BLOCKED_MESSAGE = "本机恢复记录无法完整读取或安全清理；为避免误报已保存，编辑、提交和离开均已暂停。请恢复浏览器存储能力后重试核验。";
-
-function describeV04ConflictValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "（空）";
-  if (Array.isArray(value)) return value.length ? value.map(describeV04ConflictValue).join("、") : "（空）";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
 
 function recoveryRecordKey(record: V04RecoveryRecord<V04UiDraft, V04Payload>) {
   return `${record.identity.userId}:${record.identity.workspaceId}:${record.identity.roundId}:${record.identity.tabId}:${record.documentGeneration ?? `legacy-${record.writtenAt}`}`;
@@ -941,11 +935,13 @@ export default function V04WorkspaceClient({
   }, [commitSaveAttempt]);
 
   /**
-   * Resolves a live conflict by taking the server value for the conflicting
-   * targets only. Every non-conflicting local edit survives and is saved on the
-   * refreshed base, so this narrows the draft rather than discarding it.
+   * Resolves a live conflict by rebuilding the draft on the server's current
+   * version: every local edit is replayed onto it, except the conflicting
+   * targets when the editor hands those to the server. Retrying the same base
+   * can only conflict again, so this is the path that ends a conflict — in
+   * either direction, and without discarding the untouched work of either side.
    */
-  const adoptServerConflictValues = useCallback(async () => {
+  const resolveConflictWith = useCallback(async (prefer: "LOCAL" | "SERVER") => {
     const conflicting = conflictFieldsRef.current;
     if (!conflicting.length || !modelRef.current) return false;
     let fresh: V04ServerWorkspaceModel;
@@ -956,20 +952,14 @@ export default function V04WorkspaceClient({
       return false;
     }
     const base = draftBasePayloadRef.current ?? fresh.payload;
-    let resolved;
-    try {
-      resolved = applyV04PayloadValues(
-        v04UiDraftToPayload(draftRef.current, base),
-        conflicting.map((field) => ({
-          targetKey: field.targetKey,
-          afterValue: v04PayloadTargetValue(fresh.payload, field.targetKey),
-        })),
-      );
-    } catch {
-      setActionError("冲突字段已不在当前工作稿结构中；请刷新页面后在本地恢复副本中逐份处理。");
-      return false;
-    }
-    const nextDraft = v04PayloadToUiDraft(resolved);
+    const plan = planV04ConflictResolution({
+      server: fresh.payload,
+      base,
+      local: v04UiDraftToPayload(draftRef.current, base),
+      conflictTargets: conflicting.map((field) => field.targetKey),
+      prefer,
+    });
+    const nextDraft = v04PayloadToUiDraft(plan.payload);
     draftRef.current = nextDraft;
     setDraftState(nextDraft);
     draftBasePayloadRef.current = structuredClone(fresh.payload);
@@ -977,9 +967,13 @@ export default function V04WorkspaceClient({
     draftBaseHashRef.current = fresh.draftContentHash;
     setConflictFields([]);
     setComparingConflict(false);
+    editVersionRef.current += 1;
+    dispatchSaveState({ type: "EDIT" });
     persistRecovery(nextDraft, fresh, fresh.payload);
     dispatchSaveState({ type: "RESET_ERROR" });
-    setActionError("");
+    setActionError(plan.unaddressableTargets.length
+      ? `${plan.unaddressableTargets.length} 项修改所在的桥段或镜头已被其他同事删除，无法在服务器最新版本上重放；其余修改已保留，本机恢复副本仍保存着完整内容。`
+      : "");
     return requestSave(cloneV04UiDraft(nextDraft), editVersionRef.current);
   }, [dispatchSaveState, persistRecovery, refreshWorkspace, requestSave, setConflictFields]);
 
@@ -1407,8 +1401,11 @@ export default function V04WorkspaceClient({
     const localPayload = v04UiDraftToPayload(draft, model.payload);
     return conflictFields.map((field) => ({
       ...field,
-      serverValue: describeV04ConflictValue(v04PayloadTargetValue(model.payload, field.targetKey)),
-      localValue: describeV04ConflictValue(v04PayloadTargetValue(localPayload, field.targetKey)),
+      ...summarizeV04ConflictDifferences(
+        field.targetKey,
+        v04PayloadTargetValue(model.payload, field.targetKey),
+        v04PayloadTargetValue(localPayload, field.targetKey),
+      ),
     }));
   }, [comparingConflict, conflictFields, draft, model]);
   const submitUi = deriveV04SubmissionUiState({
@@ -1730,7 +1727,7 @@ export default function V04WorkspaceClient({
     {documentIdentityNotice && <section className={styles.actionError} role="status" aria-live="polite"><p>{documentIdentityNotice}</p></section>}
     {!recoveryStorageAvailable && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{RECOVERY_INTEGRITY_BLOCKED_MESSAGE}</p><button type="button" onClick={() => { if (modelRef.current) resolveInitialRecoveryIntegrity(modelRef.current); }}>重试恢复核验</button></section>}
     {recoveryPrompt && <section id="v04-recovery-message" className={styles.recoveryBanner} role="alertdialog" aria-label="本地草稿恢复"><div><b>{recoveryPrompt.kind === "CONFLICT" ? "发现与服务器不同的本地草稿" : "发现未确认保存的本地草稿"}</b><span>写入于 {recoveryPrompt.record.writtenAt}，涉及 {recoveryPrompt.record.dirtyTargets.length} 个稳定内容单元。</span>{recoveryPrompt.records.length > 1 && <><p>发现 {recoveryPrompt.records.length} 份相互独立的标签页恢复副本；不会自动合并或覆盖，请逐份选择。</p><ol>{recoveryPrompt.records.map((record, index) => <li key={recoveryRecordKey(record)}><button type="button" aria-pressed={index === recoveryPrompt.selectedIndex} disabled={resolvingRecovery} onClick={() => selectRecoveryRecord(index)}>{index === 0 ? "最新的本地副本" : `较早的本地副本 ${index + 1}`} · {record.writtenAt} · {record.dirtyTargets.length} 项</button></li>)}</ol></>}{recoveryPrompt.comparing && <p>此副本基于较早保存状态，服务器内容已有更新。系统只会三方合并未冲突字段；同字段冲突保持对照态且绝不自动保存。</p>}{documentIdentityNotice && <p>当前页面使用隔离的临时文档身份；不会影响其他标签页。系统会在状态可用后自动恢复编辑，全部副本仍按当前案例汇总供逐份处理。</p>}</div><div><button type="button" disabled={resolvingRecovery} onClick={restoreLocalRecovery}>恢复本地草稿</button><button type="button" disabled={resolvingRecovery} onClick={() => setRecoveryPrompt((current) => current ? { ...current, comparing: !current.comparing } : null)}>对照服务器</button><button type="button" disabled={resolvingRecovery} onClick={() => { void keepServerDraft(); }}>{resolvingRecovery ? "正在确认服务器内容…" : "继续使用服务器版本"}</button></div></section>}
-    {saveConflict && <section className={`${styles.recoveryBanner} ${styles.conflictBanner}`} role="alertdialog" aria-label="工作稿版本冲突" data-v04-save-conflict><div><b>本地草稿与服务器版本存在冲突</b><span>{actionError || v04SaveFailureMessage("REVISION_CONFLICT")}</span>{conflictFields.length > 0 && <ul className={styles.conflictFields}>{conflictFields.map((field) => <li key={field.targetKey}>{field.targetLabel}</li>)}</ul>}{conflictComparison.map((row) => <dl key={row.targetKey} className={styles.conflictCompare}><dt>{row.targetLabel}</dt><dd><span>服务器当前值</span><b>{row.serverValue}</b></dd><dd><span>本地值</span><b>{row.localValue}</b></dd></dl>)}<p>系统不会自动覆盖任何一方。本地内容已保留在本机恢复副本中；处理完成前不会保存或提交。</p></div><div><button type="button" disabled={resolvingConflict} onClick={() => { void resolveConflict(() => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current)); }}>{resolvingConflict ? "正在处理…" : "重试保存"}</button><button type="button" disabled={resolvingConflict} onClick={() => setComparingConflict((current) => !current)}>{comparingConflict ? "收起对照" : "对照服务器"}</button><button type="button" disabled={resolvingConflict || !conflictFields.length} onClick={() => { void resolveConflict(adoptServerConflictValues); }}>改用服务器版本 · 仅冲突字段</button></div></section>}
+    {saveConflict && <section className={`${styles.recoveryBanner} ${styles.conflictBanner}`} role="alertdialog" aria-label="工作稿版本冲突" data-v04-save-conflict><div><b>本地草稿与服务器版本存在冲突</b><span>{actionError || v04SaveFailureMessage("REVISION_CONFLICT")}</span>{conflictFields.length > 0 && <ul className={styles.conflictFields}>{conflictFields.map((field) => <li key={field.targetKey}>{field.targetLabel}</li>)}</ul>}{conflictComparison.map((row) => <dl key={row.targetKey} className={styles.conflictCompare}><dt>{row.targetLabel}</dt>{row.differences.map((difference, index) => <dd key={`${row.targetKey}-${difference.path}-${index}`}>{difference.path && <i>{difference.path}</i>}<span>服务器当前值</span><b>{difference.serverText}</b><span>本地值</span><b>{difference.localText}</b></dd>)}{row.hidden > 0 && <dd><span>另有 {row.hidden} 处差异未展开</span></dd>}</dl>)}<p>系统不会自动覆盖任何一方。本地内容已保留在本机恢复副本中；处理完成前不会保存或提交。两个选择都只作用于上列冲突字段，双方在其他字段上的修改都会保留；同一冲突字段只能保留一方，请先展开对照再选择。</p></div><div><button type="button" disabled={resolvingConflict || !conflictFields.length} onClick={() => { void resolveConflict(() => resolveConflictWith("LOCAL")); }}>{resolvingConflict ? "正在处理…" : "保留我的内容 · 仅冲突字段"}</button><button type="button" disabled={resolvingConflict || !conflictFields.length} onClick={() => { void resolveConflict(() => resolveConflictWith("SERVER")); }}>改用服务器版本 · 仅冲突字段</button><button type="button" disabled={resolvingConflict} onClick={() => setComparingConflict((current) => !current)}>{comparingConflict ? "收起对照" : "对照服务器"}</button><button type="button" disabled={resolvingConflict} onClick={() => { void resolveConflict(() => requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current)); }}>重试保存</button></div></section>}
     {actionError && !saveConflict && <section className={styles.actionError} role="alert" aria-live="assertive"><p>{actionError}</p>{(saveMachine.status === "ERROR_RETRYABLE" || saveMachine.status === "OFFLINE_LOCAL") && <button type="button" onClick={() => { void requestSave(cloneV04UiDraft(draftRef.current), editVersionRef.current); }}>重试保存</button>}</section>}
     <section className={styles.workspaceTitle}><p>PUBLIC WORKING DRAFT</p><h1>{item.title}</h1><span>四模块 · 逐镜 12 项 · 固定值与自定义值分源保留</span></section>
     <div className={styles.workspaceGrid}>

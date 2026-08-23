@@ -19,6 +19,7 @@ import {
   emptyV04DraftPayload,
   hashV04Payload,
   hasAnyV04DraftData,
+  v04ValueConflictTargets,
   validateV04Publication,
 } from "./v04-domain";
 import { V04ServiceError } from "./v04-errors";
@@ -751,19 +752,7 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
 
     const serverRevision = Number(workspace.revision);
     const serverHash = workspace.content_hash ?? hashV04Payload(emptyV04DraftPayload());
-    if (input.expectedRevision > serverRevision ||
-        input.expectedRevision === serverRevision && input.expectedHash !== serverHash) {
-      throw new V04ServiceError(
-        "REVISION_CONFLICT",
-        "工作稿已经发生变化，请处理冲突后重试。",
-        {
-          serverRevision,
-          serverHash,
-          conflictTargets: input.changes.map((item) => item.targetKey),
-          serverSummary: { currentRevision: serverRevision },
-        },
-      );
-    }
+    const before = await currentPayload(transaction, workspace);
     const serverChanges = input.expectedRevision < serverRevision
       ? (await transaction.prepare(
           `SELECT target_key, value_type FROM collaboration_revision_events
@@ -782,20 +771,34 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
       input.changes,
       serverChanges,
     );
-    if (decision.kind === "CONFLICT") {
-      throw new V04ServiceError(
-        "REVISION_CONFLICT",
-        "工作稿已经发生变化，请处理冲突后重试。",
-        {
-          serverRevision,
-          serverHash,
-          conflictTargets: decision.conflictTargets,
-          serverSummary: { changedTargets: serverChanges.map((item) => item.targetKey) },
-        },
-      );
+    // A workspace that moved on only blocks this change set where a target's
+    // recorded original value no longer matches the stored one. A revision or
+    // hash difference on its own — including a structural change elsewhere in
+    // the case — rebases instead, and applyV04ChangeSet below still fails
+    // closed per target. Reporting only the targets that truly collide is what
+    // makes the conflict resolvable: the editor can choose between two real
+    // values per target instead of being told the whole edit conflicts.
+    const staleBase = input.expectedRevision !== serverRevision ||
+      input.expectedHash !== serverHash;
+    if (staleBase || decision.kind === "CONFLICT") {
+      const conflictTargets = v04ValueConflictTargets(before, input.changes);
+      if (conflictTargets.length > 0) {
+        throw new V04ServiceError(
+          "REVISION_CONFLICT",
+          "工作稿已经发生变化，请处理冲突后重试。",
+          {
+            serverRevision,
+            serverHash,
+            conflictTargets,
+            serverSummary: {
+              currentRevision: serverRevision,
+              changedTargets: serverChanges.map((item) => item.targetKey),
+            },
+          },
+        );
+      }
     }
 
-    const before = await currentPayload(transaction, workspace);
     let after: V04DraftPayloadV1;
     try {
       after = applyV04ChangeSet(before, input.changes);
@@ -805,7 +808,11 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
         throw new V04ServiceError(
           "REVISION_CONFLICT",
           "变更的原值与服务器当前值不一致。",
-          { serverRevision, serverHash, conflictTargets: input.changes.map((item) => item.targetKey) },
+          {
+            serverRevision,
+            serverHash,
+            conflictTargets: v04ValueConflictTargets(before, input.changes),
+          },
         );
       }
       throw error;
@@ -859,7 +866,7 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
       changeSetId: input.changeSetId,
       baseRevision: input.expectedRevision,
       appliedRevision: nextRevision,
-      rebased: decision.kind === "REBASE",
+      rebased: input.expectedRevision !== serverRevision,
       targets: input.changes.map((item) => item.targetKey),
       contentHash: nextHash,
     });
@@ -870,7 +877,7 @@ export async function saveV04Draft(db: DbClient, actor: V04Actor, input: V04Save
       contentHash: nextHash,
       savedAt,
       idempotentReplay: false,
-      rebased: decision.kind === "REBASE",
+      rebased: input.expectedRevision !== serverRevision,
       workflowState: deriveV04WorkflowState({
         hasAnyDraftData: hasAnyV04DraftData(after),
         currentDraftRevision: nextRevision,

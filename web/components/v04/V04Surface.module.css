@@ -243,10 +243,10 @@
 .actionError { justify-content: flex-start; border-color: rgba(255, 174, 120, .45); }
 .conflictBanner { align-items: flex-start; border-color: rgba(255, 174, 120, .55); }
 .conflictFields { margin: 2px 0 0; padding-left: 16px; color: var(--v04-muted); font-size: 11px; line-height: 1.6; }
-.conflictCompare { display: grid; gap: 2px; margin: 6px 0 0; padding: 8px 10px; border: 1px solid var(--v04-line); border-radius: 10px; }
+.conflictCompare { display: grid; gap: 2px; max-height: 280px; overflow: auto; margin: 6px 0 0; padding: 8px 10px; border: 1px solid var(--v04-line); border-radius: 10px; }
 .conflictCompare dt { color: var(--v04-ink); font-size: 11px; font-weight: 700; }
-.conflictCompare dd { display: flex; gap: 8px; margin: 0; color: var(--v04-muted); font-size: 11px; line-height: 1.55; }
-.conflictCompare dd > span { flex: 0 0 68px; }
+.conflictCompare dd { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 2px 8px; margin: 6px 0 0; color: var(--v04-muted); font-size: 11px; line-height: 1.55; }
+.conflictCompare dd > i { grid-column: 1 / -1; color: var(--v04-ink); font-style: normal; font-weight: 600; overflow-wrap: anywhere; }
 .conflictCompare dd > b { color: var(--v04-ink); font-weight: 600; overflow-wrap: anywhere; }
 .actionError button { margin-left: auto; }
 .workspaceTitle { padding-bottom: 34px; }
