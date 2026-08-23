@@ -268,3 +268,37 @@ export function evaluateV04FixturePublication(draft: V04UiDraft) {
 export function blankV04Shot(id: string) {
   return Object.fromEntries([["id", id], ...V04_UI_SHOT_FIELDS.map(({ key }) => [key, ""])]) as V04UiShot;
 }
+
+/** A fresh stable id for a bridge or shot created on this page. */
+export function mintV04LocalId(kind: "bridge" | "shot") {
+  return `${kind}-${crypto.randomUUID()}`;
+}
+
+/**
+ * Re-keys any bridge or shot whose id repeats an earlier one, keeping the
+ * first occurrence. Stable ids are how edits are addressed — the diff pairs
+ * shots by id and the server locates targets by id — so a duplicate makes
+ * every later save look like a conflict that no comparison can resolve.
+ * Ids minted from a per-mount counter collided after a reload; this keeps
+ * such a draft (including one read back from a recovery copy) saveable.
+ * Returns the ids that were replaced.
+ */
+export function ensureUniqueV04DraftIds(draft: V04UiDraft): string[] {
+  const seen = new Set<string>();
+  const replaced: string[] = [];
+  for (const group of draft.shotGroups) {
+    if (!group.id || seen.has(group.id)) {
+      replaced.push(group.id);
+      group.id = mintV04LocalId("bridge");
+    }
+    seen.add(group.id);
+    for (const shot of group.shots) {
+      if (!shot.id || seen.has(shot.id)) {
+        replaced.push(shot.id);
+        shot.id = mintV04LocalId("shot");
+      }
+      seen.add(shot.id);
+    }
+  }
+  return replaced;
+}

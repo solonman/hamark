@@ -72,3 +72,28 @@ test("the workspace stops an illegal draft before sending and recovers an idempo
   assert.match(service, /CHOICE_RULE_VIOLATION[\s\S]{0,600}listV04ContractViolations\(applyV04ChangeSetUnchecked\(before, input\.changes\)\)/,
     "a 422 carries the violated targets");
 });
+
+test("bridge and shot ids never collide, and a draft that already collides heals itself", async () => {
+  const { ensureUniqueV04DraftIds, mintV04LocalId, blankV04Shot } = await import("../lib/v04-ui-client-state.ts");
+  const { emptyV04UiDraft } = await import("../lib/v04-ui-model.ts");
+  assert.notEqual(mintV04LocalId("shot"), mintV04LocalId("shot"));
+  assert.match(mintV04LocalId("bridge"), /^bridge-[0-9a-f-]{36}$/);
+
+  // The 李国明 case: a per-mount counter minted "shot-_r_0_-1" twice across a
+  // reload. The diff pairs shots by id, so the second one could never save.
+  const draft = emptyV04UiDraft();
+  const group = { id: "bridge-1", title: "", primaryRole: { selectedOptionIds: [], customText: "", vocabularyVersion: "V1" }, auxiliaryRole: { selectedOptionIds: [], customText: "", vocabularyVersion: "V1" }, creativeDescription: "", shots: [blankV04Shot("shot-_r_0_-1"), blankV04Shot("shot-_r_0_-1")] };
+  draft.shotGroups = [group as never, { ...group, id: "bridge-1", shots: [blankV04Shot("shot-_r_0_-2")] } as never];
+  const replaced = ensureUniqueV04DraftIds(draft);
+  assert.deepEqual(replaced, ["shot-_r_0_-1", "bridge-1"], "only later occurrences are re-keyed; the first keeps its id");
+  const ids = draft.shotGroups.flatMap((entry) => [entry.id, ...entry.shots.map((shot) => shot.id)]);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(draft.shotGroups[0].shots[0].id, "shot-_r_0_-1");
+  assert.deepEqual(ensureUniqueV04DraftIds(draft), [], "a healed draft is stable across saves");
+
+  const source = await readFile(new URL("../components/v04/V04WorkspaceClient.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /useId\(\)/, "no id derives from a render-position counter");
+  assert.match(source, /blankV04Shot\(mintV04LocalId\("shot"\)\)/);
+  assert.match(source, /mutate\(next\);\s*ensureUniqueV04DraftIds\(next\);/, "every edit leaves the draft uniquely keyed");
+  assert.match(source, /ensureUniqueV04DraftIds\(recordDraft\)/, "a recovery copy is healed before it is merged");
+});

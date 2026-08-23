@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type MouseEvent } from "react";
 import { HOME_NAVIGATION_EVENT } from "@/app/components/GlobalHomeButton";
 import { V04_PAYLOAD_SCHEMA_VERSION, V04_VOCABULARY_VERSION, type V04ChoiceValue, type V04ShotFieldKey } from "@/lib/v04-contract";
 import {
@@ -27,7 +27,7 @@ import { listV04ContractViolations, type V04ContractViolation } from "@/lib/v04-
 import { readV04ContractViolations, v04ContractViolationMessage, v04ViolationLocateId } from "@/lib/v04-contract-violations";
 import { applyV04PayloadValues, cloneV04UiDraft, emptyV04UiDraft, planV04ConflictResolution, v04PayloadChanges, v04PayloadTargetValue, v04PayloadToUiDraft, v04UiDraftToPayload, v04WorkspaceToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
 import { summarizeV04ConflictDifferences } from "@/lib/v04-conflict-resolution";
-import { blankV04Shot, evaluateV04FixturePublication, locateV04Target, moveV04Shot, nextV04Timecode, numberedV04Shots, v04GroupPrimaryRoleTargetId, v04GroupTitleTargetId, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
+import { blankV04Shot, ensureUniqueV04DraftIds, evaluateV04FixturePublication, locateV04Target, mintV04LocalId, moveV04Shot, nextV04Timecode, numberedV04Shots, v04GroupPrimaryRoleTargetId, v04GroupTitleTargetId, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_STORY_OPTIONS } from "@/lib/v04-ui-fixture";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
 import {
@@ -138,8 +138,6 @@ export default function V04WorkspaceClient({
   navigation?: V04WorkspaceNavigation;
 }) {
   const router = useRouter();
-  const localIdPrefix = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  const localIdSequence = useRef(0);
   const links = navigation ?? {
     libraryHref: "/v04-shadow",
     detailHref: `/v04-shadow/videos/${videoId}`,
@@ -1185,6 +1183,7 @@ export default function V04WorkspaceClient({
     if (!canEdit) return;
     const next = cloneV04UiDraft(draftRef.current);
     mutate(next);
+    ensureUniqueV04DraftIds(next);
     draftRef.current = next;
     setDraftState(next);
     editVersionRef.current += 1;
@@ -1280,15 +1279,13 @@ export default function V04WorkspaceClient({
     setPendingLocateId(`group-${id}`);
   };
   const addShot = (groupId: string) => {
-    localIdSequence.current += 1;
-    const next = blankV04Shot(`shot-${localIdPrefix}-${localIdSequence.current}`);
+    const next = blankV04Shot(mintV04LocalId("shot"));
     next.startTime = nextV04Timecode(draft.shotGroups.flatMap((entry) => entry.shots).at(-1)?.endTime ?? "");
     updateGroup(groupId, (group) => { group.shots.push(next); });
     setPendingLocateId(`shot-${next.id}`);
   };
   const addGroupAfter = (groupId: string) => {
-    localIdSequence.current += 1;
-    const id = `bridge-${localIdPrefix}-${localIdSequence.current}`;
+    const id = mintV04LocalId("bridge");
     updateDraft((next) => { const index = next.shotGroups.findIndex((group) => group.id === groupId); next.shotGroups.splice(index + 1, 0, { id, title: "", primaryRole: { selectedOptionIds: [], customText: "", vocabularyVersion: V04_VOCABULARY_VERSION }, auxiliaryRole: { selectedOptionIds: [], customText: "", vocabularyVersion: V04_VOCABULARY_VERSION }, creativeDescription: "", shots: [blankV04Shot(`shot-${id}-01`)] }); });
     setPendingLocateId(`group-${id}`);
   };
@@ -1623,7 +1620,9 @@ export default function V04WorkspaceClient({
         setActionError("该旧恢复副本缺少安全三方合并依据，只能对照，不能自动保存或覆盖服务器。");
         return;
       }
-      const recoveredPayload = v04UiDraftToPayload(recoveryPrompt.record.payload, basePayload);
+      const recordDraft = cloneV04UiDraft(recoveryPrompt.record.payload);
+      ensureUniqueV04DraftIds(recordDraft);
+      const recoveredPayload = v04UiDraftToPayload(recordDraft, basePayload);
       const originalChanges = v04PayloadChanges(basePayload, recoveredPayload);
       const activePayload = v04UiDraftToPayload(draftRef.current, current.payload);
       const plan = planV04RecoveryMerge(
