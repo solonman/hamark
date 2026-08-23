@@ -15,6 +15,7 @@
     "test": "npm run build -- --webpack && node --import tsx --test tests/*.test.mjs tests/*.test.ts",
     "db:migrate": "tsx scripts/migrate-db.ts",
     "inspect:v04-history": "node --env-file=.env.local --import tsx scripts/inspect-v04-editor-history.ts",
+    "audit:v19-save": "node --env-file=.env.local --import tsx scripts/audit-v19-save-integrity.ts",
     "verify:v04-schema": "node --import tsx scripts/verify-v04-schema.ts",
     "verify:v04-workflow": "node --import tsx scripts/verify-v04-workflow.ts",
     "verify:v04-preview": "node --import tsx scripts/verify-v04-migration-preview.ts",
