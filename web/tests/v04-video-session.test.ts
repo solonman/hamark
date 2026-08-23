@@ -27,9 +27,10 @@ class LockHub implements V04IdentityLockManager {
   private readonly held = new Set<string>();
   async request<T>(
     name: string,
-    _options: { mode: "exclusive"; ifAvailable: true; signal: AbortSignal },
+    options: { mode: "exclusive"; ifAvailable: true },
     callback: (lock: { name: string } | null) => Promise<T> | T,
   ) {
+    rejectIllegalLockOptions(options);
     if (this.held.has(name)) return callback(null);
     this.held.add(name);
     try {
@@ -40,15 +41,28 @@ class LockHub implements V04IdentityLockManager {
   }
 }
 
+// Real browsers reject with NotSupportedError when `signal` is combined with
+// `ifAvailable`, so a permissive mock would hide a total editing outage.
+function rejectIllegalLockOptions(options: { mode: "exclusive"; ifAvailable: true }) {
+  const requested = options as unknown as Record<string, unknown>;
+  if ("signal" in requested && (requested.ifAvailable === true || requested.steal === true)) {
+    throw Object.assign(
+      new Error("The 'signal' and 'ifAvailable' options cannot be used together."),
+      { name: "NotSupportedError" },
+    );
+  }
+}
+
 class HangingLocks implements V04IdentityLockManager {
-  signal: AbortSignal | null = null;
+  options: Record<string, unknown> | null = null;
   lateCallback: ((lock: { name: string } | null) => Promise<unknown> | unknown) | null = null;
   request<T>(
     _name: string,
-    options: { mode: "exclusive"; ifAvailable: true; signal: AbortSignal },
+    options: { mode: "exclusive"; ifAvailable: true },
     callback: (lock: { name: string } | null) => Promise<T> | T,
   ) {
-    this.signal = options.signal;
+    rejectIllegalLockOptions(options);
+    this.options = options as unknown as Record<string, unknown>;
     this.lateCallback = callback as (lock: { name: string } | null) => Promise<unknown> | unknown;
     return new Promise<T>(() => undefined);
   }
@@ -228,7 +242,8 @@ test("a hanging Web Lock request aborts promptly and a late callback cannot own 
   });
   assert.equal(result.failClosed, true);
   assert.equal(result.persisted, false);
-  assert.equal(locks.signal?.aborted, true);
+  assert.equal(locks.options?.signal, undefined,
+    "an ifAvailable request must not carry a signal or the browser rejects it outright");
   assert.notEqual(result.identity.workspaceTabToken, original.workspaceTabToken);
   assert.deepEqual(JSON.parse(storage.getItem(documentKey)!), original,
     "an uncertain candidate is never written back as a claimed identity");
@@ -243,8 +258,10 @@ test("a hanging Web Lock request aborts promptly and a late callback cannot own 
   const pending = registry.get(caseId);
   registry.dispose();
   await Promise.resolve();
-  assert.equal(pendingLocks.signal?.aborted, true,
-    "dispose must abort the pending browser lock without waiting for its timeout");
+  assert.equal(pendingLocks.options?.signal, undefined,
+    "an ifAvailable request must not carry a signal or the browser rejects it outright");
+  // The 60s lock timeout would still be pending, so a prompt rejection proves
+  // dispose cancelled the claim through its own abort path.
   await assert.rejects(pending, /V04_DOCUMENT_IDENTITY_CANCELLED/);
   await pendingLocks.lateCallback?.({ name: "late-after-dispose" });
 });

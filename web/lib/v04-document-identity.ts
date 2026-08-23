@@ -18,7 +18,7 @@ export type V04IdentityLock = { name: string };
 export type V04IdentityLockManager = {
   request: <T>(
     name: string,
-    options: { mode: "exclusive"; ifAvailable: true; signal: AbortSignal },
+    options: { mode: "exclusive"; ifAvailable: true },
     callback: (lock: V04IdentityLock | null) => Promise<T> | T,
   ) => Promise<T>;
 };
@@ -110,7 +110,9 @@ async function holdIdentityLock(
   try {
     request = lockManager.request(
       `hamark:v04:document-identity:${identity.workspaceTabToken}`,
-      { mode: "exclusive", ifAvailable: true, signal: controller.signal },
+      // Web Locks rejects with NotSupportedError when `signal` is combined with
+      // `ifAvailable`. Cancellation runs through `cancelled` and `held` instead.
+      { mode: "exclusive", ifAvailable: true },
       async (lock) => {
         // A broken implementation may invoke the callback after the abort. It
         // must return immediately so a late grant cannot become a ghost owner.

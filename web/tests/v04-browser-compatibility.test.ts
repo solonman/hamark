@@ -99,10 +99,10 @@ test("blocked storage and absent, rejected or hanging Web Locks fail closed", as
   });
   assert.deepEqual(rejected.issues, ["WEB_LOCKS_UNAVAILABLE"]);
 
-  let hangingSignal: AbortSignal | null = null;
+  let hangingOptions: Record<string, unknown> | null = null;
   const hangingLocks: V04BrowserLockManager = {
     request: (_name, options) => {
-      hangingSignal = options.signal;
+      hangingOptions = options as unknown as Record<string, unknown>;
       return new Promise(() => undefined);
     },
   };
@@ -113,8 +113,38 @@ test("blocked storage and absent, rejected or hanging Web Locks fail closed", as
     lockTimeoutMs: 5,
   });
   assert.deepEqual(hanging.issues, ["WEB_LOCKS_UNAVAILABLE"]);
-  assert.equal((hangingSignal as AbortSignal | null)?.aborted, true);
+  assert.equal((hangingOptions as Record<string, unknown> | null)?.signal, undefined);
   assert(Date.now() - startedAt < 250, "a hanging capability probe must not hang the first workspace GET");
+});
+
+test("the editing probe passes against a spec-accurate Web Locks implementation", async () => {
+  // Real browsers reject with NotSupportedError when `signal` is combined with
+  // `ifAvailable`, so a mock that accepts both hides a total editing outage.
+  const heldNames = new Set<string>();
+  const specAccurateLocks: V04BrowserLockManager = {
+    request: async (name, options, callback) => {
+      const requested = options as unknown as Record<string, unknown>;
+      if ("signal" in requested && (requested.ifAvailable === true || requested.steal === true)) {
+        throw Object.assign(
+          new Error("The 'signal' and 'ifAvailable' options cannot be used together."),
+          { name: "NotSupportedError" },
+        );
+      }
+      if (heldNames.has(name)) return callback(null);
+      heldNames.add(name);
+      try {
+        return await callback({ name });
+      } finally {
+        heldNames.delete(name);
+      }
+    },
+  };
+  const result = await probeV04BrowserCompatibility({
+    mode: "EDIT",
+    environment: fullEnvironment({ lockManager: specAccurateLocks }),
+  });
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.supported, true);
 });
 
 test("editing storage probes verify readback, deletion and local key enumeration before children mount", async () => {
