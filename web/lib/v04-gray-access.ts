@@ -307,7 +307,10 @@ export async function assertV04GrayAccess(
 }
 
 export function v04GrayVideoIdFromRequest(request: Request) {
-  const match = new URL(request.url).pathname.match(/^\/api\/videos\/([^/]+)\/analysis\/v04(?:\/|$)/);
+  // The V1.9 studio routes live under /analysis/v19 and are gated by exactly the
+  // same access rules; a path this cannot read is refused as an unidentifiable
+  // object, so a new surface must be named here or it can never be reached.
+  const match = new URL(request.url).pathname.match(/^\/api\/videos\/([^/]+)\/analysis\/(?:v04|v19)(?:\/|$)/);
   if (!match) return undefined;
   try {
     return decodeURIComponent(match[1]);

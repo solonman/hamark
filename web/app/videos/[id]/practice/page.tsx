@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import V04BrowserCompatibilityGate from "@/components/v04/V04BrowserCompatibilityGate";
 import V04BrowserCompatibilityMessage from "@/components/v04/V04BrowserCompatibilityMessage";
 import { V04VideoSessionProvider } from "@/components/v04/V04VideoSessionProvider";
@@ -35,6 +35,12 @@ export default async function PracticePage({
     : `/videos/${encodeURIComponent(id)}/practice?taxonomy=${encodeURIComponent(taxonomyVersion)}`;
   const user = await requirePageUser(returnTo);
   if (isV04) {
+    // V1.9 二合一工作台合并了只读成果页与编辑页：开关打开时，这条 V0.4 编辑入口
+    // 整体重定向回 /videos/[id]，由该页决定渲染 V04StudioClient。V0.2/V0.3 入口
+    // （上面 isV04 为 false 的分支）不受影响。
+    if (process.env.V19_STUDIO_UI_ENABLED === "true") {
+      redirect(`/videos/${encodeURIComponent(id)}`);
+    }
     if (process.env.V04_WORKFLOW_UI_ENABLED !== "true") notFound();
     if (!await canAccessV04Surface(getDbClient(), user.id, id)) notFound();
     const requestHeaders = await headers();

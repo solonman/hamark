@@ -1,0 +1,965 @@
+<meta charset="utf-8">
+<title>二合一反写工作台</title>
+<style>
+:root{
+  --bg:#10110f; --panel:#171815; --raised:#20211d; --field:#0f100e;
+  --ink:#e6e7df; --ink2:#92958b; --ink3:#6d7066;
+  --subject:#c7aa72; --answer:#d4d6cd;
+  --line:rgba(255,255,255,.12); --line2:rgba(255,255,255,.07);
+  --acc:#dfff4f; --acc-dim:rgba(223,255,79,.4);
+  --warn:#ffae78; --warn-bg:rgba(255,174,120,.08); --warn-line:rgba(255,174,120,.55);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.65;margin:0;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}
+select,input,textarea{font:inherit;color:var(--ink)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:0;z-index:40;border-bottom:1px solid var(--line);background:rgba(16,17,15,.96);backdrop-filter:blur(18px)}
+.topbar-in{max-width:1440px;margin:0 auto;min-height:64px;padding:8px clamp(16px,3vw,40px);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:7px;white-space:nowrap}
+.brand b{color:var(--acc);font-size:18px;font-weight:900;letter-spacing:-.06em}
+.brand .name{font-weight:900;letter-spacing:-.05em}
+.brand .sub{color:var(--ink2);font-size:9px;letter-spacing:.15em}
+.case-title{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:30ch;letter-spacing:-.02em}
+.chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:10px;color:var(--ink2);white-space:nowrap}
+.spacer{flex:1}
+.ver-btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:8px 13px;background:transparent;font-size:12px}
+.ver-btn:hover{border-color:var(--acc-dim);color:var(--acc)}
+.ver-btn .vnum{font-family:var(--mono);font-weight:700;color:var(--acc)}
+.ver-btn .caret{color:var(--ink2);font-size:10px}
+.who{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--ink2)}
+.who select{border:1px solid var(--line);border-radius:999px;padding:6px 10px;background:var(--panel);font-size:11px}
+.save-chip{display:inline-flex;align-items:center;gap:7px;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.save-chip.saved{color:var(--acc)}
+.save-chip.saving{color:var(--ink2)}
+.save-chip .dot{width:6px;height:6px;border-radius:99px;background:currentColor;flex:none}
+.save-chip.saving .dot{animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.25}}
+
+/* ---------- layout ---------- */
+.app{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:238px minmax(0,1fr);gap:0 22px;padding:20px clamp(16px,3vw,40px) 100px;align-items:start}
+.app.nav-off{grid-template-columns:minmax(0,1fr)}
+.app.nav-off>.nav{display:none}
+.nav-toggle{border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:11px;color:var(--ink2);white-space:nowrap}
+.nav-toggle:hover{border-color:var(--acc-dim);color:var(--acc)}
+.nav-toggle.on{color:var(--acc);border-color:var(--acc-dim);background:rgba(223,255,79,.08)}
+@media (max-width:960px){.app{grid-template-columns:minmax(0,1fr)}.nav,.nav-toggle{display:none}}
+
+/* ---------- left nav ---------- */
+.nav{position:sticky;top:84px;max-height:calc(100vh - 106px);overflow-y:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:10px;font-size:12px}
+.nav .mod{display:grid;width:100%;gap:2px;text-align:left;padding:10px;border-radius:9px}
+.nav .mod b{font-size:12px}
+.nav .mod span{color:var(--ink2);font-size:10px;font-weight:400}
+.nav .mod:hover{background:var(--raised)}
+.nav .kid{display:block;width:100%;text-align:left;padding:5px 8px 5px 21px;border-radius:7px;color:var(--ink2);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav .kid.shot{padding-left:34px;font-size:10px;color:var(--ink3)}
+.nav .kid .tc{font-family:var(--mono);font-size:9px;margin-left:6px}
+.nav .kid:hover{color:var(--acc)}
+.nav button.on{background:rgba(223,255,79,.08);color:var(--acc)}
+.nav button.on span,.nav button.on .tc{color:var(--acc)}
+
+/* ---------- 视频窗口（与 V04Surface videoShell 一致） ---------- */
+.main-col{min-width:0}
+.video-slot{position:relative;margin-bottom:22px}
+.video-shell{overflow:hidden;border:1px solid var(--line);border-radius:18px;background:#050505;box-shadow:0 18px 60px rgba(0,0,0,.32)}
+.video-stage{position:relative;aspect-ratio:16/9}
+.video-ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 30%,#383b31,#121310 60%)}
+.video-ph span,.video-ph small{color:#777b6f;font-size:9px;letter-spacing:.12em}
+.video-ph strong{margin:8px 0;font-size:22px}
+.video-play{display:grid;width:64px;height:64px;place-items:center;border-radius:50%;background:var(--acc);color:#10110f;font-size:17px;margin-top:12px}
+.video-ctrl{position:absolute;left:0;right:0;bottom:0;height:34px;display:flex;align-items:center;padding:0 12px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.65));color:#777b6f;font-size:9px;letter-spacing:.08em}
+.video-shell.floating{position:fixed;z-index:55;right:24px;bottom:24px;width:360px;cursor:grab;touch-action:none}
+.video-shell.floating:active{cursor:grabbing}
+.video-shell.floating .video-ph strong{font-size:13px}
+.video-shell.floating .video-ph span,.video-shell.floating .video-ph small{font-size:8px}
+.video-shell.floating .video-play{width:38px;height:38px;font-size:12px;margin-top:6px}
+.video-shell.floating .video-ctrl{height:28px}
+.video-bar{display:none}
+.video-shell.floating .video-bar{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 13px;border-bottom:1px solid var(--line);background:#161713;color:var(--ink2);font-size:10px}
+.video-bar>.vb-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.video-bar>.vb-icon{flex:none}
+.video-bar button{flex:none;border:1px solid var(--line);border-radius:999px;color:var(--ink2);padding:1px 9px;font-size:11px;line-height:1.5}
+.video-bar button:hover{border-color:var(--acc-dim);color:var(--acc)}
+.vb-icon{display:none}
+/* 最小化＝停靠右下角的醒目胶囊：主色底、深色字，与暗色正文明确区分，且不可拖动 */
+.video-shell.minimized{width:auto!important;border-radius:999px;border-color:var(--acc);background:var(--acc);cursor:default;
+  box-shadow:0 10px 30px rgba(223,255,79,.3),0 4px 14px rgba(0,0,0,.45)}
+.video-shell.minimized .video-stage{display:none}
+.video-shell.floating.minimized .video-bar{gap:9px;border-bottom:0;border-radius:999px;background:var(--acc);color:#10110f;padding:9px 10px 9px 16px;font-size:11.5px;font-weight:800}
+.video-shell.floating.minimized .vb-icon{display:inline;font-size:12px;line-height:1}
+.video-shell.floating.minimized .video-bar>.vb-title{max-width:210px}
+.video-shell.floating.minimized .video-bar button{border-color:rgba(16,17,15,.4);color:#10110f;font-weight:700}
+.video-shell.floating.minimized .video-bar button:hover{border-color:#10110f;background:rgba(16,17,15,.12);color:#10110f}
+.slot-ghost{display:none}
+.video-slot.floated{aspect-ratio:16/9;border:1px dashed var(--line);border-radius:18px}
+.video-slot.floated .slot-ghost{position:absolute;inset:0;display:grid;place-items:center;color:var(--ink3);font-size:11px;line-height:1.9;padding:20px;text-align:center}
+
+/* ---------- notice ---------- */
+.doc{min-width:0}
+.notice{border:1px solid rgba(223,255,79,.38);border-radius:14px;background:#202219;padding:14px 18px;margin-bottom:22px}
+.notice h3{margin:0 0 7px;font-size:12px;display:flex;align-items:center;gap:8px}
+.notice h3 .spacer{flex:1}
+.notice h3 button{color:var(--ink2);font-size:10px;border:1px solid var(--line);border-radius:999px;padding:4px 9px}
+.notice h3 button:hover{color:var(--acc);border-color:var(--acc-dim)}
+.notice ul{margin:0;padding-left:18px;color:var(--ink2);font-size:11.5px;line-height:1.85}
+.notice b{color:var(--ink)}
+.notice .lg{display:inline-block;padding:0 5px;border-radius:4px;color:var(--answer);border-bottom:1px dashed var(--acc-dim)}
+.notice .reset{color:var(--warn);text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- reading modules（与 V04Surface readingModule 一致） ---------- */
+.reading-module{margin:0 0 22px;border:1px solid var(--line);border-radius:18px;background:var(--panel);scroll-margin-top:84px}
+.reading-module>header{position:sticky;top:64px;z-index:12;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--line);border-radius:18px 18px 0 0;background:rgba(23,24,21,.97);backdrop-filter:blur(12px)}
+.reading-module>header small{display:block;margin-bottom:2px;color:var(--subject);font-size:10px;font-weight:800;letter-spacing:.1em}
+.reading-module>header h2{margin:0;color:var(--subject);font-size:18px}
+.reading-module>header button{border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink);padding:7px 11px;font-size:11px}
+.reading-module>header button:hover{border-color:var(--acc-dim);color:var(--acc)}
+
+.reading-group{padding:20px 24px 20px;scroll-margin-top:84px}
+.reading-group+.reading-group{border-top:5px solid #090a08}
+.reading-group>header{display:flex;gap:16px;align-items:center;margin-bottom:15px}
+.reading-group>header>span{color:var(--subject);font-size:11px;font-weight:800;flex:none}
+.reading-group>header>div{flex:1;min-width:0}
+.reading-group>header h3{margin:0;font-size:16px}
+.reading-group small,.bridge-meta small,.reading-shot small,.reading-core small{display:block;margin-bottom:6px;color:var(--subject);font-size:10px;font-weight:800}
+.bridge-meta{display:grid;grid-template-columns:1fr 2fr;gap:0;margin-bottom:18px;border-left:2px solid #36382f}
+.bridge-meta>div{padding:10px 18px;min-width:0}
+.bridge-meta>div+div{border-left:1px solid var(--line)}
+
+.reading-shot{padding:20px 0 8px 32px;border-left:2px solid #36382f;scroll-margin-top:84px}
+.reading-shot+.reading-shot{border-top:3px solid rgba(255,255,255,.18)}
+.reading-shot h4{margin:0 0 12px;font-size:13px}
+.shot-block{display:grid;border-top:1px solid var(--line)}
+.shot-block>div{min-width:0;padding:12px 14px 12px 0}
+.shot-block>div+div{border-left:1px solid var(--line);padding-left:14px}
+.r3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.r2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.r1{grid-template-columns:minmax(0,1fr)}
+
+.reading-core{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.reading-core>div{min-width:0;padding:18px 22px;border-bottom:1px solid var(--line);scroll-margin-top:84px}
+.reading-core>div:nth-child(even){border-left:1px solid var(--line)}
+.reading-core>div.wide{grid-column:1/-1;border-left:0}
+.reading-core>div:last-child,.reading-core>div:nth-last-child(2):nth-child(odd){border-bottom:0}
+
+@media (max-width:620px){
+  .bridge-meta,.reading-core{grid-template-columns:1fr}
+  .reading-core>div:nth-child(even),.bridge-meta>div+div{border-left:0}
+  .r3,.r2{grid-template-columns:1fr}
+  .shot-block>div+div{border-left:0}
+  .reading-shot{padding-left:14px}
+}
+
+/* ---------- 可编辑区：白字可编辑，金字不可编辑 ---------- */
+.ed{display:inline-block;color:var(--answer);border-radius:4px;padding:0 2px;margin:0 -2px;border-bottom:1px dashed transparent;cursor:text;transition:background .12s;max-width:100%;line-height:1.65}
+.ed:hover{background:rgba(223,255,79,.08);border-bottom-color:var(--acc-dim)}
+.ed.block{display:block;white-space:pre-wrap}
+.ed.empty{color:var(--ink3)}
+.ed.warn{background:var(--warn-bg);border-bottom:1px dashed var(--warn-line);color:var(--warn)}
+.ed.tcv{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.ed.gradev{color:var(--acc);font-weight:700;font-family:var(--mono)}
+h3 .ed,.reading-group>header .ed{color:var(--ink);font-weight:inherit}
+.ed-input{border:1px solid var(--acc-dim);border-radius:7px;padding:6px 8px;background:var(--field);min-width:5ch;max-width:100%;color:var(--ink)}
+textarea.ed-input{width:100%;min-height:64px;resize:vertical;line-height:1.55}
+input.ed-input.tc-in{font-family:var(--mono);width:9ch;font-variant-numeric:tabular-nums;padding:2px 5px}
+select.ed-input{padding:4px 6px}
+.sys{color:var(--ink2);cursor:help}
+.flash{animation:locatedPulse 1.8s ease}
+@keyframes locatedPulse{0%,100%{box-shadow:none}30%,70%{box-shadow:0 0 0 2px var(--acc)}}
+@media (prefers-reduced-motion:reduce){.flash{animation:none}.save-chip.saving .dot{animation:none}}
+
+/* ---------- 基版对比 ---------- */
+.diff-toggle{cursor:pointer}
+.diff-toggle:hover{border-color:var(--acc-dim);color:var(--acc)}
+.diff-toggle.on{color:var(--acc);border-color:var(--acc-dim);background:rgba(223,255,79,.08)}
+.diff-tag{display:inline-flex;margin-left:6px;font-size:9px;font-weight:800;color:var(--acc);border:1px solid var(--acc-dim);border-radius:999px;padding:0 6px;vertical-align:2px;white-space:nowrap}
+.diff-base{display:block;margin-top:5px;padding:3px 10px;border-left:2px solid var(--acc-dim);color:var(--ink3);font-size:11px;line-height:1.6;overflow-wrap:anywhere}
+.diff-base b{display:inline-block;margin-right:8px;color:var(--subject);font-size:9px;font-weight:800}
+.diff-new{display:inline-flex;margin-left:8px;font-size:9px;font-weight:800;color:var(--acc);border:1px solid var(--acc-dim);border-radius:999px;padding:1px 7px;vertical-align:2px;white-space:nowrap}
+
+/* ---------- 插入按钮 ---------- */
+.ins-row{display:flex;padding:6px 0 4px;opacity:0;transition:opacity .12s}
+.reading-shot:hover .ins-row,.ins-row:focus-within{opacity:1}
+.ins-row button,.ins-bridge-row button{display:inline-flex;align-items:center;gap:4px;font-size:10px;border:1px solid var(--acc-dim);color:var(--acc);background:transparent;border-radius:999px;padding:4px 12px;white-space:nowrap}
+.ins-row button:hover,.ins-bridge-row button:hover{background:rgba(223,255,79,.12)}
+.ins-bridge-row{display:flex;justify-content:center;padding:16px 0 0;opacity:0;transition:opacity .12s}
+.reading-group:hover .ins-bridge-row,.ins-bridge-row:focus-within{opacity:1}
+
+/* ---------- version drawer ---------- */
+.ver-wrap{position:relative}
+.ver-panel{position:absolute;right:0;top:calc(100% + 10px);width:430px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 70px rgba(0,0,0,.5);padding:16px;z-index:60}
+.ver-panel h4{margin:0 0 10px;font-size:11px;color:var(--ink2);font-weight:500;line-height:1.6}
+.vrow{display:flex;align-items:center;gap:9px;padding:8px;border-radius:9px;cursor:pointer}
+.vrow:hover{background:var(--raised)}
+.vrow.cur{background:rgba(223,255,79,.08)}
+.vrow .l{width:14px;color:var(--ink3);font-family:var(--mono);flex:none;text-align:right}
+.vrow .vn{font-family:var(--mono);font-weight:700;color:var(--acc);flex:none}
+.vrow .meta{color:var(--ink2);font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vrow .t{margin-left:auto;color:var(--ink3);font-size:10px;font-family:var(--mono);flex:none}
+.vrow .you{font-size:9px;font-weight:800;color:#e1e2da;background:#2e302a;border-radius:999px;padding:2px 7px;flex:none}
+.vrow .latest{font-size:9px;font-weight:800;color:var(--acc);border:1px solid var(--acc-dim);border-radius:999px;padding:1px 7px;flex:none}
+.ver-mine{display:flex;gap:10px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink2);line-height:1.6}
+.ver-mine b{color:var(--acc)}
+.ver-mine .go,.ver-new .go{border:0;border-radius:999px;background:var(--acc);color:#111;padding:8px 14px;font-weight:800;font-size:11px;flex:none}
+.ver-mine .go{margin-left:auto}
+.ver-new{display:flex;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;flex-wrap:wrap;color:var(--ink2)}
+.ver-new select{border:1px solid var(--line);border-radius:9px;padding:6px 8px;background:var(--field);font-size:11px;max-width:100%}
+.ver-note{margin-top:10px;color:var(--ink3);font-size:10px;line-height:1.7}
+
+/* ---------- 到顶／到底 ---------- */
+.page-jump{position:fixed;z-index:30;right:22px;top:50%;transform:translateY(-50%);display:grid;padding:4px;
+  border:1px solid var(--line);border-radius:999px;background:rgba(23,24,21,.9);backdrop-filter:blur(12px)}
+.page-jump button{display:grid;width:32px;height:32px;place-items:center;border-radius:999px;color:var(--ink2);transition:color .12s,background .12s}
+.page-jump button svg{width:15px;height:15px}
+.page-jump button:hover:not(:disabled){background:rgba(223,255,79,.1);color:var(--acc)}
+.page-jump button:disabled{opacity:.28;cursor:default}
+.page-jump .jump-div{height:1px;margin:3px 7px;background:var(--line)}
+@media (max-width:620px){.page-jump{right:10px}}
+
+/* ---------- toasts ---------- */
+.toasts{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{background:rgba(31,25,20,.97);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:12px;box-shadow:0 16px 42px rgba(0,0,0,.38);max-width:80vw;line-height:1.55}
+.toast b{color:var(--acc)}
+.toast.fork{border-color:rgba(223,255,79,.38)}
+.toast.warn2{border-color:var(--warn-line);color:#ffcfad}
+.toast.warn2 b{color:#ffcfad}
+</style>
+
+<header class="topbar"><div class="topbar-in">
+  <span class="brand"><b>RE:VERSE</b><span class="name">反写</span><span class="sub">二合一工作台 · 交互演示</span></span>
+  <button class="nav-toggle on" id="navToggle" title="收起／展开左侧目录">☰ 目录</button>
+  <span class="case-title">铁达时《天长地久》60s</span>
+  <span class="chip">体系 V0.4</span>
+  <span class="spacer"></span>
+  <span class="ver-wrap">
+    <button class="ver-btn" id="verBtn" aria-haspopup="true"></button>
+    <div class="ver-panel" id="verPanel" hidden></div>
+  </span>
+  <span id="diffSlot"></span>
+  <span class="who">演示身份
+    <select id="whoSel" title="仅演示用：模拟不同同事登录"></select>
+  </span>
+  <span class="save-chip saved" id="saveChip"><span class="dot"></span><span id="saveText">已自动保存</span></span>
+</div></header>
+
+<div class="app">
+  <nav class="nav" id="nav" aria-label="目录导航"></nav>
+  <div class="main-col">
+    <div class="video-slot" id="videoSlot">
+      <div class="video-shell" id="videoShell">
+        <div class="video-bar"><span class="vb-icon">▶</span><span class="vb-title">铁达时《天长地久》60s</span><button type="button" id="videoMin" title="最小化">—</button></div>
+        <div class="video-stage">
+          <div class="video-ph"><span>TITUS · 60S</span><strong>铁达时《天长地久》</strong><small>演示占位 · 正式版为在线播放器</small><button class="video-play" type="button" aria-label="播放">▶</button></div>
+          <div class="video-ctrl" title="正式版此处为原生播放控制条；按拖动规则，此区域不触发拖动">‖ 播放控制条（此区域不触发拖动）</div>
+        </div>
+      </div>
+      <div class="slot-ghost">视频已缩小到右下角，可按住拖动摆放<br>滚动回到此处自动恢复大屏</div>
+    </div>
+    <main class="doc" id="doc"></main>
+  </div>
+</div>
+<div class="page-jump" id="pageJump">
+  <button type="button" data-jump="top" title="回到顶部" aria-label="回到顶部"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3.4h8"/><path d="M8 13V6.4"/><path d="M5.1 9.3 8 6.2l2.9 3.1"/></svg></button>
+  <i class="jump-div"></i>
+  <button type="button" data-jump="bottom" title="跳到底部" aria-label="跳到底部"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.6h8"/><path d="M8 3v6.6"/><path d="M5.1 6.7 8 9.8l2.9-3.1"/></svg></button>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+/* ============ 基础数据 ============ */
+const USERS = [
+  { id:"u1", name:"王大明", tag:"上传者" },
+  { id:"u2", name:"李晓芸" },
+  { id:"u3", name:"张三" },
+];
+const SCALES = ["远景","全景","中景","近景","特写"];
+const MECHS = ["情感杠杆","认知反差","悬念释放","符号挪用","仪式建构"];
+const GRADES = ["S","A","B","C"];
+const PTYPES = [["LOVE","爱（情感共振）"],["FUN","趣（预期偏离）"],["PERCEPTION","感（视听规则）"]];
+const LS_KEY = "hamark-v2-demo-state-v6";
+
+function blankShot(){ return { id:uid("s"), start:"", end:"", scale:"", angle:"", move:"", visual:"", dialogue:"", vo:"", caption:"", subeff:"", sfx:"", music:"" }; }
+function uid(p){ return p + "-" + Math.random().toString(36).slice(2,9); }
+
+function seedPayloadV1(){ return {
+  bridges:[
+    { id:"b1", name:"乱世重逢", role:"情感蓄势", desc:"战乱背景下恋人重逢又将分离，为“曾经拥有”埋下情感落差。",
+      shots:[
+        { id:"s1", start:"00:00", end:"00:04", scale:"远景", angle:"平视", move:"缓推", visual:"战时码头，人群仓皇撤离，雨夜灯火摇曳。", dialogue:"", vo:"", caption:"", subeff:"", sfx:"汽笛、雨声", music:"弦乐低音铺底" },
+        { id:"s2", start:"00:05", end:"00:09", scale:"中景", angle:"平视", move:"手持跟拍", visual:"男主逆着人流奔跑，在人群中寻找恋人身影。", dialogue:"", vo:"", caption:"", subeff:"", sfx:"嘈杂人声", music:"弦乐渐强" },
+        { id:"s3", start:"00:10", end:"00:12", scale:"特写", angle:"微仰", move:"固定", visual:"两人在雨中对望，女主眼中含泪。", dialogue:"", vo:"", caption:"", subeff:"", sfx:"雨声骤静", music:"主题旋律进入" },
+      ]},
+    { id:"b2", name:"离别站台", role:"张力引爆", desc:"手表作为信物在离别时刻交付，把“时间”具象成握得住的物。",
+      shots:[
+        { id:"s4", start:"00:13", end:"00:18", scale:"近景", angle:"俯拍", move:"缓摇", visual:"男主解下手表，扣在女主手腕上。", dialogue:"（男）等我。", vo:"", caption:"", subeff:"", sfx:"火车进站", music:"旋律收束" },
+        { id:"s5", start:"00:19", end:"00:24", scale:"中景", angle:"平视", move:"升格", visual:"列车启动，两人隔窗相望，手掌贴着车窗玻璃。", dialogue:"", vo:"", caption:"", subeff:"", sfx:"车轮声", music:"弦乐全奏" },
+      ]},
+    { id:"b3", name:"岁月独白", role:"主题收拢", desc:"多年后的独白把个人故事升华为品牌的时间观。",
+      shots:[
+        { id:"s6", start:"00:25", end:"00:30", scale:"特写", angle:"平视", move:"缓拉", visual:"多年后，女主抚摸腕上旧表，窗外落日。", dialogue:"", vo:"不在乎天长地久，只在乎曾经拥有。", caption:"铁达时表", subeff:"白字渐显", sfx:"", music:"主题旋律独奏收尾" },
+      ]},
+  ],
+  facts:{
+    commercialIntent:"把手表从计时工具重新定义为爱情信物，让“送表”成为情感表达的仪式。",
+    storySynopsis:"战乱年代一对恋人在码头重逢又被迫分离，男主以手表相赠作别；多年后女主抚表追忆，道出“曾经拥有”的时间观。",
+    creativeMotif:"爱情与时间的辩证：留不住的人，留得住的时刻。",
+    tensionButton:"“天长地久”与“曾经拥有”的价值对撞",
+    mainMechanism:"情感杠杆",
+    auxMechanism:"仪式建构",
+    thinkingChain:"若时间必然流逝，唯一可握住的是拥有过的时刻——以否定式金句为全片终点，倒推出聚散故事。",
+    storyRef:"经典离散爱情叙事",
+    carriers:"故事、文案",
+    carrierExplanation:"故事承载情绪蓄势，终句文案完成品类重定义，二者互为承重。",
+    acceptanceContract:"观众默认乱世离散属不可抗力，因此“曾经拥有”成立且不显消极。",
+    overallGrade:"S",
+    gradeReason:"以一句台词完成品类重定义，情绪蓄势与产品出场完全同构，多年后仍被行业引用。",
+  },
+  perception:{
+    primaryType:"LOVE",
+    emotionalBase:"乱世恋人聚散无常的宿命感",
+    releaseMethod:"离别时刻以信物交付完成情感释放",
+    auxType:"PERCEPTION",
+    auxDesc:"雨声骤静、升格镜头等视听规则强化诀别瞬间",
+    auxRole:"为情感峰值提供视听放大",
+  },
+};}
+
+function defaultState(){
+  const p1 = seedPayloadV1();
+  const p2 = structuredClone(p1);
+  p2.facts.creativeMotif = "拥有的瞬间即是永恒——以舍弃“天长地久”反证爱情浓度。";
+  p2.bridges[1].shots[1].dialogue = "（女）我等你回来。";
+  return {
+    seq:2, viewing:"v2", userId:"u3",
+    versions:[
+      { id:"v1", num:1, baseNum:null, baseAt:null, ownerId:"u1", createdAt:"08-22 14:10", updatedStr:"08-22 14:10", ts:1, payload:p1, basePayload:null },
+      { id:"v2", num:2, baseNum:1, baseAt:"08-23 09:47", ownerId:"u2", createdAt:"08-23 09:47", updatedStr:"08-23 09:47", ts:2, payload:p2, basePayload:structuredClone(p1) },
+    ],
+    noticeClosed:false,
+  };
+}
+
+let S;
+try{
+  const raw = localStorage.getItem(LS_KEY);
+  S = raw ? JSON.parse(raw) : defaultState();
+  if(!S || !Array.isArray(S.versions) || !S.versions.length) S = defaultState();
+}catch(e){ S = defaultState(); }
+
+/* 默认展示最新修改的版本（每次进入页面时生效） */
+S.viewing = S.versions.reduce((a,b)=> (b.ts||0)>=(a.ts||0)?b:a).id;
+
+function persist(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
+function resetDemo(){ S = defaultState(); persist(); renderAll(); toast("演示数据已重置"); }
+
+/* ============ 工具 ============ */
+const $ = (s,el)=> (el||document).querySelector(s);
+const esc = (s)=> String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function cur(){ return S.versions.find(v=>v.id===S.viewing) || S.versions[S.versions.length-1]; }
+function userOf(id){ return USERS.find(u=>u.id===id); }
+function verLabel(v, short){
+  const u = userOf(v.ownerId);
+  const who = u.tag ? `${u.name}·${u.tag}` : u.name;
+  if(v.baseNum==null) return short ? `v${v.num}` : `v${v.num}（初始版本，${who}）`;
+  return short ? `v${v.num}` : `v${v.num}（基于v${v.baseNum}，${u.name}）`;
+}
+function parseTc(s){ const m = String(s).trim().match(/^(\d{1,3}):(\d{2})$/); if(!m || +m[2]>59) return null; return +m[1]*60 + +m[2]; }
+/* 用户输入解析：支持纯数字速录（0102=01:02、45=00:45、5=00:05），也兼容 分:秒 写法 */
+function parseTcInput(s){
+  const t = String(s).trim();
+  const m = t.match(/^(\d{1,3}):(\d{2})$/);
+  if(m) return +m[2]>59 ? null : +m[1]*60 + +m[2];
+  const d = t.match(/^\d{1,5}$/);
+  if(!d) return null;
+  if(t.length===1) return +t;
+  const sec = +t.slice(-2), min = +(t.slice(0,-2)||0);
+  if(sec>59) return null;
+  return min*60+sec;
+}
+function fmtTc(n){ return String(Math.floor(n/60)).padStart(2,"0") + ":" + String(n%60).padStart(2,"0"); }
+function nextTc(s){ const n = parseTc(s); return n==null ? "" : fmtTc(n+1); }
+function nowStr(){ const d=new Date(); return String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+" "+d.toTimeString().slice(0,5); }
+function nowClock(){ return new Date().toTimeString().slice(0,8); }
+function allShots(payload){ return payload.bridges.flatMap(b=> b.shots.map(s=>({b, s}))); }
+
+/* ============ 版本链（每人最多一个版本；创建即固定基于当时快照） ============ */
+function ownVersion(){ return S.versions.find(v=>v.ownerId===S.userId); }
+function touch(v){ v.ts = Date.now(); v.updatedStr = nowStr(); }
+function mintVersion(base){
+  const nv = { id:"v"+(S.seq+1), num:S.seq+1, baseNum:base.num, baseAt:nowStr(), ownerId:S.userId,
+    createdAt:nowStr(), updatedStr:nowStr(), ts:Date.now(), payload:structuredClone(base.payload),
+    basePayload:structuredClone(base.payload) };
+  S.seq++; S.versions.push(nv); S.viewing = nv.id;
+  return nv;
+}
+function ensureEditableVersion(){
+  const v = cur();
+  if(v.ownerId === S.userId) return { v, forked:false };
+  const own = ownVersion();
+  if(own){ S.viewing = own.id; return { v:own, forked:false, switched:true }; }
+  return { v:mintVersion(v), forked:true };
+}
+/* 编辑他人版本且自己已有版本时：不在他人版本上开编辑框，先切回自己的版本 */
+function interceptForeignEdit(){
+  const v = cur();
+  if(v.ownerId === S.userId) return false;
+  const own = ownVersion();
+  if(!own) return false;
+  S.viewing = own.id; persist(); renderAll();
+  toast(`每人只有一个版本：已切换到你的版本 <b>v${own.num}</b>，请在此继续编辑`, "fork");
+  return true;
+}
+function createVersionFrom(baseId){
+  if(ownVersion()){ toast(`你已拥有 <b>v${ownVersion().num}</b>，每人只能有一个版本`, "warn2"); return; }
+  const base = S.versions.find(v=>v.id===baseId); if(!base) return;
+  const nv = mintVersion(base);
+  persist(); renderAll(); markSaved();
+  toast(`已创建 <b>${esc(verLabel(nv))}</b>（基于其 ${esc(nv.baseAt)} 时点快照），后续修改自动保存至该版本`, "fork");
+}
+
+/* ============ 自动保存指示 ============ */
+let saveTimer = null;
+function markSaved(){
+  const chip = $("#saveChip"), txt = $("#saveText");
+  chip.className = "save-chip saving"; txt.textContent = "保存中…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    chip.className = "save-chip saved";
+    txt.textContent = `已自动保存至 ${verLabel(cur(),true)} · ${nowClock()}`;
+  }, 420);
+}
+
+/* ============ 与基版快照的差异 ============ */
+let DIFF = null;
+function computeDiff(v){
+  const bp = v && v.basePayload;
+  if(!bp) return null;
+  const d = { fields:new Map(), newShots:new Set(), newBridges:new Set(), counts:{ mod:0, shots:0, bridges:0 } };
+  const mark = (key, baseVal)=>{ d.fields.set(key, baseVal ?? ""); d.counts.mod++; };
+  const baseBridges = new Map(bp.bridges.map(b=>[b.id, b]));
+  const baseShots = new Map(bp.bridges.flatMap(b=>b.shots).map(s=>[s.id, s]));
+  for(const b of v.payload.bridges){
+    const bb = baseBridges.get(b.id);
+    if(!bb){
+      d.newBridges.add(b.id); d.counts.bridges++;
+      b.shots.forEach(s=>d.newShots.add(s.id)); d.counts.shots += b.shots.length;
+      continue;
+    }
+    for(const f of ["name","role","desc"]) if(String(b[f]) !== String(bb[f])) mark("bridge:"+b.id+":"+f, bb[f]);
+    for(const s of b.shots){
+      const bs = baseShots.get(s.id);
+      if(!bs){ d.newShots.add(s.id); d.counts.shots++; continue; }
+      for(const f of Object.keys(s)) if(f!=="id" && String(s[f]) !== String(bs[f])) mark("shot:"+s.id+":"+f, bs[f]);
+    }
+  }
+  for(const f of Object.keys(v.payload.facts)) if(String(v.payload.facts[f]) !== String(bp.facts[f] ?? "")) mark("facts:"+f, bp.facts[f]);
+  for(const f of Object.keys(v.payload.perception)) if(String(v.payload.perception[f]) !== String(bp.perception[f] ?? "")) mark("perception:"+f, bp.perception[f]);
+  return d;
+}
+function diffKey(ctx){
+  if(ctx.kind==="shot") return "shot:"+ctx.shotId+":"+ctx.field;
+  if(ctx.kind==="bridge") return "bridge:"+ctx.bridgeId+":"+ctx.field;
+  return ctx.kind+":"+ctx.field;
+}
+function toggleDiff(){
+  S.diffMode = !S.diffMode;
+  persist(); renderAll();
+  if(S.diffMode && DIFF){
+    toast(`相比基版 v${cur().baseNum} 快照：修改 <b>${DIFF.counts.mod}</b> 项 · 新增 <b>${DIFF.counts.shots}</b> 个镜头 · 新增 <b>${DIFF.counts.bridges}</b> 个桥段`);
+  }
+}
+
+/* ============ 编辑提交 ============ */
+let flashIds = [];
+/* 时间线级联：某镜头结束时间变化后，后续镜头按「开始=上一结束+1秒」整体顺延，保持各镜头时长 */
+function cascadeTimeline(payload, fromShotId){
+  const list = allShots(payload).map(x=>x.s);
+  const i = list.findIndex(s=>s.id===fromShotId);
+  const changed = [];
+  for(let k=i+1; k<list.length; k++){
+    const prev = list[k-1], sh = list[k];
+    const pe = parseTc(prev.end);
+    if(pe==null) break;                 // 上一镜头结束时间缺失，无法继续推导
+    const ns = fmtTc(pe+1);
+    if(sh.start === ns) break;          // 从这里起时间线已连续，无需再动
+    const st = parseTc(sh.start), en = parseTc(sh.end);
+    const dur = (st!=null && en!=null) ? en-st : null;
+    sh.start = ns; changed.push("tc-start-"+sh.id);
+    if(dur!=null){ sh.end = fmtTc(pe+1+dur); changed.push("tc-end-"+sh.id); }
+  }
+  return changed;
+}
+function commit(ctx, value){
+  const before = readField(cur().payload, ctx);
+  if(String(before) === String(value)){ renderAll(); return; }
+  const { v, forked } = ensureEditableVersion();
+  writeField(v.payload, ctx, value);
+  flashIds = [];
+  if(ctx.field === "end"){
+    const ids = cascadeTimeline(v.payload, ctx.shotId);
+    if(ids.length){
+      flashIds.push(...ids);
+      const n = ids.filter(x=>x.startsWith("tc-start-")).length;
+      toast(`已级联顺延后续 ${n} 个镜头的时间线（各镜头时长保持不变）`);
+    }
+  }
+  touch(v);
+  persist(); renderAll(); markSaved();
+  if(forked) toast(`首次编辑：已基于所看版本此刻的快照为你创建 <b>${esc(verLabel(cur()))}</b>，之后该版本的原稿再修改也不会影响你`, "fork");
+}
+function readField(p, ctx){
+  if(ctx.kind==="shot"){ const s = allShots(p).find(x=>x.s.id===ctx.shotId); return s ? s.s[ctx.field] : ""; }
+  if(ctx.kind==="bridge"){ const b = p.bridges.find(b=>b.id===ctx.bridgeId); return b ? b[ctx.field] : ""; }
+  return p[ctx.kind][ctx.field];
+}
+function writeField(p, ctx, val){
+  if(ctx.kind==="shot"){ const s = allShots(p).find(x=>x.s.id===ctx.shotId); if(s) s.s[ctx.field]=val; return; }
+  if(ctx.kind==="bridge"){ const b = p.bridges.find(b=>b.id===ctx.bridgeId); if(b) b[ctx.field]=val; return; }
+  p[ctx.kind][ctx.field]=val;
+}
+
+/* ============ 结构操作 ============ */
+function insertShotAfter(shotId){
+  if(interceptForeignEdit()) return;
+  const { v, forked } = ensureEditableVersion();
+  for(const b of v.payload.bridges){
+    const i = b.shots.findIndex(s=>s.id===shotId);
+    if(i<0) continue;
+    const prev = b.shots[i];
+    const ns = blankShot();
+    ns.start = prev.end ? nextTc(prev.end) : "";
+    b.shots.splice(i+1, 0, ns);
+    flashIds = ["row-"+ns.id];
+    touch(v);
+    persist(); renderAll(); markSaved();
+    const n = allShots(v.payload).findIndex(x=>x.s.id===ns.id)+1;
+    toast(`已插入镜头${String(n).padStart(2,"0")}，开始时间继承上一镜头结束时间 +1 秒${ns.start?`（<b>${esc(ns.start)}</b>）`:""}；填入其结束时间后，后续镜头将级联顺延`);
+    if(forked) toast(`首次编辑：已为你创建 <b>${esc(verLabel(cur()))}</b>`, "fork");
+    return;
+  }
+}
+function insertBridgeAfter(bridgeId){
+  if(interceptForeignEdit()) return;
+  const { v, forked } = ensureEditableVersion();
+  const i = v.payload.bridges.findIndex(b=>b.id===bridgeId);
+  if(i<0) return;
+  const prevShots = v.payload.bridges[i].shots;
+  const last = prevShots[prevShots.length-1];
+  const ns = blankShot();
+  ns.start = last && last.end ? nextTc(last.end) : "";
+  const nb = { id:uid("b"), name:"", role:"", desc:"", shots:[ns] };
+  v.payload.bridges.splice(i+1, 0, nb);
+  flashIds = ["bridge-"+nb.id];
+  touch(v);
+  persist(); renderAll(); markSaved();
+  toast(`已在桥段${String(i+1).padStart(2,"0")}后插入新桥段，桥段序号与镜头序号已自动重排`);
+  if(forked) toast(`首次编辑：已为你创建 <b>${esc(verLabel(cur()))}</b>`, "fork");
+  document.getElementById("bridge-"+nb.id)?.scrollIntoView({behavior:"smooth", block:"center"});
+}
+
+/* ============ 原位编辑 ============ */
+let editing = null; // 防止并行开两个编辑框
+document.addEventListener("click", (e)=>{
+  const ed = e.target.closest(".ed[data-kind]");
+  if(!ed || editing) return;
+  if(interceptForeignEdit()) return;
+  beginEdit(ed);
+});
+function ctxOf(el){
+  return { kind:el.dataset.kind, field:el.dataset.field, shotId:el.dataset.shot||null, bridgeId:el.dataset.bridge||null };
+}
+function beginEdit(el){
+  const ctx = ctxOf(el);
+  const type = el.dataset.type || "text";
+  const val = String(readField(cur().payload, ctx) ?? "");
+  editing = ctx;
+  let input;
+  if(type==="textarea"){
+    input = document.createElement("textarea");
+    input.value = val;
+  }else if(type==="select"){
+    input = document.createElement("select");
+    const opts = el.dataset.opts==="scale" ? SCALES : el.dataset.opts==="mech" ? MECHS : el.dataset.opts==="grade" ? GRADES : PTYPES.map(p=>p[0]);
+    const labels = el.dataset.opts==="ptype" ? PTYPES : opts.map(o=>[o,o]);
+    input.innerHTML = `<option value="">（未选）</option>` + labels.map(([v,l])=>`<option value="${esc(v)}"${v===val?" selected":""}>${esc(l)}</option>`).join("");
+  }else{
+    input = document.createElement("input");
+    input.value = val;
+    if(type==="tc"){ input.classList.add("tc-in"); input.placeholder="如 0102"; input.inputMode="numeric"; }
+  }
+  input.classList.add("ed-input");
+  el.replaceWith(input);
+  input.focus();
+  if(input.select && type!=="select") input.select();
+
+  let done = false;
+  const finish = (commitIt)=>{
+    if(done) return; done = true; editing = null;
+    if(!commitIt){ renderAll(); return; }
+    let nv = input.value;
+    if(type==="tc"){
+      const trimmed = nv.trim();
+      if(trimmed===""){ nv = ""; }
+      else{
+        const n = parseTcInput(trimmed);
+        if(n==null){
+          toast("时间可直接输入数字，如 <b>0102</b> = 01:02（秒数不超过59）— 本次修改未保存", "warn2");
+          renderAll(); return;
+        }
+        nv = fmtTc(n);
+      }
+    }
+    commit(ctx, nv);
+  };
+  input.addEventListener("blur", ()=>finish(true));
+  input.addEventListener("keydown", (ev)=>{
+    if(ev.key==="Escape"){ ev.preventDefault(); finish(false); }
+    if(ev.key==="Enter" && type!=="textarea"){ ev.preventDefault(); finish(true); }
+  });
+  if(type==="select") input.addEventListener("change", ()=>finish(true));
+}
+
+/* ============ 渲染 ============ */
+function edSpan(ctx, opts){
+  const val = String(readField(cur().payload, ctx) ?? "");
+  const empty = val.trim()==="";
+  const cls = ["ed", opts.block?"block":"", empty?"empty":"", opts.warn?"warn":"", opts.cls||""].filter(Boolean).join(" ");
+  const data = `data-kind="${ctx.kind}" data-field="${ctx.field}"` +
+    (ctx.shotId?` data-shot="${ctx.shotId}"`:"") + (ctx.bridgeId?` data-bridge="${ctx.bridgeId}"`:"") +
+    ` data-type="${opts.type||"text"}"` + (opts.opts?` data-opts="${opts.opts}"`:"");
+  let shown = esc(val);
+  if(opts.opts==="ptype" && val){ const f = PTYPES.find(p=>p[0]===val); if(f) shown = esc(f[1]); }
+  const id = opts.id ? ` id="${opts.id}"` : "";
+  const title = opts.warn ? ` title="${esc(opts.warnMsg||"时间线待校对")}"` : ` title="点击编辑"`;
+  let diffHtml = "";
+  if(DIFF && DIFF.fields.has(diffKey(ctx))){
+    let bv = String(DIFF.fields.get(diffKey(ctx)) ?? "");
+    if(opts.opts==="ptype" && bv){ const f = PTYPES.find(p=>p[0]===bv); if(f) bv = f[1]; }
+    diffHtml = `<span class="diff-tag">已修改</span><span class="diff-base"><b>基版</b>${esc(bv.trim()==="" ? "—" : bv)}</span>`;
+  }
+  return `<span${id} class="${cls}" ${data} role="button" tabindex="0"${title}>${empty ? esc(opts.ph||"待填") : shown}</span>${diffHtml}`;
+}
+
+function renderTopbar(){
+  const v = cur();
+  $("#verBtn").innerHTML = `<span class="vnum">v${v.num}</span><span>${esc(verLabel(v).replace(/^v\d+/,"").replace(/^（|）$/g,"").replace(/[（）]/g,""))}</span><span class="caret">▾</span>`;
+  $("#diffSlot").innerHTML = v.baseNum != null
+    ? `<button class="chip diff-toggle${S.diffMode?" on":""}" id="diffBtn" title="对照本版创建时复制的 v${v.baseNum} 快照，标出修改与新增">对比基版 v${v.baseNum}</button>`
+    : "";
+  $("#diffBtn")?.addEventListener("click", toggleDiff);
+  const who = $("#whoSel");
+  who.innerHTML = USERS.map(u=>`<option value="${u.id}"${u.id===S.userId?" selected":""}>${esc(u.name)}${u.tag?"（"+u.tag+"）":""}</option>`).join("");
+}
+
+function renderVerPanel(){
+  const panel = $("#verPanel");
+  const byBase = {};
+  for(const v of S.versions){ const k = v.baseNum==null ? "root" : v.baseNum; (byBase[k] ||= []).push(v); }
+  const latest = S.versions.reduce((a,b)=> (b.ts||0)>=(a.ts||0)?b:a);
+  const rows = [];
+  const walk = (v, depth)=>{
+    const u = userOf(v.ownerId);
+    const baseTip = v.baseNum==null ? "" : ` title="创建时复制了 v${v.baseNum} 在 ${esc(v.baseAt||v.createdAt)} 时点的快照；此后两个版本互不影响"`;
+    rows.push(`<div class="vrow${v.id===S.viewing?" cur":""}" data-ver="${v.id}" role="button" tabindex="0"${baseTip}>
+      <span class="l">${depth>0 ? "└" : ""}</span>
+      <span class="vn">v${v.num}</span>
+      <span class="meta">${v.baseNum==null ? "初始版本" : "基于 v"+v.baseNum+" 快照"}，${esc(u.name)}${u.tag?"·"+u.tag:""}</span>
+      ${v.ownerId===S.userId?`<span class="you">我的</span>`:""}
+      ${v.id===latest.id?`<span class="latest">最新·默认展示</span>`:""}
+      <span class="t">${esc(v.updatedStr||v.createdAt)}</span>
+    </div>`);
+    (byBase[v.num]||[]).forEach(c=>walk(c, depth+1));
+  };
+  (byBase.root||[]).forEach(v=>walk(v,0));
+  const own = ownVersion();
+  const createArea = own
+    ? `<div class="ver-mine"><span>每人只有一个版本，你的是 <b>v${own.num}</b>；无论查看哪个版本，你的编辑都保存到 v${own.num}。</span>${own.id!==S.viewing?`<button class="go" id="goMine">回到 v${own.num}</button>`:""}</div>`
+    : `<div class="ver-new">
+        <span>你还没有版本，可手动新建：基于</span>
+        <select id="baseSel">${S.versions.map(v=>`<option value="${v.id}"${v.id===S.viewing?" selected":""}>${esc(verLabel(v))}</option>`).join("")}</select>
+        <button class="go" id="mkVer">创建我的版本</button>
+      </div>`;
+  panel.innerHTML = `<h4>版本链（每位编辑者一个版本，创建即固定基于当时快照，互不覆盖）</h4>
+    ${rows.join("")}
+    ${createArea}
+    <div class="ver-note">进入页面默认展示最新修改的版本，可在此切换查看任意版本；直接编辑也会自动创建/回到你自己的版本。</div>`;
+  panel.querySelectorAll(".vrow").forEach(r=>{
+    const go = ()=>{ S.viewing = r.dataset.ver; persist(); toggleVerPanel(false); renderAll(); };
+    r.addEventListener("click", go);
+    r.addEventListener("keydown", e=>{ if(e.key==="Enter") go(); });
+  });
+  $("#mkVer")?.addEventListener("click", ()=>{ createVersionFrom($("#baseSel").value); toggleVerPanel(false); });
+  $("#goMine")?.addEventListener("click", ()=>{ S.viewing = ownVersion().id; persist(); toggleVerPanel(false); renderAll(); });
+}
+function toggleVerPanel(show){
+  const p = $("#verPanel");
+  const want = show!=null ? show : p.hidden;
+  if(want){ renderVerPanel(); p.hidden = false; } else p.hidden = true;
+}
+$("#verBtn").addEventListener("click", (e)=>{ e.stopPropagation(); toggleVerPanel(); });
+document.addEventListener("click", (e)=>{ if(!e.target.closest(".ver-wrap")) toggleVerPanel(false); });
+
+$("#whoSel").addEventListener("change", (e)=>{
+  S.userId = e.target.value; persist(); renderAll();
+  const u = userOf(S.userId);
+  const own = ownVersion();
+  const hint = own
+    ? (cur().ownerId===S.userId ? "，当前版本就是你的，编辑直接保存" : `，你已有 v${own.num}，点击编辑会自动切回 v${own.num}`)
+    : "，你还没有版本，首次编辑将基于所看版本的快照自动创建";
+  toast(`已切换演示身份为 <b>${esc(u.name)}</b>${hint}`);
+});
+
+function renderNav(){
+  const p = cur().payload;
+  let shotNo = 0;
+  const bridgeKids = p.bridges.map((b,bi)=>{
+    const shots = b.shots.map(s=>{ shotNo++; return `<button class="kid shot" data-loc="row-${s.id}">镜头 ${String(shotNo).padStart(2,"0")}<span class="tc">${esc(s.start||"--:--")}</span></button>`; }).join("");
+    return `<button class="kid" data-loc="bridge-${b.id}">桥段${String(bi+1).padStart(2,"0")} · ${esc(b.name||"未命名")}</button>${shots}`;
+  }).join("");
+  const kids = (list)=> list.map(([id,l])=>`<button class="kid" data-loc="${id}">${l}</button>`).join("");
+  const coreKids = kids([["f-commercialIntent","商业意图"],["f-storySynopsis","故事梗概"],["f-creativeMotif","创意母题"],["f-tensionButton","张力按钮"],["f-thinkingChain","创意思维链"],["f-storyRef","故事参照"],["f-mainMechanism","主导机制"],["f-auxMechanism","辅助机制"],["f-carriers","承重载体"],["f-carrierExplanation","承重说明"],["f-acceptanceContract","成立契约"]]);
+  const ratingKids = kids([["f-overallGrade","整体创意评价"],["f-gradeReason","评价理由"]]);
+  $("#nav").innerHTML = `
+    <button class="mod" data-loc="module-1"><b>第一模块</b><span>全片事实与核心判断</span></button>
+    <div>${coreKids}</div>
+    <button class="mod" data-loc="module-2"><b>第二模块</b><span>脚本反写</span></button>
+    <div>${bridgeKids}</div>
+    <button class="mod" data-loc="module-3"><b>第三模块</b><span>主导感知路径与整体评价</span></button>
+    <div>${ratingKids}</div>`;
+  $("#nav").querySelectorAll("[data-loc]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      document.getElementById(btn.dataset.loc)?.scrollIntoView({behavior:"smooth", block: btn.dataset.loc.startsWith("row-") ? "center" : "start"});
+    });
+  });
+}
+
+function shotArticle(bi, s, globalNo, prevShot){
+  const st = parseTc(s.start), en = parseTc(s.end), pe = prevShot ? parseTc(prevShot.end) : null;
+  const startWarn = (st!=null && pe!=null && st<=pe) ? "与上一镜头结束时间重叠，请校对" : null;
+  const endWarn = (st!=null && en!=null && en<st) ? "结束时间早于开始时间" : null;
+  const tc = (field, warn)=> edSpan({kind:"shot", field, shotId:s.id}, {type:"tc", ph:"—", warn:!!warn, warnMsg:warn||"", id:"tc-"+field+"-"+s.id, cls:"tcv"});
+  const t = (field, type)=> edSpan({kind:"shot", field, shotId:s.id}, {type:type||"text", block:true, ph:"—"});
+  return `<article class="reading-shot" id="row-${s.id}">
+    <h4 class="sys" title="桥段与镜头序号由系统自动维护">桥段${String(bi+1).padStart(2,"0")}－镜头${String(globalNo).padStart(2,"0")}${DIFF && DIFF.newShots.has(s.id) ? '<span class="diff-new">本版新增</span>' : ''}</h4>
+    <div class="shot-block r3"><div><small>开始时间</small>${tc("start", startWarn)}</div><div><small>结束时间</small>${tc("end", endWarn)}</div><div><small>景别</small>${edSpan({kind:"shot", field:"scale", shotId:s.id}, {type:"select", opts:"scale", ph:"—"})}</div></div>
+    <div class="shot-block r2"><div><small>机位／角度</small>${t("angle")}</div><div><small>镜头运动</small>${t("move")}</div></div>
+    <div class="shot-block r1"><div><small>画面内容（镜头故事）</small>${t("visual","textarea")}</div></div>
+    <div class="shot-block r2"><div><small>字幕／屏幕文案</small>${t("caption")}</div><div><small>字幕特效</small>${t("subeff")}</div></div>
+    <div class="shot-block r2"><div><small>对白</small>${t("dialogue")}</div><div><small>旁白</small>${t("vo")}</div></div>
+    <div class="shot-block r2"><div><small>声效</small>${t("sfx")}</div><div><small>音乐</small>${t("music")}</div></div>
+    <div class="ins-row"><button data-ins-shot="${s.id}" title="新镜头开始时间自动继承本镜头结束时间＋1秒">＋ 在此镜头后插入镜头</button></div>
+  </article>`;
+}
+
+let collapsedMods = new Set();
+function renderDoc(){
+  const p = cur().payload;
+  let shotNo = 0, prevShot = null;
+  const groups = p.bridges.map((b,bi)=>{
+    const shots = b.shots.map(s=>{ shotNo++; const html = shotArticle(bi, s, shotNo, prevShot); prevShot = s; return html; }).join("");
+    return `<section class="reading-group" id="bridge-${b.id}">
+      <header><span class="sys" title="桥段序号由系统自动维护">桥段 ${String(bi+1).padStart(2,"0")}</span><div><small>桥段名称</small><h3>${edSpan({kind:"bridge", field:"name", bridgeId:b.id}, {ph:"未命名桥段"})}${DIFF && DIFF.newBridges.has(b.id) ? '<span class="diff-new">本版新增</span>' : ''}</h3></div></header>
+      <div class="bridge-meta"><div><small>桥段创意作用</small>${edSpan({kind:"bridge", field:"role", bridgeId:b.id}, {block:true, ph:"—"})}</div><div><small>本桥段关键创意描述</small>${edSpan({kind:"bridge", field:"desc", bridgeId:b.id}, {type:"textarea", block:true, ph:"—"})}</div></div>
+      ${shots}
+      <div class="ins-bridge-row"><button data-ins-bridge="${b.id}">＋ 在此桥段后插入桥段</button></div>
+    </section>`;
+  }).join("");
+
+  const core = (id, label, field, opts)=> { const o = Object.assign({type:"textarea", block:true, ph:"—"}, opts||{}); return `<div id="${id}"${o.wide?' class="wide"':''}><small>${label}</small>${edSpan({kind:"facts", field}, o)}</div>`; };
+  const per = (label, field, opts)=> `<div><small>${label}</small>${edSpan({kind:"perception", field}, Object.assign({type:"textarea", block:true, ph:"—"}, opts||{}))}</div>`;
+  const mod = (n, title, inner)=> `<section class="reading-module" id="module-${n}">
+    <header><div><small>MODULE 0${n}</small><h2>${title}</h2></div><button data-toggle-mod="${n}">${collapsedMods.has(n)?"展开":"收起"}</button></header>
+    ${collapsedMods.has(n)?"":inner}
+  </section>`;
+
+  const notice = S.noticeClosed ? "" : `<div class="notice">
+    <h3>演示说明 — 本页规则<span class="spacer"></span><button id="closeNotice">收起</button></h3>
+    <ul>
+      <li>没有任何保存按钮：<span class="lg">白字内容</span>点击即可原位编辑，编辑框失焦或回车即自动保存；<b>金字标签与序号</b>由系统维护，不可编辑。</li>
+      <li><b>每人一个版本</b>：首次编辑他人版本时，自动基于其<b>当时快照</b>创建你的版本（快照定格，原版本后续修改与你无关）；已有版本后再点他人版本的编辑区，会自动切回你的版本继续编辑。尚未拥有版本时，也可在版本菜单手动选择基于哪个历史版本创建。</li>
+      <li>插入按钮跟随每个镜头与桥段（悬停显示）；新镜头开始时间＝上一镜头结束时间＋1秒，序号全局自动重排。</li>
+      <li>时间段支持<b>纯数字速录</b>：输入 0102 即 01:02、45 即 00:45；修改任一镜头的<b>结束时间</b>后，其后所有镜头自动<b>级联顺延</b>（保持各镜头时长不变，闪烁提示）；结束时间缺失导致无法推导处，以琥珀色标出待校对。</li>
+      <li>进入页面默认展示<b>最新修改</b>的版本；右上角版本菜单可切换查看任意版本。</li>
+      <li>查看基于他版创建的版本时，顶栏出现<b>对比基版</b>开关：开启后修改过的字段标「已修改」并显示基版原文，新增的镜头/桥段挂「本版新增」徽标。</li>
+      <li>进入页面视频<b>顶部大屏</b>播放；向下滚过后自动缩为<b>右下角小窗</b>，可按住拖到任意位置（播放控制条区域除外），位置会记住；点「—」<b>最小化</b>为右下角固定的主色胶囊，点「▣」还原回原拖放位置；滚回顶部自动恢复大屏。</li>
+      <li>顶栏<b>☰ 目录</b>可收起左侧导航以扩大内容区；每个模块的<b>收起/展开</b>按钮随模块标题<b>吸顶浮动</b>，长模块滚到中段也能随手收起；页面右侧常驻<b>↑到顶／↓到底</b>按钮，已在顶／底时自动置灰。</li>
+      <li>数据仅保存在本机浏览器，用于演示交互；<button class="reset" id="resetBtn">重置演示数据</button>。可在右上角切换“演示身份”模拟多人协作。</li>
+    </ul>
+  </div>`;
+
+  $("#doc").innerHTML = `${notice}
+    ${mod(1,"第一模块｜全片事实与核心判断", `<div class="reading-core">
+      ${core("f-commercialIntent","商业意图","commercialIntent")}
+      ${core("f-storySynopsis","故事梗概","storySynopsis")}
+      ${core("f-creativeMotif","创意母题","creativeMotif")}
+      ${core("f-tensionButton","张力按钮","tensionButton")}
+      ${core("f-thinkingChain","创意思维链","thinkingChain")}
+      ${core("f-storyRef","故事参照类型","storyRef",{type:"text",block:false})}
+      ${core("f-mainMechanism","创意主导手法及机制","mainMechanism",{type:"select",opts:"mech",block:false})}
+      ${core("f-auxMechanism","创意辅助手法及机制","auxMechanism",{type:"select",opts:"mech",block:false})}
+      ${core("f-carriers","创意承重载体","carriers",{type:"text",block:false})}
+      ${core("f-carrierExplanation","创意承重载体具体说明","carrierExplanation")}
+      ${core("f-acceptanceContract","创意成立契约（隐含情理）","acceptanceContract",{wide:true})}
+    </div>`)}
+    ${mod(2,"第二模块｜脚本反写", groups)}
+    ${mod(3,"第三模块｜主导感知类型发生路径与整体评价", `<div class="reading-core">
+      ${per("主导路径","primaryType",{type:"select",opts:"ptype",block:false})}
+      ${per("情感基座","emotionalBase")}
+      ${per("释放方式","releaseMethod")}
+      ${per("辅助路径类型","auxType",{type:"select",opts:"ptype",block:false})}
+      ${per("辅助路径描述","auxDesc")}
+      ${per("辅助路径创意作用","auxRole")}
+      ${core("f-overallGrade","整体创意评价","overallGrade",{type:"select",opts:"grade",block:false,cls:"gradev"})}
+      ${core("f-gradeReason","评价理由","gradeReason")}
+    </div>`)}`;
+
+  $("#doc").querySelectorAll("[data-ins-shot]").forEach(b=> b.addEventListener("click", e=>{ e.stopPropagation(); insertShotAfter(b.dataset.insShot); }));
+  $("#doc").querySelectorAll("[data-ins-bridge]").forEach(b=> b.addEventListener("click", ()=> insertBridgeAfter(b.dataset.insBridge)));
+  $("#doc").querySelectorAll("[data-toggle-mod]").forEach(btn=> btn.addEventListener("click", ()=>{ const n = Number(btn.dataset.toggleMod); if(collapsedMods.has(n)) collapsedMods.delete(n); else collapsedMods.add(n); renderDoc(); observeSpy(); }));
+  $("#closeNotice")?.addEventListener("click", ()=>{ S.noticeClosed = true; persist(); renderDoc(); observeSpy(); });
+  $("#resetBtn")?.addEventListener("click", resetDemo);
+
+  for(const id of flashIds){ const el = document.getElementById(id); if(el) el.classList.add("flash"); }
+  flashIds = [];
+}
+
+/* keyboard: Enter/Space 打开编辑 */
+document.addEventListener("keydown",(e)=>{
+  if((e.key==="Enter"||e.key===" ") && e.target.classList?.contains("ed") && !editing){
+    e.preventDefault();
+    if(interceptForeignEdit()) return;
+    beginEdit(e.target);
+  }
+});
+
+/* ============ 目录高亮 ============ */
+let spy = null;
+function observeSpy(){
+  spy?.disconnect();
+  const ids = ["module-1","module-2","module-3",
+    ...cur().payload.bridges.flatMap(b=>["bridge-"+b.id, ...b.shots.map(s=>"row-"+s.id)]),
+    "f-commercialIntent","f-storySynopsis","f-creativeMotif","f-tensionButton","f-thinkingChain","f-storyRef","f-mainMechanism","f-auxMechanism","f-carriers","f-carrierExplanation","f-acceptanceContract","f-overallGrade","f-gradeReason"];
+  const nodes = ids.map(id=>document.getElementById(id)).filter(Boolean);
+  spy = new IntersectionObserver((entries)=>{
+    const vis = entries.filter(x=>x.isIntersecting).sort((a,b)=>Math.abs(a.boundingClientRect.top-110)-Math.abs(b.boundingClientRect.top-110));
+    if(!vis[0]) return;
+    const id = vis[0].target.id;
+    $("#nav").querySelectorAll("[data-loc]").forEach(b=> b.classList.toggle("on", b.dataset.loc===id));
+  }, {rootMargin:"-80px 0px -66% 0px", threshold:[0,.05]});
+  nodes.forEach(n=>spy.observe(n));
+}
+
+/* ============ toast ============ */
+function toast(html, cls){
+  const t = document.createElement("div");
+  t.className = "toast" + (cls ? " "+cls : "");
+  t.innerHTML = html;
+  $("#toasts").appendChild(t);
+  setTimeout(()=>{ t.style.transition="opacity .4s"; t.style.opacity="0"; setTimeout(()=>t.remove(), 420); }, 3600);
+}
+
+/* ============ 到顶／到底 ============ */
+let updateJump = ()=>{};
+(function setupJump(){
+  const box = $("#pageJump");
+  const top = box.querySelector('[data-jump="top"]'), bottom = box.querySelector('[data-jump="bottom"]');
+  updateJump = ()=>{
+    const y = window.scrollY;
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    top.disabled = y < 40;
+    bottom.disabled = y > max - 40;
+  };
+  box.querySelectorAll("[data-jump]").forEach((btn)=> btn.addEventListener("click", ()=>{
+    window.scrollTo({ top: btn.dataset.jump === "top" ? 0 : document.documentElement.scrollHeight, behavior: "smooth" });
+  }));
+  window.addEventListener("scroll", updateJump, { passive:true });
+  window.addEventListener("resize", updateJump);
+  updateJump();
+})();
+
+/* ============ 左侧目录折叠 ============ */
+function applyNavCollapse(){
+  document.querySelector(".app").classList.toggle("nav-off", !!S.navCollapsed);
+  $("#navToggle").classList.toggle("on", !S.navCollapsed);
+  $("#navToggle").title = S.navCollapsed ? "展开左侧目录" : "收起左侧目录，扩大内容区";
+}
+$("#navToggle").addEventListener("click", ()=>{ S.navCollapsed = !S.navCollapsed; persist(); applyNavCollapse(); });
+applyNavCollapse();
+
+/* ============ 视频窗口：顶部大屏 ↔ 右下角可拖小窗 ============ */
+(function setupVideo(){
+  const slot = $("#videoSlot"), shell = $("#videoShell");
+  const clamp = (pos)=>({
+    x: Math.min(Math.max(pos.x, 8), Math.max(8, window.innerWidth - shell.offsetWidth - 8)),
+    y: Math.min(Math.max(pos.y, 8), Math.max(8, window.innerHeight - shell.offsetHeight - 8)),
+  });
+  const applyPos = ()=>{
+    if(!shell.classList.contains("floating") || !S.videoPos) return;
+    const p = clamp(S.videoPos);
+    shell.style.left = p.x + "px"; shell.style.top = p.y + "px";
+    shell.style.right = "auto"; shell.style.bottom = "auto";
+  };
+  const setFloating = (on)=>{
+    if(shell.classList.contains("floating") === on) return;
+    shell.classList.toggle("floating", on);
+    slot.classList.toggle("floated", on);
+    if(on){ shell.style.width = Math.min(360, window.innerWidth - 32) + "px"; applyPos(); }
+    else {
+      shell.classList.remove("minimized");   // 回到大屏一定是完整形态
+      $("#videoMin").textContent = "—";
+      shell.style.width = shell.style.left = shell.style.top = shell.style.right = shell.style.bottom = "";
+    }
+  };
+  $("#videoMin").addEventListener("click", ()=>{
+    const min = shell.classList.toggle("minimized");
+    $("#videoMin").textContent = min ? "▣" : "—";
+    $("#videoMin").title = min ? "还原小窗" : "最小化";
+    if(min){
+      // 最小化固定停靠右下角：清掉拖动坐标，回到 CSS 的 right/bottom 锚点
+      shell.style.left = shell.style.top = shell.style.right = shell.style.bottom = "";
+    } else {
+      applyPos();                           // 还原后回到之前拖放的位置
+    }
+  });
+  /* 大屏底边滚出顶栏下方 → 悬浮；滚回一段距离 → 还原。两档阈值形成滞回带，避免临界抖动 */
+  const updateVideoFloat = ()=>{
+    const bottom = slot.getBoundingClientRect().bottom;
+    if(bottom < 104) setFloating(true);
+    else if(bottom > 184) setFloating(false);
+  };
+  window.addEventListener("scroll", updateVideoFloat, { passive:true });
+  updateVideoFloat();
+  let drag = null;
+  shell.addEventListener("pointerdown", (ev)=>{
+    if(!shell.classList.contains("floating") || ev.target.closest("button")) return;
+    if(shell.classList.contains("minimized")) return;  // 最小化后固定停靠右下角，不参与拖动
+    const rect = shell.getBoundingClientRect();
+    if(ev.clientY > rect.bottom - 34) return;           // 底部控制条区域不触发拖动
+    drag = { dx: ev.clientX - rect.left, dy: ev.clientY - rect.top };
+    shell.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+  shell.addEventListener("pointermove", (ev)=>{
+    if(!drag) return;
+    const p = clamp({ x: ev.clientX - drag.dx, y: ev.clientY - drag.dy });
+    shell.style.left = p.x + "px"; shell.style.top = p.y + "px";
+    shell.style.right = "auto"; shell.style.bottom = "auto";
+    S.videoPos = p;
+  });
+  const endDrag = ()=>{ if(drag){ drag = null; persist(); } };
+  shell.addEventListener("pointerup", endDrag);
+  shell.addEventListener("pointercancel", endDrag);
+  window.addEventListener("resize", ()=>{ updateVideoFloat(); applyPos(); });
+  shell.querySelector(".video-play").addEventListener("click", ()=> toast("演示占位：正式版这里是真实在线播放器"));
+})();
+
+/* ============ 总渲染 ============ */
+function renderAll(){ DIFF = S.diffMode ? computeDiff(cur()) : null; renderTopbar(); renderNav(); renderDoc(); observeSpy(); updateJump(); if(!$("#verPanel").hidden) renderVerPanel(); }
+renderAll();
+$("#saveText").textContent = `已自动保存至 ${verLabel(cur(),true)}`;
+</script>

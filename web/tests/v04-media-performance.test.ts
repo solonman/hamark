@@ -150,7 +150,10 @@ test("只读成果页收起播放器时原地留出占位，工作稿页仍是�
   assert.match(player, /const dockable = surface === "detail" && !video\.floating/);
   assert.match(player, /const floating = surface === "workspace" \|\| video\.floating \|\| docked/);
   // 收起后仍按当前宽度把展示位的高度留在原地，正文不会因为收起而上跳。
-  assert.match(player, /slot\.style\.height = next \? `\$\{heroHeight\}px` : ""/);
+  // 最小化同样让 shell 脱离文档流，所以它也必须撑住占位。
+  assert.match(player, /slot\.style\.height = next \|\| video\.minimized \? `\$\{heroHeight\}px` : ""/);
+  // 脱离文档流后量到的是浮窗或胶囊的高度，不能拿它去覆盖展示位的基准高度。
+  assert.match(player, /if \(!slot\.style\.height && !video\.minimized\)/);
   assert.match(player, /addEventListener\("scroll", schedule, \{ passive: true \}\)/);
   assert.match(player, /addEventListener\("resize", schedule\)/);
   assert.match(player, /removeEventListener\("scroll", schedule\)/);

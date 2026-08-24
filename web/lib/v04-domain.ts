@@ -459,6 +459,37 @@ export function applyV04ChangeSet(payload: V04DraftPayloadV1, changes: readonly 
   return next;
 }
 
+/**
+ * Applies a change set by its after-values alone, and names the targets that no
+ * longer exist rather than failing the whole save.
+ *
+ * A version has exactly one writer, so a recorded before-value that no longer
+ * matches cannot mean another editor moved the field — it means this editor's
+ * own view lagged, from a second tab or a retried request. On a surface whose
+ * only promise is that typing is already saved, the newest keystroke has to
+ * win; refusing it would lose the edit the person just made. A target that
+ * disappeared structurally is the one case with nothing to write, so it is
+ * reported back instead of silently dropped.
+ */
+export function applyV04ChangeSetLastWriteWins(
+  payload: V04DraftPayloadV1,
+  changes: readonly V04Change[],
+) {
+  const next = clonePayload(payload);
+  const appliedChanges: V04Change[] = [];
+  const skippedTargets: string[] = [];
+  for (const change of changes) {
+    const target = locateTarget(next, change.targetKey);
+    if (!target) {
+      skippedTargets.push(change.targetKey);
+      continue;
+    }
+    target.object[target.key] = structuredClone(change.afterValue);
+    appliedChanges.push(change);
+  }
+  return { payload: next, appliedChanges, skippedTargets };
+}
+
 const canonicalJson = (value: unknown) => JSON.stringify(stableValue(value));
 
 export function canonicalV04ChangeSet(changes: readonly V04Change[]) {

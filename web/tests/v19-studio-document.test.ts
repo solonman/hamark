@@ -1,0 +1,188 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { registerHooks } from "node:module";
+import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { cloneV04UiDraft } from "../lib/v04-ui-model.ts";
+import { getV04UiCase } from "../lib/v04-ui-fixture.ts";
+import type { V19BaseDiff } from "../lib/v19-base-diff.ts";
+
+// Same technique as `tests/v19-editable-value.test.ts`: stub any `.css` specifier
+// so the real component (and everything it imports — `V19EditableValue.tsx`,
+// `V04ChoiceField.tsx`, both of which also import `V04Surface.module.css`) can
+// be `import()`-ed and rendered with `react-dom/server`, instead of falling
+// back to hand-copied stand-ins.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.endsWith(".css")) return { url: `css-stub:${specifier}`, shortCircuit: true };
+    return nextResolve(specifier, context);
+  },
+  load(url, context, nextLoad) {
+    if (url.startsWith("css-stub:")) return { format: "module", source: "export default {};", shortCircuit: true };
+    return nextLoad(url, context);
+  },
+});
+
+const componentModule = await import("../components/v04/V19StudioDocument.tsx");
+const V19StudioDocument = componentModule.default;
+const { V19_CARRIER_OPTIONS } = componentModule;
+const {
+  V19_FIELD_TARGET_KEYS,
+  computeV19ShotTimelineWarnings,
+  V19_SHOT_TIME_OVERLAP_WARNING,
+  V19_SHOT_TIME_INVERTED_WARNING,
+} = componentModule;
+
+function fixtureDraft() {
+  const source = getV04UiCase("aurora");
+  if (!source) throw new Error("expected the aurora fixture case to exist");
+  return cloneV04UiDraft(source.draft);
+}
+
+function noopProps(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    draft: fixtureDraft(),
+    diff: null as V19BaseDiff | null,
+    readOnly: false,
+    collapsedModules: new Set<number>(),
+    onToggleModule: () => undefined,
+    onChange: () => undefined,
+    onInsertShotAfter: () => undefined,
+    onInsertBridgeAfter: () => undefined,
+    onInvalid: () => undefined,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Module order and where 整体创意评价／评价理由 land
+// ---------------------------------------------------------------------------
+
+test("module order is 全片事实与核心判断 → 脚本反写 → 主导感知类型发生路径与整体评价", () => {
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps()));
+  assert.match(html, /id="module-1"/);
+  assert.match(html, /id="module-2"/);
+  assert.match(html, /id="module-3"/);
+  const factsIndex = html.indexOf("全片事实与核心判断");
+  const scriptIndex = html.indexOf("脚本反写");
+  const pathIndex = html.indexOf("主导感知类型发生路径与整体评价");
+  assert.ok(factsIndex >= 0, "expected module 1 title to render");
+  assert.ok(scriptIndex >= 0, "expected module 2 title to render");
+  assert.ok(pathIndex >= 0, "expected module 3 title to render");
+  assert.ok(factsIndex < scriptIndex, "module 1 must render before module 2");
+  assert.ok(scriptIndex < pathIndex, "module 2 must render before module 3");
+});
+
+test("整体创意评价 and 评价理由 render inside module 3, after its heading", () => {
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps()));
+  const module3Index = html.indexOf('id="module-3"');
+  const gradeIndex = html.indexOf("整体创意评价");
+  const reasonIndex = html.indexOf("评价理由");
+  assert.ok(module3Index >= 0);
+  assert.ok(gradeIndex > module3Index, "整体创意评价 must render after the module-3 marker");
+  assert.ok(reasonIndex > module3Index, "评价理由 must render after the module-3 marker");
+});
+
+// ---------------------------------------------------------------------------
+// UI field -> payload target key mapping (lib/v04-ui-model.ts's
+// v04UiDraftToPayload / v04PayloadChanges are the authority; several UI field
+// names differ from their payload counterparts).
+// ---------------------------------------------------------------------------
+
+test("V19_FIELD_TARGET_KEYS resolves the known-tricky UI-field -> payload-key pairs", () => {
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.storySummary, "facts.storySynopsis");
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.creativeContract, "facts.acceptanceContract");
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.primaryMechanism, "facts.mainMechanism");
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.carriers, "facts.creativeCarriers");
+});
+
+test("V19_FIELD_TARGET_KEYS resolves the direct-named facts, shotGroup, and shot targets", () => {
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.commercialIntent, "facts.commercialIntent");
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism, "facts.auxiliaryMechanism");
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.overallGrade, "facts.overallCreativeRating");
+  assert.equal(V19_FIELD_TARGET_KEYS.facts.gradeReason, "facts.ratingReason");
+  assert.equal(V19_FIELD_TARGET_KEYS.shotGroupField("b1", "bridgeName"), "shotGroup:b1.bridgeName");
+  assert.equal(V19_FIELD_TARGET_KEYS.shotGroupField("b1", "keyCreativeDescription"), "shotGroup:b1.keyCreativeDescription");
+  assert.equal(V19_FIELD_TARGET_KEYS.shotField("s1", "startTime"), "shot:s1.startTime");
+});
+
+// ---------------------------------------------------------------------------
+// Timeline warning helper (spec rule 6) — pure function, exported for testing.
+// ---------------------------------------------------------------------------
+
+test("a shot whose start time overlaps the previous shot's end time gets the overlap warning", () => {
+  const result = computeV19ShotTimelineWarnings({ startTime: "00:05", endTime: "00:09" }, { endTime: "00:09" });
+  assert.deepEqual(result, { startWarning: V19_SHOT_TIME_OVERLAP_WARNING, endWarning: undefined });
+});
+
+test("a shot whose start time is strictly after the previous shot's end time gets no warning", () => {
+  const result = computeV19ShotTimelineWarnings({ startTime: "00:10", endTime: "00:14" }, { endTime: "00:09" });
+  assert.deepEqual(result, { startWarning: undefined, endWarning: undefined });
+});
+
+test("a shot whose end time is earlier than its own start time gets the inverted warning", () => {
+  const result = computeV19ShotTimelineWarnings({ startTime: "00:10", endTime: "00:05" }, null);
+  assert.deepEqual(result, { startWarning: undefined, endWarning: V19_SHOT_TIME_INVERTED_WARNING });
+});
+
+test("unparseable timecodes on either side produce no warning", () => {
+  assert.deepEqual(
+    computeV19ShotTimelineWarnings({ startTime: "", endTime: "00:05" }, { endTime: "00:09" }),
+    { startWarning: undefined, endWarning: undefined },
+  );
+  assert.deepEqual(
+    computeV19ShotTimelineWarnings({ startTime: "00:05", endTime: "00:09" }, { endTime: "not-a-time" }),
+    { startWarning: undefined, endWarning: undefined },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// readOnly
+// ---------------------------------------------------------------------------
+
+test("editable mode renders the insert-shot and insert-bridge affordances", () => {
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({ readOnly: false })));
+  assert.match(html, /在此镜头后插入镜头/);
+  assert.match(html, /在此桥段后插入桥段/);
+});
+
+test("readOnly renders no insert buttons", () => {
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({ readOnly: true })));
+  assert.doesNotMatch(html, /在此镜头后插入镜头/);
+  assert.doesNotMatch(html, /在此桥段后插入桥段/);
+});
+
+// ---------------------------------------------------------------------------
+// The three controlled-vocabulary fields must go through V04ChoiceField, never
+// a plain <select> (spec: 组件边界 / 五之三). react-dom/server never renders
+// the editing-state markup of V19EditableValue (it always starts in reading
+// state), so this is asserted at the source level, as the task allows.
+// ---------------------------------------------------------------------------
+
+test("source: story reference, main/auxiliary mechanism, and bridge primary/auxiliary role render V04ChoiceField", async () => {
+  const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
+  for (const label of ["故事参照类型", "创意主导手法及机制", "创意辅助手法及机制", "桥段主创意作用", "桥段辅助创意作用"]) {
+    assert.match(source, new RegExp(`<V04ChoiceField label="${label}"`), `expected ${label} to render <V04ChoiceField>`);
+  }
+  assert.doesNotMatch(source, /<select\b/, "must never hand-roll a <select> for a vocabulary field");
+});
+
+// ---------------------------------------------------------------------------
+// 创意承重载体 is a fixed three-option multi-select, not free text. The frozen
+// contract rejects more than three entries and rejects duplicates, so a text
+// box would let a person write something the save silently refuses — the exact
+// failure this refactor exists to remove.
+// ---------------------------------------------------------------------------
+
+test("carriers stay a fixed three-option toggle rather than free text", async () => {
+  const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
+  assert.deepEqual([...V19_CARRIER_OPTIONS], ["故事", "文案", "视听规则"]);
+  assert.match(source, /V19_CARRIER_OPTIONS\.map/, "carriers must render one button per fixed option");
+  assert.doesNotMatch(source, /textToCarriers/, "carriers must not be parsed back out of typed text");
+
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({})));
+  for (const option of V19_CARRIER_OPTIONS) {
+    assert.match(html, new RegExp(`aria-pressed="[a-z]+"[^>]*>${option}<|>${option}<`), `expected a toggle for ${option}`);
+  }
+});

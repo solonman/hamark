@@ -432,3 +432,119 @@
   .gradeSection > div { grid-template-columns: 1fr 1fr; }
   .drawer, .aiPanel { width: 100vw; }
 }
+
+/* ============================================================
+   Unified studio surface (read-only + editor merge)
+   Ported from docs/demos/2026-08-24-二合一工作台交互demo.html
+   Every colour below is expressed via the --v04-* custom
+   properties declared on .surface, or (where the file already
+   has an established literal for that exact value — e.g. the
+   panel/bg translucency washes, the amber warning family, or the
+   #2e302a "existing/mine" badge) the same literal this file
+   already uses elsewhere, so no second palette is introduced.
+   This section only appends new rules / new selectors; nothing
+   above this banner was reordered or rewritten.
+   ============================================================ */
+
+/* ---------- in-place editing ---------- */
+.editable { display: inline-block; max-width: 100%; padding: 0 2px; margin: 0 -2px; border-bottom: 1px dashed transparent; border-radius: 4px; color: #d4d6cd; line-height: 1.65; cursor: text; transition: background .12s; }
+.editable:hover { border-bottom-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .08); }
+.editableBlock { display: block; white-space: pre-wrap; }
+.editableEmpty { color: var(--v04-muted); }
+.editableWarn { border-bottom: 1px dashed rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); color: rgba(255, 174, 120, .95); }
+.editableInput { min-width: 5ch; max-width: 100%; border: 1px solid rgba(223, 255, 79, .4); border-radius: 7px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; }
+.editableTextarea { width: 100%; min-height: 64px; line-height: 1.55; resize: vertical; }
+.editableTimecode { width: 9ch; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; padding: 2px 5px; }
+.systemField { color: var(--v04-muted); cursor: help; }
+
+/* ---------- insert affordances ---------- */
+.insertShotRow { display: flex; padding: 6px 0 4px; opacity: 0; transition: opacity .12s; }
+.readingShot:hover .insertShotRow, .insertShotRow:focus-within { opacity: 1; }
+.insertShotRow button, .insertBridgeRow button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(223, 255, 79, .4); border-radius: 999px; background: transparent; color: var(--v04-accent); padding: 4px 12px; font-size: 10px; white-space: nowrap; }
+.insertShotRow button:hover, .insertBridgeRow button:hover { background: rgba(223, 255, 79, .12); }
+.insertBridgeRow { display: flex; justify-content: center; padding: 16px 0 0; opacity: 0; transition: opacity .12s; }
+.readingGroup:hover .insertBridgeRow, .insertBridgeRow:focus-within { opacity: 1; }
+
+/* ---------- base-version diff ---------- */
+.diffToggle { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 13px; font-size: 12px; cursor: pointer; }
+.diffToggle:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
+.diffToggle.on { border-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .08); color: var(--v04-accent); }
+.diffTag, .diffNew { display: inline-flex; margin-left: 6px; border: 1px solid rgba(223, 255, 79, .4); border-radius: 999px; padding: 0 6px; color: var(--v04-accent); font-size: 9px; font-weight: 800; white-space: nowrap; vertical-align: 2px; }
+.diffNew { margin-left: 8px; padding: 1px 7px; }
+.diffBase { display: block; margin-top: 5px; padding: 3px 10px; border-left: 2px solid rgba(223, 255, 79, .4); color: var(--v04-muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.diffBase b { display: inline-block; margin-right: 8px; color: var(--v04-subject); font-size: 9px; font-weight: 800; }
+
+/* ---------- version chain menu ---------- */
+.versionButton { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 13px; font-size: 12px; }
+.versionButton:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
+.versionPanel { position: absolute; right: 0; top: calc(100% + 10px); z-index: 60; width: 430px; max-width: 92vw; padding: 16px; border: 1px solid var(--v04-line); border-radius: 14px; background: var(--v04-panel); box-shadow: 0 20px 70px rgba(0, 0, 0, .5); }
+.versionPanel h4 { margin: 0 0 10px; color: var(--v04-muted); font-size: 11px; font-weight: 500; line-height: 1.6; }
+.versionRow { display: flex; align-items: center; gap: 9px; padding: 8px; border-radius: 9px; cursor: pointer; }
+.versionRow:hover { background: var(--v04-raised); }
+.versionRowCurrent { background: rgba(223, 255, 79, .08); }
+.versionNumber { flex: none; color: var(--v04-accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-weight: 700; }
+.versionMeta { overflow: hidden; min-width: 0; color: var(--v04-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.versionTime { flex: none; margin-left: auto; color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 10px; }
+.versionMine { flex: none; border-radius: 999px; padding: 2px 7px; color: #e1e2da; background: #2e302a; font-size: 9px; font-weight: 800; }
+.versionLatest { flex: none; border: 1px solid rgba(223, 255, 79, .4); border-radius: 999px; padding: 1px 7px; color: var(--v04-accent); font-size: 9px; font-weight: 800; }
+.versionCreate { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--v04-line); color: var(--v04-muted); font-size: 11px; }
+.versionCreate select { max-width: 100%; border: 1px solid var(--v04-line); border-radius: 9px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; font-size: 11px; }
+.versionMineNote { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--v04-line); color: var(--v04-muted); font-size: 11px; line-height: 1.6; }
+.versionMineNote b { color: var(--v04-accent); }
+.versionNote { margin-top: 10px; color: var(--v04-muted); font-size: 10px; line-height: 1.7; opacity: .8; }
+
+/* ---------- auto-save status ---------- */
+.saveChip { display: inline-flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; }
+.saveChipSaved { color: var(--v04-accent); }
+.saveChipSaving { color: var(--v04-muted); }
+.saveDot { flex: none; width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+.saveChipSaving .saveDot { animation: v04SavePulse 1s infinite; }
+@keyframes v04SavePulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) {
+  .saveChipSaving .saveDot { animation: none; }
+}
+
+/* ---------- collapsible nav + sticky module header ---------- */
+.navToggle { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 6px 11px; font-size: 11px; white-space: nowrap; }
+.navToggle:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
+.navToggle.on { border-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .08); color: var(--v04-accent); }
+.workspaceGrid.navCollapsed { grid-template-columns: minmax(0, 1fr); }
+.workspaceGrid.navCollapsed > .workspaceNav { display: none; }
+.stickyModuleHeader { position: sticky; top: 64px; z-index: 12; border-radius: 18px 18px 0 0; background: rgba(23, 24, 21, .97); backdrop-filter: blur(12px); }
+
+/* ---------- video window states ---------- */
+/* .videoShell / .videoFloating / .videoMinimized already exist above; these rules
+   augment them with the properties the floating/minimized behaviour needs. */
+.videoFloating { z-index: 55; cursor: grab; touch-action: none; }
+.videoFloating:active { cursor: grabbing; }
+.videoMinimized { border-color: var(--v04-accent); background: var(--v04-accent); box-shadow: 0 10px 30px rgba(223, 255, 79, .3), 0 4px 14px rgba(0, 0, 0, .45); cursor: default; }
+.videoMinimized .videoStage { display: none; }
+.videoBar { display: none; align-items: center; gap: 8px; padding: 6px 8px 6px 13px; border-bottom: 1px solid var(--v04-line); background: #161713; color: var(--v04-muted); font-size: 10px; }
+.videoFloating .videoBar { display: flex; }
+.videoBarTitle { overflow: hidden; flex: 1; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.videoBarIcon { display: none; flex: none; }
+.videoMinButton { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 1px 9px; font-size: 11px; line-height: 1.5; }
+.videoMinButton:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
+.videoFloating.videoMinimized .videoBar { gap: 9px; border-bottom: 0; border-radius: 999px; background: var(--v04-accent); color: #10110f; padding: 9px 10px 9px 16px; font-size: 11.5px; font-weight: 800; }
+.videoFloating.videoMinimized .videoBarIcon { display: inline; font-size: 12px; line-height: 1; }
+.videoFloating.videoMinimized .videoBarTitle { max-width: 210px; }
+.videoFloating.videoMinimized .videoMinButton { border-color: rgba(16, 17, 15, .4); color: #10110f; font-weight: 700; }
+.videoFloating.videoMinimized .videoMinButton:hover { border-color: #10110f; background: rgba(16, 17, 15, .12); color: #10110f; }
+.videoSlotGhost { display: flex; aspect-ratio: 16 / 9; align-items: center; justify-content: center; padding: 20px; border: 1px dashed var(--v04-line); border-radius: 18px; color: var(--v04-muted); font-size: 11px; line-height: 1.9; text-align: center; }
+
+/* ---------- jump control ---------- */
+.pageJump { position: fixed; z-index: 30; top: 50%; right: 22px; display: grid; padding: 4px; border: 1px solid var(--v04-line); border-radius: 999px; background: rgba(23, 24, 21, .9); backdrop-filter: blur(12px); transform: translateY(-50%); }
+.pageJump button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 999px; background: transparent; color: var(--v04-muted); transition: color .12s, background .12s; }
+.pageJump button svg { width: 15px; height: 15px; }
+.pageJump button:hover:not(:disabled) { background: rgba(223, 255, 79, .1); color: var(--v04-accent); }
+.pageJump button:disabled { cursor: default; opacity: .28; }
+.pageJumpDivider { height: 1px; margin: 3px 7px; background: var(--v04-line); }
+
+/* ---------- responsive: unified studio surface ---------- */
+/* .videoFloating already gets a full-width-minus-margin override from the existing
+   @media (max-width: 620px) block above (right/bottom: 9px, width: calc(100vw - 18px));
+   that rule already applies to this class, so it is intentionally not repeated here. */
+@media (max-width: 620px) {
+  .pageJump { right: 9px; }
+  .stickyModuleHeader { top: 58px; }
+}
