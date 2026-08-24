@@ -742,7 +742,7 @@ export default function V04StudioClient({
             )}
           </div>
           {!readOnly && (historyDepth.undo > 0 || historyDepth.redo > 0) && (
-            <span className={styles.historyControl} role="group" aria-label="撤销与重做">
+            <div className={styles.historyControl} role="group" aria-label="撤销与重做">
               <button type="button" onClick={undoEdit} disabled={historyDepth.undo === 0}
                 title="撤销上一步（⌘/Ctrl+Z）" aria-label="撤销上一步">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -758,7 +758,7 @@ export default function V04StudioClient({
                 </svg>
                 <span>重做</span>
               </button>
-            </span>
+            </div>
           )}
           {model.current.baseNumber !== null && (
             <button type="button" className={`${styles.diffToggle} ${diffOn ? styles.on : ""}`.trim()} onClick={toggleDiff}>

@@ -468,7 +468,7 @@
 .readingGroup:hover .insertBridgeRow, .insertBridgeRow:focus-within { opacity: 1; }
 
 /* ---------- base-version diff ---------- */
-.diffToggle { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 13px; font-size: 12px; cursor: pointer; }
+.diffToggle { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 13px; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .diffToggle:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .diffToggle.on { border-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .08); color: var(--v04-accent); }
 .diffTag, .diffNew { display: inline-flex; margin-left: 6px; border: 1px solid rgba(223, 255, 79, .4); border-radius: 999px; padding: 0 6px; color: var(--v04-accent); font-size: 9px; font-weight: 800; white-space: nowrap; vertical-align: 2px; }
@@ -477,7 +477,8 @@
 .diffBase b { display: inline-block; margin-right: 8px; color: var(--v04-subject); font-size: 9px; font-weight: 800; }
 
 /* ---------- version chain menu ---------- */
-.versionButton { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 13px; font-size: 12px; }
+/* 顶栏挤不下时，这两个按钮宁可省略号也不要逐字折行——折行会把顶栏撑成三行高。 */
+.versionButton { display: inline-flex; align-items: center; gap: 7px; max-width: 220px; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 13px; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .versionButton:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .versionPanel { position: absolute; right: 0; top: calc(100% + 10px); z-index: 60; width: 430px; max-width: 92vw; padding: 16px; border: 1px solid var(--v04-line); border-radius: 14px; background: var(--v04-panel); box-shadow: 0 20px 70px rgba(0, 0, 0, .5); }
 .versionPanel h4 { margin: 0 0 10px; color: var(--v04-muted); font-size: 11px; font-weight: 500; line-height: 1.6; }
@@ -562,10 +563,23 @@
 
 /* 撤销／重做：产生第一次编辑后浮现在顶栏，与保存状态相邻——编辑控件属于编辑上下文，
    而不是页面导航。带文字标签，不靠图标猜；触摸目标高 32px，够点。 */
-.historyControl { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-panel); }
-.historyControl button { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; color: var(--v04-ink); font-size: 11px; white-space: nowrap; }
+/* flex:none —— 顶栏是 flex 行，默认会压缩它，一压就把按钮文字挤出胶囊外。
+   渲染成 div 而非 span 也是必要的：既有的 `.siteUtilities > span` 规则
+   （为查看者姓名而写）会给它套上 max-width:120px 和 overflow:hidden。 */
+.historyControl { display: inline-flex; flex: none; align-items: center; gap: 2px; padding: 3px; max-width: none; overflow: visible; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-panel); }
+.historyControl button { display: inline-flex; flex: none; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; color: var(--v04-ink); font-size: 11px; white-space: nowrap; }
 .historyControl button svg { flex: none; }
 .historyControl button:hover:not(:disabled) { background: rgba(223, 255, 79, .12); color: var(--v04-accent); }
 .historyControl button:disabled { cursor: default; color: var(--v04-muted); opacity: .45; }
 .historyDivider { width: 1px; height: 16px; background: var(--v04-line); }
 @media (max-width: 620px) { .historyControl button span { display: none; } .historyControl button { padding: 0 9px; } }
+
+/* 1200px 以下顶栏开始互相挤压。先让出查看者姓名——用户知道自己是谁——
+   再允许保存状态用省略号收尾。保存状态本身绝不隐藏：它是这个页面唯一
+   告诉人「东西已经存下了」的地方。 */
+@media (max-width: 1200px) {
+  .siteUtilities > span:last-child { display: none; }
+  /* 给它一个下限：其它控件都不收缩，压力会全部落在它身上，一路压到 0 宽。 */
+  .saveChip { flex: 0 1 auto; min-width: 104px; }
+  .saveChip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+}
