@@ -667,8 +667,8 @@ export default function V04StudioClient({
   return (
     <main className={styles.surface} data-v04-page="studio" data-v19-viewer-id={viewerUserId}>
       <header className={styles.siteHeader} data-v04-fixed-header>
-        <Link href={links.libraryHref} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写 · 二合一工作台</small></Link>
-        <nav className={styles.siteNav}>
+        <div className={styles.studioIdentity}>
+          <Link href={links.libraryHref} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link>
           <button
             type="button"
             className={`${styles.navToggle} ${navCollapsed ? "" : styles.on}`.trim()}
@@ -677,9 +677,14 @@ export default function V04StudioClient({
           >
             ☰ 目录
           </button>
-          <span className={styles.headerCaseTitle} title={model.case.title}>{model.case.title}</span>
+        </div>
+        <nav className={styles.siteNav}>
+          <span className={styles.studioCaseTitle} title={model.case.title}>{model.case.title}</span>
         </nav>
         <div className={styles.siteUtilities}>
+          {/* 版本选择与对比基版是同一件事的两面：看哪个版本、和它的基版差在哪。
+              靠紧邻成组，而不是再加一层边框。 */}
+          <div className={styles.versionCluster}>
           <div ref={versionPanelRef} style={{ position: "relative", display: "inline-flex" }}>
             <button
               type="button"
@@ -741,6 +746,12 @@ export default function V04StudioClient({
               </div>
             )}
           </div>
+          {model.current.baseNumber !== null && (
+            <button type="button" className={`${styles.diffToggle} ${diffOn ? styles.on : ""}`.trim()} onClick={toggleDiff}>
+              对比基版 v{model.current.baseNumber}
+            </button>
+          )}
+          </div>
           {!readOnly && (historyDepth.undo > 0 || historyDepth.redo > 0) && (
             <div className={styles.historyControl} role="group" aria-label="撤销与重做">
               <button type="button" onClick={undoEdit} disabled={historyDepth.undo === 0}
@@ -759,11 +770,6 @@ export default function V04StudioClient({
                 <span>重做</span>
               </button>
             </div>
-          )}
-          {model.current.baseNumber !== null && (
-            <button type="button" className={`${styles.diffToggle} ${diffOn ? styles.on : ""}`.trim()} onClick={toggleDiff}>
-              对比基版 v{model.current.baseNumber}
-            </button>
           )}
           <span className={[styles.saveChip, saveStatus.kind === "SAVING" ? styles.saveChipSaving : "", saveStatus.kind === "SAVED" ? styles.saveChipSaved : ""].filter(Boolean).join(" ")}>
             <span className={styles.saveDot} />

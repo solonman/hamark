@@ -574,12 +574,23 @@
 .historyDivider { width: 1px; height: 16px; background: var(--v04-line); }
 @media (max-width: 620px) { .historyControl button span { display: none; } .historyControl button { padding: 0 9px; } }
 
-/* 1200px 以下顶栏开始互相挤压。先让出查看者姓名——用户知道自己是谁——
-   再允许保存状态用省略号收尾。保存状态本身绝不隐藏：它是这个页面唯一
-   告诉人「东西已经存下了」的地方。 */
+/* ---------- 二合一工作台顶栏：三段锚定（A 稿） ----------
+   左段＝身份与目录，中段＝作品名（整条顶栏的锚点），右段＝操作与状态。
+   挤压时由作品名先让步——它能优雅地省略，而控件与状态不能。 */
+.studioIdentity { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+/* 后代选择器而非 !important：既有的 `.siteNav span` 把导航项统一压成 11px 金褐小字，
+   权重高于单个类名；作品名是这条顶栏的锚点，需要压过它。 */
+.siteNav .studioCaseTitle { max-width: min(40vw, 560px); overflow: hidden; color: var(--v04-ink);
+  font-size: 17px; font-weight: 600; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
+/* 版本选择与对比基版靠紧邻成组，间距小于组间距即可读作一组。 */
+.versionCluster { display: inline-flex; flex: none; align-items: center; gap: 5px; }
+.siteUtilities > span:last-child { flex: none; }
+
 @media (max-width: 1200px) {
-  .siteUtilities > span:last-child { display: none; }
-  /* 给它一个下限：其它控件都不收缩，压力会全部落在它身上，一路压到 0 宽。 */
+  .siteNav .studioCaseTitle { max-width: min(24vw, 260px); font-size: 15px; }
   .saveChip { flex: 0 1 auto; min-width: 104px; }
   .saveChip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 900px) {
+  .siteNav .studioCaseTitle { display: none; }
 }
