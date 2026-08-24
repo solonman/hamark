@@ -348,9 +348,9 @@
 @keyframes locatedPulse { 0%, 100% { box-shadow: none; } 30%, 70% { box-shadow: 0 0 0 3px var(--v04-accent); } }
 /* 二合一工作台闪两下：一次容易在滚动停稳的同时错过，两次才抓得住。
    作用域限定在这张页面，仍在服役的只读成果页与工作稿页维持原来的一次。 */
-.surface[data-v04-page="studio"] [data-v04-located="true"] { animation: locatedPulseTwice 1.8s ease-out; }
+.surface[data-v04-page="studio"] [data-v04-located="true"] { animation: locatedPulseTwice 3.6s ease-out; }
 /* 两短一长再淡出：两下短闪先抓住眼睛，长的那下把位置按住让人看清，
-   最后淡开而不是骤然消失。整段控制在 1.8s 内，与摘掉标记的时机一致，
+   最后淡开而不是骤然消失。整段控制在 3.6s 内，与 V04_LOCATED_MARK_MS 摘掉标记的时机一致，
    否则淡出会被中途掐断。环的粗细全程不变，只有透明度在动，闪的是光不是形。 */
 @keyframes locatedPulseTwice {
   0%       { box-shadow: 0 0 0 3px rgba(223, 255, 79, 0); }

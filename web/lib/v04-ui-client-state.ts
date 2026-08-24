@@ -173,6 +173,12 @@ function ensureV04Visible(element: HTMLElement) {
   }
 }
 
+/**
+ * 定位标记留在元素上的时长。脉冲动画必须在这之内跑完——超出这个时间，
+ * 淡出会被摘除标记的动作中途掐断。改动画时长时同步改这里。
+ */
+export const V04_LOCATED_MARK_MS = 3600;
+
 export async function locateV04Target(id: string) {
   if (typeof document === "undefined" || typeof window === "undefined") return false;
   const sequence = ++locateSequence;
@@ -196,7 +202,7 @@ export async function locateV04Target(id: string) {
   ensureV04Visible(anchor);
   window.setTimeout(() => {
     if (target.isConnected) target.removeAttribute("data-v04-located");
-  }, 1800);
+  }, V04_LOCATED_MARK_MS);
   return true;
 }
 

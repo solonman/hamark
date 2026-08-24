@@ -12,7 +12,7 @@ import {
   type V04UiDraft,
   type V04UiShotGroup,
 } from "@/lib/v04-ui-model";
-import { blankV04Shot, locateV04Target, mintV04LocalId, numberedV04Shots, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
+import { blankV04Shot, locateV04Target, mintV04LocalId, numberedV04Shots, V04_LOCATED_MARK_MS, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04LatestSaveCoordinator } from "@/lib/v04-save-coordinator";
 import {
   formatV19VersionLabel,
@@ -577,7 +577,7 @@ export default function V04StudioClient({
     target.setAttribute("data-v04-located", "true");
     window.setTimeout(() => {
       if (target.isConnected) target.removeAttribute("data-v04-located");
-    }, 1800);
+    }, V04_LOCATED_MARK_MS);
     setDiffIndex(bounded);
     setDiffTotal(markers.length);
   }, [diffMarkers]);
