@@ -348,13 +348,18 @@
 @keyframes locatedPulse { 0%, 100% { box-shadow: none; } 30%, 70% { box-shadow: 0 0 0 3px var(--v04-accent); } }
 /* 二合一工作台闪两下：一次容易在滚动停稳的同时错过，两次才抓得住。
    作用域限定在这张页面，仍在服役的只读成果页与工作稿页维持原来的一次。 */
-.surface[data-v04-page="studio"] [data-v04-located="true"] { animation: locatedPulseTwice 1.5s ease; }
+.surface[data-v04-page="studio"] [data-v04-located="true"] { animation: locatedPulseTwice 1.8s ease-out; }
+/* 两短一长再淡出：两下短闪先抓住眼睛，长的那下把位置按住让人看清，
+   最后淡开而不是骤然消失。整段控制在 1.8s 内，与摘掉标记的时机一致，
+   否则淡出会被中途掐断。环的粗细全程不变，只有透明度在动，闪的是光不是形。 */
 @keyframes locatedPulseTwice {
-  0% { box-shadow: none; }
-  12%, 32% { box-shadow: 0 0 0 3px var(--v04-accent); }
-  44% { box-shadow: none; }
-  56%, 76% { box-shadow: 0 0 0 3px var(--v04-accent); }
-  100% { box-shadow: none; }
+  0%       { box-shadow: 0 0 0 3px rgba(223, 255, 79, 0); }
+  5%, 14%  { box-shadow: 0 0 0 3px rgba(223, 255, 79, 1); }
+  20%, 26% { box-shadow: 0 0 0 3px rgba(223, 255, 79, 0); }
+  31%, 40% { box-shadow: 0 0 0 3px rgba(223, 255, 79, 1); }
+  46%, 52% { box-shadow: 0 0 0 3px rgba(223, 255, 79, 0); }
+  58%, 74% { box-shadow: 0 0 0 3px rgba(223, 255, 79, 1); }
+  100%     { box-shadow: 0 0 0 3px rgba(223, 255, 79, 0); }
 }
 /* 关闭动效时仍要说明「就是这里」，只是不闪：静止的一圈，同样到时收回。 */
 @media (prefers-reduced-motion: reduce) {
