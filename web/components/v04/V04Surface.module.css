@@ -587,8 +587,6 @@ input.editableTimecode { padding: 5px 8px; }
    权重高于单个类名；作品名是这条顶栏的锚点，需要压过它。 */
 .siteNav .studioCaseTitle { max-width: min(40vw, 560px); overflow: hidden; color: var(--v04-ink);
   font-size: 17px; font-weight: 600; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
-/* 版本选择与对比基版靠紧邻成组，间距小于组间距即可读作一组。 */
-.versionCluster { display: inline-flex; flex: none; align-items: center; gap: 5px; }
 .siteUtilities > span:last-child { flex: none; }
 
 @media (max-width: 1200px) {
@@ -599,3 +597,24 @@ input.editableTimecode { padding: 5px 8px; }
 @media (max-width: 900px) {
   .siteNav .studioCaseTitle { display: none; }
 }
+
+/* ---------- 版本 / 比较：分段控件 ----------
+   比较基版属于「当前这个版本」，共用一个容器让这层从属关系成为结构。
+   容器不设 overflow:hidden——版本面板是绝对定位的子元素，会被裁掉。 */
+.versionSplit { display: inline-flex; flex: none; align-items: stretch; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-panel); }
+.versionSplitAnchor { position: relative; display: inline-flex; }
+.versionSplitDivider { width: 1px; align-self: stretch; margin: 6px 0; background: var(--v04-line); }
+
+.versionSegment { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 9px 0 14px; border: 0; border-radius: 999px 0 0 999px; background: transparent; color: var(--v04-ink); font: inherit; white-space: nowrap; cursor: pointer; }
+/* 没有基版时它是容器里唯一的一段，两端都要收圆。 */
+.versionSplit > .versionSplitAnchor:last-child .versionSegment { padding-right: 14px; border-radius: 999px; }
+.versionSegment:hover { background: rgba(223, 255, 79, .08); }
+.versionNum { color: var(--v04-accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; letter-spacing: -.02em; }
+.versionOwner { color: var(--v04-ink); font-size: 11.5px; }
+.versionBase { color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 10.5px; }
+.versionCaret { color: var(--v04-muted); font-size: 9px; }
+
+.compareSegment { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 13px; border: 0; border-radius: 0 999px 999px 0; background: transparent; color: var(--v04-muted); font: inherit; font-size: 11.5px; white-space: nowrap; cursor: pointer; }
+.compareSegment svg { flex: none; }
+.compareSegment:hover { color: var(--v04-accent); background: rgba(223, 255, 79, .08); }
+.compareSegment.on { background: rgba(223, 255, 79, .14); color: var(--v04-accent); }

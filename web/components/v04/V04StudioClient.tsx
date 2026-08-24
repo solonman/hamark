@@ -682,23 +682,32 @@ export default function V04StudioClient({
           <span className={styles.studioCaseTitle} title={model.case.title}>{model.case.title}</span>
         </nav>
         <div className={styles.siteUtilities}>
-          {/* 版本选择与对比基版是同一件事的两面：看哪个版本、和它的基版差在哪。
-              靠紧邻成组，而不是再加一层边框。 */}
-          <div className={styles.versionCluster}>
-          <div ref={versionPanelRef} style={{ position: "relative", display: "inline-flex" }}>
+          {/* 比较基版属于「当前这个版本」，所以两者共用一个容器、中间一道分隔，
+              让从属关系由结构说明，而不是靠摆放位置暗示。没有基版时右段整段
+              不渲染，控件自身就说明了这个版本无可比较的基版。 */}
+          <div className={styles.versionSplit}>
+          <div ref={versionPanelRef} className={styles.versionSplitAnchor}>
             <button
               type="button"
-              className={styles.versionButton}
+              className={styles.versionSegment}
               aria-haspopup="true"
               aria-expanded={versionPanelOpen}
-              onClick={() => setVersionPanelOpen((current) => !current)}
-            >
-              {formatV19VersionLabel({
+              aria-label={`当前版本 ${formatV19VersionLabel({
                 number: model.current.number,
                 baseNumber: model.current.baseNumber,
                 ownerName: model.current.ownerName,
                 ownerIsUploader: false,
-              })}
+              })}，点击切换版本`}
+              onClick={() => setVersionPanelOpen((current) => !current)}
+            >
+              {/* 姓名紧跟版本号，因为它归属的是这个版本；派生关系排在最后并弱化，
+                  否则「v2 ←v1 晏恩华」会被读成 v1 是晏恩华的。 */}
+              <span className={styles.versionNum}>v{model.current.number}</span>
+              <span className={styles.versionOwner}>{model.current.ownerName}</span>
+              {model.current.baseNumber !== null && (
+                <span className={styles.versionBase}>基于 v{model.current.baseNumber}</span>
+              )}
+              <span className={styles.versionCaret} aria-hidden="true">▾</span>
             </button>
             {versionPanelOpen && (
               <div className={styles.versionPanel} role="dialog" aria-label="版本链">
@@ -747,9 +756,26 @@ export default function V04StudioClient({
             )}
           </div>
           {model.current.baseNumber !== null && (
-            <button type="button" className={`${styles.diffToggle} ${diffOn ? styles.on : ""}`.trim()} onClick={toggleDiff}>
-              对比基版 v{model.current.baseNumber}
-            </button>
+            <>
+              <i className={styles.versionSplitDivider} aria-hidden="true" />
+              <button
+                type="button"
+                className={`${styles.compareSegment} ${diffOn ? styles.on : ""}`.trim()}
+                aria-pressed={diffOn}
+                title={`比较与基版 v${model.current.baseNumber} 的差异`}
+                onClick={toggleDiff}
+              >
+                {/* 左右分栏的方框：这个功能就是把基版摆在当前值旁边看。 */}
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2"
+                    fill="none" stroke="currentColor" strokeWidth="1.4" />
+                  <path d="M8 3.25v9.5" stroke="currentColor" strokeWidth="1.4" />
+                  <path d="M3.6 6.4h2.8M3.6 9.6h2.8" stroke="currentColor" strokeWidth="1.2"
+                    strokeLinecap="round" opacity=".65" />
+                </svg>
+                <span>比较</span>
+              </button>
+            </>
           )}
           </div>
           {!readOnly && (historyDepth.undo > 0 || historyDepth.redo > 0) && (
