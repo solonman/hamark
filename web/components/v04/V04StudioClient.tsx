@@ -203,6 +203,7 @@ export default function V04StudioClient({
   const undoStackRef = useRef<V04UiDraft[]>([]);
   const redoStackRef = useRef<V04UiDraft[]>([]);
   const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
+  const [diffIndex, setDiffIndex] = useState(0);
   const saveCoordinatorRef = useRef(new V04LatestSaveCoordinator<V04UiDraft>());
   const changeSetIdsRef = useRef(new Map<number, string>());
   const [saveStatus, setSaveStatus] = useState<V19SaveStatus>({ kind: "IDLE" });
@@ -543,35 +544,63 @@ export default function V04StudioClient({
 
   const numbers = useMemo(() => new Map(numberedV04Shots(draft.shotGroups).map((entry) => [entry.stableId, entry.displayNumber])), [draft.shotGroups]);
   const diff = useMemo(() => computeV19Diff(model, draft), [model, draft]);
+  // 计数必须等于「实际能跳到的处数」，所以数的是页面上真正渲染出的标记，
+  // 而不是差异统计——统计里的一个 payload 键未必对应页面上的一个可见标记
+  // （例如整块新增只标一次，折叠的模块则一个都不渲染）。两者不一致时，
+  // 计数会说 7 而下一处能走到 11，读的人无从判断自己看完了没有。
+  const [diffTotal, setDiffTotal] = useState(0);
+  useEffect(() => {
+    if (!diffOn) return;
+    // 标记要等这次状态变更渲染完才存在，所以推到下一个任务里再数。
+    const id = window.setTimeout(
+      () => setDiffTotal(document.querySelectorAll("[data-v19-diff]").length), 0);
+    return () => window.clearTimeout(id);
+  }, [diffOn, draft]);
+
+  // 差异导航：以页面上实际渲染出的标记为准，而不是回头把 payload 键映射成
+  // DOM id——折叠的模块里没有标记，这样「下一处」就不会跳进看不见的地方。
+  const diffMarkers = useCallback((): HTMLElement[] =>
+    [...document.querySelectorAll<HTMLElement>("[data-v19-diff]")], []);
+
+  const revealDiffAt = useCallback((index: number) => {
+    const markers = diffMarkers();
+    if (markers.length === 0) return;
+    const bounded = ((index % markers.length) + markers.length) % markers.length;
+    const marker = markers[bounded];
+    // 圈出承载差异的内容，而不是徽标本身：改动过的字段圈它那一格，
+    // 新增的镜头/桥段圈整块。复用既有的定位脉冲，别再造一种「看这里」。
+    const scope = marker.getAttribute("data-v19-diff") === "new"
+      ? marker.closest<HTMLElement>("article, section")
+      : marker.parentElement;
+    const target = scope ?? marker;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.setAttribute("data-v04-located", "true");
+    window.setTimeout(() => {
+      if (target.isConnected) target.removeAttribute("data-v04-located");
+    }, 1800);
+    setDiffIndex(bounded);
+    setDiffTotal(markers.length);
+  }, [diffMarkers]);
+
+  const stepDiff = useCallback((delta: number) => {
+    // 首尾相接：读到最后一处再按「下一处」回到第一处，比走到头就没反应好。
+    revealDiffAt(diffIndex + delta);
+  }, [diffIndex, revealDiffAt]);
 
   const toggleDiff = useCallback(() => {
     setDiffOn((current) => {
       const next = !current;
-      if (!next) return next;
+      if (!next) { setDiffIndex(0); setDiffTotal(0); return next; }
       if (diff) pushToast(describeV19Diff(diff));
       // Turning the comparison on is a request to see what differs, and the
       // first difference is rarely on screen. Jumping there beats leaving the
       // reader to hunt for the markers they just asked for. Deferred one frame
       // because the markers only exist after this state change renders; a
       // collapsed module can hide them all, in which case nothing moves.
-      window.setTimeout(() => {
-        const marker = document.querySelector<HTMLElement>("[data-v19-diff]");
-        if (!marker) return;
-        // 圈出承载差异的内容，而不是徽标本身：改动过的字段圈它那一格，
-        // 新增的镜头/桥段圈整块。复用既有的定位脉冲，别再造一种「看这里」。
-        const scope = marker.getAttribute("data-v19-diff") === "new"
-          ? marker.closest<HTMLElement>("article, section")
-          : marker.parentElement;
-        const target = scope ?? marker;
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
-        target.setAttribute("data-v04-located", "true");
-        window.setTimeout(() => {
-          if (target.isConnected) target.removeAttribute("data-v04-located");
-        }, 1800);
-      }, 0);
+      window.setTimeout(() => revealDiffAt(0), 0);
       return next;
     });
-  }, [diff, pushToast]);
+  }, [diff, pushToast, revealDiffAt]);
 
   const handleToggleModule = useCallback((moduleNumber: number) => {
     setCollapsedModules((current) => {
@@ -786,6 +815,23 @@ export default function V04StudioClient({
                 </svg>
                 <span>比较</span>
               </button>
+              {/* 逐处查看只在比较开启时存在，所以它长在比较这一段之后，
+                  而不是另起一个悬浮控件。计数同时回答了「一共改了多少」——
+                  开启时那条提示会消失，这里是常驻的答案。 */}
+              {diffOn && diffTotal > 0 && (
+                <>
+                  <i className={styles.versionSplitDivider} aria-hidden="true" />
+                  <span className={styles.diffNav} role="group" aria-label="逐处查看差异">
+                    <button type="button" onClick={() => stepDiff(-1)}
+                      title="上一处差异" aria-label="上一处差异">‹</button>
+                    <span className={styles.diffCount} aria-live="polite">
+                      {Math.min(diffIndex + 1, diffTotal)}/{diffTotal}
+                    </span>
+                    <button type="button" onClick={() => stepDiff(1)}
+                      title="下一处差异" aria-label="下一处差异">›</button>
+                  </span>
+                </>
+              )}
             </>
           )}
           </div>
