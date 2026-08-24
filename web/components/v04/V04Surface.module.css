@@ -346,6 +346,10 @@
 .missingPanel > button span { color: var(--v04-muted); font-size: 9px; }
 .surface [data-v04-located="true"] { scroll-margin-block: 110px 24px; animation: locatedPulse 1.8s ease; }
 @keyframes locatedPulse { 0%, 100% { box-shadow: none; } 30%, 70% { box-shadow: 0 0 0 3px var(--v04-accent); } }
+/* 关闭动效时仍要说明「就是这里」，只是不闪：静止的一圈，同样到时收回。 */
+@media (prefers-reduced-motion: reduce) {
+  .surface [data-v04-located="true"] { animation: none; box-shadow: 0 0 0 2px var(--v04-accent); }
+}
 .submitCard { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 16px; border-radius: 13px; background: #26281e; padding: 20px; }
 .submitCard h3, .submitCard p { margin: 0; }
 .submitCard p { margin-top: 6px; color: var(--v04-muted); }

@@ -556,7 +556,18 @@ export default function V04StudioClient({
       // collapsed module can hide them all, in which case nothing moves.
       window.setTimeout(() => {
         const marker = document.querySelector<HTMLElement>("[data-v19-diff]");
-        marker?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (!marker) return;
+        // 圈出承载差异的内容，而不是徽标本身：改动过的字段圈它那一格，
+        // 新增的镜头/桥段圈整块。复用既有的定位脉冲，别再造一种「看这里」。
+        const scope = marker.getAttribute("data-v19-diff") === "new"
+          ? marker.closest<HTMLElement>("article, section")
+          : marker.parentElement;
+        const target = scope ?? marker;
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.setAttribute("data-v04-located", "true");
+        window.setTimeout(() => {
+          if (target.isConnected) target.removeAttribute("data-v04-located");
+        }, 1800);
       }, 0);
       return next;
     });
