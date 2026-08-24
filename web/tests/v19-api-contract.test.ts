@@ -115,3 +115,34 @@ test("the gray access gate reads the case id from V1.9 studio paths too", async 
   assert.equal(read("/api/videos/video%20a/analysis/v19"), "video a");
   assert.equal(read("/api/videos/video_1/analysis/v20"), undefined);
 });
+
+// ---------------------------------------------------------------------------
+// Production applies migrations by running the frozen .sql file in the Supabase
+// SQL editor, not `npm run db:migrate` — that path replays the whole bootstrap
+// script, whose V0.4 contract drift guard requires the contracts to still be
+// DRAFT while production activated them long ago. The two definitions of the
+// new table therefore have to stay in step.
+// ---------------------------------------------------------------------------
+
+test("the frozen production SQL matches the TypeScript schema statements", async () => {
+  const sql = await readFile(
+    new URL("../db/migrations/2026-08-24-v19-version-chain.sql", import.meta.url), "utf8");
+  const { V19_VERSION_CHAIN_SCHEMA_STATEMENTS } = await import("../db/v19-version-chain-schema.ts");
+
+  const normalise = (text: string) => text.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim();
+  const normalisedSql = normalise(sql);
+
+  for (const statement of V19_VERSION_CHAIN_SCHEMA_STATEMENTS) {
+    // The DO block is re-expressed with the table name inlined, so compare the
+    // parts that carry the actual schema decisions.
+    if (statement.includes("$v19_revoke_public_roles$")) continue;
+    assert.ok(
+      normalisedSql.includes(normalise(statement)),
+      `frozen SQL is missing: ${normalise(statement).slice(0, 80)}…`,
+    );
+  }
+  assert.match(normalisedSql, /REVOKE ALL ON TABLE analysis_versions FROM anon/);
+  assert.match(normalisedSql, /REVOKE ALL ON TABLE analysis_versions FROM authenticated/);
+  assert.match(normalisedSql, /BEGIN;/);
+  assert.match(normalisedSql, /COMMIT;/);
+});
