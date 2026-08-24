@@ -144,8 +144,8 @@ export default function V19EditableValue({
     const baseDisplay = baseTrimmed === "" ? "—" : displayLabel(baseValue);
     return (
       <>
-        <span className={styles.diffTag}>已修改</span>
-        <span className={styles.diffBase}>基版{baseDisplay}</span>
+        <span className={styles.diffTag} data-v19-diff="changed">已修改</span>
+        <span className={styles.diffBase}>基版：{baseDisplay}</span>
       </>
     );
   })();

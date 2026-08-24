@@ -46,6 +46,9 @@ type V19SaveStatus =
 
 type V19Toast = { id: string; text: string };
 
+/** How many steps back the studio remembers. Bounded so a long session cannot grow without limit. */
+const V19_HISTORY_LIMIT = 50;
+
 // ---------------------------------------------------------------------------
 // Pure helpers — no React, no DOM. Exported so they can be unit-tested
 // directly (same technique as `resolveV19CommitValue` in V19EditableValue.tsx
@@ -197,6 +200,9 @@ export default function V04StudioClient({
   const [draft, setDraftState] = useState<V04UiDraft>(() => emptyV04UiDraft());
   const savedPayloadRef = useRef<V04DraftPayloadV1 | null>(null);
   const editVersionRef = useRef(0);
+  const undoStackRef = useRef<V04UiDraft[]>([]);
+  const redoStackRef = useRef<V04UiDraft[]>([]);
+  const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const saveCoordinatorRef = useRef(new V04LatestSaveCoordinator<V04UiDraft>());
   const changeSetIdsRef = useRef(new Map<number, string>());
   const [saveStatus, setSaveStatus] = useState<V19SaveStatus>({ kind: "IDLE" });
@@ -228,6 +234,11 @@ export default function V04StudioClient({
     setDraftState(nextDraft);
     savedPayloadRef.current = next.current.payload;
     editVersionRef.current = 0;
+    // History belongs to the version being edited — never let an undo reach
+    // back into a different version's content.
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setHistoryDepth({ undo: 0, redo: 0 });
     changeSetIdsRef.current.clear();
     if (!saveCoordinatorRef.current.isRunning) saveCoordinatorRef.current.resetFromServer(0);
     setSaveStatus({ kind: "IDLE" });
@@ -360,7 +371,17 @@ export default function V04StudioClient({
     }
   }, [videoId, viewerName, viewerUserId, refreshVersionList, pushToast]);
 
-  const commitDraft = useCallback((next: V04UiDraft) => {
+  // Undo/redo. On a surface with no save button there is also no "discard
+  // changes", so stepping back has to be its own affordance. An undo is just
+  // another edit: it goes through the same save path, so the record follows
+  // what is on screen, which is the whole promise of this page.
+  const commitDraft = useCallback((next: V04UiDraft, options?: { history?: "record" | "skip" }) => {
+    if ((options?.history ?? "record") === "record") {
+      undoStackRef.current.push(cloneV04UiDraft(draftRef.current));
+      if (undoStackRef.current.length > V19_HISTORY_LIMIT) undoStackRef.current.shift();
+      redoStackRef.current = [];
+    }
+    setHistoryDepth({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
     draftRef.current = next;
     setDraftState(next);
     editVersionRef.current += 1;
@@ -368,6 +389,37 @@ export default function V04StudioClient({
     saveCoordinatorRef.current.stage({ version, draft: cloneV04UiDraft(next) });
     void saveCoordinatorRef.current.flush(commitSaveAttempt);
   }, [commitSaveAttempt]);
+
+  const undoEdit = useCallback(() => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    const previous = undoStackRef.current.pop();
+    if (!previous) return;
+    redoStackRef.current.push(cloneV04UiDraft(draftRef.current));
+    commitDraft(previous, { history: "skip" });
+  }, [interceptForeignEdit, commitDraft]);
+
+  const redoEdit = useCallback(() => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    undoStackRef.current.push(cloneV04UiDraft(draftRef.current));
+    commitDraft(next, { history: "skip" });
+  }, [interceptForeignEdit, commitDraft]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+      // Inside an open field the browser's own text undo is the useful one.
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      event.preventDefault();
+      if (event.shiftKey) redoEdit(); else undoEdit();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undoEdit, redoEdit]);
 
   const retrySave = useCallback(() => {
     void saveCoordinatorRef.current.flush(commitSaveAttempt);
@@ -431,6 +483,27 @@ export default function V04StudioClient({
     void locateV04Target(`bridge-${newGroup.id}`);
   }, [interceptForeignEdit, commitDraft, pushToast]);
 
+  // A case whose script is still empty has no bridge to insert after, so
+  // without this the very first bridge could never be created on this surface.
+  const onInsertFirstBridge = useCallback(() => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    const next = cloneV04UiDraft(draftRef.current);
+    if (next.shotGroups.length > 0) return;
+    const newGroup: V04UiShotGroup = {
+      id: mintV04LocalId("bridge"),
+      title: "",
+      primaryRole: emptyV19ChoiceValue(),
+      auxiliaryRole: emptyV19ChoiceValue(),
+      creativeDescription: "",
+      shots: [blankV04Shot(mintV04LocalId("shot"))],
+    };
+    next.shotGroups.push(newGroup);
+    commitDraft(next);
+    pushToast("已添加第一个桥段，可继续在其后插入桥段与镜头");
+    void locateV04Target(`bridge-${newGroup.id}`);
+  }, [interceptForeignEdit, commitDraft, pushToast]);
+
   const viewVersion = useCallback((versionId: string | null) => {
     const current = modelRef.current;
     if (!current) return;
@@ -474,7 +547,17 @@ export default function V04StudioClient({
   const toggleDiff = useCallback(() => {
     setDiffOn((current) => {
       const next = !current;
-      if (next && diff) pushToast(describeV19Diff(diff));
+      if (!next) return next;
+      if (diff) pushToast(describeV19Diff(diff));
+      // Turning the comparison on is a request to see what differs, and the
+      // first difference is rarely on screen. Jumping there beats leaving the
+      // reader to hunt for the markers they just asked for. Deferred one frame
+      // because the markers only exist after this state change renders; a
+      // collapsed module can hide them all, in which case nothing moves.
+      window.setTimeout(() => {
+        const marker = document.querySelector<HTMLElement>("[data-v19-diff]");
+        marker?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
       return next;
     });
   }, [diff, pushToast]);
@@ -725,7 +808,7 @@ export default function V04StudioClient({
         </nav>
 
         <div className={styles.editorColumn}>
-          <V04VideoPlayer caseId={model.case.id} title={model.case.title} surface="detail" media={model.media} />
+          <V04VideoPlayer caseId={model.case.id} title={model.case.title} surface="detail" media={model.media} chrome="studio" />
           {readOnly && <p style={{ color: "var(--v04-muted)", fontSize: 12, margin: "0 0 16px" }}>当前身份无法编辑此工作台，仅可查看内容与历史版本。</p>}
           <V19StudioDocument
             draft={draft}
@@ -736,11 +819,30 @@ export default function V04StudioClient({
             onChange={applyEdit}
             onInsertShotAfter={onInsertShotAfter}
             onInsertBridgeAfter={onInsertBridgeAfter}
+            onInsertFirstBridge={onInsertFirstBridge}
             onInvalid={pushToast}
             onBeforeEdit={() => !interceptForeignEdit()}
           />
         </div>
       </div>
+
+      {!readOnly && (historyDepth.undo > 0 || historyDepth.redo > 0) && (
+        <div className={styles.historyControl} aria-label="撤销与重做">
+          <button type="button" onClick={undoEdit} disabled={historyDepth.undo === 0}
+            title="撤销上一步（⌘/Ctrl+Z）" aria-label="撤销上一步">
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3.2 6.6h6.3a3.3 3.3 0 0 1 0 6.6H6.1" /><path d="M5.8 3.6 3 6.6l2.8 3" />
+            </svg>
+          </button>
+          <i className={styles.historyDivider} />
+          <button type="button" onClick={redoEdit} disabled={historyDepth.redo === 0}
+            title="重做（⌘/Ctrl+Shift+Z）" aria-label="重做">
+            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12.8 6.6H6.5a3.3 3.3 0 0 0 0 6.6h3.4" /><path d="M10.2 3.6 13 6.6l-2.8 3" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       <div className={styles.pageJump}>
         <button type="button" disabled={scrollState.atTop} title="回到顶部" aria-label="回到顶部" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>

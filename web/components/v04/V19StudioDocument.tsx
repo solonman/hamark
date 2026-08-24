@@ -29,6 +29,8 @@ export type V19StudioDocumentProps = {
   onChange: (mutate: (draft: V04UiDraft) => void) => void;
   onInsertShotAfter: (shotId: string) => void;
   onInsertBridgeAfter: (bridgeId: string) => void;
+  /** Only reachable when the script is still empty — there is no bridge to insert after. */
+  onInsertFirstBridge?: () => void;
   onInvalid: (message: string) => void;
   /** Vetoes opening any editor — used to redirect an edit to the viewer's own version. */
   onBeforeEdit?: () => boolean;
@@ -161,8 +163,8 @@ function ChoiceDiffNote({ diff, targetKey, labels }: { diff: V19BaseDiff | null;
   const label = raw && typeof raw === "object" ? choiceValueLabel(raw as V04ChoiceValue, labels) : "";
   return (
     <>
-      <span className={styles.diffTag}>已修改</span>
-      <span className={styles.diffBase}>基版{label || "—"}</span>
+      <span className={styles.diffTag} data-v19-diff="changed">已修改</span>
+      <span className={styles.diffBase}>基版：{label || "—"}</span>
     </>
   );
 }
@@ -197,6 +199,7 @@ export default function V19StudioDocument({
   onChange,
   onInsertShotAfter,
   onInsertBridgeAfter,
+  onInsertFirstBridge,
   onInvalid,
   onBeforeEdit,
 }: V19StudioDocumentProps): JSX.Element {
@@ -357,7 +360,7 @@ export default function V19StudioDocument({
                 <>
                   <span className={styles.diffTag}>已修改</span>
                   <span className={styles.diffBase}>
-                    基版{carriersBaseText(diff, V19_FIELD_TARGET_KEYS.facts.carriers) || "—"}
+                    基版：{carriersBaseText(diff, V19_FIELD_TARGET_KEYS.facts.carriers) || "—"}
                   </span>
                 </>
               )}
@@ -386,6 +389,17 @@ export default function V19StudioDocument({
       <section className={styles.readingModule} id="module-2">
         {moduleHeader(2, "MODULE 02", "第二模块｜脚本反写")}
         {!collapsed && draft.shotGroups.map((group, groupIndex) => renderBridge(group, groupIndex))}
+        {!collapsed && draft.shotGroups.length === 0 && (
+          <div className={styles.readingGroup}>
+            {readOnly ? (
+              <p>尚未拆解桥段。</p>
+            ) : (
+              <div className={styles.insertBridgeRow} data-v19-first-bridge>
+                <button type="button" onClick={onInsertFirstBridge}>＋ 添加第一个桥段</button>
+              </div>
+            )}
+          </div>
+        )}
       </section>
     );
   }
@@ -396,13 +410,13 @@ export default function V19StudioDocument({
       <section className={styles.readingGroup} id={`bridge-${group.id}`} key={group.id}>
         <header>
           <V19SystemValue title="桥段序号由系统自动维护">桥段 {padNumber(groupIndex + 1)}</V19SystemValue>
-          <div>
+          <div className={styles.studioBridgeTitle}>
             <small>桥段名称</small>
             <h3>
               <V19EditableValue ariaLabel="桥段名称" value={group.title} placeholder="未命名桥段" readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "bridgeName"))}
                 onCommit={setBridgeTitle(group.id)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
-              {isNewBridge && <span className={styles.diffNew}>本版新增</span>}
+              {isNewBridge && <span className={styles.diffNew} data-v19-diff="new">本版新增</span>}
             </h3>
           </div>
         </header>
@@ -444,7 +458,7 @@ export default function V19StudioDocument({
           <V19SystemValue title="桥段与镜头序号由系统自动维护">
             桥段{padNumber(groupIndex + 1)}－镜头{padNumber(globalNumber)}
           </V19SystemValue>
-          {isNewShot && <span className={styles.diffNew}>本版新增</span>}
+          {isNewShot && <span className={styles.diffNew} data-v19-diff="new">本版新增</span>}
         </h4>
         {SHOT_FIELD_ROWS.map(({ className, keys }) => (
           <div className={`${styles.readingShotBlock} ${styles[className]}`} key={keys.join("-")}>

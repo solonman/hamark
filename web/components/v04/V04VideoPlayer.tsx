@@ -8,7 +8,13 @@ import { useV04VideoSession } from "./V04VideoSessionProvider";
 import styles from "./V04Surface.module.css";
 
 // 只读成果页的播放器随页面滚动收进右下角，和工作稿页的浮窗落点一致。
-export default function V04VideoPlayer({ caseId, title, surface, media, onDuration }: { caseId: string; title: string; surface: "detail" | "workspace"; media?: V04UiMediaReference | null; onDuration?: (seconds: number) => void }) {
+/**
+ * `chrome` 决定窗口自身的控件形态，与 `surface`（决定是否随滚动收起）无关：
+ * - "legacy"：既有只读成果页与工作稿页的控件（浮窗／回到顶部、最小化），保持原样；
+ * - "studio"：二合一工作台，按 docs/demos/2026-08-24 的定稿——浮窗只有一条标题栏和
+ *   一个最小化按钮，回到大屏靠向上滚动，大屏态不显示任何控件。
+ */
+export default function V04VideoPlayer({ caseId, title, surface, media, onDuration, chrome = "legacy" }: { caseId: string; title: string; surface: "detail" | "workspace"; media?: V04UiMediaReference | null; onDuration?: (seconds: number) => void; chrome?: "legacy" | "studio" }) {
   const ref = useRef<HTMLVideoElement>(null);
   const slotRef = useRef<HTMLDivElement>(null);
   const shellRef = useRef<HTMLElement>(null);
@@ -157,18 +163,27 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
           <div className={styles.videoBar}>
             <span className={styles.videoBarIcon} aria-hidden="true">▶</span>
             <span className={styles.videoBarTitle}>{title}</span>
-            <button className={styles.videoMinButton} onClick={() => updateVideo({ minimized: false })}>恢复视频</button>
+            <button className={styles.videoMinButton} title="还原小窗" aria-label="还原小窗" onClick={() => updateVideo({ minimized: false })}>{chrome === "studio" ? "▣" : "恢复视频"}</button>
           </div>
         ) : (
           <>
+            {chrome === "studio" && floating ? (
+              <div className={styles.videoBar}>
+                <span className={styles.videoBarTitle}>{title}</span>
+                <button className={styles.videoMinButton} title="最小化" aria-label="最小化"
+                  onClick={() => updateVideo({ minimized: true })}>—</button>
+              </div>
+            ) : null}
             <div className={styles.videoStage}>
               <video ref={ref} controls preload="metadata" src={media?.streamPath} poster={media?.posterPath ?? undefined} aria-label={`${title} 视频播放器`} onLoadedMetadata={(event) => onDuration?.(event.currentTarget.duration)} onTimeUpdate={(event) => updateVideo({ currentTime: event.currentTarget.currentTime })} />
               {!media && <div className={styles.videoPlaceholder}><span>V0.4 VIDEO</span><strong>{title}</strong><small>媒体尚未就绪</small></div>}
             </div>
-            <div className={styles.videoTools}>
-              <button onClick={toggleFloating}>{floating ? "回到顶部" : "浮窗"}</button>
-              <button onClick={() => updateVideo({ minimized: true })}>最小化</button>
-            </div>
+            {chrome === "legacy" ? (
+              <div className={styles.videoTools}>
+                <button onClick={toggleFloating}>{floating ? "回到顶部" : "浮窗"}</button>
+                <button onClick={() => updateVideo({ minimized: true })}>最小化</button>
+              </div>
+            ) : null}
           </>
         )}
       </aside>

@@ -149,7 +149,8 @@ test("baseValue renders the 已修改 badge and 基版 block; omitting it render
     onCommit: () => undefined,
   }));
   assert.match(withDiff, /已修改/);
-  assert.match(withDiff, /基版远景/);
+  // 「基版」是标签，后面跟的是原文，两者之间要有分隔，否则连读成一句话。
+  assert.match(withDiff, /基版：远景/);
 
   const emptyBase = renderToStaticMarkup(createElement(V19EditableValue, {
     value: "特写",
@@ -157,7 +158,7 @@ test("baseValue renders the 已修改 badge and 基版 block; omitting it render
     baseValue: "",
     onCommit: () => undefined,
   }));
-  assert.match(emptyBase, /基版—/);
+  assert.match(emptyBase, /基版：—/);
 
   const noDiff = renderToStaticMarkup(createElement(V19EditableValue, {
     value: "特写",
