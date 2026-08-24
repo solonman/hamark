@@ -452,11 +452,16 @@
 .editableBlock { display: block; white-space: pre-wrap; }
 .editableEmpty { color: var(--v04-muted); }
 .editableWarn { border-bottom: 1px dashed rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); color: rgba(255, 174, 120, .95); }
-.editableInput { min-width: 5ch; max-width: 100%; border: 1px solid rgba(223, 255, 79, .4); border-radius: 7px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; }
+/* 编辑态填满所在容器。没有 width 时 <input> 用的是浏览器默认尺寸（约 20ch），
+   于是点开编辑反而比阅读态窄一大截，旁边整片空间白白空着。 */
+.editableInput { width: 100%; min-width: 5ch; max-width: 100%; border: 1px solid rgba(223, 255, 79, .4); border-radius: 7px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; }
 /* 高度由内容决定（见 V19EditableValue 的 autosize），上限避免长文把页面撑到失控；
    到达上限后才出现滚动条。 */
 .editableTextarea { width: 100%; min-height: 64px; max-height: 46vh; line-height: 1.55; resize: vertical; overflow-y: auto; }
-.editableTimecode { width: 9ch; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; padding: 2px 5px; }
+/* 这个类同时用在阅读态和编辑态上，所以不能带宽度：阅读态按内容排版，
+   编辑态跟着 .editableInput 填满单元格。 */
+.editableTimecode { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; }
+input.editableTimecode { padding: 5px 8px; }
 .systemField { color: var(--v04-muted); cursor: help; }
 
 /* ---------- insert affordances ---------- */
