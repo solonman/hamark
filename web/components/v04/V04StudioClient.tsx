@@ -741,6 +741,25 @@ export default function V04StudioClient({
               </div>
             )}
           </div>
+          {!readOnly && (historyDepth.undo > 0 || historyDepth.redo > 0) && (
+            <span className={styles.historyControl} role="group" aria-label="撤销与重做">
+              <button type="button" onClick={undoEdit} disabled={historyDepth.undo === 0}
+                title="撤销上一步（⌘/Ctrl+Z）" aria-label="撤销上一步">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3.2 6.6h6.3a3.3 3.3 0 0 1 0 6.6H6.1" /><path d="M5.8 3.6 3 6.6l2.8 3" />
+                </svg>
+                <span>撤销</span>
+              </button>
+              <i className={styles.historyDivider} />
+              <button type="button" onClick={redoEdit} disabled={historyDepth.redo === 0}
+                title="重做（⌘/Ctrl+Shift+Z）" aria-label="重做">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12.8 6.6H6.5a3.3 3.3 0 0 0 0 6.6h3.4" /><path d="M10.2 3.6 13 6.6l-2.8 3" />
+                </svg>
+                <span>重做</span>
+              </button>
+            </span>
+          )}
           {model.current.baseNumber !== null && (
             <button type="button" className={`${styles.diffToggle} ${diffOn ? styles.on : ""}`.trim()} onClick={toggleDiff}>
               对比基版 v{model.current.baseNumber}
@@ -825,24 +844,6 @@ export default function V04StudioClient({
           />
         </div>
       </div>
-
-      {!readOnly && (historyDepth.undo > 0 || historyDepth.redo > 0) && (
-        <div className={styles.historyControl} aria-label="撤销与重做">
-          <button type="button" onClick={undoEdit} disabled={historyDepth.undo === 0}
-            title="撤销上一步（⌘/Ctrl+Z）" aria-label="撤销上一步">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3.2 6.6h6.3a3.3 3.3 0 0 1 0 6.6H6.1" /><path d="M5.8 3.6 3 6.6l2.8 3" />
-            </svg>
-          </button>
-          <i className={styles.historyDivider} />
-          <button type="button" onClick={redoEdit} disabled={historyDepth.redo === 0}
-            title="重做（⌘/Ctrl+Shift+Z）" aria-label="重做">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12.8 6.6H6.5a3.3 3.3 0 0 0 0 6.6h3.4" /><path d="M10.2 3.6 13 6.6l-2.8 3" />
-            </svg>
-          </button>
-        </div>
-      )}
 
       <div className={styles.pageJump}>
         <button type="button" disabled={scrollState.atTop} title="回到顶部" aria-label="回到顶部" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>

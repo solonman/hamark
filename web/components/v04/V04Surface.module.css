@@ -453,7 +453,9 @@
 .editableEmpty { color: var(--v04-muted); }
 .editableWarn { border-bottom: 1px dashed rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); color: rgba(255, 174, 120, .95); }
 .editableInput { min-width: 5ch; max-width: 100%; border: 1px solid rgba(223, 255, 79, .4); border-radius: 7px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; }
-.editableTextarea { width: 100%; min-height: 64px; line-height: 1.55; resize: vertical; }
+/* 高度由内容决定（见 V19EditableValue 的 autosize），上限避免长文把页面撑到失控；
+   到达上限后才出现滚动条。 */
+.editableTextarea { width: 100%; min-height: 64px; max-height: 46vh; line-height: 1.55; resize: vertical; overflow-y: auto; }
 .editableTimecode { width: 9ch; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; padding: 2px 5px; }
 .systemField { color: var(--v04-muted); cursor: help; }
 
@@ -558,11 +560,12 @@
 /* 空脚本时的「添加第一个桥段」是唯一入口，不能像其它插入按钮那样悬停才出现。 */
 .insertBridgeRow[data-v19-first-bridge] { opacity: 1; }
 
-/* 撤销／重做：用户产生第一次编辑后才浮现，停在到顶/到底控件上方，
-   与它同一套胶囊语言，避免页面上出现第二种悬浮控件的视觉方言。 */
-.historyControl { position: fixed; z-index: 30; right: 22px; top: calc(50% - 96px); display: grid; padding: 4px; border: 1px solid var(--v04-line); border-radius: 999px; background: rgba(23, 24, 21, .9); backdrop-filter: blur(12px); }
-.historyControl button { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 999px; background: transparent; color: var(--v04-muted); font-size: 14px; line-height: 1; }
-.historyControl button:hover:not(:disabled) { background: rgba(223, 255, 79, .1); color: var(--v04-accent); }
-.historyControl button:disabled { cursor: default; opacity: .28; }
-.historyDivider { height: 1px; margin: 3px 7px; background: var(--v04-line); }
-@media (max-width: 620px) { .historyControl { right: 9px; } }
+/* 撤销／重做：产生第一次编辑后浮现在顶栏，与保存状态相邻——编辑控件属于编辑上下文，
+   而不是页面导航。带文字标签，不靠图标猜；触摸目标高 32px，够点。 */
+.historyControl { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-panel); }
+.historyControl button { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border-radius: 999px; background: transparent; color: var(--v04-ink); font-size: 11px; white-space: nowrap; }
+.historyControl button svg { flex: none; }
+.historyControl button:hover:not(:disabled) { background: rgba(223, 255, 79, .12); color: var(--v04-accent); }
+.historyControl button:disabled { cursor: default; color: var(--v04-muted); opacity: .45; }
+.historyDivider { width: 1px; height: 16px; background: var(--v04-line); }
+@media (max-width: 620px) { .historyControl button span { display: none; } .historyControl button { padding: 0 9px; } }

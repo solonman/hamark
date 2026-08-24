@@ -73,6 +73,21 @@ function joinClassNames(...classNames: Array<string | false | null | undefined>)
 
 type EditableInputNode = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
+/**
+ * Grows a textarea to fit what it holds, up to its CSS max-height. A fixed
+ * height means a third line already needs scrolling, which hides the writing
+ * from the person doing it; past the cap the box stops growing and scrolls, so
+ * a long answer cannot push the rest of the page out of reach.
+ */
+function autosizeTextarea(node: HTMLTextAreaElement | null): void {
+  if (!node) return;
+  node.style.height = "auto";
+  const cap = Number.parseFloat(getComputedStyle(node).maxHeight);
+  const next = Number.isFinite(cap) ? Math.min(node.scrollHeight, cap) : node.scrollHeight;
+  node.style.height = `${next}px`;
+}
+
+
 export default function V19EditableValue({
   value,
   kind = "text",
@@ -101,6 +116,7 @@ export default function V19EditableValue({
     const node = inputRef.current;
     if (!node) return;
     node.focus();
+    if (node instanceof HTMLTextAreaElement) autosizeTextarea(node);
     if (kind !== "select" && "select" in node && typeof node.select === "function") {
       node.select();
     }
@@ -205,7 +221,7 @@ export default function V19EditableValue({
           className={joinClassNames(styles.editableInput, styles.editableTextarea)}
           aria-label={ariaLabel}
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => { setDraft(event.target.value); autosizeTextarea(event.currentTarget); }}
           onBlur={(event) => finish(true, event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
