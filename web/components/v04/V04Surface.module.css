@@ -664,3 +664,8 @@ input.editableTimecode { padding: 5px 8px; }
 /* 作品名后的来源：次要信息，跟着标题走但不与它争。窄屏先让它消失。 */
 .siteNav .studioCaseSource { flex: none; color: var(--v04-muted); font-size: 11px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
 @media (max-width: 1200px) { .siteNav .studioCaseSource { display: none; } }
+
+/* 案例库卡片的唯一入口。不用实心酸绿：每张卡片都有一个，一屏铺开就全是色块在喊。
+   平时是描边，悬停才亮起——实心酸绿留给稀有的东西（如专家优选）。 */
+.caseEnterPill { display: inline-flex; align-items: center; min-height: 38px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; background: rgba(18, 19, 16, .88); color: var(--v04-ink); padding: 0 16px; font-size: 11px; font-weight: 900; text-decoration: none; backdrop-filter: blur(10px); transition: border-color .12s, color .12s, background .12s; }
+.caseEnterPill:hover { border-color: rgba(223, 255, 79, .55); background: rgba(223, 255, 79, .1); color: var(--v04-accent); }
