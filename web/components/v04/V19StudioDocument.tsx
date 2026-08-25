@@ -29,6 +29,12 @@ export type V19StudioDocumentProps = {
   onChange: (mutate: (draft: V04UiDraft) => void) => void;
   onInsertShotAfter: (shotId: string) => void;
   onInsertBridgeAfter: (bridgeId: string) => void;
+  onDeleteShot: (shotId: string) => void;
+  onDeleteBridge: (bridgeId: string) => void;
+  /** 桥段内已无镜头时的唯一入口——没有镜头可供「在其后插入」。 */
+  onInsertFirstShot: (bridgeId: string) => void;
+  /** 待二次确认的目标 id；由外壳持有，因为确认状态要随保存与切换版本一起收起。 */
+  pendingDeleteId: string | null;
   /** Only reachable when the script is still empty — there is no bridge to insert after. */
   onInsertFirstBridge?: () => void;
   onInvalid: (message: string) => void;
@@ -199,6 +205,10 @@ export default function V19StudioDocument({
   onChange,
   onInsertShotAfter,
   onInsertBridgeAfter,
+  onDeleteShot,
+  onDeleteBridge,
+  onInsertFirstShot,
+  pendingDeleteId,
   onInsertFirstBridge,
   onInvalid,
   onBeforeEdit,
@@ -438,9 +448,21 @@ export default function V19StudioDocument({
           </div>
         </div>
         {group.shots.map((shot) => renderShot(shot, groupIndex))}
+        {!readOnly && group.shots.length === 0 && (
+          <div className={styles.insertShotRow} data-v19-empty-bridge>
+            <button type="button" onClick={() => onInsertFirstShot(group.id)}>＋ 添加第一个镜头</button>
+          </div>
+        )}
         {!readOnly && (
           <div className={styles.insertBridgeRow}>
             <button type="button" onClick={() => onInsertBridgeAfter(group.id)}>＋ 在此桥段后插入桥段</button>
+            <button type="button" className={styles.deleteAction}
+              data-v19-confirming={pendingDeleteId === group.id ? "true" : undefined}
+              onClick={() => onDeleteBridge(group.id)}>
+              {pendingDeleteId === group.id
+                ? `再点一次删除桥段${group.shots.length > 0 ? `及其 ${group.shots.length} 个镜头` : ""}`
+                : "－ 删除桥段"}
+            </button>
           </div>
         )}
       </section>
@@ -484,6 +506,11 @@ export default function V19StudioDocument({
           <div className={styles.insertShotRow}>
             <button type="button" onClick={() => onInsertShotAfter(shot.id)} title="新镜头开始时间自动继承本镜头结束时间＋1秒">
               ＋ 在此镜头后插入镜头
+            </button>
+            <button type="button" className={styles.deleteAction}
+              data-v19-confirming={pendingDeleteId === shot.id ? "true" : undefined}
+              onClick={() => onDeleteShot(shot.id)}>
+              {pendingDeleteId === shot.id ? "再点一次删除镜头" : "－ 删除镜头"}
             </button>
           </div>
         )}

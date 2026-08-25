@@ -204,6 +204,9 @@ export default function V04StudioClient({
   const redoStackRef = useRef<V04UiDraft[]>([]);
   const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const [diffIndex, setDiffIndex] = useState(0);
+  // 待确认的删除目标。删除会带走内容，所以要按两次；确认态在别处发生任何
+  // 变化时都会失效，免得停在半路的确认被下一次误点接住。
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const saveCoordinatorRef = useRef(new V04LatestSaveCoordinator<V04UiDraft>());
   const changeSetIdsRef = useRef(new Map<number, string>());
   const [saveStatus, setSaveStatus] = useState<V19SaveStatus>({ kind: "IDLE" });
@@ -429,6 +432,7 @@ export default function V04StudioClient({
   const applyEdit = useCallback((mutate: (draft: V04UiDraft) => void) => {
     if (!modelRef.current?.viewerCapabilities.canEdit) return;
     if (interceptForeignEdit()) return;
+    setPendingDeleteId(null);
     const before = draftRef.current;
     const next = cloneV04UiDraft(before);
     mutate(next);
@@ -483,6 +487,59 @@ export default function V04StudioClient({
     pushToast(`已在桥段${String(index + 1).padStart(2, "0")}后插入新桥段，桥段序号与镜头序号已自动重排`);
     void locateV04Target(`bridge-${newGroup.id}`);
   }, [interceptForeignEdit, commitDraft, pushToast]);
+
+  const onInsertFirstShot = useCallback((bridgeId: string) => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    setPendingDeleteId(null);
+    const next = cloneV04UiDraft(draftRef.current);
+    const group = next.shotGroups.find((item) => item.id === bridgeId);
+    if (!group || group.shots.length > 0) return;
+    const previousShots = next.shotGroups
+      .slice(0, next.shotGroups.indexOf(group))
+      .flatMap((item) => item.shots);
+    const last = previousShots[previousShots.length - 1];
+    const shot = blankV04Shot(mintV04LocalId("shot"));
+    shot.startTime = last?.endTime ? nextV19StartTime(last.endTime) : "";
+    group.shots.push(shot);
+    commitDraft(next);
+    pushToast("已添加镜头，开始时间继承上一镜头结束时间");
+    void locateV04Target(`row-${shot.id}`);
+  }, [interceptForeignEdit, commitDraft, pushToast]);
+
+  // 删除按两次：第一次亮出确认，第二次才动手。删除不级联调整后续镜头的
+  // 时间——时间码记的是视频里客观发生的时刻，删掉一条记录不会让别的镜头
+  // 改在别的时间发生；插入时顺延是因为那是「漏记了一条」。序号是系统维护的，
+  // 会自动重排。
+  const onDeleteShot = useCallback((shotId: string) => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    if (pendingDeleteId !== shotId) { setPendingDeleteId(shotId); return; }
+    setPendingDeleteId(null);
+    const next = cloneV04UiDraft(draftRef.current);
+    const group = next.shotGroups.find((item) => item.shots.some((shot) => shot.id === shotId));
+    if (!group) return;
+    const index = group.shots.findIndex((shot) => shot.id === shotId);
+    const removedNumber = numberedV04Shots(draftRef.current.shotGroups)
+      .find((item) => item.stableId === shotId)?.displayNumber;
+    group.shots.splice(index, 1);
+    commitDraft(next);
+    pushToast(`已删除镜头${removedNumber ? String(removedNumber).padStart(2, "0") : ""}，序号已重排；可用顶栏「撤销」找回`);
+  }, [interceptForeignEdit, commitDraft, pushToast, pendingDeleteId]);
+
+  const onDeleteBridge = useCallback((bridgeId: string) => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    if (pendingDeleteId !== bridgeId) { setPendingDeleteId(bridgeId); return; }
+    setPendingDeleteId(null);
+    const next = cloneV04UiDraft(draftRef.current);
+    const index = next.shotGroups.findIndex((group) => group.id === bridgeId);
+    if (index < 0) return;
+    const removed = next.shotGroups[index];
+    next.shotGroups.splice(index, 1);
+    commitDraft(next);
+    pushToast(`已删除桥段${String(index + 1).padStart(2, "0")}${removed.shots.length ? `及其 ${removed.shots.length} 个镜头` : ""}，序号已重排；可用顶栏「撤销」找回`);
+  }, [interceptForeignEdit, commitDraft, pushToast, pendingDeleteId]);
 
   // A case whose script is still empty has no bridge to insert after, so
   // without this the very first bridge could never be created on this surface.
@@ -928,6 +985,10 @@ export default function V04StudioClient({
             onInsertShotAfter={onInsertShotAfter}
             onInsertBridgeAfter={onInsertBridgeAfter}
             onInsertFirstBridge={onInsertFirstBridge}
+            onInsertFirstShot={onInsertFirstShot}
+            onDeleteShot={onDeleteShot}
+            onDeleteBridge={onDeleteBridge}
+            pendingDeleteId={pendingDeleteId}
             onInvalid={pushToast}
             onBeforeEdit={() => !interceptForeignEdit()}
           />

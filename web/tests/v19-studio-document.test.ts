@@ -186,3 +186,40 @@ test("carriers stay a fixed three-option toggle rather than free text", async ()
     assert.match(html, new RegExp(`aria-pressed="[a-z]+"[^>]*>${option}<|>${option}<`), `expected a toggle for ${option}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 删除会带走内容，所以要按两次；两处「加回去」的入口必须常驻，否则删空之后
+// 就再也回不来了。
+// ---------------------------------------------------------------------------
+
+test("delete asks twice, and names what a bridge takes with it", async () => {
+  const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
+  // 第一次点击只亮出确认，标签随之改变。
+  assert.match(source, /pendingDeleteId === shot\.id \? "再点一次删除镜头"/);
+  assert.match(source, /pendingDeleteId === group\.id/);
+  assert.match(source, /及其 \$\{group\.shots\.length\} 个镜头/,
+    "confirming a bridge must say how many shots go with it");
+
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({})));
+  assert.match(html, /－ 删除镜头/);
+  assert.match(html, /－ 删除桥段/);
+  assert.doesNotMatch(html, /再点一次/, "nothing is in a confirming state until it is asked for");
+});
+
+test("emptying a bridge or the script always leaves a way back", async () => {
+  const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
+  // 空桥段里没有镜头可供「在其后插入」，空脚本里没有桥段可供「在其后插入」。
+  assert.match(source, /group\.shots\.length === 0[\s\S]{0,200}onInsertFirstShot/);
+  assert.match(source, /draft\.shotGroups\.length === 0[\s\S]{0,400}onInsertFirstBridge/);
+
+  const css = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
+  // 这两个入口不能只在悬停时出现——它们是唯一的回头路。
+  assert.match(css, /\.insertShotRow\[data-v19-empty-bridge\][^}]*opacity:\s*1/);
+  assert.match(css, /\.insertBridgeRow\[data-v19-first-bridge\][^}]*opacity:\s*1/);
+});
+
+test("readOnly renders no delete controls", () => {
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({ readOnly: true })));
+  assert.doesNotMatch(html, /删除镜头/);
+  assert.doesNotMatch(html, /删除桥段/);
+});

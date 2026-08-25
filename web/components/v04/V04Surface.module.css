@@ -644,3 +644,11 @@ input.editableTimecode { padding: 5px 8px; }
 .diffNav button { display: grid; width: 24px; height: 34px; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--v04-muted); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
 .diffNav button:hover { color: var(--v04-accent); background: rgba(223, 255, 79, .1); }
 .diffCount { min-width: 34px; color: var(--v04-accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+
+/* 删除：和插入同处一行（都是结构操作），但语气更轻——破坏性动作不该抢眼，
+   只需在需要时找得到。确认态才转为警示色，让「再点一次」这一步显而易见。 */
+.deleteAction { border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 4px 12px; font: inherit; font-size: 10px; white-space: nowrap; cursor: pointer; }
+.deleteAction:hover { border-color: rgba(255, 174, 120, .45); color: #ffae78; }
+.deleteAction[data-v19-confirming="true"] { border-color: rgba(255, 174, 120, .7); background: rgba(255, 174, 120, .12); color: #ffcfad; }
+/* 空桥段里的「添加第一个镜头」是唯一入口，不能只在悬停时出现。 */
+.insertShotRow[data-v19-empty-bridge] { position: static; opacity: 1; margin-left: 32px; }
