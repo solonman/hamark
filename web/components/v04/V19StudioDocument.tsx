@@ -35,6 +35,7 @@ export type V19StudioDocumentProps = {
   onInsertFirstShot: (bridgeId: string) => void;
   /** 待二次确认的目标 id；由外壳持有，因为确认状态要随保存与切换版本一起收起。 */
   pendingDeleteId: string | null;
+  onCancelDelete: () => void;
   /** Only reachable when the script is still empty — there is no bridge to insert after. */
   onInsertFirstBridge?: () => void;
   onInvalid: (message: string) => void;
@@ -209,6 +210,7 @@ export default function V19StudioDocument({
   onDeleteBridge,
   onInsertFirstShot,
   pendingDeleteId,
+  onCancelDelete,
   onInsertFirstBridge,
   onInvalid,
   onBeforeEdit,
@@ -460,9 +462,13 @@ export default function V19StudioDocument({
               data-v19-confirming={pendingDeleteId === group.id ? "true" : undefined}
               onClick={() => onDeleteBridge(group.id)}>
               {pendingDeleteId === group.id
-                ? `再点一次删除桥段${group.shots.length > 0 ? `及其 ${group.shots.length} 个镜头` : ""}`
-                : "－ 删除桥段"}
+                ? `再点一次删除此桥段${group.shots.length > 0 ? `及其 ${group.shots.length} 个镜头` : ""}`
+                : "－ 删除此桥段"}
             </button>
+            {pendingDeleteId === group.id && (
+              <button type="button" className={styles.cancelDelete} data-v19-cancel-delete
+                onClick={onCancelDelete}>取消</button>
+            )}
           </div>
         )}
       </section>
@@ -510,8 +516,12 @@ export default function V19StudioDocument({
             <button type="button" className={styles.deleteAction}
               data-v19-confirming={pendingDeleteId === shot.id ? "true" : undefined}
               onClick={() => onDeleteShot(shot.id)}>
-              {pendingDeleteId === shot.id ? "再点一次删除镜头" : "－ 删除镜头"}
+              {pendingDeleteId === shot.id ? "再点一次删除此镜头" : "－ 删除此镜头"}
             </button>
+            {pendingDeleteId === shot.id && (
+              <button type="button" className={styles.cancelDelete} data-v19-cancel-delete
+                onClick={onCancelDelete}>取消</button>
+            )}
           </div>
         )}
       </article>

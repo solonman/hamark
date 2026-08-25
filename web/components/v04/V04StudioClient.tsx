@@ -488,6 +488,28 @@ export default function V04StudioClient({
     void locateV04Target(`bridge-${newGroup.id}`);
   }, [interceptForeignEdit, commitDraft, pushToast]);
 
+  const onCancelDelete = useCallback(() => setPendingDeleteId(null), []);
+
+  // 进入确认态后必须有明确的退路：除了旁边的「取消」按钮，按 Esc 或点到别处
+  // 也解除。没有这些，用户只能靠做一次无关编辑把它蹭掉，那不是可发现的设计。
+  useEffect(() => {
+    if (!pendingDeleteId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPendingDeleteId(null);
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-v19-confirming], [data-v19-cancel-delete]")) return;
+      setPendingDeleteId(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [pendingDeleteId]);
+
   const onInsertFirstShot = useCallback((bridgeId: string) => {
     if (!modelRef.current?.viewerCapabilities.canEdit) return;
     if (interceptForeignEdit()) return;
@@ -989,6 +1011,7 @@ export default function V04StudioClient({
             onDeleteShot={onDeleteShot}
             onDeleteBridge={onDeleteBridge}
             pendingDeleteId={pendingDeleteId}
+            onCancelDelete={onCancelDelete}
             onInvalid={pushToast}
             onBeforeEdit={() => !interceptForeignEdit()}
           />

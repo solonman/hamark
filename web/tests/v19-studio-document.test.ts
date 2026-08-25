@@ -195,14 +195,14 @@ test("carriers stay a fixed three-option toggle rather than free text", async ()
 test("delete asks twice, and names what a bridge takes with it", async () => {
   const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
   // 第一次点击只亮出确认，标签随之改变。
-  assert.match(source, /pendingDeleteId === shot\.id \? "再点一次删除镜头"/);
+  assert.match(source, /pendingDeleteId === shot\.id \? "再点一次删除此镜头"/);
   assert.match(source, /pendingDeleteId === group\.id/);
   assert.match(source, /及其 \$\{group\.shots\.length\} 个镜头/,
     "confirming a bridge must say how many shots go with it");
 
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({})));
-  assert.match(html, /－ 删除镜头/);
-  assert.match(html, /－ 删除桥段/);
+  assert.match(html, /－ 删除此镜头/);
+  assert.match(html, /－ 删除此桥段/);
   assert.doesNotMatch(html, /再点一次/, "nothing is in a confirming state until it is asked for");
 });
 
@@ -222,4 +222,16 @@ test("readOnly renders no delete controls", () => {
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({ readOnly: true })));
   assert.doesNotMatch(html, /删除镜头/);
   assert.doesNotMatch(html, /删除桥段/);
+});
+
+test("a pending deletion always offers a way out", async () => {
+  const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
+  // 取消按钮只在确认态出现，且两处都要有。
+  assert.equal((source.match(/data-v19-cancel-delete/g) ?? []).length, 2,
+    "both the shot and the bridge confirmation need a cancel");
+
+  const shell = await readFile(new URL("../components/v04/V04StudioClient.tsx", import.meta.url), "utf8");
+  // 除了按钮，Esc 与点击别处也要能退出——只有一条退路等于没有退路可发现。
+  assert.match(shell, /event\.key === "Escape"[\s\S]{0,80}setPendingDeleteId\(null\)/);
+  assert.match(shell, /closest\("\[data-v19-confirming\], \[data-v19-cancel-delete\]"\)/);
 });

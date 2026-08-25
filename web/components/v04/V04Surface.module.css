@@ -652,3 +652,6 @@ input.editableTimecode { padding: 5px 8px; }
 .deleteAction[data-v19-confirming="true"] { border-color: rgba(255, 174, 120, .7); background: rgba(255, 174, 120, .12); color: #ffcfad; }
 /* 空桥段里的「添加第一个镜头」是唯一入口，不能只在悬停时出现。 */
 .insertShotRow[data-v19-empty-bridge] { position: static; opacity: 1; margin-left: 32px; }
+
+.cancelDelete { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 4px 12px; font: inherit; font-size: 10px; white-space: nowrap; cursor: pointer; }
+.cancelDelete:hover { border-color: var(--v04-accent); color: var(--v04-accent); }
