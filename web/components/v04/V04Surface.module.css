@@ -660,3 +660,7 @@ input.editableTimecode { padding: 5px 8px; }
 .timelineNotice { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 0 24px 16px; padding: 11px 14px; border: 1px solid rgba(255, 174, 120, .4); border-radius: 12px; background: rgba(255, 174, 120, .06); color: #ffcfad; font-size: 11.5px; line-height: 1.65; }
 .timelineNotice button { flex: none; border: 1px solid rgba(255, 174, 120, .6); border-radius: 999px; background: transparent; color: #ffcfad; padding: 5px 13px; font: inherit; font-size: 11px; cursor: pointer; }
 .timelineNotice button:hover { background: rgba(255, 174, 120, .14); }
+
+/* 作品名后的来源：次要信息，跟着标题走但不与它争。窄屏先让它消失。 */
+.siteNav .studioCaseSource { flex: none; color: var(--v04-muted); font-size: 11px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
+@media (max-width: 1200px) { .siteNav .studioCaseSource { display: none; } }

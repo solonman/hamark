@@ -486,6 +486,10 @@ export async function loadV04WorkspaceReadModel(
       brand: video.brand,
       description: video.description,
       tags: parseTags(video.tags_json),
+      // 工作台顶栏要说明「这是谁上传的、什么时候传的」——反写的是别人拿来的片子，
+      // 来源本身是判断依据的一部分。
+      uploaderName: video.created_by_name ?? "",
+      uploadedAt: video.created_at ?? "",
       media: stableMediaReference(video),
     },
     logicalEmpty: !workspace,
@@ -648,6 +652,10 @@ export async function loadV04CaseCardReadModel(
 }
 
 type BatchCardProjectionRow = QueryResultRow & {
+  version_count: number | null;
+  latest_version_number: number | null;
+  latest_version_owner_name: string | null;
+  latest_version_updated_at: string | null;
   video_id: string;
   created_by_user_id: string | null;
   workspace_id: string | null;
@@ -720,7 +728,11 @@ export async function loadV04CaseCardsReadModel(
         lease.session_id AS lease_session_id,
         lease.tab_token_hash AS lease_tab_token_hash,
         lease.lease_version, lease.last_heartbeat_at AS lease_last_heartbeat_at,
-        lease.expires_at AS lease_expires_at
+        lease.expires_at AS lease_expires_at,
+        COALESCE(version_stats.version_count, 0) AS version_count,
+        version_stats.latest_version_number,
+        version_stats.latest_version_owner_name,
+        version_stats.latest_version_updated_at
       FROM videos v
       LEFT JOIN collaboration_workspaces w
         ON w.video_id = v.id AND w.workflow_version = ? AND w.status = 'ACTIVE'
@@ -745,6 +757,13 @@ export async function loadV04CaseCardsReadModel(
       LEFT JOIN collaboration_edit_leases lease
         ON lease.workspace_id = w.id AND lease.status = 'ACTIVE' AND lease.expires_at > now()
       LEFT JOIN users lease_user ON lease_user.id = lease.holder_user_id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::integer AS version_count,
+          (ARRAY_AGG(item.version_number ORDER BY item.updated_at DESC))[1] AS latest_version_number,
+          (ARRAY_AGG(item.owner_name_snapshot ORDER BY item.updated_at DESC))[1] AS latest_version_owner_name,
+          MAX(item.updated_at) AS latest_version_updated_at
+        FROM analysis_versions item WHERE item.workspace_id = w.id
+      ) version_stats ON TRUE
       WHERE v.id IN (${placeholders})
         AND v.deleted_at IS NULL
         AND COALESCE(v.deletion_state, 'ACTIVE') NOT IN ('TRASHED', 'ASSET_PURGED')
@@ -796,6 +815,14 @@ export async function loadV04CaseCardsReadModel(
     return {
       videoId: row.video_id,
       ...facts,
+      // 版本链事实取代提交／租约事实：卡片要说的是「这里有几个人做过、
+      // 最近是谁在什么时候动的」，而不是一句永远为假的提交状态。
+      versionSummary: Number(row.version_count ?? 0) > 0 ? {
+        count: Number(row.version_count),
+        latestNumber: Number(row.latest_version_number ?? 0),
+        latestOwnerName: row.latest_version_owner_name ?? "",
+        latestUpdatedAt: row.latest_version_updated_at ?? "",
+      } : null,
       latestSubmission: row.latest_submission_id ? {
         id: row.latest_submission_id,
         submissionNumber: Number(row.latest_submission_number),

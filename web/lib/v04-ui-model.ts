@@ -85,6 +85,8 @@ export type V04UiCapabilities = {
 };
 
 export type V04UiCase = {
+  /** 版本链摘要。只有案例库卡片需要，其它构造点无须提供；null 表示还没有人开始反写。 */
+  versionSummary?: null | { count: number; latestNumber: number; latestOwnerName: string; latestUpdatedAt: string };
   id: string;
   title: string;
   brand: string;
@@ -109,6 +111,9 @@ export type V04ServerWorkspaceModel = {
     brand: string;
     description: string;
     tags: string[];
+    /** 片子的来源：谁传的、什么时候传的。工作台顶栏据此说明这份素材从哪来。 */
+    uploaderName: string;
+    uploadedAt: string;
     media: V04UiMediaReference;
   };
   logicalEmpty: boolean;
@@ -167,6 +172,13 @@ export type V04ServerDetailModel = {
 };
 
 export type V04ServerCardModel = {
+  /** 版本链事实。null 表示这个作品还没有任何人开始反写。 */
+  versionSummary: null | {
+    count: number;
+    latestNumber: number;
+    latestOwnerName: string;
+    latestUpdatedAt: string;
+  };
   videoId: string;
   state: V04UiWorkState;
   submissionCount: number;
@@ -515,6 +527,7 @@ export function planV04ConflictResolution(input: {
 export function v04CardToUiCase(video: VideoItem, card: V04ServerCardModel): V04UiCase {
   const encodedId = encodeURIComponent(video.id);
   return {
+    versionSummary: card.versionSummary,
     id: video.id,
     title: video.title,
     brand: video.brand,

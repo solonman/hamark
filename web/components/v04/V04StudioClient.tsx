@@ -129,6 +129,14 @@ export function buildV19VersionTree(versions: readonly V19VersionSummary[]): V19
   return rows;
 }
 
+/** 上传时间只到日：卡片与顶栏都不需要精确到分秒。 */
+function formatV19Date(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function formatV19Clock(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
@@ -829,6 +837,13 @@ export default function V04StudioClient({
         </div>
         <nav className={styles.siteNav}>
           <span className={styles.studioCaseTitle} title={model.case.title}>{model.case.title}</span>
+          {/* 反写的是别人拿来的片子，来源本身是判断依据的一部分。 */}
+          {(model.case.uploaderName || model.case.uploadedAt) && (
+            <span className={styles.studioCaseSource}>
+              {model.case.uploaderName ? `${model.case.uploaderName} 上传` : "上传"}
+              {model.case.uploadedAt ? ` · ${formatV19Date(model.case.uploadedAt)}` : ""}
+            </span>
+          )}
         </nav>
         <div className={styles.siteUtilities}>
           {/* 比较基版属于「当前这个版本」，所以两者共用一个容器、中间一道分隔，

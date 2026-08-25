@@ -5,13 +5,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/http-json";
 import type { VideoItem } from "@/lib/types";
 import type { V04ServerCardModel, V04UiCase } from "@/lib/v04-ui-model";
-import { v04CardToUiCase, V04_UI_STATE_LABELS } from "@/lib/v04-ui-model";
+import { v04CardToUiCase } from "@/lib/v04-ui-model";
 import { matchesV04LibraryQuery } from "@/lib/v04-ui-client-state";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
 import { v04MetadataQueue } from "@/lib/v04-media-loading";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import styles from "./V04Surface.module.css";
+
+/** 卡片上的时间只需要「哪天几点」，精确到秒反而挤占版面。 */
+function formatV19CardTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 type V04LibraryCase = { item: V04UiCase; video: VideoItem };
 
@@ -134,10 +142,9 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
     {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section> : loadError ? <section className={styles.emptyState}><h2>案例库读取失败</h2><p>{loadError}</p></section> : visible.length ? <section className={styles.caseGrid} aria-label="案例列表">{visible.map(({ item, video }) => {
       const detail = detailHref(item.id);
       const workspace = workspaceHref(item.id);
-      const submissionCount = item.submissionCount ?? item.submissions.length;
       return <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
         <Link href={detail} className={styles.poster} aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
-        <div className={styles.caseBody}><div className={styles.caseQuickActions}><Link className={styles.primaryPill} href={detail}>{submissionCount > 0 ? "查看最新成果" : "查看成果状态"}</Link><Link className={styles.ghostPill} href={workspace}>{item.workState === "NOT_STARTED" ? "开始公共工作稿" : "编辑工作稿"}</Link></div><p className={styles.caseNumber}>CASE {String(caseIndexById.get(item.id) ?? 0).padStart(2, "0")}</p><div className={styles.caseTitleStatus}><h2><small>{item.brand || "未标注品牌"}</small><span>{item.title}</span></h2><div><span className={styles.workStatus}>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade ? <span className={styles.expertGrade}>◆ 专家优选 {item.expertGrade}</span> : null}</div></div><div className={styles.caseInfoBand}><span>上传者 {video.createdByName || "未知"}</span><span>{submissionCount > 0 ? `提交版 V${submissionCount}` : "尚无提交版"}</span><span>{item.activeEditor ? `${item.activeEditor} 编辑中` : "当前无人编辑"}</span>{item.tags.map((tag) => <span className={styles.caseCategoryTag} key={tag}>#{tag}</span>)}{formal ? <Link href={`${workspace}?taxonomy=V0.3-PILOT`}>V0.3 历史</Link> : null}</div></div>
+        <div className={styles.caseBody}><div className={styles.caseQuickActions}><Link className={styles.primaryPill} href={detail}>进入工作台</Link></div><p className={styles.caseNumber}>CASE {String(caseIndexById.get(item.id) ?? 0).padStart(2, "0")}</p><div className={styles.caseTitleStatus}><h2><small>{item.brand || "未标注品牌"}</small><span>{item.title}</span></h2><div>{item.expertGrade ? <span className={styles.expertGrade}>◆ 专家优选 {item.expertGrade}</span> : null}</div></div><div className={styles.caseInfoBand}><span>上传者 {video.createdByName || "未知"}</span><span>{item.versionSummary ? `${item.versionSummary.count} 个版本 · 最近 ${item.versionSummary.latestOwnerName} ${formatV19CardTime(item.versionSummary.latestUpdatedAt)}` : "尚未开始反写"}</span>{item.tags.map((tag) => <span className={styles.caseCategoryTag} key={tag}>#{tag}</span>)}{formal ? <Link href={`${workspace}?taxonomy=V0.3-PILOT`}>V0.3 历史</Link> : null}</div></div>
       </article>;
     })}</section> : <section className={styles.emptyState}><span>⌕</span><h2>没有找到对应案例</h2><p>可以换一个片名、品牌或标签继续搜索。</p><button onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button></section>}
     {showUpload ? <UploadDialog onClose={() => setShowUpload(false)} onUploaded={async (videoId) => { setShowUpload(false); window.location.href = detailHref(videoId); }} /> : null}
