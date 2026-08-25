@@ -36,6 +36,9 @@ export type V19StudioDocumentProps = {
   /** 待二次确认的目标 id；由外壳持有，因为确认状态要随保存与切换版本一起收起。 */
   pendingDeleteId: string | null;
   onCancelDelete: () => void;
+  /** 存量内容里不符合「开始时间＝上一镜头结束时间＋1秒」的镜头数；0 表示无需处理。 */
+  nonCompliantStartCount: number;
+  onNormalizeTimeline: () => void;
   /** Only reachable when the script is still empty — there is no bridge to insert after. */
   onInsertFirstBridge?: () => void;
   onInvalid: (message: string) => void;
@@ -211,6 +214,8 @@ export default function V19StudioDocument({
   onInsertFirstShot,
   pendingDeleteId,
   onCancelDelete,
+  nonCompliantStartCount,
+  onNormalizeTimeline,
   onInsertFirstBridge,
   onInvalid,
   onBeforeEdit,
@@ -400,6 +405,16 @@ export default function V19StudioDocument({
     return (
       <section className={styles.readingModule} id="module-2">
         {moduleHeader(2, "MODULE 02", "第二模块｜脚本反写")}
+        {!collapsed && !readOnly && nonCompliantStartCount > 0 && (
+          // 换规则不等于可以改写别人写下的时间：只报告，由人决定要不要重排。
+          <div className={styles.timelineNotice}>
+            <span>
+              有 {nonCompliantStartCount} 个镜头的开始时间是过去自由录入的，
+              与「开始时间＝上一镜头结束时间＋1秒」不一致。
+            </span>
+            <button type="button" onClick={onNormalizeTimeline}>按规则重排</button>
+          </div>
+        )}
         {!collapsed && draft.shotGroups.map((group, groupIndex) => renderBridge(group, groupIndex))}
         {!collapsed && draft.shotGroups.length === 0 && (
           <div className={styles.readingGroup}>
@@ -478,7 +493,7 @@ export default function V19StudioDocument({
   function renderShot(shot: V04UiShot, groupIndex: number): ReactNode {
     const globalNumber = numbers.get(shot.id) ?? 0;
     const previousShot = previousShotById.get(shot.id) ?? null;
-    const { startWarning, endWarning } = computeV19ShotTimelineWarnings(shot, previousShot);
+    const { endWarning } = computeV19ShotTimelineWarnings(shot, previousShot);
     const isNewShot = Boolean(diff?.newShotIds.has(shot.id));
     return (
       <article className={styles.readingShot} id={`row-${shot.id}`} key={shot.id}>
@@ -493,17 +508,25 @@ export default function V19StudioDocument({
             {keys.map((key) => (
               <div key={key}>
                 <small>{shotFieldLabels[key]}</small>
-                <V19EditableValue
-                  kind={key === "startTime" || key === "endTime" ? "timecode" : key === "visualContent" ? "textarea" : "text"}
-                  block={key === "visualContent"}
-                  ariaLabel={shotFieldLabels[key]}
-                  value={shot[key]}
-                  readOnly={readOnly}
-                  warning={key === "startTime" ? startWarning : key === "endTime" ? endWarning : undefined}
-                  baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotField(shot.id, key))}
-                  onCommit={setShotField(shot.id, key)}
-                  onInvalid={onInvalid} onBeforeEdit={onBeforeEdit}
-                />
+                {key === "startTime" && globalNumber !== 1 ? (
+                  // 开始时间＝上一镜头结束时间＋1秒，由系统维护：用户只填结束时间，
+                  // 增删镜头后时间线自动闭合，重叠与倒挂无从发生。
+                  <V19SystemValue title="由上一镜头结束时间＋1秒自动推导；调整时间请改上一镜头的结束时间">
+                    {shot[key] || "—"}
+                  </V19SystemValue>
+                ) : (
+                  <V19EditableValue
+                    kind={key === "startTime" || key === "endTime" ? "timecode" : key === "visualContent" ? "textarea" : "text"}
+                    block={key === "visualContent"}
+                    ariaLabel={shotFieldLabels[key]}
+                    value={shot[key]}
+                    readOnly={readOnly}
+                    warning={key === "endTime" ? endWarning : undefined}
+                    baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotField(shot.id, key))}
+                    onCommit={setShotField(shot.id, key)}
+                    onInvalid={onInvalid} onBeforeEdit={onBeforeEdit}
+                  />
+                )}
               </div>
             ))}
           </div>

@@ -118,3 +118,40 @@ export function cascadeV19Timeline<T extends { id: string; startTime: string; en
 
   return { shots: next, changedShotIds };
 }
+
+/**
+ * 开始时间是推导值，不是录入值：除全片第一个镜头外，每个镜头的开始时间
+ * ＝上一镜头结束时间＋1秒。用户只填结束时间，增删镜头后时间线自动闭合，
+ * 重叠与倒挂在结构上不可能发生。
+ *
+ * 上一镜头的结束时间为空或无法解析时，保留该镜头原有的开始时间——推导不出来
+ * 的地方不去猜，宁可原样留着让人看见。
+ */
+export function deriveV19StartTimes<T extends { id: string; startTime: string; endTime: string }>(
+  shots: readonly T[],
+): { shots: T[]; changedShotIds: string[] } {
+  const next: T[] = [];
+  const changedShotIds: string[] = [];
+  for (let index = 0; index < shots.length; index += 1) {
+    const shot = shots[index];
+    if (index === 0) { next.push(shot); continue; }
+    const previousEnd = parseV19TimecodeInput(next[index - 1].endTime);
+    if (previousEnd == null) { next.push(shot); continue; }
+    const derived = formatV19Timecode(previousEnd + 1);
+    if (derived === shot.startTime) { next.push(shot); continue; }
+    next.push({ ...shot, startTime: derived });
+    changedShotIds.push(shot.id);
+  }
+  return { shots: next, changedShotIds };
+}
+
+/**
+ * 存量内容里已有的开始时间未必符合上面的规则——它们是在自由录入的年代填的。
+ * 这里只报告哪些不符合，不动数据：要不要按规则重排，得由人决定，
+ * 不能因为换了规则就悄悄改写别人写下的时间。
+ */
+export function findV19NonCompliantStarts<T extends { id: string; startTime: string; endTime: string }>(
+  shots: readonly T[],
+): string[] {
+  return deriveV19StartTimes(shots).changedShotIds;
+}

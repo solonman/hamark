@@ -24,7 +24,7 @@ import {
   type V19VersionSummary,
 } from "@/lib/v19-ui-model";
 import { describeV19Diff, diffV19AgainstBase, type V19BaseDiff } from "@/lib/v19-base-diff";
-import { nextV19StartTime } from "@/lib/v19-timeline";
+import { deriveV19StartTimes, findV19NonCompliantStarts, nextV19StartTime } from "@/lib/v19-timeline";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V19StudioDocument from "./V19StudioDocument";
 import styles from "./V04Surface.module.css";
@@ -429,6 +429,22 @@ export default function V04StudioClient({
     void saveCoordinatorRef.current.flush(commitSaveAttempt);
   }, [commitSaveAttempt]);
 
+  // 任何改动时间线结构的操作之后都重新推导开始时间——插入、删除、改结束时间
+  // 都可能让后面的推导值失效。推导本身是幂等的，重复调用无副作用。
+  const withDerivedStarts = useCallback((draftToFix: V04UiDraft): V04UiDraft => {
+    const flat = draftToFix.shotGroups.flatMap((group) => group.shots);
+    const { shots, changedShotIds } = deriveV19StartTimes(flat);
+    if (changedShotIds.length === 0) return draftToFix;
+    const byId = new Map(shots.map((shot) => [shot.id, shot]));
+    for (const group of draftToFix.shotGroups) {
+      for (let index = 0; index < group.shots.length; index += 1) {
+        const updated = byId.get(group.shots[index].id);
+        if (updated) group.shots[index] = updated;
+      }
+    }
+    return draftToFix;
+  }, []);
+
   const applyEdit = useCallback((mutate: (draft: V04UiDraft) => void) => {
     if (!modelRef.current?.viewerCapabilities.canEdit) return;
     if (interceptForeignEdit()) return;
@@ -436,10 +452,11 @@ export default function V04StudioClient({
     const before = draftRef.current;
     const next = cloneV04UiDraft(before);
     mutate(next);
+    withDerivedStarts(next);
     const cascaded = countV19CascadedShots(before, next);
     if (cascaded > 0) pushToast(`已级联顺延后续 ${cascaded} 个镜头的时间线（各镜头时长保持不变）`);
     commitDraft(next);
-  }, [interceptForeignEdit, commitDraft, pushToast]);
+  }, [interceptForeignEdit, withDerivedStarts, commitDraft, pushToast]);
 
   const onInsertShotAfter = useCallback((shotId: string) => {
     if (!modelRef.current?.viewerCapabilities.canEdit) return;
@@ -510,6 +527,14 @@ export default function V04StudioClient({
     };
   }, [pendingDeleteId]);
 
+  const onNormalizeTimeline = useCallback(() => {
+    if (!modelRef.current?.viewerCapabilities.canEdit) return;
+    if (interceptForeignEdit()) return;
+    const next = withDerivedStarts(cloneV04UiDraft(draftRef.current));
+    commitDraft(next);
+    pushToast("已按规则重排开始时间；可用顶栏「撤销」还原");
+  }, [interceptForeignEdit, withDerivedStarts, commitDraft, pushToast]);
+
   const onInsertFirstShot = useCallback((bridgeId: string) => {
     if (!modelRef.current?.viewerCapabilities.canEdit) return;
     if (interceptForeignEdit()) return;
@@ -545,9 +570,10 @@ export default function V04StudioClient({
     const removedNumber = numberedV04Shots(draftRef.current.shotGroups)
       .find((item) => item.stableId === shotId)?.displayNumber;
     group.shots.splice(index, 1);
+    withDerivedStarts(next);
     commitDraft(next);
     pushToast(`已删除镜头${removedNumber ? String(removedNumber).padStart(2, "0") : ""}，序号已重排；可用顶栏「撤销」找回`);
-  }, [interceptForeignEdit, commitDraft, pushToast, pendingDeleteId]);
+  }, [interceptForeignEdit, withDerivedStarts, commitDraft, pushToast, pendingDeleteId]);
 
   const onDeleteBridge = useCallback((bridgeId: string) => {
     if (!modelRef.current?.viewerCapabilities.canEdit) return;
@@ -559,9 +585,10 @@ export default function V04StudioClient({
     if (index < 0) return;
     const removed = next.shotGroups[index];
     next.shotGroups.splice(index, 1);
+    withDerivedStarts(next);
     commitDraft(next);
     pushToast(`已删除桥段${String(index + 1).padStart(2, "0")}${removed.shots.length ? `及其 ${removed.shots.length} 个镜头` : ""}，序号已重排；可用顶栏「撤销」找回`);
-  }, [interceptForeignEdit, commitDraft, pushToast, pendingDeleteId]);
+  }, [interceptForeignEdit, withDerivedStarts, commitDraft, pushToast, pendingDeleteId]);
 
   // A case whose script is still empty has no bridge to insert after, so
   // without this the very first bridge could never be created on this surface.
@@ -623,6 +650,9 @@ export default function V04StudioClient({
 
   const numbers = useMemo(() => new Map(numberedV04Shots(draft.shotGroups).map((entry) => [entry.stableId, entry.displayNumber])), [draft.shotGroups]);
   const diff = useMemo(() => computeV19Diff(model, draft), [model, draft]);
+  const nonCompliantStartCount = useMemo(
+    () => findV19NonCompliantStarts(draft.shotGroups.flatMap((group) => group.shots)).length,
+    [draft]);
   // 计数必须等于「实际能跳到的处数」，所以数的是页面上真正渲染出的标记，
   // 而不是差异统计——统计里的一个 payload 键未必对应页面上的一个可见标记
   // （例如整块新增只标一次，折叠的模块则一个都不渲染）。两者不一致时，
@@ -1012,6 +1042,8 @@ export default function V04StudioClient({
             onDeleteBridge={onDeleteBridge}
             pendingDeleteId={pendingDeleteId}
             onCancelDelete={onCancelDelete}
+            nonCompliantStartCount={nonCompliantStartCount}
+            onNormalizeTimeline={onNormalizeTimeline}
             onInvalid={pushToast}
             onBeforeEdit={() => !interceptForeignEdit()}
           />

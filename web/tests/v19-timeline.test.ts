@@ -5,6 +5,8 @@ import {
   formatV19Timecode,
   nextV19StartTime,
   parseV19TimecodeInput,
+  deriveV19StartTimes,
+  findV19NonCompliantStarts,
 } from "../lib/v19-timeline.ts";
 
 type FixtureShot = { id: string; startTime: string; endTime: string };
@@ -130,4 +132,54 @@ test("cascadeV19Timeline returns an unchanged copy when fromShotId is unknown", 
   assert.deepEqual(result.changedShotIds, []);
   assert.deepEqual(result.shots, shots);
   assert.notEqual(result.shots, shots);
+});
+
+// ---------------------------------------------------------------------------
+// 开始时间由上一镜头结束时间推导（用户只填结束时间）
+// ---------------------------------------------------------------------------
+
+test("every start after the first is derived from the previous end", () => {
+  const shots = [
+    { id: "a", startTime: "00:00", endTime: "00:04" },
+    { id: "b", startTime: "99:99", endTime: "00:09" },
+    { id: "c", startTime: "", endTime: "00:12" },
+  ];
+  const result = deriveV19StartTimes(shots);
+  assert.deepEqual(result.shots.map((s) => s.startTime), ["00:00", "00:05", "00:10"]);
+  assert.deepEqual(result.changedShotIds, ["b", "c"]);
+  assert.equal(shots[1].startTime, "99:99", "input is left untouched");
+});
+
+test("the first shot keeps whatever start it was given", () => {
+  const result = deriveV19StartTimes([{ id: "a", startTime: "00:07", endTime: "00:09" }]);
+  assert.equal(result.shots[0].startTime, "00:07");
+  assert.deepEqual(result.changedShotIds, []);
+});
+
+test("a shot whose predecessor has no usable end keeps its own start", () => {
+  const result = deriveV19StartTimes([
+    { id: "a", startTime: "00:00", endTime: "" },
+    { id: "b", startTime: "00:20", endTime: "00:25" },
+    { id: "c", startTime: "00:99", endTime: "00:30" },
+  ]);
+  // b 推不出来就原样保留；c 能从 b 的结束时间推出。
+  assert.deepEqual(result.shots.map((s) => s.startTime), ["00:00", "00:20", "00:26"]);
+  assert.deepEqual(result.changedShotIds, ["c"]);
+});
+
+test("an already-compliant timeline reports nothing to change", () => {
+  const shots = [
+    { id: "a", startTime: "00:00", endTime: "00:04" },
+    { id: "b", startTime: "00:05", endTime: "00:09" },
+  ];
+  assert.deepEqual(findV19NonCompliantStarts(shots), []);
+});
+
+test("legacy free-form starts are reported, not rewritten", () => {
+  const shots = [
+    { id: "a", startTime: "00:00", endTime: "00:04" },
+    { id: "b", startTime: "00:30", endTime: "00:35" },
+  ];
+  assert.deepEqual(findV19NonCompliantStarts(shots), ["b"]);
+  assert.equal(shots[1].startTime, "00:30", "reporting must not mutate");
 });
