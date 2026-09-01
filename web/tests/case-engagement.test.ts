@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { CASE_ENGAGEMENT_SCHEMA_STATEMENTS } from "../db/case-engagement-schema.ts";
 import {
+  applyFrozenWeeklyOrder,
   deriveWeekKey,
   formatStars,
   formatWeekTitle,
   groupByWeek,
   pickTopCaseRating,
+  snapshotWeeklyOrder,
   weekRangeLabel,
 } from "../lib/case-engagement.ts";
 
@@ -82,6 +84,10 @@ test("the home page offers both libraries, weekly grouping, and per-card collect
   assert.match(library, /报告逆向工程建设中/);
   assert.match(library, /aria-pressed=\{weeklyView\}[\s\S]*按周显示/);
   assert.match(library, /groupByWeek\(visible/);
+  // 投票不重排：进入按周视图时冻结名次，变了只给入口，不自己换位置。
+  assert.match(library, /applyFrozenWeeklyOrder\(rankedGroups/);
+  assert.match(library, /if \(next\) freezeCurrentOrder\(\); else setFrozenOrder\(null\);/);
+  assert.match(library, /weeklyView && orderStale[\s\S]*顺序已变 · 重新排序/);
   // 收藏是按钮，评级不是：卡片上的星级只读，这一点由标签本身保证。
   assert.match(library, /className=\{`\$\{styles\.caseFavorite\}[\s\S]*onClick=\{\(\) => void toggleFavorite\(item\.id\)\}/);
   // ♡ 与 ♥ 是两个字形，宽高对不齐；实心与描边必须是同一段路径只换填充。
@@ -110,4 +116,47 @@ test("a card leads with the best score the case has earned, not the first versio
     { versionNumber: 1, ownerName: "甲", stars: 5 },
     { versionNumber: 4, ownerName: "乙", stars: 5 },
   ])?.versionNumber, 4);
+});
+
+test("a vote changes the count immediately but never moves the card under the cursor", () => {
+  const read = (item: { weekKey: string; favoriteCount: number; createdAt: string }) => item;
+  const before = groupByWeek([
+    { id: "a", weekKey: "2026-W36", favoriteCount: 4, createdAt: "2026-09-01T00:00:00.000Z" },
+    { id: "b", weekKey: "2026-W36", favoriteCount: 2, createdAt: "2026-09-02T00:00:00.000Z" },
+  ], read);
+  const frozen = snapshotWeeklyOrder(before, (item) => item.id);
+  assert.deepEqual(before[0].items.map((item) => item.id), ["a", "b"]);
+
+  // 把票从 a 挪到 b：真实名次变成 b 在前，但冻结的视图仍然是 a 在前。
+  const after = groupByWeek([
+    { id: "a", weekKey: "2026-W36", favoriteCount: 3, createdAt: "2026-09-01T00:00:00.000Z" },
+    { id: "b", weekKey: "2026-W36", favoriteCount: 3, createdAt: "2026-09-02T00:00:00.000Z" },
+  ], read);
+  assert.deepEqual(after[0].items.map((item) => item.id), ["b", "a"]);
+  const held = applyFrozenWeeklyOrder(after, (item) => item.id, frozen);
+  assert.deepEqual(held.groups[0].items.map((item) => item.id), ["a", "b"]);
+  // 名次确实变了，所以要给用户一个明确的重排入口。
+  assert.equal(held.stale, true);
+
+  // 重新冻结后视图与真实名次一致，提示随之消失。
+  const refrozen = snapshotWeeklyOrder(after, (item) => item.id);
+  const settled = applyFrozenWeeklyOrder(after, (item) => item.id, refrozen);
+  assert.deepEqual(settled.groups[0].items.map((item) => item.id), ["b", "a"]);
+  assert.equal(settled.stale, false);
+  // 没有快照时就是真实名次，不冻结任何东西。
+  assert.equal(applyFrozenWeeklyOrder(after, (item) => item.id, null).stale, false);
+});
+
+test("a case that appears after the order was frozen goes last and flags the order as changed", () => {
+  const read = (item: { weekKey: string; favoriteCount: number; createdAt: string }) => item;
+  const frozen = snapshotWeeklyOrder(groupByWeek([
+    { id: "a", weekKey: "2026-W36", favoriteCount: 1, createdAt: "2026-09-01T00:00:00.000Z" },
+  ], read), (item) => item.id);
+  const withNewcomer = groupByWeek([
+    { id: "a", weekKey: "2026-W36", favoriteCount: 1, createdAt: "2026-09-01T00:00:00.000Z" },
+    { id: "z", weekKey: "2026-W36", favoriteCount: 9, createdAt: "2026-09-03T00:00:00.000Z" },
+  ], read);
+  const held = applyFrozenWeeklyOrder(withNewcomer, (item) => item.id, frozen);
+  assert.deepEqual(held.groups[0].items.map((item) => item.id), ["a", "z"]);
+  assert.equal(held.stale, true);
 });

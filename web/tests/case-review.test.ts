@@ -110,6 +110,8 @@ test("the studio anchors both the rating and the comments to the version being v
   assert.match(studio, /<V19AssignmentRating[\s\S]*versionLabel=\{`v\$\{model\.current\.number\} · \$\{model\.current\.ownerName\}`\}/);
   // 评分摆在正文之后：读完整份作业才谈得上给分。
   assert.match(studio, /<V19StudioDocument[\s\S]*\/>\s*\{\/\*[\s\S]*?\*\/\}\s*<V19AssignmentRating/);
+  // 不能评分、又还没有评分时，整条评分栏不该出现——一排空星星对读者只是噪音。
+  assert.match(rating, /if \(!canReview && stars == null\) return null;/);
   // 只读的人看到星级，但看不到可点的控件。
   assert.match(rating, /canReview \? \([\s\S]*<button[\s\S]*\) : \([\s\S]*data-readonly="true"/);
   // 没有评论、也没有权限的人，条目上不该留下任何痕迹。

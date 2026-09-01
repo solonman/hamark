@@ -14,8 +14,10 @@ import {
   deriveWeekKey,
   emptyCaseEngagement,
   formatStars,
+  applyFrozenWeeklyOrder,
   groupByWeek,
   pickTopCaseRating,
+  snapshotWeeklyOrder,
   type CaseEngagement,
   type CaseFavoriteToggleResult,
 } from "@/lib/case-engagement";
@@ -177,6 +179,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
   const [weeklyView, setWeeklyView] = useState(false);
   const [favoritePendingId, setFavoritePendingId] = useState("");
   const [favoriteError, setFavoriteError] = useState("");
+  // 按周视图里的名次是冻结的：投票只改票数，不让卡片从鼠标底下窜走。
+  const [frozenOrder, setFrozenOrder] = useState<ReadonlyMap<string, number> | null>(null);
   const visible = useMemo(() => {
     const nextQuery = composing ? committedQuery : query;
     const normalized = nextQuery.trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
@@ -189,7 +193,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
     (entry: V04LibraryCase) => engagement[entry.item.id] ?? emptyCaseEngagement(deriveWeekKey(entry.video.createdAt)),
     [engagement],
   );
-  const weeklyGroups = useMemo(() => groupByWeek(visible, (entry) => {
+  const rankedGroups = useMemo(() => groupByWeek(visible, (entry) => {
     const current = engagementOf(entry);
     return {
       weekKey: current.weekKey,
@@ -197,6 +201,15 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
       createdAt: entry.video.createdAt,
     };
   }), [engagementOf, visible]);
+  const { groups: weeklyGroups, stale: orderStale } = useMemo(
+    () => applyFrozenWeeklyOrder(rankedGroups, (entry) => entry.item.id, frozenOrder),
+    [frozenOrder, rankedGroups],
+  );
+
+  /** 按当下的真实名次重新拍一张快照。进入按周视图和点「重新排序」时各拍一次。 */
+  const freezeCurrentOrder = () => setFrozenOrder(
+    snapshotWeeklyOrder(rankedGroups, (entry) => entry.item.id),
+  );
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -351,10 +364,27 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
             className={`${styles.weekToggle} ${weeklyView ? styles.weekToggleOn : ""}`.trim()}
             aria-pressed={weeklyView}
             title={`按上传周分组，周内按收藏数排序（${CASE_FAVORITE_BALLOT}）`}
-            onClick={() => setWeeklyView((current) => !current)}
+            disabled={loading}
+            onClick={() => {
+              const next = !weeklyView;
+              setWeeklyView(next);
+              // 开的那一刻按真实名次冻结；关掉就把快照丢掉，下次进来重新拍。
+              if (next) freezeCurrentOrder(); else setFrozenOrder(null);
+            }}
           >
             按周显示
           </button>
+          {/* 投票后名次变了不自动换位置——先说一声，换不换由用户决定。 */}
+          {weeklyView && orderStale ? (
+            <button
+              type="button"
+              className={styles.reorderChip}
+              title="收藏数已变化，点此按新的收藏数重新排序"
+              onClick={freezeCurrentOrder}
+            >
+              顺序已变 · 重新排序
+            </button>
+          ) : null}
           <label className={styles.librarySearch}><span aria-hidden>⌕</span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label>
         </div>
       </section>

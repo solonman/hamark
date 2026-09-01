@@ -678,6 +678,9 @@ input.editableTimecode { padding: 5px 8px; }
 .weekToggle { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 9px 14px; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer; transition: border-color .12s, color .12s, background .12s; }
 .weekToggle:hover { border-color: rgba(223, 255, 79, .45); color: var(--v04-accent); }
 .weekToggleOn { border-color: rgba(223, 255, 79, .55); background: rgba(223, 255, 79, .12); color: var(--v04-accent); }
+/* 名次变化的提示是个动作，不是警告：说清楚点了会发生什么就够了。 */
+.reorderChip { flex: none; border: 1px solid rgba(199, 170, 114, .5); border-radius: 999px; background: transparent; color: var(--v04-subject); padding: 9px 14px; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.reorderChip:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .weekSection { width: min(1340px, calc(100% - 48px)); margin: 0 auto; }
 .weekSection .caseGrid { width: 100%; padding-bottom: 46px; }
 .weekHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--v04-line); }

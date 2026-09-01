@@ -31,6 +31,9 @@ export default function V19AssignmentRating({
   const slots = Array.from({ length: CASE_RATING_MAX_STARS }, (_, index) => index + 1);
   const shown = hovered || stars || 0;
 
+  // 对不能评分的人来说，一排空星星只是噪音——没有评分就当这一栏不存在。
+  if (!canReview && stars == null) return null;
+
   const rate = async (value: number) => {
     if (busy || disabled) return;
     setBusy(true);
@@ -52,7 +55,7 @@ export default function V19AssignmentRating({
         <small>作业评分</small>
         <span>
           {canReview ? "评分锚定" : "本版评分"} {versionLabel}
-          {stars ? ` · 已评 ${stars} 星` : canReview ? " · 尚未评分" : " · 尚未评分"}
+          {stars ? ` · 已评 ${stars} 星` : " · 尚未评分"}
         </span>
         {error ? <em role="alert">{error}</em> : null}
       </div>

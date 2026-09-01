@@ -154,6 +154,44 @@ export function groupByWeek<T>(
     }));
 }
 
+/** 记下每个案例此刻在所在周里的位置。 */
+export function snapshotWeeklyOrder<T>(
+  groups: readonly WeeklyGroup<T>[],
+  idOf: (item: T) => string,
+): Map<string, number> {
+  const order = new Map<string, number>();
+  for (const group of groups) {
+    group.items.forEach((item, index) => order.set(idOf(item), index));
+  }
+  return order;
+}
+
+/**
+ * 按冻结的顺序摆放，并报告真实名次是否已经和它不一致。
+ *
+ * 投票要立刻看到票数变化，但脚下的卡片不该跟着跳走——名次变化交给用户自己点。
+ * 这是投票列表的通行做法（Reddit、HN、Stack Overflow 都是投完不重排，
+ * 刷新或显式重排才换位置），避免「正在操作的东西自己跑了」。
+ * 冻结之后新出现的案例排在最后，同时也会把顺序标记为已变化。
+ */
+export function applyFrozenWeeklyOrder<T>(
+  groups: readonly WeeklyGroup<T>[],
+  idOf: (item: T) => string,
+  frozen: ReadonlyMap<string, number> | null,
+): { groups: WeeklyGroup<T>[]; stale: boolean } {
+  if (!frozen) return { groups: groups.map((group) => ({ ...group })), stale: false };
+  let stale = false;
+  const next = groups.map((group) => {
+    const items = [...group.items].sort((left, right) => (
+      (frozen.get(idOf(left)) ?? Number.MAX_SAFE_INTEGER)
+      - (frozen.get(idOf(right)) ?? Number.MAX_SAFE_INTEGER)
+    ));
+    if (group.items.some((item, index) => idOf(item) !== idOf(items[index]))) stale = true;
+    return { ...group, items };
+  });
+  return { groups: next, stale };
+}
+
 export type CaseFavoriteToggleResult = {
   weekKey: string;
   favorited: boolean;
