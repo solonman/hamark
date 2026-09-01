@@ -17,7 +17,7 @@ test("the existing video catalog feeds the standalone formal V1.9 library", asyn
   assert.match(page, /process\.env\.V04_DEFAULT_UI_ENABLED === "true"/);
   assert.match(page, /if \(v04DefaultEnabled && v04LibraryEnabled\)[\s\S]*<V04LibraryClient[\s\S]*formal/);
   assert.match(library, /fetch\("\/api\/videos"/);
-  assert.match(library, /v04UiApi\.cards\(videos\.map\(\(video\) => video\.id\)/);
+  assert.match(library, /const videoIds = videos\.map\(\(video\) => video\.id\);[\s\S]*v04UiApi\.cards\(videoIds,/);
   assert.match(library, /const detailHref[\s\S]*formal[\s\S]*`\/videos\/\$\{encodeURIComponent\(videoId\)\}`/);
   assert.match(library, /const workspaceHref[\s\S]*formal[\s\S]*`\/videos\/\$\{encodeURIComponent\(videoId\)\}\/practice`/);
   assert.match(library, /video\.thumbnailUrl/);

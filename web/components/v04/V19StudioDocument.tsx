@@ -7,8 +7,10 @@ import { V04_UI_SHOT_FIELDS } from "@/lib/v04-ui-model";
 import { numberedV04Shots, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_STORY_OPTIONS } from "@/lib/v04-ui-fixture";
 import type { V19BaseDiff } from "@/lib/v19-base-diff";
+import { CASE_REVIEW_TARGETS, type CaseReviewComment } from "@/lib/case-review";
 import { cascadeV19Timeline, parseV19TimecodeInput } from "@/lib/v19-timeline";
 import V19EditableValue, { V19SystemValue } from "./V19EditableValue";
+import V19ReviewComment from "./V19ReviewComment";
 import V04ChoiceField from "./V04ChoiceField";
 import styles from "./V04Surface.module.css";
 
@@ -19,6 +21,18 @@ import styles from "./V04Surface.module.css";
  * 与 `V04DetailClient.tsx` 的只读渲染共享 CSS 类名与字段标签，仅把只读文本换成
  * `V19EditableValue` / `V04ChoiceField`。
  */
+
+/**
+ * 评审挂件的接线。评论只出现在开放式条目上——固定选项没有可评的写法，
+ * 评它等于评这份词表本身。第二模块整段评在桥段和镜头上。
+ */
+export type V19StudioReview = {
+  canReview: boolean;
+  comments: ReadonlyMap<string, CaseReviewComment>;
+  /** 版本尚未落库时无处可锚定，按钮仍在但说明原因。 */
+  disabled: boolean;
+  onSave: (input: { targetKey: string; targetLabel: string; body: string }) => Promise<void>;
+};
 
 export type V19StudioDocumentProps = {
   draft: V04UiDraft;
@@ -44,6 +58,8 @@ export type V19StudioDocumentProps = {
   onInvalid: (message: string) => void;
   /** Vetoes opening any editor — used to redirect an edit to the viewer's own version. */
   onBeforeEdit?: () => boolean;
+  /** 缺省即不渲染任何评论入口（只读页与测试用例据此保持原样）。 */
+  review?: V19StudioReview;
 };
 
 // ---------------------------------------------------------------------------
@@ -219,6 +235,7 @@ export default function V19StudioDocument({
   onInsertFirstBridge,
   onInvalid,
   onBeforeEdit,
+  review,
 }: V19StudioDocumentProps): JSX.Element {
   const setFactText = (key: "commercialIntent" | "storySummary" | "creativeMotif" | "tensionButton" | "creativeThinkingChain" | "carrierExplanation" | "creativeContract" | "gradeReason") =>
     (value: string) => onChange((next) => { next[key] = value; });
@@ -295,6 +312,26 @@ export default function V19StudioDocument({
     </>
   );
 
+  /** 条目上的评论入口。没接评审时什么都不渲染，正文与从前一模一样。 */
+  function commentAnchor(targetKey: string, label: string): ReactNode {
+    if (!review) return null;
+    return (
+      <V19ReviewComment
+        targetKey={targetKey}
+        targetLabel={label}
+        comment={review.comments.get(targetKey)}
+        canReview={review.canReview}
+        disabled={review.disabled}
+        onSave={review.onSave}
+      />
+    );
+  }
+
+  /** 开放式条目的标题行：条目名后面跟评论按钮。 */
+  function labelWithComment(label: string, targetKey: string): ReactNode {
+    return <small>{label}{commentAnchor(targetKey, label)}</small>;
+  }
+
   function moduleHeader(number: number, eyebrow: string, title: string): ReactNode {
     return (
       <header className={styles.stickyModuleHeader}>
@@ -312,31 +349,31 @@ export default function V19StudioDocument({
         {!collapsed && (
           <div className={styles.readingCore}>
             <div id={V04_WORKSPACE_TARGETS.commercialIntent}>
-              <small>商业意图</small>
+              {labelWithComment("商业意图", V19_FIELD_TARGET_KEYS.facts.commercialIntent)}
               <V19EditableValue kind="textarea" block ariaLabel="商业意图" value={draft.commercialIntent} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.commercialIntent)}
                 onCommit={setFactText("commercialIntent")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.storySummary}>
-              <small>故事梗概</small>
+              {labelWithComment("故事梗概", V19_FIELD_TARGET_KEYS.facts.storySummary)}
               <V19EditableValue kind="textarea" block ariaLabel="故事梗概" value={draft.storySummary} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.storySummary)}
                 onCommit={setFactText("storySummary")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.creativeMotif}>
-              <small>创意母题</small>
+              {labelWithComment("创意母题", V19_FIELD_TARGET_KEYS.facts.creativeMotif)}
               <V19EditableValue kind="textarea" block ariaLabel="创意母题" value={draft.creativeMotif} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeMotif)}
                 onCommit={setFactText("creativeMotif")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.tensionButton}>
-              <small>张力按钮</small>
+              {labelWithComment("张力按钮", V19_FIELD_TARGET_KEYS.facts.tensionButton)}
               <V19EditableValue kind="textarea" block ariaLabel="张力按钮" value={draft.tensionButton} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.tensionButton)}
                 onCommit={setFactText("tensionButton")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.creativeThinkingChain}>
-              <small>创意思维链</small>
+              {labelWithComment("创意思维链", V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
               <V19EditableValue kind="textarea" block ariaLabel="创意思维链" value={draft.creativeThinkingChain} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
                 onCommit={setFactText("creativeThinkingChain")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
@@ -383,13 +420,13 @@ export default function V19StudioDocument({
               )}
             </div>
             <div id={V04_WORKSPACE_TARGETS.carrierExplanation}>
-              <small>创意承重载体具体说明</small>
+              {labelWithComment("创意承重载体具体说明", V19_FIELD_TARGET_KEYS.facts.carrierExplanation)}
               <V19EditableValue kind="textarea" block ariaLabel="创意承重载体具体说明" value={draft.carrierExplanation} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.carrierExplanation)}
                 onCommit={setFactText("carrierExplanation")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.creativeContract} style={{ gridColumn: "1 / -1" }}>
-              <small>创意成立契约（隐含情理）</small>
+              {labelWithComment("创意成立契约（隐含情理）", V19_FIELD_TARGET_KEYS.facts.creativeContract)}
               <V19EditableValue kind="textarea" block ariaLabel="创意成立契约（隐含情理）" value={draft.creativeContract} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeContract)}
                 onCommit={setFactText("creativeContract")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
@@ -443,6 +480,10 @@ export default function V19StudioDocument({
               <V19EditableValue ariaLabel="桥段名称" value={group.title} placeholder="未命名桥段" readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "bridgeName"))}
                 onCommit={setBridgeTitle(group.id)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
+              {commentAnchor(
+                CASE_REVIEW_TARGETS.bridge(group.id),
+                `桥段${padNumber(groupIndex + 1)}｜${group.title || "未命名桥段"}`,
+              )}
               {isNewBridge && <span className={styles.diffNew} data-v19-diff="new">本版新增</span>}
             </h3>
           </div>
@@ -501,6 +542,10 @@ export default function V19StudioDocument({
           <V19SystemValue title="桥段与镜头序号由系统自动维护">
             桥段{padNumber(groupIndex + 1)}－镜头{padNumber(globalNumber)}
           </V19SystemValue>
+          {commentAnchor(
+            CASE_REVIEW_TARGETS.shot(shot.id),
+            `桥段${padNumber(groupIndex + 1)}－镜头${padNumber(globalNumber)}`,
+          )}
           {isNewShot && <span className={styles.diffNew} data-v19-diff="new">本版新增</span>}
         </h4>
         {SHOT_FIELD_ROWS.map(({ className, keys }) => (
@@ -561,7 +606,7 @@ export default function V19StudioDocument({
         {!collapsed && (
           <div className={styles.readingCore}>
             <div>
-              <small>主导路径</small>
+              {labelWithComment("主导路径", V19_FIELD_TARGET_KEYS.path.primaryType)}
               <V19EditableValue kind="select" options={PATH_OPTIONS} ariaLabel="主导路径" value={path} readOnly={readOnly}
                 baseValue={(() => {
                   if (!diff || !diff.changedFields.has(V19_FIELD_TARGET_KEYS.path.primaryType)) return undefined;
@@ -572,7 +617,10 @@ export default function V19StudioDocument({
             </div>
             {draft.primaryPathAnswers[path].map((value, index) => (
               <div key={index}>
-                <small>{pathFieldLabels[index]}</small>
+                <small>
+                  {pathFieldLabels[index]}
+                  {commentAnchor(CASE_REVIEW_TARGETS.primaryPathDetail(path, index), pathFieldLabels[index] ?? "主导路径细项")}
+                </small>
                 <V19EditableValue kind="textarea" block ariaLabel={pathFieldLabels[index] ?? "主导路径细项"} value={value} readOnly={readOnly}
                   baseValue={basePrimaryDetails ? (basePrimaryDetails[PRIMARY_PATH_DETAIL_KEYS[path][index]] ?? "") : undefined}
                   onCommit={setPrimaryPathAnswer(path, index)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
@@ -583,7 +631,10 @@ export default function V19StudioDocument({
               const baseEntry = baseAuxiliaryTypes?.find((item) => item.type === auxPath);
               return (
                 <div key={auxPath}>
-                  <small>辅助路径｜{pathLabels[auxPath]}</small>
+                  <small>
+                    辅助路径｜{pathLabels[auxPath]}
+                    {commentAnchor(CASE_REVIEW_TARGETS.auxiliaryPath(auxPath), `辅助路径｜${pathLabels[auxPath]}`)}
+                  </small>
                   <V19EditableValue kind="textarea" block ariaLabel={`辅助路径描述｜${pathLabels[auxPath]}`} value={detail.description} readOnly={readOnly}
                     baseValue={baseAuxiliaryTypes ? (baseEntry?.description ?? "") : undefined}
                     onCommit={setAuxiliaryPathDetail(auxPath, "description")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
@@ -594,13 +645,13 @@ export default function V19StudioDocument({
               );
             })}
             <div id={V04_WORKSPACE_TARGETS.overallGrade}>
-              <small>整体创意评价</small>
+              {labelWithComment("整体创意评价", V19_FIELD_TARGET_KEYS.facts.overallGrade)}
               <V19EditableValue kind="select" options={GRADE_OPTIONS} monospace ariaLabel="整体创意评价" value={draft.overallGrade} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.overallGrade)}
                 onCommit={setOverallGrade} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.gradeReason}>
-              <small>评价理由</small>
+              {labelWithComment("评价理由", V19_FIELD_TARGET_KEYS.facts.gradeReason)}
               <V19EditableValue kind="textarea" block ariaLabel="评价理由" value={draft.gradeReason} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.gradeReason)}
                 onCommit={setFactText("gradeReason")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />

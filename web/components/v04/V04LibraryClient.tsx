@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/http-json";
 import type { VideoItem } from "@/lib/types";
 import type { V04ServerCardModel, V04UiCase } from "@/lib/v04-ui-model";
@@ -9,6 +9,16 @@ import { v04CardToUiCase } from "@/lib/v04-ui-model";
 import { matchesV04LibraryQuery } from "@/lib/v04-ui-client-state";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
 import { v04MetadataQueue } from "@/lib/v04-media-loading";
+import {
+  CASE_FAVORITE_BALLOT,
+  deriveWeekKey,
+  emptyCaseEngagement,
+  formatStars,
+  groupByWeek,
+  pickTopCaseRating,
+  type CaseEngagement,
+  type CaseFavoriteToggleResult,
+} from "@/lib/case-engagement";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import styles from "./V04Surface.module.css";
@@ -22,6 +32,9 @@ function formatV19CardTime(iso: string): string {
 }
 
 type V04LibraryCase = { item: V04UiCase; video: VideoItem };
+
+/** 本站现在有两条逆向工程线：片子和报告。首页先分库，再谈单个案例。 */
+type LibraryTab = "VIDEO" | "REPORT";
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "--:--";
@@ -79,6 +92,72 @@ function VideoDuration({ videoId }: { videoId: string }) {
   return <span ref={anchor} className={styles.posterDuration} data-video-duration>{duration}</span>;
 }
 
+/** 老孙给作业版本的评级，卡片上只读：星星说明作业到了什么水平，点它不做任何事。 */
+function CaseRating({ engagement }: { engagement: CaseEngagement }) {
+  const [showAll, setShowAll] = useState(false);
+  const anchorRef = useRef<HTMLParagraphElement>(null);
+
+  useEffect(() => {
+    if (!showAll) return;
+    const close = (event: Event) => {
+      if (!anchorRef.current?.contains(event.target as Node)) setShowAll(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") setShowAll(false); };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showAll]);
+
+  const top = pickTopCaseRating(engagement.ratings);
+  if (!top) {
+    return (
+      <p className={`${styles.caseRating} ${styles.caseRatingEmpty}`} title="老孙尚未给这个案例的作业评级">
+        <i aria-hidden>{formatStars(0)}</i>
+        <span>待评级</span>
+      </p>
+    );
+  }
+  const others = engagement.ratings.filter((rating) => rating.versionNumber !== top.versionNumber);
+  return (
+    <p
+      ref={anchorRef}
+      className={styles.caseRating}
+      title={`老孙的作业评级：${engagement.ratings.map((rating) => `v${rating.versionNumber} ${rating.stars} 星`).join("，")}`}
+    >
+      <span aria-label={`最高评级 v${top.versionNumber} ${top.stars} 星`}>
+        <b aria-hidden>v{top.versionNumber}</b>
+        <i aria-hidden>{formatStars(top.stars)}</i>
+      </span>
+      {others.length ? (
+        <button
+          type="button"
+          className={styles.caseRatingMore}
+          aria-expanded={showAll}
+          title={`另有 ${others.length} 个版本的评级`}
+          onClick={() => setShowAll((current) => !current)}
+        >
+          更多
+        </button>
+      ) : null}
+      {showAll && others.length ? (
+        <span className={styles.caseRatingPanel} role="note">
+          <b>其余版本评级</b>
+          {[...others].sort((left, right) => left.versionNumber - right.versionNumber).map((rating) => (
+            <span key={rating.versionNumber}>
+              <b aria-hidden>v{rating.versionNumber}</b>
+              <i aria-hidden>{formatStars(rating.stars)}</i>
+              <em>{rating.ownerName}</em>
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
 export default function V04LibraryClient({ viewerName, formal = false, user, isAdmin = false }: {
   viewerName: string;
   formal?: boolean;
@@ -87,12 +166,17 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
 }) {
   const tabToken = useRef(`v04-library-${crypto.randomUUID()}`);
   const [cases, setCases] = useState<V04LibraryCase[]>([]);
+  const [engagement, setEngagement] = useState<Record<string, CaseEngagement>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [query, setQuery] = useState("");
   const [composing, setComposing] = useState(false);
   const [committedQuery, setCommittedQuery] = useState("");
   const [showUpload, setShowUpload] = useState(false);
+  const [library, setLibrary] = useState<LibraryTab>("VIDEO");
+  const [weeklyView, setWeeklyView] = useState(false);
+  const [favoritePendingId, setFavoritePendingId] = useState("");
+  const [favoriteError, setFavoriteError] = useState("");
   const visible = useMemo(() => {
     const nextQuery = composing ? committedQuery : query;
     const normalized = nextQuery.trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
@@ -100,6 +184,19 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
       || Boolean(normalized && video.createdByName.normalize("NFKC").toLocaleLowerCase("zh-CN").includes(normalized)));
   }, [cases, committedQuery, composing, query]);
   const caseIndexById = useMemo(() => new Map(cases.map(({ item }, index) => [item.id, index + 1])), [cases]);
+  // 收藏数据没读到时不该让整页失去分组能力，所以周次退回按上传时间现算。
+  const engagementOf = useCallback(
+    (entry: V04LibraryCase) => engagement[entry.item.id] ?? emptyCaseEngagement(deriveWeekKey(entry.video.createdAt)),
+    [engagement],
+  );
+  const weeklyGroups = useMemo(() => groupByWeek(visible, (entry) => {
+    const current = engagementOf(entry);
+    return {
+      weekKey: current.weekKey,
+      favoriteCount: current.favoriteCount,
+      createdAt: entry.video.createdAt,
+    };
+  }), [engagementOf, visible]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -112,14 +209,27 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
         const catalog = await readJsonResponse<{ videos?: VideoItem[]; error?: string }>(response, "片库读取");
         if (!response.ok) throw new Error(catalog.error || "片库读取失败");
         const videos = catalog.videos ?? [];
-        const { projections } = await v04UiApi.cards(videos.map((video) => video.id), tabToken.current, controller.signal);
+        const videoIds = videos.map((video) => video.id);
+        // 收藏与评级和 V0.4 投影互不依赖，一起发出去，少一个来回。
+        const [{ projections }, engagementResult] = await Promise.all([
+          v04UiApi.cards(videoIds, tabToken.current, controller.signal),
+          loadEngagement(videoIds, controller.signal),
+        ]);
         const projectionById = new Map((projections as V04ServerCardModel[]).map((item) => [item.videoId, item]));
-        return videos.flatMap((video) => {
-          const projection = projectionById.get(video.id);
-          return projection ? [{ item: v04CardToUiCase(video, projection), video }] : [];
-        });
+        return {
+          engagement: engagementResult,
+          cases: videos.flatMap((video) => {
+            const projection = projectionById.get(video.id);
+            return projection ? [{ item: v04CardToUiCase(video, projection), video }] : [];
+          }),
+        };
       })
-      .then((nextCases) => { setCases(nextCases); setLoadError(""); })
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        setCases(next.cases);
+        setEngagement(next.engagement);
+        setLoadError("");
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setLoadError(error instanceof V04UiApiError ? error.message : "案例库暂时无法读取，请稍后重试。");
@@ -128,25 +238,156 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
     return () => controller.abort();
   }, []);
 
+  const toggleFavorite = async (videoId: string) => {
+    if (favoritePendingId) return;
+    setFavoritePendingId(videoId);
+    setFavoriteError("");
+    try {
+      const response = await fetch(`/api/videos/${encodeURIComponent(videoId)}/favorite`, {
+        method: "POST",
+        cache: "no-store",
+      });
+      const result = await readJsonResponse<CaseFavoriteToggleResult & { error?: string }>(response, "收藏");
+      if (!response.ok) throw new Error(result.error || "收藏失败，请稍后重试。");
+      setEngagement((current) => {
+        const next = { ...current };
+        const target = next[result.videoId] ?? emptyCaseEngagement(result.weekKey);
+        next[result.videoId] = {
+          ...target,
+          weekKey: result.weekKey,
+          favoriteCount: result.favoriteCount,
+          viewerFavorited: result.favorited,
+        };
+        // 改投时那一票是从另一部片子挪过来的，原来那部要同时掉下去。
+        if (result.releasedVideoId) {
+          const released = next[result.releasedVideoId];
+          if (released) {
+            next[result.releasedVideoId] = {
+              ...released,
+              favoriteCount: result.releasedFavoriteCount,
+              viewerFavorited: false,
+            };
+          }
+        }
+        return next;
+      });
+    } catch (error) {
+      setFavoriteError(error instanceof Error ? error.message : "收藏失败，请稍后重试。");
+    } finally {
+      setFavoritePendingId("");
+    }
+  };
+
   const detailHref = (videoId: string) => formal ? `/videos/${encodeURIComponent(videoId)}` : `/v04-shadow/videos/${encodeURIComponent(videoId)}`;
   const workspaceHref = (videoId: string) => formal ? `/videos/${encodeURIComponent(videoId)}/practice` : `/v04-shadow/videos/${encodeURIComponent(videoId)}/workspace`;
 
-  return <main className={styles.surface} data-v04-page="library" data-v04-layout="two-column-banner">
+  const renderCase = ({ item, video }: V04LibraryCase) => {
+    const detail = detailHref(item.id);
+    const workspace = workspaceHref(item.id);
+    const engaged = engagementOf({ item, video });
+    return <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
+      <Link href={detail} className={styles.poster} aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
+      <div className={styles.caseBody}>
+        <div className={styles.caseQuickActions}>
+          <Link className={styles.caseEnterPill} href={detail}>进入工作台</Link>
+          <div className={styles.caseCardMetrics}>
+            <button
+              type="button"
+              className={`${styles.caseFavorite} ${engaged.viewerFavorited ? styles.caseFavoriteOn : ""}`.trim()}
+              aria-pressed={engaged.viewerFavorited}
+              aria-label={`${engaged.viewerFavorited ? "取消收藏" : "收藏"}《${item.title}》，${CASE_FAVORITE_BALLOT}，当前 ${engaged.favoriteCount} 人收藏`}
+              title={engaged.viewerFavorited ? `本周这一票投给了这部片（${CASE_FAVORITE_BALLOT}），再点一次撤回` : `把本周这一票投给这部片（${CASE_FAVORITE_BALLOT}）`}
+              disabled={favoritePendingId === item.id}
+              onClick={() => void toggleFavorite(item.id)}
+            >
+              {/* ♡ 与 ♥ 是两个字形，字体给的宽高并不一致，并排就看得出大小差。
+                  同一段路径只切换填充，描边和实心才是同一颗心。 */}
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                <path
+                  d="M8 13.7 3.2 9.1a3.1 3.1 0 0 1 0-4.5 3.3 3.3 0 0 1 4.6 0L8 4.8l.2-.2a3.3 3.3 0 0 1 4.6 0 3.1 3.1 0 0 1 0 4.5L8 13.7Z"
+                  fill={engaged.viewerFavorited ? "currentColor" : "none"}
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <b>{engaged.favoriteCount}</b>
+            </button>
+            <CaseRating engagement={engaged} />
+          </div>
+        </div>
+        <p className={styles.caseNumber}>CASE {String(caseIndexById.get(item.id) ?? 0).padStart(2, "0")}</p>
+        <div className={styles.caseTitleStatus}><h2><small>{item.brand || "未标注品牌"}</small><span>{item.title}</span></h2><div>{item.expertGrade ? <span className={styles.expertGrade}>◆ 专家优选 {item.expertGrade}</span> : null}</div></div>
+        <div className={styles.caseInfoBand}><span>上传者 {video.createdByName || "未知"}</span><span>{item.versionSummary ? `${item.versionSummary.count} 个版本 · 最近 ${item.versionSummary.latestOwnerName} ${formatV19CardTime(item.versionSummary.latestUpdatedAt)}` : "尚未开始反写"}</span>{item.tags.map((tag) => <span className={styles.caseCategoryTag} key={tag}>#{tag}</span>)}{formal ? <Link href={`${workspace}?taxonomy=V0.3-PILOT`}>V0.3 历史</Link> : null}</div>
+      </div>
+    </article>;
+  };
+
+  return <main className={styles.surface} data-v04-page="library" data-v04-layout="two-column-banner" data-library-tab={library}>
     <header className={styles.siteHeader} data-v04-formal-header={formal || undefined}>
       <Link href={formal ? "/" : "/v04-shadow"} className={styles.brandWordmark}><b>R:</b><span>RE:VERSE</span><small>反写</small></Link>
-      <nav className={styles.siteNav} aria-label="案例库导航"><Link href={formal ? "/" : "/v04-shadow"} className={styles.activeNav}>案例库</Link>{formal ? null : <span>UI PROTOTYPE</span>}</nav>
+      <nav className={styles.siteNav} aria-label="站点导航">
+        <button type="button" className={library === "VIDEO" ? styles.activeNav : ""} aria-current={library === "VIDEO" ? "page" : undefined} onClick={() => setLibrary("VIDEO")}>视频库</button>
+        <button type="button" className={library === "REPORT" ? styles.activeNav : ""} aria-current={library === "REPORT" ? "page" : undefined} onClick={() => setLibrary("REPORT")}>报告库</button>
+        {formal ? null : <span>UI PROTOTYPE</span>}
+      </nav>
       <div className={styles.siteUtilities}>{formal && isAdmin ? <Link href="/admin/v02-v03-batch-mapping">数据操作</Link> : null}{formal ? <button type="button" onClick={() => setShowUpload(true)}>上传作品</button> : null}{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
     </header>
-    <section className={styles.libraryHero}><p>CREATIVE REVERSE-ENGINEERING LIBRARY</p><h1>从好作品里，<br />练出看见创意的能力。</h1></section>
-    <section className={styles.libraryToolbar}><div><p>CASE LIBRARY</p><h2>案例库</h2></div><label className={styles.librarySearch}><span aria-hidden>⌕</span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label></section>
-    {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section> : loadError ? <section className={styles.emptyState}><h2>案例库读取失败</h2><p>{loadError}</p></section> : visible.length ? <section className={styles.caseGrid} aria-label="案例列表">{visible.map(({ item, video }) => {
-      const detail = detailHref(item.id);
-      const workspace = workspaceHref(item.id);
-      return <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
-        <Link href={detail} className={styles.poster} aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
-        <div className={styles.caseBody}><div className={styles.caseQuickActions}><Link className={styles.caseEnterPill} href={detail}>进入工作台</Link></div><p className={styles.caseNumber}>CASE {String(caseIndexById.get(item.id) ?? 0).padStart(2, "0")}</p><div className={styles.caseTitleStatus}><h2><small>{item.brand || "未标注品牌"}</small><span>{item.title}</span></h2><div>{item.expertGrade ? <span className={styles.expertGrade}>◆ 专家优选 {item.expertGrade}</span> : null}</div></div><div className={styles.caseInfoBand}><span>上传者 {video.createdByName || "未知"}</span><span>{item.versionSummary ? `${item.versionSummary.count} 个版本 · 最近 ${item.versionSummary.latestOwnerName} ${formatV19CardTime(item.versionSummary.latestUpdatedAt)}` : "尚未开始反写"}</span>{item.tags.map((tag) => <span className={styles.caseCategoryTag} key={tag}>#{tag}</span>)}{formal ? <Link href={`${workspace}?taxonomy=V0.3-PILOT`}>V0.3 历史</Link> : null}</div></div>
-      </article>;
-    })}</section> : <section className={styles.emptyState}><span>⌕</span><h2>没有找到对应案例</h2><p>可以换一个片名、品牌或标签继续搜索。</p><button onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button></section>}
+    {library === "REPORT" ? <>
+      <section className={styles.libraryHero}><p>REPORT REVERSE-ENGINEERING LIBRARY</p><h1>把一份报告，<br />拆回它的判断。</h1></section>
+      <section className={styles.emptyState}>
+        <span>◫</span>
+        <h2>报告逆向工程建设中</h2>
+        <p>报告库和视频库并列，用同一套逆向工程方法拆解报告。等报告的字段与流程定下来，这里会列出可反写的报告。</p>
+        <button type="button" onClick={() => setLibrary("VIDEO")}>先去视频库</button>
+      </section>
+    </> : <>
+      <section className={styles.libraryHero}><p>CREATIVE REVERSE-ENGINEERING LIBRARY</p><h1>从好作品里，<br />练出看见创意的能力。</h1></section>
+      <section className={styles.libraryToolbar}>
+        <div><p>VIDEO LIBRARY</p><h2>视频库</h2></div>
+        <div className={styles.libraryToolbarControls}>
+          <button
+            type="button"
+            className={`${styles.weekToggle} ${weeklyView ? styles.weekToggleOn : ""}`.trim()}
+            aria-pressed={weeklyView}
+            title={`按上传周分组，周内按收藏数排序（${CASE_FAVORITE_BALLOT}）`}
+            onClick={() => setWeeklyView((current) => !current)}
+          >
+            按周显示
+          </button>
+          <label className={styles.librarySearch}><span aria-hidden>⌕</span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label>
+        </div>
+      </section>
+      {favoriteError ? <p className={styles.libraryNotice} role="alert">{favoriteError}</p> : null}
+      {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section>
+        : loadError ? <section className={styles.emptyState}><h2>案例库读取失败</h2><p>{loadError}</p></section>
+        : !visible.length ? <section className={styles.emptyState}><span>⌕</span><h2>没有找到对应案例</h2><p>可以换一个片名、品牌或标签继续搜索。</p><button onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button></section>
+        : weeklyView ? weeklyGroups.map((group) => (
+          <section className={styles.weekSection} key={group.weekKey || "unknown"} aria-label={`${group.title} 的案例`}>
+            <div className={styles.weekHeading}>
+              <h3>{group.title}</h3>
+              {group.rangeLabel ? <span>{group.rangeLabel}</span> : null}
+              <b>{group.items.length} 部 · 按收藏数排序</b>
+            </div>
+            <div className={styles.caseGrid}>{group.items.map(renderCase)}</div>
+          </section>
+        ))
+        : <section className={styles.caseGrid} aria-label="案例列表">{visible.map(renderCase)}</section>}
+    </>}
     {showUpload ? <UploadDialog onClose={() => setShowUpload(false)} onUploaded={async (videoId) => { setShowUpload(false); window.location.href = detailHref(videoId); }} /> : null}
   </main>;
+}
+
+/** 收藏与评级读不出来不该拖垮整个案例库，读失败就当作还没有人收藏。 */
+async function loadEngagement(videoIds: string[], signal: AbortSignal) {
+  if (!videoIds.length) return {} as Record<string, CaseEngagement>;
+  const search = new URLSearchParams(videoIds.map((videoId) => ["videoId", videoId]));
+  try {
+    const response = await fetch(`/api/case-engagement?${search}`, { cache: "no-store", signal });
+    if (!response.ok) return {} as Record<string, CaseEngagement>;
+    const data = await readJsonResponse<{ engagement?: Record<string, CaseEngagement> }>(response, "收藏与评级读取");
+    return data.engagement ?? {};
+  } catch {
+    return {} as Record<string, CaseEngagement>;
+  }
 }

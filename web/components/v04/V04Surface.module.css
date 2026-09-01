@@ -79,7 +79,8 @@
 .brandWordmark span { font-weight: 900; letter-spacing: -.05em; }
 .brandWordmark small { color: var(--v04-muted); font-size: 9px; letter-spacing: .15em; }
 .siteNav { display: flex; align-items: center; justify-content: center; gap: 18px; }
-.siteNav a, .siteNav span { color: var(--v04-muted); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-decoration: none; }
+.siteNav a, .siteNav span, .siteNav button { border: 0; background: transparent; color: var(--v04-muted); padding: 0; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-decoration: none; cursor: pointer; }
+.siteNav button:hover { color: var(--v04-ink); }
 .siteNav .activeNav { color: var(--v04-ink); }
 .headerCaseTitle { overflow: hidden; max-width: min(30vw, 360px); color: var(--v04-ink) !important; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0 !important; }
 .siteUtilities { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
@@ -125,7 +126,7 @@
 .posterDuration { bottom: 17px; }
 .playButton { position: relative !important; z-index: 3 !important; display: grid; width: 64px !important; height: 64px; place-items: center; border-radius: 50%; background: var(--v04-accent); color: #10110f; font-size: 17px !important; transform: translateZ(0); }
 .caseBody { padding: 14px 2px 0; }
-.caseQuickActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; position: relative; z-index: 4; }
+.caseQuickActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 14px; position: relative; z-index: 4; }
 .primaryPill, .ghostPill { display: inline-flex; align-items: center; min-height: 38px; border-radius: 999px; padding: 0 14px; font-size: 11px; font-weight: 900; text-decoration: none; }
 .primaryPill { background: var(--v04-accent); color: #111; }
 .ghostPill { border: 1px solid rgba(255,255,255,.22); background: rgba(18,19,16,.88); color: var(--v04-ink); backdrop-filter: blur(10px); }
@@ -669,3 +670,128 @@ input.editableTimecode { padding: 5px 8px; }
    平时是描边，悬停才亮起——实心酸绿留给稀有的东西（如专家优选）。 */
 .caseEnterPill { display: inline-flex; align-items: center; min-height: 38px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; background: rgba(18, 19, 16, .88); color: var(--v04-ink); padding: 0 16px; font-size: 11px; font-weight: 900; text-decoration: none; backdrop-filter: blur(10px); transition: border-color .12s, color .12s, background .12s; }
 .caseEnterPill:hover { border-color: rgba(223, 255, 79, .55); background: rgba(223, 255, 79, .1); color: var(--v04-accent); }
+
+/* 首页的两条线：视频库和报告库。切换放在站点导航上，因为切的是「在看哪一个库」，
+   不是案例列表里的一个筛选条件。 */
+.libraryToolbarControls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 14px; }
+/* 按周显示：平时只是个开关，打开后周内按收藏数排序，所以它亮起来才说明列表换了口径。 */
+.weekToggle { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 9px 14px; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer; transition: border-color .12s, color .12s, background .12s; }
+.weekToggle:hover { border-color: rgba(223, 255, 79, .45); color: var(--v04-accent); }
+.weekToggleOn { border-color: rgba(223, 255, 79, .55); background: rgba(223, 255, 79, .12); color: var(--v04-accent); }
+.weekSection { width: min(1340px, calc(100% - 48px)); margin: 0 auto; }
+.weekSection .caseGrid { width: 100%; padding-bottom: 46px; }
+.weekHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--v04-line); }
+.weekHeading h3 { margin: 0; font-size: 16px; letter-spacing: -.03em; }
+.weekHeading span { color: var(--v04-muted); font-size: 11px; }
+.weekHeading b { margin-left: auto; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.libraryNotice { width: min(1340px, calc(100% - 48px)); margin: 0 auto 16px; border: 1px solid rgba(255, 174, 120, .4); border-radius: 12px; background: rgba(255, 174, 120, .06); padding: 10px 14px; color: #ffcfad; font-size: 11px; }
+
+/* 封面下方一行：左边进工作台，右边是收藏和老孙的评级。评级不是按钮，
+   所以它长得不像按钮——一组星星，点上去没有任何反应也不会让人误会。 */
+.caseCardMetrics { display: flex; min-width: 0; align-items: center; gap: 10px; margin-left: auto; }
+.caseFavorite { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 38px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; background: rgba(18, 19, 16, .88); color: var(--v04-ink); padding: 0 13px; font-size: 11px; font-weight: 900; cursor: pointer; backdrop-filter: blur(10px); transition: border-color .12s, color .12s, background .12s; }
+.caseFavorite svg { display: block; flex: none; }
+.caseFavorite b { font-variant-numeric: tabular-nums; }
+.caseFavorite:hover { border-color: rgba(255, 122, 122, .6); color: #ff9a9a; }
+.caseFavorite:disabled { cursor: progress; opacity: .55; }
+.caseFavoriteOn { border-color: rgba(255, 122, 122, .65); background: rgba(255, 122, 122, .14); color: #ff9a9a; }
+.caseRating { position: relative; display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 3px 8px; margin: 0; color: var(--v04-ink); font-size: 10px; }
+.caseRating > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.caseRating b { color: var(--v04-muted); font-size: 9px; font-weight: 900; letter-spacing: .06em; }
+.caseRating i { color: var(--v04-subject); font-size: 12px; font-style: normal; letter-spacing: .04em; }
+.caseRatingEmpty { color: var(--v04-muted); }
+.caseRatingEmpty i { color: rgba(146, 149, 139, .5); }
+/* 「更多」是展开其余版本的开关，不是评分控件——星级本身在卡片上永远只读。 */
+.caseRatingMore { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 2px 7px; font-size: 9px; font-weight: 800; cursor: pointer; }
+.caseRatingMore:hover, .caseRatingMore[aria-expanded="true"] { border-color: rgba(223, 255, 79, .45); color: var(--v04-accent); }
+.caseRatingPanel {
+  position: absolute; top: calc(100% + 7px); right: 0; z-index: 20;
+  display: flex !important; width: max-content; max-width: min(260px, 70vw); flex-direction: column; gap: 6px;
+  border: 1px solid var(--v04-line); border-radius: 12px; background: rgba(23, 24, 21, .99);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .5); padding: 10px 12px;
+}
+.caseRatingPanel > b { color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .1em; }
+.caseRatingPanel em { color: var(--v04-muted); font-size: 9px; font-style: normal; }
+
+@media (max-width: 620px) {
+  .weekSection { width: calc(100% - 24px); }
+  .libraryNotice { width: calc(100% - 24px); }
+  .libraryToolbarControls { align-items: stretch; justify-content: flex-start; }
+  /* 窄屏这一行会换行，负边距会把第二行压到封面上，所以窄屏不再上提。 */
+  .caseQuickActions { margin-top: 0; }
+  .caseCardMetrics { margin-left: 0; }
+}
+
+/* ---------- 评审：逐条目评论与作业评分 ---------- */
+/* 评论按钮平时不占视线：划过条目才浮现，已有评论则一直亮着——
+   「这里有人说过话」本身就是作者要看见的信息。与插入镜头那组同一套做法。 */
+.commentAnchor { position: relative; display: inline-flex; margin-left: 6px; vertical-align: middle; }
+.commentMarker {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border: 1px solid var(--v04-line); border-radius: 6px;
+  background: transparent; color: var(--v04-muted); padding: 0; cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity .12s, color .12s, border-color .12s;
+}
+.readingCore > div:hover .commentMarker,
+.readingCore > div:focus-within .commentMarker,
+.readingGroup > header:hover .commentMarker,
+.readingGroup > header:focus-within .commentMarker,
+.readingShot:hover .commentMarker,
+.readingShot:focus-within .commentMarker,
+.commentMarker[data-has-comment="true"],
+.commentMarker[data-open="true"] { opacity: 1; pointer-events: auto; }
+.commentMarker:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
+.commentMarker[data-has-comment="true"] { border-color: rgba(223, 255, 79, .45); color: var(--v04-accent); }
+/* 气泡就近弹在按钮下方；正文没有 overflow 裁剪，所以不需要传送到 body。 */
+.commentPopover {
+  position: absolute; top: calc(100% + 7px); left: 0; z-index: 40;
+  display: flex; width: 288px; max-width: 76vw; flex-direction: column; gap: 8px;
+  border: 1px solid var(--v04-line); border-radius: 12px; background: rgba(23, 24, 21, .99);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .5); padding: 12px;
+  color: var(--v04-ink); font-size: 12px; font-weight: 400; letter-spacing: 0; text-align: left;
+  cursor: default;
+}
+.commentPopover > b { color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+/* 按钮与气泡之间留了 7px 空隙好看，但鼠标穿过这段空隙时会离开整个锚点，
+   气泡就在人伸手去点「编辑」的路上消失了。用一条透明的桥把命中区补上。 */
+.commentPopover::before { position: absolute; top: -9px; left: 0; right: 0; height: 9px; content: ""; }
+.commentBody { color: #d4d6cd; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.commentPopover textarea {
+  min-height: 84px; border: 1px solid var(--v04-line); border-radius: 8px; background: var(--v04-bg);
+  color: var(--v04-ink); padding: 8px; font-size: 12px; line-height: 1.6; resize: vertical;
+}
+.commentPopover em { color: #ffcfad; font-size: 11px; font-style: normal; }
+.commentActions { display: flex; align-items: center; gap: 8px; }
+.commentActions button {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
+  color: var(--v04-ink); padding: 5px 12px; font-size: 11px; cursor: pointer;
+}
+.commentActions button:first-child { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
+.commentActions button:disabled { cursor: not-allowed; color: var(--v04-muted); border-color: var(--v04-line); opacity: .6; }
+.commentDelete { margin-left: auto; color: #ff9a9a !important; border-color: rgba(255, 122, 122, .4) !important; }
+
+/* 评分在正文最后、靠右：读完才谈得上打分，所以它是收束，不是抬头。 */
+.assignmentRating {
+  display: flex; align-items: center; justify-content: flex-end; gap: 18px;
+  margin: 0 0 40px; border: 1px solid var(--v04-line); border-radius: 14px;
+  background: var(--v04-panel); padding: 14px 20px;
+}
+/* 用具名类而不是 `> div`：后者会连星星那一行一起选中（权重还更高），
+   把本该横排的五颗星压成一列。 */
+.assignmentRatingMeta { display: grid; gap: 3px; text-align: right; }
+.assignmentRatingMeta small { color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.assignmentRatingMeta span { color: var(--v04-muted); font-size: 11px; }
+.assignmentRatingMeta em { color: #ffcfad; font-size: 11px; font-style: normal; }
+.ratingStrip { display: flex; align-items: center; gap: 2px; margin: 0; }
+.ratingStrip button, .ratingStrip span {
+  border: 0; background: transparent; color: rgba(146, 149, 139, .55); padding: 0 2px;
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.ratingStrip[data-readonly="true"] span { cursor: default; }
+.ratingStrip button:disabled { cursor: not-allowed; }
+.ratingStarOn { color: var(--v04-subject) !important; }
+
+@media (max-width: 620px) {
+  .commentPopover { width: min(288px, calc(100vw - 48px)); }
+  .assignmentRating { flex-direction: column; align-items: flex-end; gap: 10px; }
+}

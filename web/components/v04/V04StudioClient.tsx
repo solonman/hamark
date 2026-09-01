@@ -24,9 +24,17 @@ import {
   type V19VersionSummary,
 } from "@/lib/v19-ui-model";
 import { describeV19Diff, diffV19AgainstBase, type V19BaseDiff } from "@/lib/v19-base-diff";
+import { readJsonResponse } from "@/lib/http-json";
+import {
+  commentsByTarget,
+  emptyCaseReview,
+  type CaseReviewComment,
+  type CaseReviewModel,
+} from "@/lib/case-review";
 import { deriveV19StartTimes, findV19NonCompliantStarts, nextV19StartTime } from "@/lib/v19-timeline";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V19StudioDocument from "./V19StudioDocument";
+import V19AssignmentRating from "./V19AssignmentRating";
 import styles from "./V04Surface.module.css";
 
 /**
@@ -229,6 +237,9 @@ export default function V04StudioClient({
   const [activeNavId, setActiveNavId] = useState("module-1");
   const [scrollState, setScrollState] = useState({ atTop: true, atBottom: false });
   const [createBaseId, setCreateBaseId] = useState("");
+  // 评审（评分与逐条目评论）跟着「当前正在看的版本」走，与作业内容分开读写：
+  // 读不到评审不影响写作业，写评审也不进版本链的变更集。
+  const [review, setReview] = useState<CaseReviewModel>(() => emptyCaseReview());
 
   const pushToast = useCallback((text: string) => {
     const id = crypto.randomUUID();
@@ -789,6 +800,62 @@ export default function V04StudioClient({
     return () => observer.disconnect();
   }, [draft.shotGroups, collapsedModules]);
 
+  const reviewVersionId = model?.current.id ?? null;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const search = reviewVersionId ? `?version=${encodeURIComponent(reviewVersionId)}` : "";
+        const response = await fetch(
+          `/api/videos/${encodeURIComponent(videoId)}/review${search}`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        if (!response.ok) return;
+        const next = await readJsonResponse<CaseReviewModel>(response, "评审读取");
+        if (!controller.signal.aborted) setReview(next);
+      } catch {
+        // 评审读不出来不该挡住写作业；保持上一次的状态，下次切版本再试。
+      }
+    })();
+    return () => controller.abort();
+  }, [videoId, reviewVersionId]);
+
+  const postReview = useCallback(async <T,>(body: unknown, action: string): Promise<T> => {
+    const response = await fetch(`/api/videos/${encodeURIComponent(videoId)}/review`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    });
+    const data = await readJsonResponse<T & { error?: string }>(response, action);
+    if (!response.ok) throw new Error(data.error || `${action}失败，请重试。`);
+    return data;
+  }, [videoId]);
+
+  const saveReviewComment = useCallback(async (input: { targetKey: string; targetLabel: string; body: string }) => {
+    const versionId = modelRef.current?.current.id;
+    if (!versionId) throw new Error("这一版还没有保存过内容，保存后才能评论。");
+    const data = await postReview<{ comment: CaseReviewComment | null }>(
+      { kind: "COMMENT", versionId, ...input }, "评论保存",
+    );
+    setReview((current) => ({
+      ...current,
+      comments: data.comment
+        ? [...current.comments.filter((item) => item.targetKey !== input.targetKey), data.comment]
+        : current.comments.filter((item) => item.targetKey !== input.targetKey),
+    }));
+  }, [postReview]);
+
+  const saveReviewRating = useCallback(async (stars: number) => {
+    const versionId = modelRef.current?.current.id;
+    if (!versionId) throw new Error("这一版还没有保存过内容，保存后才能评分。");
+    const data = await postReview<{ stars: number | null }>({ kind: "RATING", versionId, stars }, "评分保存");
+    setReview((current) => ({ ...current, stars: data.stars }));
+  }, [postReview]);
+
+  const reviewComments = useMemo(() => commentsByTarget(review.comments), [review.comments]);
+
   const versionRows = useMemo(() => (model ? buildV19VersionTree(model.versions) : []), [model]);
   const createBaseOptions = useMemo(
     () => (model ? model.versions.filter((version): version is V19VersionSummary & { id: string } => version.id !== null) : []),
@@ -1061,6 +1128,20 @@ export default function V04StudioClient({
             onNormalizeTimeline={onNormalizeTimeline}
             onInvalid={pushToast}
             onBeforeEdit={() => !interceptForeignEdit()}
+            review={{
+              canReview: review.canReview,
+              comments: reviewComments,
+              disabled: !model.current.id,
+              onSave: saveReviewComment,
+            }}
+          />
+          {/* 打分放在正文末尾：读完整份作业才谈得上给分。 */}
+          <V19AssignmentRating
+            stars={review.stars}
+            canReview={review.canReview}
+            versionLabel={`v${model.current.number} · ${model.current.ownerName}`}
+            disabled={!model.current.id}
+            onRate={saveReviewRating}
           />
         </div>
       </div>
