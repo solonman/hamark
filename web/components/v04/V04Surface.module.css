@@ -60,9 +60,25 @@
 .productHeader nav a:hover, .productHeader nav button:hover, .saveCluster button:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .productHeader > div { display: flex; align-items: center; gap: 9px; }
 .productHeader > div > b { color: var(--v04-accent); font-size: 10px; letter-spacing: .08em; }
-.productHeader :global(.user-menu-trigger) { border-color: var(--v04-line); background: var(--v04-panel); color: var(--v04-ink); }
-.productHeader :global(.user-menu-popover) { border-color: var(--v04-line); background: var(--v04-panel); color: var(--v04-ink); }
-.productHeader :global(.user-menu-popover button) { background: var(--v04-accent); color: #111; }
+/* 用户菜单来自浅色主题：白底胶囊 + 继承下来的浅色字，落在深色顶栏里就成了白底白字。
+   两种顶栏都要接管——产品头（.productHeader）和站点头（.siteHeader，案例库与工作台用的就是它）。 */
+.productHeader :global(.user-menu-trigger), .siteHeader :global(.user-menu-trigger) {
+  border-color: var(--v04-line); background: var(--v04-panel); color: var(--v04-ink);
+}
+.productHeader :global(.user-menu-trigger:hover), .siteHeader :global(.user-menu-trigger:hover) {
+  border-color: rgba(223, 255, 79, .45);
+}
+/* 头像盘在近黑的底色上会糊成一团，抬一档明度让它重新成为一个盘。 */
+.productHeader :global(.user-menu-trigger > span), .siteHeader :global(.user-menu-trigger > span) {
+  background: #2e302a; color: var(--v04-accent);
+}
+.productHeader :global(.user-menu-popover), .siteHeader :global(.user-menu-popover) {
+  border-color: var(--v04-line); background: var(--v04-panel); color: var(--v04-ink);
+}
+.productHeader :global(.user-menu-popover p), .siteHeader :global(.user-menu-popover p) { color: var(--v04-muted); }
+.productHeader :global(.user-menu-popover button), .siteHeader :global(.user-menu-popover button) {
+  background: var(--v04-accent); color: #111;
+}
 .wordmark { font-weight: 900; letter-spacing: -.03em; }
 .wordmark small { margin-left: 8px; color: var(--v04-muted); font-size: 10px; }
 .saveCluster span { color: var(--v04-muted); font-size: 11px; }

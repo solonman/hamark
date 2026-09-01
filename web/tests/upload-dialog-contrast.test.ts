@@ -33,3 +33,15 @@ test("upload dialog contrast applies to desktop and the existing 390px single-co
   assert.match(css, /@media[^\{]*max-width:[^\{]*\{[\s\S]*?\.upload-dialog \{[\s\S]*?min-height: 100vh;/);
   assert.match(css, /@media[^\{]*max-width:[^\{]*\{[\s\S]*?\.form-grid \{\s*grid-template-columns: 1fr;/);
 });
+
+test("the user menu is repainted for the dark surface instead of staying a white pill", async () => {
+  const surface = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
+  // 案例库和工作台用的是 .siteHeader；只覆盖 .productHeader 时，这里就是白底浅字。
+  assert.match(surface, /\.productHeader :global\(\.user-menu-trigger\), \.siteHeader :global\(\.user-menu-trigger\)/);
+  assert.match(surface, /\.siteHeader :global\(\.user-menu-popover\)/);
+  assert.match(surface, /\.siteHeader :global\(\.user-menu-trigger > span\)/);
+  // 顶栏底色 #171815 与正文色 #e6e7df、头像盘 #2e302a 与酸绿 #dfff4f 都要读得出来。
+  assert(contrast("e6e7df", "171815") >= 4.5, "user name must stay readable on the dark header");
+  assert(contrast("dfff4f", "2e302a") >= 4.5, "avatar initial must stay readable on its disc");
+  assert(contrast("92958b", "171815") >= 4.5, "the popover's secondary line must stay readable");
+});
