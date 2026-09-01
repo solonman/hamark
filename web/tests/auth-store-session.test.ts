@@ -164,11 +164,11 @@ test("Session lookup returns valid users and rejects expired or revoked sessions
     createdAt: "2026-08-02T11:00:00.000Z",
   });
 
-  assert.deepEqual(await store.getSession("valid-token", "2026-08-02T11:30:00.000Z"), user);
-  assert.equal(await store.getSession("expired-token", "2026-08-02T11:30:00.000Z"), null);
+  assert.deepEqual(await store.getSession("valid-token", "2026-08-02T11:30:00.000Z", "2026-08-17T11:30:00.000Z"), user);
+  assert.equal(await store.getSession("expired-token", "2026-08-02T11:30:00.000Z", "2026-08-17T11:30:00.000Z"), null);
 
   await store.revokeSession("valid-token", "2026-08-02T11:40:00.000Z");
-  assert.equal(await store.getSession("valid-token", "2026-08-02T11:41:00.000Z"), null);
+  assert.equal(await store.getSession("valid-token", "2026-08-02T11:41:00.000Z", "2026-08-17T11:41:00.000Z"), null);
 });
 
 test("createSession stores only the token hash", async () => {
@@ -188,11 +188,37 @@ test("createSession stores only the token hash", async () => {
   assert.ok(persisted);
   assert.equal(persisted.tokenHash, await hashToken(result.token));
   assert.notEqual(persisted.tokenHash, result.token);
-  assert.equal(result.expiresAt.toISOString(), "2026-08-03T00:00:00.000Z");
+  assert.equal(result.expiresAt.toISOString(), "2026-08-17T00:00:00.000Z");
   assert.deepEqual(await getUserForToken(store, result.token, new Date("2026-08-02T01:00:00.000Z")), user);
 
   await revokeToken(store, result.token, new Date("2026-08-02T02:00:00.000Z"));
   assert.equal(await getUserForToken(store, result.token, new Date("2026-08-02T02:01:00.000Z")), null);
+});
+
+test("Each authenticated read slides the session 15 days forward with no absolute cap", async () => {
+  const store = new InMemoryAuthStore();
+  const user = await store.syncUser(
+    "corp-a",
+    member({
+      departments: [{ id: "1", name: "Brand", isPrimary: true }],
+    }),
+    "identity-alice",
+    "2026-08-02T00:00:00.000Z",
+  );
+
+  const session = await createSession(store, user, new Date("2026-08-02T00:00:00.000Z"));
+  assert.equal(session.expiresAt.toISOString(), "2026-08-17T00:00:00.000Z");
+
+  // 第 14 天回来一次，整个窗口后移，原来的到期日不再成立。
+  assert.deepEqual(await getUserForToken(store, session.token, new Date("2026-08-16T00:00:00.000Z")), user);
+  assert.equal(store.peekSessionByUserId(user.id)?.expiresAt, "2026-08-31T00:00:00.000Z");
+
+  // 只要持续在用，跨过任何绝对期限都仍然有效。
+  assert.deepEqual(await getUserForToken(store, session.token, new Date("2026-08-30T00:00:00.000Z")), user);
+  assert.deepEqual(await getUserForToken(store, session.token, new Date("2026-09-13T00:00:00.000Z")), user);
+
+  // 连续闲置超过 15 天才掉线。
+  assert.equal(await getUserForToken(store, session.token, new Date("2026-09-29T00:00:00.000Z")), null);
 });
 
 test("App token read rejects expired tokens", async () => {
@@ -309,10 +335,11 @@ test("PostgresAuthStore getSession atomically touches and reads a valid session"
   });
   const store = new PostgresAuthStore(fakeDb.asDbClient());
 
-  assert.equal(await store.getSession("token-hash", "2026-08-02T11:00:00.000Z"), null);
+  assert.equal(await store.getSession("token-hash", "2026-08-02T11:00:00.000Z", "2026-08-17T11:00:00.000Z"), null);
   assert.equal(fakeDb.sqlLog().length, 1);
   assert.match(fakeDb.sqlLog()[0], /UPDATE auth_sessions/);
   assert.match(fakeDb.sqlLog()[0], /RETURNING/);
+  assert.match(fakeDb.sqlLog()[0], /SET last_seen_at = \?, expires_at = \?/);
   assert.match(fakeDb.sqlLog()[0], /expires_at > \?/);
 });
 
@@ -429,13 +456,14 @@ class InMemoryAuthStore implements AuthStore {
     return null;
   }
 
-  async getSession(tokenHash: string, now: string): Promise<CurrentUser | null> {
+  async getSession(tokenHash: string, now: string, renewedExpiresAt: string): Promise<CurrentUser | null> {
     const session = this.sessions.get(tokenHash);
     const user = session ? this.users.get(session.userId) : null;
     if (!session || !user || session.revokedAt !== null || session.expiresAt <= now || user.status !== "ACTIVE") {
       return null;
     }
     session.lastSeenAt = now;
+    session.expiresAt = renewedExpiresAt;
     return this.toCurrentUser(user);
   }
 

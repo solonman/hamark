@@ -539,9 +539,14 @@ class FakeAuthStore implements AuthStore {
     throw new Error("Not implemented for WeComClient tests.");
   }
 
-  async getSession(tokenHash: string, now: string): Promise<CurrentUser | null> {
+  async getSession(
+    tokenHash: string,
+    now: string,
+    renewedExpiresAt: string,
+  ): Promise<CurrentUser | null> {
     void tokenHash;
     void now;
+    void renewedExpiresAt;
     throw new Error("Not implemented for WeComClient tests.");
   }
 

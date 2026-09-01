@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isTrustedOrigin } from "@/lib/auth/routes";
 import { getAuthServices } from "@/lib/auth/server";
-import { createSession, SESSION_COOKIE } from "@/lib/auth/session";
+import { createSession, SESSION_COOKIE, sessionCookieExpiry } from "@/lib/auth/session";
 import { safeReturnTo } from "@/lib/auth/security";
 import { isLocalDemoMode } from "@/lib/local-demo";
 
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
   const returnTo = safeReturnTo(String(form.get("return_to") || "/"));
   const response = NextResponse.redirect(new URL(returnTo, services.config.appUrl), 303);
   response.cookies.set(SESSION_COOKIE, session.token, {
-    expires: session.expiresAt,
+    expires: sessionCookieExpiry(now),
     httpOnly: true,
     path: "/",
     sameSite: "lax",

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { completeWeComLogin } from "@/lib/auth/login";
-import { OAUTH_NONCE_COOKIE, SESSION_COOKIE } from "@/lib/auth/session";
+import { OAUTH_NONCE_COOKIE, SESSION_COOKIE, sessionCookieExpiry } from "@/lib/auth/session";
 import { authErrorCode, callbackErrorLocation, isProductionAppUrl } from "@/lib/auth/routes";
 import { getAuthServices } from "@/lib/auth/server";
 import { isLocalDemoMode } from "@/lib/local-demo";
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     );
     const response = NextResponse.redirect(new URL(result.returnTo, services.config.appUrl));
     response.cookies.set(SESSION_COOKIE, result.token, {
-      expires: result.expiresAt,
+      expires: sessionCookieExpiry(),
       httpOnly: true,
       path: "/",
       sameSite: "lax",

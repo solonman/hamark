@@ -5,7 +5,19 @@ import type { AuthStore, CurrentUser } from "./store.ts";
 export const SESSION_COOKIE = "hamark_session";
 export const OAUTH_NONCE_COOKIE = "hamark_oauth_nonce";
 
-const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+// 会话按 15 天滑动续期：每次通过校验都把 expires_at 推到 now + 15 天，没有绝对上限。
+const SESSION_MAX_AGE_MS = 15 * 24 * 60 * 60 * 1000;
+// Cookie 只是令牌载体，是否有效由服务端 expires_at 决定，所以给它浏览器允许的最长寿命，
+// 避免 Cookie 先于滑动窗口过期把还在活跃的人踢下线。
+const SESSION_COOKIE_MAX_AGE_MS = 400 * 24 * 60 * 60 * 1000;
+
+export function sessionExpiry(now: Date = new Date()): Date {
+  return new Date(now.getTime() + SESSION_MAX_AGE_MS);
+}
+
+export function sessionCookieExpiry(now: Date = new Date()): Date {
+  return new Date(now.getTime() + SESSION_COOKIE_MAX_AGE_MS);
+}
 
 export async function createSession(
   store: AuthStore,
@@ -13,7 +25,7 @@ export async function createSession(
   now: Date = new Date(),
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = randomToken();
-  const expiresAt = new Date(now.getTime() + SESSION_MAX_AGE_MS);
+  const expiresAt = sessionExpiry(now);
   await store.createSession({
     id: `session_${randomUUID()}`,
     userId: user.id,
@@ -33,7 +45,11 @@ export async function getUserForToken(
   if (!token) {
     return null;
   }
-  return store.getSession(await hashToken(token), now.toISOString());
+  return store.getSession(
+    await hashToken(token),
+    now.toISOString(),
+    sessionExpiry(now).toISOString(),
+  );
 }
 
 export async function revokeToken(

@@ -41,7 +41,7 @@ export interface AuthStore {
   consumeOAuthState(stateHash: string, nonceHash: string, now: string): Promise<OAuthStateRecord | null>;
   syncUser(corpId: string, member: WeComMember, identityKey: string, now: string): Promise<CurrentUser>;
   createSession(input: NewSession): Promise<void>;
-  getSession(tokenHash: string, now: string): Promise<CurrentUser | null>;
+  getSession(tokenHash: string, now: string, renewedExpiresAt: string): Promise<CurrentUser | null>;
   revokeSession(tokenHash: string, now: string): Promise<void>;
   getAppToken(corpId: string, agentId: string, now: string): Promise<EncryptedAppToken | null>;
   putAppToken(input: EncryptedAppToken): Promise<void>;
@@ -239,13 +239,13 @@ export class PostgresAuthStore implements AuthStore {
       .run();
   }
 
-  async getSession(tokenHash: string, now: string): Promise<CurrentUser | null> {
+  async getSession(tokenHash: string, now: string, renewedExpiresAt: string): Promise<CurrentUser | null> {
     const rows = (
       await this.db
         .prepare(
           `WITH touched_session AS (
             UPDATE auth_sessions
-            SET last_seen_at = ?
+            SET last_seen_at = ?, expires_at = ?
             WHERE token_hash = ?
               AND revoked_at IS NULL
               AND expires_at > ?
@@ -266,7 +266,7 @@ export class PostgresAuthStore implements AuthStore {
           WHERE u.status = 'ACTIVE'
           ORDER BY ud.is_primary DESC, ud.department_name, ud.wecom_department_id`,
         )
-        .bind(now, tokenHash, now)
+        .bind(now, renewedExpiresAt, tokenHash, now)
         .all<UserWithDepartmentRow>()
     ).results;
 

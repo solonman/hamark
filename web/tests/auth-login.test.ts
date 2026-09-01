@@ -138,9 +138,14 @@ class LoginStore implements AuthStore {
     this.sessions.push(input);
   }
 
-  async getSession(tokenHash: string, sessionNow: string): Promise<CurrentUser | null> {
+  async getSession(
+    tokenHash: string,
+    sessionNow: string,
+    renewedExpiresAt: string,
+  ): Promise<CurrentUser | null> {
     void tokenHash;
     void sessionNow;
+    void renewedExpiresAt;
     return null;
   }
 
