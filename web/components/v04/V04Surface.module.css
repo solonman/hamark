@@ -316,6 +316,10 @@
 .choiceTrigger { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--v04-line); border-radius: 9px; background: #11120f; color: var(--v04-ink); padding: 8px 10px; text-align: left; }
 .choiceTrigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choiceTrigger b { color: var(--v04-accent); font-size: 10px; }
+/* 最终版锁定态：跟 V19EditableValue 的 .editableLocked 同一套语言——
+   看起来还能点，但悬停转琥珀色提示点了也没用。 */
+.choiceTriggerLocked { cursor: not-allowed; }
+.choiceTriggerLocked:hover { border-color: rgba(255, 174, 120, .55); }
 .choicePanel { display: flex; max-height: 260px; flex-wrap: wrap; gap: 6px; overflow: auto; padding: 9px; border: 1px solid var(--v04-line); border-radius: 9px; background: #0f100e; }
 .choicePanel button { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: #b9bbb2; padding: 7px 9px; font-size: 11px; }
 .isSelected { border-color: var(--v04-accent) !important; background: rgba(223,255,79,.12) !important; color: var(--v04-accent) !important; }
@@ -907,9 +911,12 @@ input.editableTimecode { padding: 5px 8px; }
 /* 溯源视图：合并重复行、当前采用只留一行来源提示、旧写法收成可展开摘要，
    未纳入照旧完整显示（见 lib/v19-final-trace.ts 的简化规则 1-5）。 */
 .finalTrace { display: grid; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--v04-line); }
-/* 当前采用：比正文小一号的灰字，不重复正文内容，只说来源。 */
-.finalTraceCurrent { color: var(--v04-muted); font-size: 10.5px; line-height: 1.5; }
-/* 旧写法摘要行：整行可点，收起时只留版本/作者/时间 + 第一行预览（省略号截断），
+/* 当前采用：这一组里唯一的锚，用 --v04-subject（跟字段标签同一色系）压住
+   旧写法的灰字，比旧写法更清楚可读，但不抢占正文本身。 */
+.finalTraceCurrent { color: var(--v04-subject); font-size: 10.5px; font-weight: 700; line-height: 1.5; }
+/* 旧写法摘要行：整体弱化——版本号／作者普通字重、灰色，正文摘要更淡，
+   只有「未纳入」保留琥珀色强调（见下面 .finalTraceRowPending）。
+   整行可点，收起时只留版本/作者/时间 + 第一行预览（省略号截断），
    点开后预览换成跟未纳入一样的整段正文。 */
 .finalTraceSummaryRow {
   display: block; width: 100%; border: 0; border-left: 2px solid var(--v04-line); border-radius: 8px;
@@ -918,10 +925,10 @@ input.editableTimecode { padding: 5px 8px; }
 }
 .finalTraceSummaryRow:hover { border-left-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .05); }
 .finalTraceSummaryLabel {
-  color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-weight: 700; margin-right: 8px;
+  color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 400; margin-right: 8px;
 }
-.finalTraceSummaryPreview { color: var(--v04-muted); }
+.finalTraceSummaryPreview { color: var(--v04-muted); opacity: .72; }
 .finalTraceSummaryRow[aria-expanded="false"] .finalTraceSummaryPreview {
   display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
 }

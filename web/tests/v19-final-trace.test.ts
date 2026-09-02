@@ -3,8 +3,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  deriveV19AuxiliaryPathTrace,
+  deriveV19ChoiceFieldTrace,
   deriveV19FinalFieldTrace,
+  deriveV19PrimaryDetailTrace,
+  describeV19ChoiceValue,
   describeV19FinalIntakeSource,
+  describeV19FinalTraceHoverSource,
   describeV19FinalTraceRowLabel,
   describeV19StructuralIntake,
   firstLineV19TraceValue,
@@ -102,23 +107,23 @@ test("deriveV19FinalFieldTrace: a field whose target does not exist in originPay
 });
 
 // ---------------------------------------------------------------------------
-// 简化规则 1: 合并重复行 — 紧邻前一行值相同就删掉，保留先出现的那行。这修的是
-// 回填时 v1 自己的修改被重放，导致「v1 原稿」与「v1 <它自己的重放>」内容完全
-// 相同却各占一行的 bug。
+// 简化规则 1: 合并重复行 — 紧邻前一行值相同就删掉，保留先出现的那行。这只处理
+// 严格相邻的一对；一份原稿所属版本（v1）自己写下、但和它不相邻的重复记录，
+// 由下面「假原稿行」一节的 buildV19OriginRow 兜底处理。
 // ---------------------------------------------------------------------------
 
-test("deriveV19FinalFieldTrace: an intake whose value exactly repeats the origin's (the v1-replay bug) is merged away — the field just shows its 当前采用 line, no duplicated history row", () => {
-  const intakes = [intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 1, actorName: "王大明" })];
+test("deriveV19FinalFieldTrace: an intake whose value exactly repeats the origin's, from a version other than v1, is merged away by the adjacent dedupe — the field just shows its 当前采用 line, no duplicated history row", () => {
+  const intakes = [intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 2, actorName: "李晓芸" })];
   const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "王大明");
   assert.equal(trace.hasTrace, true);
   assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
-  assert.deepEqual(trace.overridden, [], "the replayed intake exactly repeats the origin, so there is no separate history row for it");
+  assert.deepEqual(trace.overridden, [], "the duplicate intake exactly repeats the origin, so there is no separate history row for it");
   assert.deepEqual(trace.pending, []);
 });
 
 test("deriveV19FinalFieldTrace: only the adjacent duplicate is dropped — a later, genuinely different intake still becomes current", () => {
   const intakes = [
-    intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 1, actorName: "王大明" }), // duplicate of origin, dropped
+    intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 2, actorName: "李晓芸" }), // duplicate of origin, dropped
     intake({ id: "i2", seq: 2, value: "李晓芸改的意图", sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z" }),
   ];
   const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "王大明");
@@ -127,6 +132,42 @@ test("deriveV19FinalFieldTrace: only the adjacent duplicate is dropped — a lat
   // The origin survives as the sole overridden entry — the duplicate i1 never appears at all.
   assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"]);
   assert.deepEqual(trace.pending, []);
+});
+
+// ---------------------------------------------------------------------------
+// 假原稿行兜底 (用户第二次看了线上溯源模式后反馈): 原稿 = v1 自己当前的
+// payload，回放又重放了 v1 自己的写入事件，所以只要 v1 自己写过这个字段，
+// 原稿的值必然和 v1 最后一条记录相同——哪怕中间还有 v1 自己写下的、真的不同
+// 的过渡值（不相邻，简化规则 1 抓不到），原稿这一行永远是多余的重复。
+// buildV19OriginRow 按「值等于 v1 最后一条记录」整体丢弃原稿行，中间的过渡
+// 记录仍然保留为真实历史。
+// ---------------------------------------------------------------------------
+
+test('deriveV19FinalFieldTrace: 原稿 equals v1\'s own *last* record even when a different v1 record sits between them ("侧面平视 → 特写 → 侧面平视" all from v1) — 原稿 is dropped, the real transition stays, and current is v1\'s last edit, not "原稿"', () => {
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "特写", sourceVersionNumber: 1, actorName: "赵雅诗", createdAt: "2026-08-26T09:34:00.000Z" }),
+    intake({ id: "i2", seq: 2, value: "侧面平视", sourceVersionNumber: 1, actorName: "赵雅诗", createdAt: "2026-08-26T09:35:00.000Z" }),
+  ];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("侧面平视"), intakes, "facts.commercialIntent", "赵雅诗");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v1 赵雅诗 ${formatShortDateTime("2026-08-26T09:35:00.000Z")}`,
+    "current must be attributed to v1's actual last edit, not to a synthetic 原稿 row");
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["i1"],
+    "the real intermediate transition (原稿→特写) stays as history; only the redundant 原稿 row itself is dropped");
+});
+
+test("deriveV19FinalFieldTrace: 原稿 is kept when it does NOT match v1's own last record — only an exact match is redundant", () => {
+  const intakes = [intake({ id: "i1", seq: 1, value: "李晓芸后来改的", sourceVersionNumber: 1, actorName: "赵雅诗" })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "赵雅诗");
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"], "原稿 does not match v1's last record's value, so it stays");
+});
+
+test("deriveV19FinalFieldTrace: the 假原稿行 fallback only looks at v1-sourced records — a matching value from another version or FINAL_DIRECT does not drop 原稿", () => {
+  const intakes = [intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 2, actorName: "张三" })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "赵雅诗");
+  // This is exactly 简化规则 1's ordinary adjacent dedupe (already covered above) —
+  // asserted again here just to make the "only v1" boundary explicit: the row
+  // that disappears is the *duplicate intake*, not 原稿, even though the values match.
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 赵雅诗 原稿");
 });
 
 test("deriveV19FinalFieldTrace: two consecutive intakes with the same value merge into one, keeping the earlier (lower-seq) one's identity", () => {
@@ -251,10 +292,10 @@ test("deriveV19FinalFieldTrace: an empty origin with only a whitespace-only inta
 
 test("deriveV19FinalFieldTrace: a blank field with no intakes that actually diverge from it still shows its (blank) 当前采用 line, per the adjusted 简化规则 4", () => {
   const emptyOrigin = factsOrigin("");
-  // Same literal value as the (blank) origin, so 简化规则 1's dedupe already
-  // merges it away — current ends up being the origin either way, and its
-  // 当前采用 line renders regardless of the origin's value being blank.
-  const intakes = [intake({ id: "i1", seq: 1, value: "", applied: true, sourceVersionNumber: 1, actorName: "王大明" })];
+  // Same literal value as the (blank) origin, and from a version other than
+  // v1, so 简化规则 1's adjacent dedupe merges it away — current ends up
+  // being 原稿 itself, and its 当前采用 line renders regardless of being blank.
+  const intakes = [intake({ id: "i1", seq: 1, value: "", applied: true, sourceVersionNumber: 2, actorName: "李晓芸" })];
   const trace = deriveV19FinalFieldTrace(emptyOrigin, intakes, "facts.commercialIntent", "王大明");
   assert.equal(trace.hasTrace, true);
   assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
@@ -445,4 +486,243 @@ test("describeV19StructuralIntake names a removed group by its targetLabel", () 
     current,
   );
   assert.equal(text, "v4 老王 删除桥段「乱世重逢」");
+});
+
+// ---------------------------------------------------------------------------
+// deriveV19PrimaryDetailTrace — 主导路径细项 (spec 五、18 补充): 后端把每次
+// 改动整体存成一条 `path.primaryDetails` FIELD 记录，value 是
+// `{ <detailKey>: string, ... }`；这里按 detailKey 抽取单个字段的溯源链。
+// ---------------------------------------------------------------------------
+
+function originWithPrimaryDetails(primaryType: "LOVE" | "FUN" | "PERCEPTION", details: Record<string, string>): V04DraftPayloadV1 {
+  return {
+    ...emptyV04DraftPayload(),
+    perceptionPath: { primaryType, primaryDetails: details, auxiliaryTypes: [] },
+  };
+}
+
+function primaryDetailIntake(overrides: Partial<V19FinalIntake> & Pick<V19FinalIntake, "id" | "seq" | "value">): V19FinalIntake {
+  return intake({ targetKey: "path.primaryDetails", targetLabel: "主导路径细项", ...overrides });
+}
+
+test("deriveV19PrimaryDetailTrace: reads the origin's value for just that detailKey out of primaryDetails, and shows 当前采用 even untouched", () => {
+  const origin = originWithPrimaryDetails("LOVE", { emotionalBase: "原稿情感基底", accumulation: "原稿累积" });
+  const trace = deriveV19PrimaryDetailTrace(origin, [], "emotionalBase", "王大明");
+  assert.equal(trace.hasTrace, true);
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+});
+
+test("deriveV19PrimaryDetailTrace: a path.primaryDetails record only updates the current field's key, leaving other keys to merge via origin unaffected", () => {
+  const origin = originWithPrimaryDetails("LOVE", { emotionalBase: "原稿情感基底", accumulation: "原稿累积" });
+  const intakes = [
+    primaryDetailIntake({
+      id: "i1", seq: 1, value: { emotionalBase: "改过的情感基底", accumulation: "原稿累积" },
+      sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z",
+    }),
+  ];
+  const emotionalBaseTrace = deriveV19PrimaryDetailTrace(origin, intakes, "emotionalBase", "王大明");
+  assert.equal(emotionalBaseTrace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+  assert.deepEqual(emotionalBaseTrace.overridden.map((row) => row.key), ["origin"]);
+  // The same record didn't actually change `accumulation` — its extracted value ("原稿累积")
+  // exactly repeats the origin's, so 简化规则 1's adjacent dedupe merges it away entirely.
+  const accumulationTrace = deriveV19PrimaryDetailTrace(origin, intakes, "accumulation", "王大明");
+  assert.equal(accumulationTrace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+  assert.deepEqual(accumulationTrace.overridden, []);
+});
+
+test("deriveV19PrimaryDetailTrace: a detailKey absent from a record's value (e.g. primaryType changed to a path without that key) reads as empty, not as a crash or 'undefined'", () => {
+  const origin = originWithPrimaryDetails("LOVE", { emotionalBase: "原稿情感基底" });
+  const intakes = [
+    primaryDetailIntake({
+      id: "i1", seq: 1, value: { perceptionRule: "切换到了感知路径的字段" }, // primaryType switched away from LOVE
+      sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z",
+    }),
+  ];
+  const trace = deriveV19PrimaryDetailTrace(origin, intakes, "emotionalBase", "王大明");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+  assert.equal(trace.current?.value, "", "the record's value has no emotionalBase key at all, so it extracts as blank");
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"]);
+});
+
+// ---------------------------------------------------------------------------
+// deriveV19AuxiliaryPathTrace — 辅助路径描述／创意作用: `path.auxiliaryTypes`
+// FIELD records store the whole list as `[{ type, description, creativeRole }]`;
+// derive per (type, field).
+// ---------------------------------------------------------------------------
+
+function originWithAuxiliaryTypes(entries: Array<{ type: string; description: string; creativeRole: string }>): V04DraftPayloadV1 {
+  return {
+    ...emptyV04DraftPayload(),
+    perceptionPath: { primaryType: "LOVE", primaryDetails: {}, auxiliaryTypes: entries as V04DraftPayloadV1["perceptionPath"]["auxiliaryTypes"] },
+  };
+}
+
+function auxiliaryTypesIntake(overrides: Partial<V19FinalIntake> & Pick<V19FinalIntake, "id" | "seq" | "value">): V19FinalIntake {
+  return intake({ targetKey: "path.auxiliaryTypes", targetLabel: "辅助路径", ...overrides });
+}
+
+test("deriveV19AuxiliaryPathTrace: reads the origin entry matching auxType and the requested field (description)", () => {
+  const origin = originWithAuxiliaryTypes([{ type: "FUN", description: "原稿趣味描述", creativeRole: "原稿创意作用" }]);
+  const trace = deriveV19AuxiliaryPathTrace(origin, [], "FUN", "description", "王大明");
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+});
+
+test("deriveV19AuxiliaryPathTrace: an auxiliaryTypes record updating only creativeRole for the matching type changes that field's trace but not description's", () => {
+  const origin = originWithAuxiliaryTypes([{ type: "FUN", description: "原稿趣味描述", creativeRole: "原稿创意作用" }]);
+  const intakes = [
+    auxiliaryTypesIntake({
+      id: "i1", seq: 1,
+      value: [{ type: "FUN", description: "原稿趣味描述", creativeRole: "改过的创意作用" }],
+      sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z",
+    }),
+  ];
+  const roleTrace = deriveV19AuxiliaryPathTrace(origin, intakes, "FUN", "creativeRole", "王大明");
+  assert.equal(roleTrace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+  const descriptionTrace = deriveV19AuxiliaryPathTrace(origin, intakes, "FUN", "description", "王大明");
+  assert.equal(descriptionTrace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+  assert.deepEqual(descriptionTrace.overridden, []);
+});
+
+test("deriveV19AuxiliaryPathTrace: an entry whose type isn't present in a record (that aux path wasn't active at that point) reads as empty", () => {
+  const origin = originWithAuxiliaryTypes([{ type: "FUN", description: "原稿趣味描述", creativeRole: "原稿创意作用" }]);
+  const intakes = [
+    auxiliaryTypesIntake({
+      id: "i1", seq: 1, value: [{ type: "PERCEPTION", description: "换成了别的辅助路径", creativeRole: "" }],
+      sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z",
+    }),
+  ];
+  const trace = deriveV19AuxiliaryPathTrace(origin, intakes, "FUN", "description", "王大明");
+  assert.equal(trace.current?.value, "");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+});
+
+// ---------------------------------------------------------------------------
+// describeV19ChoiceValue — 固定选项字段的人类可读文案：选项 id → 中文标签，
+// 多选用「、」拼接，自定义／进阶文本追加；选中 id 排序后再格式化，使顺序不
+// 同的同一选择格式化为同一字符串（既用于展示，也用于溯源的相邻去重比较）。
+// ---------------------------------------------------------------------------
+
+test("describeV19ChoiceValue: single selection resolves the option id to its 中文 label", () => {
+  const text = describeV19ChoiceValue(
+    { selectedOptionIds: ["ESTABLISH_CHARACTER_RELATIONSHIP"], customText: "", vocabularyVersion: 1 },
+    "bridgeCreativeRole",
+  );
+  assert.equal(text, "建立人物／关系");
+});
+
+test("describeV19ChoiceValue: multiple selections join with 、, and appends custom text after a separator", () => {
+  const text = describeV19ChoiceValue(
+    { selectedOptionIds: ["ACCUMULATE_EMOTION", "ACCUMULATE_INFORMATION"], customText: "还有点别的", vocabularyVersion: 1 },
+    "bridgeCreativeRole",
+  );
+  assert.equal(text, "累积情感、累积信息 ｜ 还有点别的");
+});
+
+test("describeV19ChoiceValue: two selections toggled in a different order format identically (sorted before formatting)", () => {
+  const a = describeV19ChoiceValue({ selectedOptionIds: ["ACCUMULATE_INFORMATION", "ACCUMULATE_EMOTION"], customText: "", vocabularyVersion: 1 }, "bridgeCreativeRole");
+  const b = describeV19ChoiceValue({ selectedOptionIds: ["ACCUMULATE_EMOTION", "ACCUMULATE_INFORMATION"], customText: "", vocabularyVersion: 1 }, "bridgeCreativeRole");
+  assert.equal(a, b);
+});
+
+test("describeV19ChoiceValue: an unrecognized option id (e.g. a stale vocabulary version) falls back to showing the raw id rather than dropping it silently", () => {
+  const text = describeV19ChoiceValue({ selectedOptionIds: ["SOME_RETIRED_OPTION"], customText: "", vocabularyVersion: 0 }, "bridgeCreativeRole");
+  assert.equal(text, "SOME_RETIRED_OPTION");
+});
+
+test("describeV19ChoiceValue: an empty/non-choice-shaped value formats to empty string", () => {
+  assert.equal(describeV19ChoiceValue(undefined, "bridgeCreativeRole"), "");
+  assert.equal(describeV19ChoiceValue({ selectedOptionIds: [], customText: "", vocabularyVersion: 1 }, "bridgeCreativeRole"), "");
+});
+
+// ---------------------------------------------------------------------------
+// deriveV19ChoiceFieldTrace — 固定选项字段整体溯源: 复用 describeV19ChoiceValue
+// 做格式化，其余（合并／当前采用／旧写法／未纳入／假原稿行兜底）与普通字段共享。
+// ---------------------------------------------------------------------------
+
+function originWithStoryReference(value: { selectedOptionIds: string[]; customText: string }): V04DraftPayloadV1 {
+  return {
+    ...emptyV04DraftPayload(),
+    factsAndCoreJudgement: {
+      ...emptyV04DraftPayload().factsAndCoreJudgement,
+      storyReference: { ...emptyV04ChoiceValue(), ...value },
+    },
+  };
+}
+
+test("deriveV19ChoiceFieldTrace: shows 当前采用 formatted via describeV19ChoiceValue even when nothing changed", () => {
+  const origin = originWithStoryReference({ selectedOptionIds: ["YOUTH_NOSTALGIA"], customText: "" });
+  const trace = deriveV19ChoiceFieldTrace(origin, [], "facts.storyReference", "storyReferenceType", "王大明");
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+});
+
+test("deriveV19ChoiceFieldTrace: a later record with a different selection becomes current, formatted to its label; origin becomes 旧写法", () => {
+  const origin = originWithStoryReference({ selectedOptionIds: ["YOUTH_NOSTALGIA"], customText: "" });
+  const intakes = [
+    intake({
+      id: "i1", seq: 1, targetKey: "facts.storyReference", targetLabel: "故事参照类型",
+      value: { selectedOptionIds: ["FAMILY_AFFECTION"], customText: "", vocabularyVersion: 1 },
+      sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z",
+    }),
+  ];
+  const trace = deriveV19ChoiceFieldTrace(origin, intakes, "facts.storyReference", "storyReferenceType", "王大明");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+  assert.equal(trace.current?.value, "家庭亲情片");
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"]);
+  assert.equal(trace.overridden[0]?.value, "青春怀旧片");
+});
+
+test("deriveV19ChoiceFieldTrace: a record whose selection differs only in order from the origin is merged away by adjacent dedupe (both format to the same normalized string)", () => {
+  const origin = originWithStoryReference({ selectedOptionIds: ["YOUTH_NOSTALGIA", "FAMILY_AFFECTION"], customText: "" });
+  const intakes = [
+    intake({
+      id: "i1", seq: 1, targetKey: "facts.storyReference", targetLabel: "故事参照类型",
+      value: { selectedOptionIds: ["FAMILY_AFFECTION", "YOUTH_NOSTALGIA"], customText: "", vocabularyVersion: 1 },
+      sourceVersionNumber: 2, actorName: "李晓芸",
+    }),
+  ];
+  const trace = deriveV19ChoiceFieldTrace(origin, intakes, "facts.storyReference", "storyReferenceType", "王大明");
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿", "same normalized selection as origin, just reordered — dedupe treats it as unchanged");
+  assert.deepEqual(trace.overridden, []);
+});
+
+// ---------------------------------------------------------------------------
+// describeV19FinalTraceHoverSource — 默认模式（非溯源视图）下 hover title 用
+// 的单行来源提示，取自 trace.current；这是 finalPrimaryDetailExtras／
+// finalAuxiliaryPathExtras／finalChoiceFieldExtras 在 traceMode=false 时
+// 唯一挂出来的东西（spec 五、19）。
+// ---------------------------------------------------------------------------
+
+test("describeV19FinalTraceHoverSource: null current row (nothing to show) yields undefined", () => {
+  assert.equal(describeV19FinalTraceHoverSource(null), undefined);
+});
+
+test("describeV19FinalTraceHoverSource: an origin row (isOrigin) yields undefined — 原稿本身不算 hover 来源", () => {
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), [], "facts.commercialIntent", "王大明");
+  assert.equal(describeV19FinalTraceHoverSource(trace.current), undefined);
+});
+
+test("describeV19FinalTraceHoverSource: a VERSION-sourced current row formats as v<N>·<actor> <time>", () => {
+  const intakes = [intake({
+    id: "i1", seq: 1, value: "老孙改的", applied: true, sourceVersionNumber: 2, actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
+  })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent");
+  assert.equal(describeV19FinalTraceHoverSource(trace.current), `v2·老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+});
+
+test("describeV19FinalTraceHoverSource: a FINAL_DIRECT current row formats as 最终版·直接修改 <time>", () => {
+  const intakes = [intake({
+    id: "i1", seq: 1, value: "老孙直接改的", applied: true, source: "FINAL_DIRECT", sourceVersionNumber: null,
+    actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
+  })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent");
+  assert.equal(describeV19FinalTraceHoverSource(trace.current), `最终版·直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+});
+
+test("describeV19FinalTraceHoverSource: also works for a primary-detail trace's current row (same shared V19FinalFieldTrace shape)", () => {
+  const origin = { ...emptyV04DraftPayload(), perceptionPath: { primaryType: "LOVE" as const, primaryDetails: { emotionalBase: "原稿" }, auxiliaryTypes: [] } };
+  const intakes = [primaryDetailIntake({
+    id: "i1", seq: 1, value: { emotionalBase: "改过的" }, sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z",
+  })];
+  const trace = deriveV19PrimaryDetailTrace(origin, intakes, "emotionalBase", "王大明");
+  assert.equal(describeV19FinalTraceHoverSource(trace.current), `v2·李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
 });
