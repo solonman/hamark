@@ -213,6 +213,77 @@ test("deriveV19FinalFieldTrace: classification is by each row's own applied flag
   assert.deepEqual(trace.pending.map((row) => row.key), ["i2"]);
 });
 
+// ---------------------------------------------------------------------------
+// 本机复核收尾: 空白不算「旧写法」——一个空的原稿（或任何空值的被覆盖行）
+// 不该出现在旧写法列表里；当前采用行与未纳入行不受影响，可以合法为空。
+// ---------------------------------------------------------------------------
+
+test("deriveV19FinalFieldTrace: an empty origin overridden by real content is dropped from 旧写法, but the current line still shows", () => {
+  const emptyOrigin = factsOrigin(""); // trims to empty
+  const intakes = [intake({
+    id: "i1", seq: 1, value: "演示同事写的实际内容", applied: true, sourceVersionNumber: 2, actorName: "演示同事",
+    createdAt: "2026-09-02T03:00:00.000Z",
+  })];
+  const trace = deriveV19FinalFieldTrace(emptyOrigin, intakes, "facts.commercialIntent", "演示同事");
+  assert.equal(trace.hasTrace, true, "content really did change from the (blank) origin, so there is still a current line to show");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 演示同事 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+  assert.deepEqual(trace.overridden, [], "the blank origin is not a 写法 worth listing");
+  assert.deepEqual(trace.pending, []);
+});
+
+test("deriveV19FinalFieldTrace: an empty origin with only a whitespace-only intake in between still drops both from 旧写法", () => {
+  const emptyOrigin = factsOrigin("   "); // trims to empty
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "  ", applied: true, sourceVersionNumber: 2, actorName: "李晓芸" }), // also blank, and not adjacent-identical to "" so survives dedupe
+    intake({ id: "i2", seq: 2, value: "真正的内容", applied: true, sourceVersionNumber: 3, actorName: "张三", createdAt: "2026-08-24T11:20:00.000Z" }),
+  ];
+  const trace = deriveV19FinalFieldTrace(emptyOrigin, intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v3 张三 ${formatShortDateTime("2026-08-24T11:20:00.000Z")}`);
+  assert.deepEqual(trace.overridden, [], "both blank rows (origin and i1) are dropped, not just the origin");
+});
+
+test("deriveV19FinalFieldTrace: an empty field with no intakes that actually diverge from it collapses to 简化规则 4's no-history case — the blank-filter never has to fire because current is the origin itself", () => {
+  const emptyOrigin = factsOrigin("");
+  // Same literal value as the (blank) origin, so 简化规则 1's dedupe already
+  // merges it away — the blank-filter added here is not what makes this
+  // case empty, it's just that current ends up being the origin either way.
+  const intakes = [intake({ id: "i1", seq: 1, value: "", applied: true, sourceVersionNumber: 1, actorName: "王大明" })];
+  const trace = deriveV19FinalFieldTrace(emptyOrigin, intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.hasTrace, false);
+});
+
+test("deriveV19FinalFieldTrace: current being blank-but-genuinely-different from a blank origin still shows a current line — only 旧写法 rows get the blank filter, not current", () => {
+  const emptyOrigin = factsOrigin(""); // exactly ""
+  // "   " is a different literal value from "" (not caught by 简化规则 1's
+  // exact-match dedupe), so it becomes its own applied row and, being the
+  // last one, the current row — even though it too is blank.
+  const intakes = [intake({ id: "i1", seq: 1, value: "   ", applied: true, sourceVersionNumber: 1, actorName: "王大明" })];
+  const trace = deriveV19FinalFieldTrace(emptyOrigin, intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.hasTrace, true, "the value did change (a different blank), so there is still something to attribute");
+  assert.match(trace.currentSourceLabel ?? "", /^当前采用 · v1 王大明/);
+  assert.deepEqual(trace.overridden, [], "the blank origin, now overridden, is still dropped from 旧写法");
+});
+
+test("deriveV19FinalFieldTrace: an empty overridden row is dropped even when it is not the origin", () => {
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "", applied: true, sourceVersionNumber: 2, actorName: "李晓芸" }),
+    intake({ id: "i2", seq: 2, value: "李晓芸后来补上的内容", applied: true, sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z" }),
+  ];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent", "王大明");
+  // origin ("原稿") is non-empty so it survives; the blank i1 does not.
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"]);
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+});
+
+test("deriveV19FinalFieldTrace: pending and current rows are not filtered even when their value is blank", () => {
+  const intakes = [intake({
+    id: "i1", seq: 1, value: "   ", applied: false, sourceVersionNumber: 4, actorName: "老王",
+  })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.pending.length, 1, "a blank pending row must still show — it's still something someone tried to write");
+  assert.equal(trace.pending[0].value, "   ");
+});
+
 test("deriveV19FinalFieldTrace ignores intakes for other target keys and other kinds", () => {
   const origin = payloadWithGroups([]);
   const intakes = [

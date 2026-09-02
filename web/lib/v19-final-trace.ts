@@ -120,15 +120,24 @@ export function describeV19FinalTraceRowLabel(row: V19FinalTraceHistoryRow): str
   return `v${row.sourceVersionNumber ?? "?"} ${row.actorName} ${formatShortDateTime(row.createdAt)}`;
 }
 
+/** Same "blank" test `firstLineV19TraceValue` uses — a row with nothing in it isn't a 写法 worth listing. */
+function isEmptyV19TraceValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim() === "";
+  return value == null;
+}
+
 /**
  * Spec 五、18, simplified: 原稿 (if it exists in `originPayload`) followed by
  * every `FIELD` intake for `targetKey`, oldest first, deduplicated against
  * its immediate predecessor (简化规则 1). Whichever of those rows is
  * currently in effect (the highest-seq applied one — null when there is no
  * applied row at all) becomes `currentSourceLabel`; every other applied row
- * becomes an `overridden` summary; every `applied === false` row becomes
- * `pending`, regardless of where it falls in seq order relative to the
- * current row (取消定稿后重开时，未采纳的旧记录可能 seq 比之后新产生的已应用
+ * with a non-empty value becomes an `overridden` summary (本机复核收尾: a
+ * blank value — e.g. an empty 原稿 later overridden by real content — isn't
+ * a "写法" worth listing, so it's dropped here; `current`/`pending` are
+ * unaffected, they can legitimately be empty); every `applied === false` row
+ * becomes `pending`, regardless of where it falls in seq order relative to
+ * the current row (取消定稿后重开时，未采纳的旧记录可能 seq 比之后新产生的已应用
  * 记录更早 — 判定纯看各自的 applied 状态，不看位置).
  */
 export function deriveV19FinalFieldTrace(
@@ -174,7 +183,7 @@ export function deriveV19FinalFieldTrace(
   const merged = dedupeAdjacentV19TraceRows(rows);
   const appliedRows = merged.filter((row) => row.applied);
   const current = appliedRows.length ? appliedRows[appliedRows.length - 1] : null;
-  const overridden = appliedRows.slice(0, -1);
+  const overridden = appliedRows.slice(0, -1).filter((row) => !isEmptyV19TraceValue(row.value));
   const pending = merged.filter((row) => !row.applied);
 
   // 简化规则 4: nothing changed at all — no history, no pending, and
