@@ -3,6 +3,7 @@
 // 不接触数据库——db 函数（ensureFinalVersion 等）走本机 Postgres 的走查，
 // 不在这份单测覆盖范围内。
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   applyFinalIntake,
@@ -340,4 +341,46 @@ test("computeFinalFromHistory: 事件里的 script.structure 变更同样先拆�
   assert.deepEqual(payload.script.shotGroups[0].shots.map((s) => s.id), ["s1", "s2"]);
   assert.equal(intakes.length, 1);
   assert.equal(intakes[0].kind, "INSERT_SHOT");
+});
+
+// ---------------------------------------------------------------------------
+// Bug fix regression guard: a case that was never saved through the V1.9
+// surface only has a *virtual* final version (no analysis_final_versions
+// row) until something materializes it. setFinalVersionStatus and
+// adoptFinalIntakes are both writes that can be the very first thing 老孙
+// does on such a case (定稿 as the first action after migration), so they
+// must materialize (with backfill) rather than 404 on a row that simply
+// hasn't been created yet — see the ensureFinalVersion call each of them
+// makes right after resolveWorkspaceForWrite.
+// ---------------------------------------------------------------------------
+
+test("source: setFinalVersionStatus and adoptFinalIntakes both materialize the final version before touching it", async () => {
+  const source = await readFile(new URL("../lib/final-version.ts", import.meta.url), "utf8");
+
+  const sliceFunction = (name: string, nextMarker: string) => {
+    const start = source.indexOf(`export async function ${name}(`);
+    assert.notEqual(start, -1, `could not find export async function ${name}(`);
+    const end = source.indexOf(nextMarker, start);
+    assert.notEqual(end, -1, `could not find the end marker for ${name}`);
+    return source.slice(start, end);
+  };
+
+  const setFinalVersionStatusBody = sliceFunction("setFinalVersionStatus", "export async function adoptFinalIntakes");
+  const adoptFinalIntakesBody = sliceFunction("adoptFinalIntakes", "export type LoadedFinalVersion");
+
+  for (const [name, body] of [
+    ["setFinalVersionStatus", setFinalVersionStatusBody],
+    ["adoptFinalIntakes", adoptFinalIntakesBody],
+  ] as const) {
+    assert.match(
+      body, /await ensureFinalVersion\(tx, workspace, now\)/,
+      `${name} must call ensureFinalVersion before reading/locking analysis_final_versions, ` +
+      "so a case that was never saved through V1.9 (still a virtual final version) doesn't 404",
+    );
+    // The materializing call must happen before the row is read/locked, not after —
+    // otherwise the SELECT ... FOR UPDATE above it would still 404 on a virtual case.
+    const ensureIndex = body.indexOf("await ensureFinalVersion(tx, workspace, now)");
+    const selectIndex = body.indexOf("FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE");
+    assert.ok(ensureIndex < selectIndex, `${name} must materialize before the locked read`);
+  }
 });
