@@ -40,6 +40,49 @@
 .sm:hover:not(:disabled) { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
 .sm:disabled { cursor: not-allowed; opacity: .5; }
 
+/* 页头「删除报告」入口：同视频侧 .analysisToolbar button 那套药丸按钮（1px 边框、
+   999px 圆角、透明底、10px 字号），但页头是 flex 行、空间比案例分析工具条紧，
+   所以额外锁 flex:none + white-space:nowrap，防止被版本 pill 挤断成两行；
+   margin-right 单独留出跟版本 pill 之间的间距，不依赖 siteUtilities 的 gap。 */
+.trashButton {
+  flex: none; white-space: nowrap; margin-right: 4px;
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
+  color: var(--v04-ink); padding: 8px 11px; font-size: 10px;
+}
+.trashButton:hover:not(:disabled) { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
+.trashButton:disabled { cursor: not-allowed; opacity: .5; }
+
+/* 页头 1280 宽下会被新增的「删除报告」按钮和保存 chip 一起挤：v04 侧共享的三栏
+   grid（.siteHeader，见 V04Surface.module.css）中间列是 auto，网格里 auto 轨道的
+   基准宽度按项目的「自动最小尺寸」算——只要 <nav>（中间列的网格项）没有显式
+   min-width，浏览器就按它内容的自然宽度当地板，紧的时候挤占右侧空间，而不是真的
+   收缩到 0。不改视频侧文件：只给 <nav> 叠一个本地类，补一条 min-width:0——
+   这条属性目前 .siteNav 上完全没有设置，纯叠加、不跟已有规则抢优先级，效果等价于
+   把中间列本身换成 minmax(0,1fr)。标题已经有 ellipsis（.studioCaseTitle），会先让步。 */
+.studioNav {
+  min-width: 0;
+}
+
+/* 页头右侧（版本 pill／撤销重做／保存 chip／用户名／删除报告按钮）：宁可中间列的
+   标题让步，也不能有任何一项被裁切或断成两行。flex:none 在当前 grid 语境下对这个
+   网格项没有实际效力（父级不是 flex 容器），仍然按要求写上，留作将来外壳换成 flex
+   布局时的保险；white-space:nowrap 是真正起作用的一条——顺着继承链盖到保存 chip、
+   用户名这些直接文本节点，防止在空间不够时先断行再被裁切。 */
+.studioUtilities {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* saveChip 默认按 flex 初始值 `0 1 auto` 可以收缩（v04 侧 .saveChip 没有自己设置
+   flex；只在 ≤1200px 媒体查询里显式再设了一遍 flex:0 1 auto + min-width:104px），
+   1280 宽、页头右侧塞不下时它先被压小，"已保存 23:53" 就截成了"已保存 23"。用
+   元素+类的复合选择器把特异性提到比 v04 侧单类选择器 .saveChip 更高，不论落在哪个
+   断点、也不论两份样式表最终打包顺序如何，都保证这条 flex:none 生效——宁可在极端
+   窄屏下让整行溢出，也不再让保存状态被截断。不改共享的 V04Surface.module.css。 */
+span.studioSaveChip {
+  flex: none;
+}
+
 /* ============================ 表单网格（第一、二部分） ============================ */
 
 .form2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -139,6 +139,11 @@ export function retryReport(reportId: string): Promise<{ ok: true }> {
   return request(reportPath(reportId, "/retry"), { method: "POST", body: JSON.stringify({}) });
 }
 
+/** 上传者删除，做法与视频侧一致：软删（`lib/report-server.ts` 的 `trashReport`），可恢复。 */
+export function trashReport(reportId: string): Promise<{ ok: true }> {
+  return request(reportPath(reportId, "/trash"), { method: "POST", body: JSON.stringify({}) });
+}
+
 export type CreateReportFileUploadResult = { fileId: string; uploadUrl: string };
 
 export function createFileUpload(

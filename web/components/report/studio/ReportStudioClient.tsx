@@ -31,6 +31,7 @@ import {
   putFileContent,
   rateVersion,
   saveAnnotation,
+  trashReport,
   ReportStudioApiError,
 } from "./report-studio-api";
 import ReportPartOne from "./ReportPartOne";
@@ -49,6 +50,8 @@ export type ReportStudioClientProps = {
   initialReport: ReportDetail;
   /** 顶栏末尾的身份文字——照抄 `V04StudioClient` 的做法（纯文本，不是可交互的用户菜单）。 */
   viewerName: string;
+  /** 上传者或管理员——决定"删除报告"入口是否露出，跟当前看的是谁的版本无关（对齐视频侧 `viewerCapabilities.canTrash`）。 */
+  canManage: boolean;
   navigation: { libraryHref: string };
 };
 
@@ -122,6 +125,7 @@ export default function ReportStudioClient({
   reportId,
   initialReport,
   viewerName,
+  canManage,
   navigation,
 }: ReportStudioClientProps) {
   const [report, setReport] = useState(initialReport);
@@ -135,6 +139,11 @@ export default function ReportStudioClient({
   const [filesBusy, setFilesBusy] = useState(false);
   const [filesError, setFilesError] = useState("");
   const [collapsed, setCollapsed] = useState<Set<PartId>>(() => new Set());
+  // 上传者删除入口：做法与视频只读成果页（`V04DetailClient`）逐字对应——先弹确认条，
+  // 确认后调用同一套软删接口，成功跳回报告库；显示只看 canManage，跟正看着谁的版本无关。
+  const [confirmingTrash, setConfirmingTrash] = useState(false);
+  const [trashing, setTrashing] = useState(false);
+  const [trashError, setTrashError] = useState("");
   // 分步引导整体开关：demo 里"引导"重开按钮在 PART 03 标题栏（约 775～777 行），
   // 关闭状态由外壳持有并存本地，deck 收到 `guideOff` 就不再自己渲染引导。
   const [guideOff, setGuideOff] = useState(false);
@@ -446,11 +455,21 @@ export default function ReportStudioClient({
             <b>R:</b><span>RE:VERSE</span><small>反写</small>
           </Link>
         </div>
-        <nav className={v04styles.siteNav}>
+        <nav className={`${v04styles.siteNav} ${styles.studioNav}`}>
           <span className={v04styles.studioCaseTitle} title={report.title}>{report.title}</span>
           <span className={v04styles.studioCaseSource}>{report.originalName} · {report.pageCount} 页</span>
         </nav>
-        <div className={v04styles.siteUtilities}>
+        <div className={`${v04styles.siteUtilities} ${styles.studioUtilities}`}>
+          {canManage ? (
+            <button
+              type="button"
+              className={styles.trashButton}
+              disabled={trashing}
+              onClick={() => { setTrashError(""); setConfirmingTrash(true); }}
+            >
+              删除报告
+            </button>
+          ) : null}
           <div className={v04styles.versionSplit}>
             <ReportVersionBar
               chain={chain}
@@ -462,18 +481,41 @@ export default function ReportStudioClient({
           </div>
           {!readOnly ? (
             <div className={v04styles.historyControl} role="group" aria-label="撤销与重做">
-              <button type="button" onClick={undo} disabled={history.past.length === 0} title="撤销上一步（⌘/Ctrl+Z）">
-                ↩ 撤销
+              {/* 照 demo 页头做法（docs/demos/2026-09-01-报告拆解工作台demo-V2.html 第 672 行：
+                  `<button data-undo title="撤销">↩</button>`）：只留箭头字符，文字挪进
+                  aria-label／title，不再在按钮里显示"撤销"/"重做"——1280 宽下这两个字直接把
+                  historyControl 从约 60px 撑到 134px，是页头右侧放不下的主因之一。 */}
+              <button
+                type="button"
+                onClick={undo}
+                disabled={history.past.length === 0}
+                title="撤销上一步（⌘/Ctrl+Z）"
+                aria-label="撤销"
+              >
+                ↩
               </button>
               <i className={v04styles.historyDivider} />
-              <button type="button" onClick={redo} disabled={history.future.length === 0} title="重做（⇧⌘/Ctrl+Z）">
-                ↪ 重做
+              <button
+                type="button"
+                onClick={redo}
+                disabled={history.future.length === 0}
+                title="重做（⇧⌘/Ctrl+Z）"
+                aria-label="重做"
+              >
+                ↪
               </button>
             </div>
           ) : null}
           <span
             className={[
               v04styles.saveChip,
+              // 报告工作台头部比视频侧多一个「删除报告」按钮，1280 宽时 saveChip 默认的
+              // flex:0 1 auto（v04 侧 .saveChip 未设置 flex 时的浏览器初始值，≤1200px
+              // 媒体查询里还显式再设了一遍）会先被压缩，"已保存 23:53" 截成"已保存 23"。
+              // styles.studioSaveChip 用 span.studioSaveChip 复合选择器把特异性提到比
+              // v04 侧单类选择器 .saveChip 更高，不论落在哪个断点都固定 flex:none——
+              // 不改共享的 V04Surface.module.css，纯叠加，视频工作台不受影响。
+              styles.studioSaveChip,
               saveStatus.kind === "SAVING" ? v04styles.saveChipSaving : "",
               (saveStatus.kind === "SAVED" || saveStatus.kind === "UNCHANGED") ? v04styles.saveChipSaved : "",
             ].filter(Boolean).join(" ")}
@@ -496,6 +538,39 @@ export default function ReportStudioClient({
           <span>{viewerName}</span>
         </div>
       </header>
+
+      {confirmingTrash ? (
+        <section className={v04styles.recoveryBanner} role="alertdialog" aria-label="删除报告">
+          <div>
+            <b>把《{report.title}》移入回收站？</b>
+            <span>报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。</span>
+            <span>已有的拆解版本、评分和评论都会一并保留，不会被删除。</span>
+            {trashError ? <p role="alert">{trashError}</p> : null}
+          </div>
+          <div>
+            <button
+              type="button"
+              disabled={trashing}
+              onClick={() => {
+                void (async () => {
+                  setTrashing(true);
+                  setTrashError("");
+                  try {
+                    await trashReport(reportId);
+                    window.location.assign(navigation.libraryHref);
+                  } catch (reason) {
+                    setTrashError(reason instanceof ReportStudioApiError ? reason.message : "删除未完成，报告未发生变化，可重试。");
+                    setTrashing(false);
+                  }
+                })();
+              }}
+            >
+              {trashing ? "正在移入回收站…" : "确认移入回收站"}
+            </button>
+            <button type="button" disabled={trashing} onClick={() => setConfirmingTrash(false)}>取消</button>
+          </div>
+        </section>
+      ) : null}
 
       {saveStatus.kind === "INVALID" ? (
         <div className={styles.saveBanner} role="alert">

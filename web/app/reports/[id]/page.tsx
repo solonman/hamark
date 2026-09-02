@@ -33,12 +33,15 @@ export default async function ReportStudioPage({ params }: { params: Promise<{ i
 
   const libraryHref = "/?library=REPORT";
 
+  // 上传者删除入口（工作台头部与状态页共用同一条权限口径）：canManage 在这里统一算好，
+  // 两个分支都要用，别各算一份走样。
+  const isAdmin = await isAppAdmin(user);
+  const canManage = canManageReport({ createdByEmail: report.createdByEmail }, {
+    identityKey: user.identityKey,
+    isAdmin,
+  });
+
   if (report.status !== "READY") {
-    const isAdmin = await isAppAdmin(user);
-    const canManage = canManageReport({ createdByEmail: report.createdByEmail }, {
-      identityKey: user.identityKey,
-      isAdmin,
-    });
     return <ReportStatusPage reportId={id} initialReport={report} canManage={canManage} libraryHref={libraryHref} />;
   }
 
@@ -53,6 +56,7 @@ export default async function ReportStudioPage({ params }: { params: Promise<{ i
         reportId={id}
         initialReport={report}
         viewerName={user.displayName}
+        canManage={canManage}
         navigation={{ libraryHref }}
       />
     </V04BrowserCompatibilityGate>

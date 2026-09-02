@@ -507,6 +507,37 @@ export async function trashReport(
   return { ok: true };
 }
 
+/**
+ * trashReport 的镜像：同样只认原上传者或管理员，同样先按 id 找行（不再过滤
+ * deleted_at，因为要恢复的正是已经软删的那份），再用 UPDATE 的 WHERE 子句
+ * 当并发闸门——真的从"已删"翻回"未删"才算数，否则说明这份报告本来就没在
+ * 回收站里（或者已经被别的请求恢复过），报 409 而不是静默当成功处理。
+ */
+export async function restoreReport(
+  db: DbClient,
+  input: { reportId: string; actor: ReportManageActor },
+): Promise<{ ok: true }> {
+  const report = await db
+    .prepare(`SELECT id, status, created_by_email FROM reports WHERE id = ?`)
+    .bind(input.reportId)
+    .first<ManageRow>();
+  if (!report) throw new ReportServiceError("报告不存在。", 404);
+  if (!canManageReport({ createdByEmail: report.created_by_email }, input.actor)) {
+    throw new ReportServiceError("只有原上传者或管理员可以恢复报告。", 403);
+  }
+  const result = await db
+    .prepare(
+      `UPDATE reports SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND deleted_at IS NOT NULL`,
+    )
+    .bind(report.id)
+    .run();
+  if (result.meta.rows_written !== 1) {
+    throw new ReportServiceError("报告未在回收站中，无需恢复。", 409);
+  }
+  return { ok: true };
+}
+
 /** 相关资料的对象键里带原始文件名，只需要把会拆出多层目录的路径分隔符清掉。 */
 function safeFileSegment(name: string): string {
   const cleaned = name.trim().replace(/[\\/]+/g, "_");
