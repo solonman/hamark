@@ -161,7 +161,13 @@ test("the studio anchors both the rating and the comments to the version being v
   assert.match(studio, /\/review\$\{search\}`[\s\S]*\}, \[videoId, reviewVersionId\]\);/);
   assert.match(studio, /const versionId = modelRef\.current\?\.current\.id;[\s\S]*kind: "COMMENT"/);
   assert.match(studio, /const versionId = modelRef\.current\?\.current\.id;[\s\S]*kind: "RATING"/);
-  assert.match(studio, /<V19AssignmentRating[\s\S]*versionLabel=\{`v\$\{model\.current\.number\} · \$\{model\.current\.ownerName\}`\}/);
+  // versionLabel goes through formatV19CurrentVersionShortLabel rather than
+  // a raw `v${model.current.number}` — the final version's `number` is a
+  // fixed `0` placeholder (spec 四、4.1), never a real version number to show
+  // (though this component is unreachable in that view — `!isFinalVersionView`
+  // guards it below — the label expression is shared/tested for correctness
+  // regardless, per the local walkthrough that flagged every such spot).
+  assert.match(studio, /<V19AssignmentRating[\s\S]*versionLabel=\{`\$\{formatV19CurrentVersionShortLabel\(model\.current\)\} · \$\{model\.current\.ownerName\}`\}/);
   // 评分摆在正文之后：读完整份作业才谈得上给分。最终版不评分——`isFinalVersionView`
   // 与 `review.canRate` 任一为假都不渲染评分组件。
   assert.match(
