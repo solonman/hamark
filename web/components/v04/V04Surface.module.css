@@ -762,16 +762,20 @@ input.editableTimecode { padding: 5px 8px; }
 .commentMarker[data-open="true"] { opacity: 1; pointer-events: auto; }
 .commentMarker:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .commentMarker[data-has-comment="true"] { border-color: rgba(223, 255, 79, .45); color: var(--v04-accent); }
+/* 本版有评论时描边实色（不透明）：跟别版有评论的半透明描边分开，
+   一眼就能认出「这一版我自己被说过什么」。 */
+.commentMarker[data-here="true"] { border-color: var(--v04-accent); }
+.commentMarker span { font-size: 10px; font-weight: 700; margin-left: 1px; }
 /* 气泡就近弹在按钮下方；正文没有 overflow 裁剪，所以不需要传送到 body。 */
 .commentPopover {
   position: absolute; top: calc(100% + 7px); left: 0; z-index: 40;
-  display: flex; width: 288px; max-width: 76vw; flex-direction: column; gap: 8px;
+  display: flex; width: 320px; max-width: 80vw; flex-direction: column; gap: 8px;
   border: 1px solid var(--v04-line); border-radius: 12px; background: rgba(23, 24, 21, .99);
   box-shadow: 0 18px 44px rgba(0, 0, 0, .5); padding: 12px;
   color: var(--v04-ink); font-size: 12px; font-weight: 400; letter-spacing: 0; text-align: left;
   cursor: default;
 }
-.commentPopover > b { color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.commentPopover > b { color: var(--v04-subject); font-size: 10px; font-weight: 500; letter-spacing: 0; display: flex; gap: 8px; align-items: center; }
 /* 按钮与气泡之间留了 7px 空隙好看，但鼠标穿过这段空隙时会离开整个锚点，
    气泡就在人伸手去点「编辑」的路上消失了。用一条透明的桥把命中区补上。 */
 .commentPopover::before { position: absolute; top: -9px; left: 0; right: 0; height: 9px; content: ""; }
@@ -788,7 +792,38 @@ input.editableTimecode { padding: 5px 8px; }
 }
 .commentActions button:first-child { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .commentActions button:disabled { cursor: not-allowed; color: var(--v04-muted); border-color: var(--v04-line); opacity: .6; }
+.commentSubmit { margin-left: auto; border-color: rgba(223, 255, 79, .5) !important; color: var(--v04-accent) !important; }
+.commentSubmit:disabled { color: var(--v04-muted) !important; border-color: var(--v04-line) !important; }
 .commentDelete { margin-left: auto; color: #ff9a9a !important; border-color: rgba(255, 122, 122, .4) !important; }
+
+/* 评论列表：一个条目在所有版本上的评论汇总显示，本版那条高亮。 */
+.commentList { display: flex; flex-direction: column; }
+.commentNone { padding: 4px 0; color: var(--v04-muted); font-size: 11px; }
+.commentItem { padding: 7px 0; border-top: 1px solid var(--v04-line); }
+.commentItem:first-child { border-top: 0; padding-top: 0; }
+.commentItem[data-here="true"] {
+  background: rgba(223, 255, 79, .05); margin: 0 -6px; padding-left: 6px; padding-right: 6px; border-radius: 6px;
+}
+.commentItemHead { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--v04-muted); margin-bottom: 2px; }
+.commentItemHead b { color: var(--v04-ink); }
+.commentItemTime {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 9.5px; color: var(--v04-muted);
+}
+.commentItemHead button {
+  margin-left: auto; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
+  color: var(--v04-ink); padding: 1px 8px; font-size: 10px; cursor: pointer;
+}
+.commentItemHead button:hover { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
+.commentReadonly { margin-left: auto; color: var(--v04-muted); font-size: 9.5px; }
+.commentVersionTag {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 9px; font-weight: 700; color: var(--v04-muted); border: 1px solid var(--v04-line);
+  border-radius: 999px; padding: 0 6px; flex: none;
+}
+.commentVersionTag[data-here="true"] { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
+.commentWrite { padding-top: 8px; border-top: 1px solid var(--v04-line); display: flex; flex-direction: column; gap: 6px; }
+.commentWriteHint { color: var(--v04-muted); font-size: 10px; }
 
 /* 评分在正文最后、靠右：读完才谈得上打分，所以它是收束，不是抬头。 */
 .assignmentRating {

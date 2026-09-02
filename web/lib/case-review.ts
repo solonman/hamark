@@ -35,6 +35,10 @@ export type CaseReviewComment = {
   body: string;
   authorName: string;
   updatedAt: string;
+  /** 这条评论锚定在哪一版上——普通版本或最终版。 */
+  versionId: string;
+  /** 给人看的版本标签：`v2` 或 `最终版`。 */
+  versionLabel: string;
 };
 
 export type CaseReviewModel = {
@@ -42,11 +46,14 @@ export type CaseReviewModel = {
   canReview: boolean;
   versionId: string | null;
   stars: number | null;
+  /** 当前 `versionId` 能不能评分——最终版不评分，星级只锚定个人版本。 */
+  canRate: boolean;
+  /** 该条目在所有版本上的评论，按写入时间升序。 */
   comments: CaseReviewComment[];
 };
 
 export function emptyCaseReview(canReview = false, versionId: string | null = null): CaseReviewModel {
-  return { canReview, versionId, stars: null, comments: [] };
+  return { canReview, versionId, stars: null, canRate: true, comments: [] };
 }
 
 /**
@@ -74,8 +81,22 @@ export function normalizeReviewComment(value: unknown): string {
   return body;
 }
 
+/**
+ * 按条目分组，组内按写入时间升序——一个条目现在可能挂着好几个版本各写的一条,
+ * 不再是「一个条目一条」。分组顺序遵循传入顺序，组内显式再排一次序，
+ * 不依赖调用方已经排好。
+ */
 export function commentsByTarget(
   comments: readonly CaseReviewComment[],
-): Map<string, CaseReviewComment> {
-  return new Map(comments.map((comment) => [comment.targetKey, comment]));
+): Map<string, CaseReviewComment[]> {
+  const grouped = new Map<string, CaseReviewComment[]>();
+  for (const comment of comments) {
+    const list = grouped.get(comment.targetKey);
+    if (list) list.push(comment);
+    else grouped.set(comment.targetKey, [comment]);
+  }
+  for (const list of grouped.values()) {
+    list.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  }
+  return grouped;
 }
