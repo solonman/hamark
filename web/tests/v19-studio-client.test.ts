@@ -31,6 +31,7 @@ const {
 const { formatV19VersionLabel } = await import("../lib/v19-ui-model.ts");
 
 const source = await readFile(new URL("../components/v04/V04StudioClient.tsx", import.meta.url), "utf8");
+const cssSource = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
 
 // ---------------------------------------------------------------------------
 // 1. No lease / expectedRevision anywhere — guards against reintroducing the
@@ -67,6 +68,39 @@ test("source: 定稿／取消定稿 only renders for the final version view", ()
   assert.match(source, /isFinalVersionView && !readOnly && model\.final && \(/);
   assert.match(source, /✓ 定稿/);
   assert.match(source, /取消定稿/);
+});
+
+// ---------------------------------------------------------------------------
+// 用户看了线上效果的两处小改:
+// 1. 版本菜单最终版行的说明不再提「只有老孙能直接编辑」，以「定稿后停止。」收尾
+//    （这条能力本身没变——老孙照样是唯一能编辑最终版的人——只是不在这句说明里
+//    重复一遍）。
+// 2. OPEN 状态的胶囊文字统一为「未定稿」，不再用「进行中」；圆点保留但不再闪烁
+//    （CSS 里那条 v04SavePulse 动画只对 OPEN 态生效的部分整条删掉）。「进行态
+//    自动汇入」这类说明文字不受影响，继续保留「进行态」。
+// ---------------------------------------------------------------------------
+
+test("source: the final row's description ends at 定稿后停止, and no longer claims only 老孙 can edit it directly", () => {
+  assert.match(source, /集大成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。/);
+  assert.doesNotMatch(source, /只有老孙能直接编辑/);
+});
+
+test("source: no OPEN-status pill/toast/aria-label says 进行中 — they all say 未定稿, while 进行态 explainer text is untouched", () => {
+  assert.doesNotMatch(source, /进行中/, "the OPEN-status label word 进行中 must not reappear anywhere");
+  // The four places that render the OPEN pill text (顶栏胶囊、版本菜单行、
+  // 视频下方横幅, plus the version-button aria-label) all say 未定稿.
+  const openLabelCount = (source.match(/"未定稿"/g) ?? []).length;
+  assert.ok(openLabelCount >= 4, `expected at least 4 occurrences of "未定稿", found ${openLabelCount}`);
+  // 进行态自动汇入 (the explainer prose, distinct from the 进行中/未定稿 pill
+  // word) must survive untouched in both the version-menu row and the banner.
+  assert.match(source, /进行态自动汇入，定稿后停止。/);
+  assert.match(source, /各版本的每一处修改都会自动汇入这里，后改的覆盖先改的/);
+});
+
+test("source: the OPEN status dot no longer pulses — the v04SavePulse animation is gone from .finalStatusOpen, the dot itself stays", () => {
+  assert.doesNotMatch(cssSource, /\.finalStatusOpen \.finalStatusDot \{ animation: v04SavePulse/);
+  assert.match(cssSource, /\.finalStatusPill \.finalStatusDot \{ width: 6px; height: 6px; border-radius: 99px; background: currentColor; \}/);
+  assert.match(cssSource, /\.finalStatusOpen \{ color: #8fd3ff; border: 1px solid rgba\(143, 211, 255, \.45\); \}/);
 });
 
 // ---------------------------------------------------------------------------

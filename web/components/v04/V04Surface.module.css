@@ -857,10 +857,9 @@ input.editableTimecode { padding: 5px 8px; }
   display: inline-flex; flex: none; align-items: center; gap: 5px; border-radius: 999px;
   padding: 2px 8px; font-size: 9px; font-weight: 800; white-space: nowrap;
 }
+/* 圆点静止不闪——之前用 v04SavePulse 做呼吸动效，用户看了线上效果要求去掉，圆点本身留着。 */
 .finalStatusPill .finalStatusDot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
 .finalStatusOpen { color: #8fd3ff; border: 1px solid rgba(143, 211, 255, .45); }
-.finalStatusOpen .finalStatusDot { animation: v04SavePulse 1.4s infinite; }
-@media (prefers-reduced-motion: reduce) { .finalStatusOpen .finalStatusDot { animation: none; } }
 .finalStatusDone { color: #ffd166; border: 1px solid rgba(255, 209, 102, .55); background: rgba(255, 209, 102, .08); }
 
 .finalViewSwitch { display: inline-flex; flex: none; border: 1px solid var(--v04-line); border-radius: 999px; padding: 2px; font-size: 11px; }
@@ -882,7 +881,7 @@ input.editableTimecode { padding: 5px 8px; }
 .finalPendingBadge { flex: none; color: #ffae78; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px; padding: 1px 7px; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .versionDesc { flex-basis: 100%; padding-left: 23px; color: var(--v04-muted); font-size: 10px; line-height: 1.6; }
 
-/* 视频下方横幅：进行中／已定稿说明，未纳入计数与「全部采纳」「到溯源视图逐条看」。 */
+/* 视频下方横幅：未定稿／已定稿说明，未纳入计数与「全部采纳」「到溯源视图逐条看」。 */
 .finalBanner {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 22px;
   padding: 12px 18px; border: 1px solid rgba(255, 209, 102, .35); border-radius: 14px;

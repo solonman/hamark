@@ -1185,7 +1185,7 @@ export default function V04StudioClient({
               aria-haspopup="true"
               aria-expanded={versionPanelOpen}
               aria-label={isFinalVersionView
-                ? `当前版本 最终版（${model.final?.status === "DONE" ? "已定稿" : "进行中"}），点击切换版本`
+                ? `当前版本 最终版（${model.final?.status === "DONE" ? "已定稿" : "未定稿"}），点击切换版本`
                 : `当前版本 ${formatV19VersionLabel({
                   number: model.current.number,
                   baseNumber: model.current.baseNumber,
@@ -1201,7 +1201,7 @@ export default function V04StudioClient({
                   {model.final && (
                     <span className={`${styles.finalStatusPill} ${model.final.status === "DONE" ? styles.finalStatusDone : styles.finalStatusOpen}`}>
                       <span className={styles.finalStatusDot} aria-hidden="true" />
-                      {model.final.status === "DONE" ? "已定稿" : "进行中"}
+                      {model.final.status === "DONE" ? "已定稿" : "未定稿"}
                     </span>
                   )}
                 </>
@@ -1234,14 +1234,14 @@ export default function V04StudioClient({
                     <span className={styles.versionNumber}>最终版</span>
                     <span className={`${styles.finalStatusPill} ${model.final.status === "DONE" ? styles.finalStatusDone : styles.finalStatusOpen}`}>
                       <span className={styles.finalStatusDot} aria-hidden="true" />
-                      {model.final.status === "DONE" ? `已定稿 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""}`.trim() : "进行中"}
+                      {model.final.status === "DONE" ? `已定稿 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""}`.trim() : "未定稿"}
                     </span>
                     {model.final.pendingCount > 0 && (
                       <span className={styles.finalPendingBadge}>{model.final.pendingCount} 处未纳入</span>
                     )}
                     <span className={styles.versionTime}>{formatV19Clock(model.final.updatedAt)}</span>
                     <span className={styles.versionDesc}>
-                      集大成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止；只有老孙能直接编辑。
+                      集大成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。
                     </span>
                   </div>
                 )}
@@ -1438,13 +1438,13 @@ export default function V04StudioClient({
           {readOnly && !isFinalVersionView && (
             <p style={{ color: "var(--v04-muted)", fontSize: 12, margin: "0 0 16px" }}>当前身份无法编辑此工作台，仅可查看内容与历史版本。</p>
           )}
-          {/* 视频下方横幅（spec 五、15）：只在最终版视角出现，说明当前是进行中
+          {/* 视频下方横幅（spec 五、15）：只在最终版视角出现，说明当前是未定稿
               还是已定稿、有没有未纳入的修改，以及怎么处理它们。 */}
           {isFinalVersionView && model.final && (
             <div className={styles.finalBanner}>
               <span className={`${styles.finalStatusPill} ${model.final.status === "DONE" ? styles.finalStatusDone : styles.finalStatusOpen}`}>
                 <span className={styles.finalStatusDot} aria-hidden="true" />
-                {model.final.status === "OPEN" ? "进行中" : "已定稿"}
+                {model.final.status === "OPEN" ? "未定稿" : "已定稿"}
               </span>
               <span>
                 {model.final.status === "OPEN"
