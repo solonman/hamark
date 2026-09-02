@@ -14,7 +14,10 @@ import styles from "./ReportStudio.module.css";
 export type ReportPartTwoReview = {
   canReview: boolean;
   disabled: boolean;
-  comments: Map<string, CaseReviewComment>;
+  /** 每个条目在报告所有版本上的评论列表，见 `ReportFieldItem.tsx` 顶部注释。 */
+  comments: ReadonlyMap<string, CaseReviewComment[]>;
+  /** 当前正在看的版本 id，用来判定 `comments` 里哪一条是「本版」。 */
+  currentVersionId: string | null;
   onSave: (input: { targetKey: string; targetLabel: string; body: string }) => Promise<void>;
 };
 
@@ -44,7 +47,8 @@ export default function ReportPartTwo({ annotation, readOnly, onChange, review }
           targetKey: "strategy.narrative",
           targetLabel: "竞争与提报策略",
           canReview: review.canReview,
-          comment: review.comments.get("strategy.narrative"),
+          comments: review.comments.get("strategy.narrative") ?? [],
+          currentVersionId: review.currentVersionId,
           disabled: review.disabled,
           onSave: review.onSave,
         }}

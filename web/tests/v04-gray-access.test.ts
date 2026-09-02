@@ -136,6 +136,7 @@ test("official V0.4 surfaces use formal access while preserving the closed gray 
     V04_WORKFLOW_UI_ENABLED: "true",
     V04_DETAIL_UI_ENABLED: "true",
     V04_LIBRARY_UI_ENABLED: "true",
+    REPORT_LIBRARY_UI_ENABLED: "true",
   });
   assert.equal("V04_GRAY_IDENTITY_DIGEST_ENABLED" in deployment.env, false);
   assert.equal("V04_GRAY_ROLLOUT_ENABLED" in deployment.env, false);

@@ -10,12 +10,17 @@ import styles from "./ReportStudio.module.css";
  * 直接复用 `V19EditableValue`（点击进入编辑，失焦提交）与 `V19ReviewComment`
  * （只有自由填写的条目才传 `review`——固定选项字段不传，天然没有评论入口，
  * 对应规格 2.4「固定选项条目无评论入口」）。
+ *
+ * `V19ReviewComment` 的新契约（`docs/20_..._V0.1.md` 一）把评论从「一个条目一条」
+ * 改成「一个条目在所有版本上各写的一条，汇总展示」——报告侧口径照抄：`comments`
+ * 是这个条目在报告所有版本上的评论列表，`currentVersionId` 决定哪一条高亮「本版」。
  */
 export type ReportFieldItemReview = {
   targetKey: string;
   targetLabel?: string;
   canReview: boolean;
-  comment?: CaseReviewComment;
+  comments: readonly CaseReviewComment[];
+  currentVersionId: string | null;
   disabled?: boolean;
   onSave: (input: { targetKey: string; targetLabel: string; body: string }) => Promise<void>;
 };
@@ -49,7 +54,8 @@ export default function ReportFieldItem({
           <V19ReviewComment
             targetKey={review.targetKey}
             targetLabel={review.targetLabel ?? label}
-            comment={review.comment}
+            comments={review.comments}
+            currentVersionId={review.currentVersionId}
             canReview={review.canReview}
             disabled={review.disabled}
             onSave={review.onSave}

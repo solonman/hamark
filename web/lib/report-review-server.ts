@@ -15,24 +15,31 @@ import {
 export type ReportReviewViewer = { userId: string; displayName: string };
 
 type VersionRow = QueryResultRow & { id: string; report_id: string };
+type VersionWithNumberRow = VersionRow & { version_number: number };
 type RatingRow = QueryResultRow & { stars: number };
-type CommentRow = QueryResultRow & {
+type SavedCommentRow = QueryResultRow & {
   target_key: string;
   target_label: string;
   body: string;
   author_name: string;
   updated_at: string;
 };
+type CommentRow = SavedCommentRow & {
+  version_id: string;
+  version_number: number;
+};
 
 /**
  * 版本必须真属于这份报告才继续。否则一个能读 A 报告的人，
- * 就能拿 B 报告的版本号往这里写评语。
+ * 就能拿 B 报告的版本号往这里写评语。带上 version_number 是因为
+ * `saveReportReviewComment` 要用它拼评论的 `versionLabel`（`v${number}`）——
+ * 报告没有集成版，不需要再像视频侧那样分两步各查一遍。
  */
 async function requireVersionOfReport(db: DbClient, reportId: string, versionId: string) {
   const row = await db
-    .prepare("SELECT id, report_id FROM report_versions WHERE id = ?")
+    .prepare("SELECT id, report_id, version_number FROM report_versions WHERE id = ?")
     .bind(versionId.trim())
-    .first<VersionRow>();
+    .first<VersionWithNumberRow>();
   if (!row || row.report_id !== reportId) {
     throw new Error("指定的版本不存在。");
   }
@@ -51,30 +58,41 @@ export async function loadReportReview(
 ): Promise<CaseReviewModel> {
   const canReview = isCaseReviewer(input.viewer.displayName);
   const versionId = input.versionId?.trim() || "";
-  if (!versionId) return { canReview, versionId: null, stars: null, comments: [] };
-  const version = await db
-    .prepare("SELECT id, report_id FROM report_versions WHERE id = ?")
-    .bind(versionId)
-    .first<VersionRow>();
-  // 版本还没落库（新版本尚未保存过）时不是错误，只是还没有可评的东西。
-  if (!version || version.report_id !== input.reportId) {
-    return { canReview, versionId: null, stars: null, comments: [] };
-  }
-  const [rating, comments] = await Promise.all([
-    db.prepare("SELECT stars FROM report_version_ratings WHERE version_id = ?").bind(versionId).first<RatingRow>(),
-    db
-      .prepare(
-        `SELECT target_key, target_label, body, author_name, updated_at
-        FROM report_version_comments WHERE version_id = ?
-        ORDER BY updated_at ASC`,
-      )
+
+  // 星级仍只锚定 `?version=` 指定的那一版；报告没有集成版这种"不在
+  // report_versions 里的 id"，但版本也可能还没落库（新版本尚未保存过）——
+  // 两种情况都归一为"找不到就是不能评分"，与视频侧 loadCaseReview 同一条规则。
+  let ratableVersionId: string | null = null;
+  if (versionId) {
+    const version = await db
+      .prepare("SELECT id, report_id FROM report_versions WHERE id = ?")
       .bind(versionId)
-      .all<CommentRow>(),
+      .first<VersionRow>();
+    if (version && version.report_id === input.reportId) ratableVersionId = versionId;
+  }
+  const canRate = ratableVersionId != null;
+
+  // 评论不再按单一版本取：不管正看着哪一版，都汇总显示这份报告所有版本上的评论
+  // （对齐视频侧 loadCaseReview，见 `docs/20_最终版与评论跨版本_实施规格_V0.1.md` 一之 2）。
+  const [rating, comments] = await Promise.all([
+    ratableVersionId
+      ? db.prepare("SELECT stars FROM report_version_ratings WHERE version_id = ?")
+        .bind(ratableVersionId).first<RatingRow>()
+      : Promise.resolve(null),
+    db.prepare(
+      `SELECT c.target_key, c.target_label, c.body, c.author_name, c.updated_at,
+        c.version_id, v.version_number
+      FROM report_version_comments c
+      JOIN report_versions v ON v.id = c.version_id
+      WHERE c.report_id = ?
+      ORDER BY c.updated_at ASC`,
+    ).bind(input.reportId).all<CommentRow>(),
   ]);
   return {
     canReview,
-    versionId,
+    versionId: versionId || null,
     stars: rating ? Number(rating.stars) : null,
+    canRate,
     comments: comments.results.map(
       (row): CaseReviewComment => ({
         targetKey: row.target_key,
@@ -82,6 +100,8 @@ export async function loadReportReview(
         body: row.body,
         authorName: row.author_name,
         updatedAt: String(row.updated_at),
+        versionId: row.version_id,
+        versionLabel: `v${row.version_number}`,
       }),
     ),
   };
@@ -153,7 +173,7 @@ export async function saveReportReviewComment(
       RETURNING target_key, target_label, body, author_name, updated_at`,
     )
     .bind(version.id, targetKey, input.reportId, targetLabel, body, input.viewer.userId, input.viewer.displayName)
-    .first<CommentRow>();
+    .first<SavedCommentRow>();
   return {
     comment: saved
       ? {
@@ -162,6 +182,9 @@ export async function saveReportReviewComment(
           body: saved.body,
           authorName: saved.author_name,
           updatedAt: String(saved.updated_at),
+          // 版本号从 requireVersionOfReport 已经查出来的那一行取，不用再联查一次。
+          versionId: version.id,
+          versionLabel: `v${version.version_number}`,
         }
       : null,
   };

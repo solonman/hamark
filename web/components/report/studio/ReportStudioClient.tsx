@@ -303,12 +303,15 @@ export default function ReportStudioClient({
     const versionId = chainRef.current?.current.id;
     if (!versionId) throw new Error("这一版还没有保存过内容，保存后才能评论。");
     const data = await commentOnVersion(reportId, { versionId, ...input });
-    setReview((current) => ({
-      ...current,
-      comments: data.comment
-        ? [...current.comments.filter((item) => item.targetKey !== input.targetKey), data.comment]
-        : current.comments.filter((item) => item.targetKey !== input.targetKey),
-    }));
+    // 一个条目现在可能挂着好几个版本各写的一条评论，所以按 (versionId, targetKey)
+    // 替换，不能再只按 targetKey——那会把别的版本写的那条也顶掉
+    // （对齐 V04StudioClient.tsx 的 saveReviewComment）。
+    setReview((current) => {
+      const others = current.comments.filter(
+        (item) => !(item.targetKey === input.targetKey && item.versionId === versionId),
+      );
+      return { ...current, comments: data.comment ? [...others, data.comment] : others };
+    });
   }, [reportId]);
 
   const onDeckComment = useCallback(
@@ -379,8 +382,15 @@ export default function ReportStudioClient({
 
   const readOnly = !chain.current.isMine;
   const reviewDisabled = !chain.current.id;
+  // 评论现在按条目汇总这份报告所有版本上写的那些（对齐视频侧 loadCaseReview，
+  // 见 lib/report-review-server.ts 顶部注释），第一、二部分原样把整份列表往下传,
+  // 由 V19ReviewComment 自己按 currentVersionId 挑出哪一条是「本版」。
   const reviewComments = commentsByTarget(review.comments);
+  // deck（第三部分）的评论契约由外壳 agent 交付，仍是「一个条目一条、锚定当前
+  // 版本」（见 deck/DeckField.tsx 顶部注释），所以这里从汇总列表里只挑出当前
+  // 版本写的那条，不整份传下去——deck 侧不做跨版本汇总展示。
   const deckComments = review.comments.reduce<Record<string, DeckReviewComment>>((acc, item) => {
+    if (item.versionId !== chain.current.id) return acc;
     acc[item.targetKey] = { body: item.body, authorName: item.authorName, updatedAt: item.updatedAt };
     return acc;
   }, {});
@@ -503,6 +513,7 @@ export default function ReportStudioClient({
                 canReview: review.canReview,
                 disabled: reviewDisabled,
                 comments: reviewComments,
+                currentVersionId: chain.current.id,
                 onSave: comment,
               }}
               files={{
@@ -540,6 +551,7 @@ export default function ReportStudioClient({
                 canReview: review.canReview,
                 disabled: reviewDisabled,
                 comments: reviewComments,
+                currentVersionId: chain.current.id,
                 onSave: comment,
               }}
             />
@@ -576,13 +588,18 @@ export default function ReportStudioClient({
           ) : null}
         </section>
 
-        <V19AssignmentRating
-          stars={review.stars}
-          canReview={review.canReview}
-          versionLabel={`v${chain.current.number} · ${chain.current.ownerName}`}
-          disabled={reviewDisabled}
-          onRate={rate}
-        />
+        {/* 报告没有集成版，`canRate` 在这里基本等价于"当前版本已经落库"，
+            但仍然照抄视频侧口径由 `review.canRate` 把关（见
+            lib/report-review-server.ts 顶部注释），不是自己另起一套判断。 */}
+        {review.canRate && (
+          <V19AssignmentRating
+            stars={review.stars}
+            canReview={review.canReview}
+            versionLabel={`v${chain.current.number} · ${chain.current.ownerName}`}
+            disabled={reviewDisabled}
+            onRate={rate}
+          />
+        )}
       </div>
     </main>
   );
