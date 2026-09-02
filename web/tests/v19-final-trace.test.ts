@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   deriveV19AuxiliaryPathTrace,
+  deriveV19CarrierTrace,
   deriveV19ChoiceFieldTrace,
   deriveV19FinalFieldTrace,
   deriveV19PrimaryDetailTrace,
+  describeV19CarrierListValue,
   describeV19ChoiceValue,
   describeV19FinalIntakeSource,
   describeV19FinalTraceHoverSource,
@@ -725,4 +727,67 @@ test("describeV19FinalTraceHoverSource: also works for a primary-detail trace's 
   })];
   const trace = deriveV19PrimaryDetailTrace(origin, intakes, "emotionalBase", "王大明");
   assert.equal(describeV19FinalTraceHoverSource(trace.current), `v2·李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+});
+
+// ---------------------------------------------------------------------------
+// describeV19CarrierListValue / deriveV19CarrierTrace — 创意承重载体
+// (facts.creativeCarriers) 是这轮反馈里唯一漏掉「当前采用」的字段：值是固定
+// 三选项的 id 数组（STORY/COPY/AUDIOVISUAL_RULE），不是 V04ChoiceValue，用
+// 「、」拼接中文标签展示。
+// ---------------------------------------------------------------------------
+
+test("describeV19CarrierListValue: maps each carrier id to its 中文标签, joined with 、", () => {
+  assert.equal(describeV19CarrierListValue(["STORY", "AUDIOVISUAL_RULE"]), "故事、视听规则");
+  assert.equal(describeV19CarrierListValue(["COPY"]), "文案");
+});
+
+test("describeV19CarrierListValue: an unrecognized id falls back to the raw id rather than dropping it", () => {
+  assert.equal(describeV19CarrierListValue(["STORY", "SOME_RETIRED_CARRIER"]), "故事、SOME_RETIRED_CARRIER");
+});
+
+test("describeV19CarrierListValue: a non-array value formats to empty string", () => {
+  assert.equal(describeV19CarrierListValue(undefined), "");
+  assert.equal(describeV19CarrierListValue("STORY"), "");
+});
+
+function originWithCarriers(carriers: Array<"STORY" | "COPY" | "AUDIOVISUAL_RULE">): V04DraftPayloadV1 {
+  return {
+    ...emptyV04DraftPayload(),
+    factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, creativeCarriers: carriers },
+  };
+}
+
+test("deriveV19CarrierTrace: shows 当前采用 formatted via describeV19CarrierListValue even when nothing changed", () => {
+  const origin = originWithCarriers(["STORY", "AUDIOVISUAL_RULE"]);
+  const trace = deriveV19CarrierTrace(origin, [], "王大明");
+  assert.equal(trace.hasTrace, true);
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+  assert.equal(trace.current?.value, "故事、视听规则");
+});
+
+test("deriveV19CarrierTrace: a later record with a different selection becomes current; origin becomes 旧写法", () => {
+  const origin = originWithCarriers(["STORY"]);
+  const intakes = [
+    intake({
+      id: "i1", seq: 1, targetKey: "facts.creativeCarriers", targetLabel: "创意承重载体",
+      value: ["COPY", "AUDIOVISUAL_RULE"], sourceVersionNumber: 2, actorName: "李晓芸",
+      createdAt: "2026-08-23T09:47:00.000Z",
+    }),
+  ];
+  const trace = deriveV19CarrierTrace(origin, intakes, "王大明");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+  assert.equal(trace.current?.value, "文案、视听规则");
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"]);
+  assert.equal(trace.overridden[0]?.value, "故事");
+});
+
+test("deriveV19CarrierTrace: 假原稿行兜底 also applies here — a v1 record equal to v1's own last write drops the origin row", () => {
+  const origin = originWithCarriers(["STORY"]);
+  const intakes = [
+    intake({ id: "i1", seq: 1, targetKey: "facts.creativeCarriers", value: ["COPY"], sourceVersionNumber: 1, actorName: "赵雅诗" }),
+    intake({ id: "i2", seq: 2, targetKey: "facts.creativeCarriers", value: ["STORY"], sourceVersionNumber: 1, actorName: "赵雅诗", createdAt: "2026-08-26T09:35:00.000Z" }),
+  ];
+  const trace = deriveV19CarrierTrace(origin, intakes, "赵雅诗");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v1 赵雅诗 ${formatShortDateTime("2026-08-26T09:35:00.000Z")}`);
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["i1"]);
 });

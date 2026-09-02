@@ -545,3 +545,62 @@ test("默认视图（非溯源模式）下，固定选项字段（故事参照�
   assert.match(html, new RegExp(`title="点击选择 · 来自 v2·老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}"`),
     "the choice field's trigger must carry the default-mode hover title too, per spec 五、19");
 });
+
+// ---------------------------------------------------------------------------
+// 溯源视图（合并进 main 后的反馈）：创意承重载体（facts.creativeCarriers，
+// 第一模块的三选项 chip 组，既不是 V19EditableValue 也不是 V04ChoiceField）
+// 是唯一漏掉「当前采用」的字段——补上 finalCarrierExtras，走
+// deriveV19CarrierTrace 单测过的同一套格式化/合并逻辑。
+// ---------------------------------------------------------------------------
+
+test("溯源视图：创意承重载体也渲染了「当前采用」，文案是选中载体的中文标签用「、」拼接", () => {
+  const draft = fixtureDraft();
+  assert.deepEqual(draft.carriers, ["故事", "视听规则"], "this test's expected label assumes the aurora fixture's carrier selection");
+  const originPayload = v04UiDraftToPayload(draft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({ originPayload, originOwnerName: "赵雅诗", intakes: [] }),
+  })));
+  const carrierIndex = html.indexOf("创意承重载体");
+  assert.ok(carrierIndex >= 0, "expected the 创意承重载体 field to render");
+  const nearby = html.slice(carrierIndex, carrierIndex + 800);
+  assert.match(nearby, /当前采用 · v1 赵雅诗 原稿/,
+    "expected 创意承重载体 to show its own 当前采用 line — this was the one field this round's feedback said was still missing it");
+});
+
+test("溯源视图：创意承重载体变更后，「当前采用」换成新记录的来源，旧选择进旧写法", () => {
+  const draft = fixtureDraft();
+  const originPayload = v04UiDraftToPayload(draft); // unchanged — draft.carriers is what v1 wrote
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "赵雅诗",
+      intakes: [{
+        id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.creativeCarriers", targetLabel: "创意承重载体",
+        value: ["COPY"], source: "VERSION", sourceVersionNumber: 2, actorName: "老孙",
+        applied: true, createdAt: "2026-09-02T03:00:00.000Z",
+      }],
+    }),
+  })));
+  const carrierIndex = html.indexOf("创意承重载体");
+  const nearby = html.slice(carrierIndex, carrierIndex + 800);
+  assert.match(nearby, /当前采用 · v2 老孙/, "当前采用 attributes to the record that actually changed the selection");
+  assert.match(nearby, /文案/, "the trace's current value must be formatted through describeV19CarrierListValue's id-to-label mapping");
+});
+
+// ---------------------------------------------------------------------------
+// 溯源视图字号（合并进 main 后的反馈）：旧写法摘要行不能比「当前采用」更
+// 显眼——这里只做一个粗粒度的守卫：当前采用的字号必须严格大于旧写法摘要行
+// 收起时的字号，防止样式再次反过来。
+// ---------------------------------------------------------------------------
+
+test("样式：当前采用的字号严格大于旧写法摘要行，保证锚点视觉上最清楚", async () => {
+  const css = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
+  const currentFontSize = Number(css.match(/\.finalTraceCurrent\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);
+  const summaryFontSize = Number(css.match(/\.finalTraceSummaryRow\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);
+  assert.ok(Number.isFinite(currentFontSize) && Number.isFinite(summaryFontSize),
+    "expected to find numeric font-size declarations for both .finalTraceCurrent and .finalTraceSummaryRow");
+  assert.ok(currentFontSize > summaryFontSize,
+    `expected .finalTraceCurrent (${currentFontSize}px) to be strictly larger than .finalTraceSummaryRow (${summaryFontSize}px)`);
+});

@@ -912,16 +912,18 @@ input.editableTimecode { padding: 5px 8px; }
    未纳入照旧完整显示（见 lib/v19-final-trace.ts 的简化规则 1-5）。 */
 .finalTrace { display: grid; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--v04-line); }
 /* 当前采用：这一组里唯一的锚，用 --v04-subject（跟字段标签同一色系）压住
-   旧写法的灰字，比旧写法更清楚可读，但不抢占正文本身。 */
-.finalTraceCurrent { color: var(--v04-subject); font-size: 10.5px; font-weight: 700; line-height: 1.5; }
+   旧写法的灰字——字号也要明显大于旧写法摘要行（见下面 .finalTraceSummaryRow
+   降到 11px 后，这里跟着从 10.5px 提到 12px，否则锚点反而比摘要还小）。 */
+.finalTraceCurrent { color: var(--v04-subject); font-size: 12px; font-weight: 700; line-height: 1.4; }
 /* 旧写法摘要行：整体弱化——版本号／作者普通字重、灰色，正文摘要更淡，
-   只有「未纳入」保留琥珀色强调（见下面 .finalTraceRowPending）。
-   整行可点，收起时只留版本/作者/时间 + 第一行预览（省略号截断），
-   点开后预览换成跟未纳入一样的整段正文。 */
+   只有「未纳入」保留琥珀色强调（见下面 .finalTraceRowPending）。整行可点，
+   收起时只留版本/作者/时间 + 第一行预览（省略号截断），行高收紧成 1.3；
+   点开后预览换成跟未纳入一样的整段正文，字号放到 12px 保证读得下去，但
+   仍是弱化配色，视觉上压不过上面的当前采用。 */
 .finalTraceSummaryRow {
   display: block; width: 100%; border: 0; border-left: 2px solid var(--v04-line); border-radius: 8px;
   background: transparent; padding: 4px 9px; text-align: left; font: inherit; color: var(--v04-muted);
-  font-size: 10.5px; cursor: pointer;
+  font-size: 11px; line-height: 1.3; cursor: pointer;
 }
 .finalTraceSummaryRow:hover { border-left-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .05); }
 .finalTraceSummaryLabel {
@@ -933,7 +935,7 @@ input.editableTimecode { padding: 5px 8px; }
   display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
 }
 .finalTraceSummaryRow[aria-expanded="true"] .finalTraceSummaryPreview {
-  display: block; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;
+  display: block; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5;
 }
 /* 未纳入：照旧完整展示（版本/作者/时间/全文/采纳按钮），只是数据来源换了形状。 */
 .finalTraceRow {

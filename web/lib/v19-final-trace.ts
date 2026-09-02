@@ -418,6 +418,44 @@ export function deriveV19ChoiceFieldTrace(
   return deriveV19TraceFromNormalized(originValue, originOwnerName, normalized);
 }
 
+// ---------------------------------------------------------------------------
+// 创意承重载体 (`facts.creativeCarriers`): a plain array of fixed carrier ids
+// (`"STORY" | "COPY" | "AUDIOVISUAL_RULE"`), not a `V04ChoiceValue` — it's
+// rendered as a chip toggle group, not a `V04ChoiceField`. Same reasoning as
+// `describeV19ChoiceValue`/`deriveV19ChoiceFieldTrace` above, just for this
+// simpler shape (复用 `lib/v04-ui-model.ts` 的 carrierToUi 会把这份很小的
+// browser-safe 文件拖进一个更大的模块，所以就地存一份同样的三项映射).
+// ---------------------------------------------------------------------------
+
+const V19_CARRIER_LABELS: Record<string, string> = {
+  STORY: "故事",
+  COPY: "文案",
+  AUDIOVISUAL_RULE: "视听规则",
+};
+
+/** Formats a `facts.creativeCarriers`-shaped id array into its 中文 labels, joined with "、". Returns "" for anything that isn't an array. */
+export function describeV19CarrierListValue(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((id) => (typeof id === "string" ? V19_CARRIER_LABELS[id] ?? id : ""))
+    .filter(Boolean)
+    .join("、");
+}
+
+/** 创意承重载体 (spec 五、18 补充): the one remaining field module 1 hadn't wired — same shared merge/current/overridden/pending machinery, `describeV19CarrierListValue` doing the formatting. */
+export function deriveV19CarrierTrace(
+  originPayload: V04DraftPayloadV1,
+  intakes: readonly V19FinalIntake[],
+  originOwnerName = "",
+): V19FinalFieldTrace {
+  const targetKey = "facts.creativeCarriers";
+  const origin = locateV19FinalTarget(originPayload, targetKey);
+  const originValue = origin ? describeV19CarrierListValue(origin.object[origin.key]) : undefined;
+  const normalized = filterSortFieldIntakes(intakes, targetKey)
+    .map((intake) => toNormalizedIntake(intake, describeV19CarrierListValue(intake.value)));
+  return deriveV19TraceFromNormalized(originValue, originOwnerName, normalized);
+}
+
 /** The first line of a trace value, trimmed to "—" when empty — the collapsed preview for a 旧写法摘要行 (简化规则 3). Full-text display and expand/collapse belong to the renderer. */
 export function firstLineV19TraceValue(value: unknown): string {
   const text = typeof value === "string" ? value : value == null ? "" : JSON.stringify(value);

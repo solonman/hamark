@@ -13,6 +13,7 @@ import { formatShortDateTime } from "@/lib/date-format";
 import type { V19FinalIntake } from "@/lib/v19-ui-model";
 import {
   deriveV19AuxiliaryPathTrace,
+  deriveV19CarrierTrace,
   deriveV19ChoiceFieldTrace,
   deriveV19FinalFieldTrace,
   deriveV19PrimaryDetailTrace,
@@ -539,6 +540,19 @@ export default function V19StudioDocument({
     return { locked: final.locked, ...finalTraceRenderProps(trace, final) };
   }
 
+  /**
+   * 创意承重载体 (spec 五、18 补充): the fixed three-option chip toggle is
+   * neither a `V19EditableValue` nor a `V04ChoiceField`, so there's no
+   * `locked`/`sourceHint` prop to spread here — this only renders the
+   * `after` slot (溯源视图下方的当前采用／旧写法／未纳入), by hand, right
+   * under the chip group. See `deriveV19CarrierTrace`.
+   */
+  function finalCarrierExtras(): ReactNode {
+    if (!final || !final.originPayload) return null;
+    const trace = deriveV19CarrierTrace(final.originPayload, final.intakes, final.originOwnerName);
+    return finalTraceRenderProps(trace, final).after ?? null;
+  }
+
   function moduleHeader(number: number, eyebrow: string, title: string): ReactNode {
     return (
       <header className={styles.stickyModuleHeader}>
@@ -633,6 +647,7 @@ export default function V19StudioDocument({
                   </span>
                 </>
               )}
+              {finalCarrierExtras()}
             </div>
             <div id={V04_WORKSPACE_TARGETS.carrierExplanation}>
               {labelWithComment("创意承重载体具体说明", V19_FIELD_TARGET_KEYS.facts.carrierExplanation)}
