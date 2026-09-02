@@ -101,7 +101,8 @@
 .headerCaseTitle { overflow: hidden; max-width: min(30vw, 360px); color: var(--v04-ink) !important; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0 !important; }
 .siteUtilities { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .siteUtilities > a, .siteUtilities > button { border: 0; background: transparent; color: var(--v04-muted); padding: 8px; font-size: 11px; text-decoration: none; }
-.siteUtilities > a:hover, .siteUtilities > button:hover { color: var(--v04-accent); }
+.siteUtilities > a:hover, .siteUtilities > button:not(:disabled):hover { color: var(--v04-accent); }
+.siteUtilities > button:disabled { cursor: not-allowed; opacity: .45; }
 .siteUtilities > span { overflow: hidden; max-width: 120px; color: var(--v04-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .saveCluster { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 6px; }
 .headerSubmit { border-color: rgba(223, 255, 79, .55) !important; color: var(--v04-accent) !important; }

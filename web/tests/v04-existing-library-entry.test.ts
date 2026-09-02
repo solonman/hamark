@@ -22,7 +22,7 @@ test("the existing video catalog feeds the standalone formal V1.9 library", asyn
   assert.match(library, /const workspaceHref[\s\S]*formal[\s\S]*`\/videos\/\$\{encodeURIComponent\(videoId\)\}\/practice`/);
   assert.match(library, /video\.thumbnailUrl/);
   assert.match(library, /<UploadDialog/);
-  assert.match(library, /\/admin\/v02-v03-batch-mapping/);
+  assert.doesNotMatch(library, /\/admin\/v02-v03-batch-mapping/);
   assert.match(library, /<UserMenu user=\{user\}/);
   assert.match(library, /\?taxonomy=V0\.3-PILOT/);
   assert.match(library, /data-v04-page="library"/);

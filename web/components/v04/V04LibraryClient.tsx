@@ -160,11 +160,10 @@ function CaseRating({ engagement }: { engagement: CaseEngagement }) {
   );
 }
 
-export default function V04LibraryClient({ viewerName, formal = false, user, isAdmin = false }: {
+export default function V04LibraryClient({ viewerName, formal = false, user }: {
   viewerName: string;
   formal?: boolean;
   user?: UserMenuUser;
-  isAdmin?: boolean;
 }) {
   const tabToken = useRef(`v04-library-${crypto.randomUUID()}`);
   const [cases, setCases] = useState<V04LibraryCase[]>([]);
@@ -344,7 +343,12 @@ export default function V04LibraryClient({ viewerName, formal = false, user, isA
         <button type="button" className={library === "REPORT" ? styles.activeNav : ""} aria-current={library === "REPORT" ? "page" : undefined} onClick={() => setLibrary("REPORT")}>报告库</button>
         {formal ? null : <span>UI PROTOTYPE</span>}
       </nav>
-      <div className={styles.siteUtilities}>{formal && isAdmin ? <Link href="/admin/v02-v03-batch-mapping">数据操作</Link> : null}{formal ? <button type="button" onClick={() => setShowUpload(true)}>上传作品</button> : null}{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
+      {/* 上传按钮跟着当前库走：站里现在有两种可反写的东西，「上传作品」说不清是哪一种。
+          报告那条线还没开工，所以按钮在，但按不动——它说明的是形状，不是承诺。 */}
+      <div className={styles.siteUtilities}>{formal ? (library === "VIDEO"
+        ? <button type="button" onClick={() => setShowUpload(true)}>上传视频</button>
+        : <button type="button" disabled title="报告逆向工程建设中，暂不能上传报告">上传报告</button>
+      ) : null}{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
     </header>
     {library === "REPORT" ? <>
       <section className={styles.libraryHero}><p>REPORT REVERSE-ENGINEERING LIBRARY</p><h1>把一份报告，<br />拆回它的判断。</h1></section>

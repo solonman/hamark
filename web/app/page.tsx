@@ -39,7 +39,6 @@ export default async function Home() {
         <V04LibraryClient
           viewerName={user.displayName}
           user={userView}
-          isAdmin={isAdmin}
           formal
         />
       </V04BrowserCompatibilityGate>

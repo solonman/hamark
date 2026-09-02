@@ -48,7 +48,10 @@ test("formal library uses real media and preserves upload, admin, search and tag
   assert.match(library, /matchesV04LibraryQuery/);
   assert.match(library, /item\.tags\.map/);
   assert.match(library, /<UploadDialog/);
-  assert.match(library, /isAdmin \? <Link href="\/admin\/v02-v03-batch-mapping"/);
+  // 数据操作是管理员的后台工具，不该常驻在所有人都看的顶栏里；页面本身仍在，按地址进。
+  assert.doesNotMatch(library, /\/admin\/v02-v03-batch-mapping/);
+  // 站里有两种可反写的东西，上传按钮要说清楚上传的是哪一种。
+  assert.match(library, /library === "VIDEO"[\s\S]*上传视频[\s\S]*上传报告/);
 });
 
 test("formal workspace keeps approved choice, comment and publication semantics", async () => {
