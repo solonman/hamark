@@ -23,6 +23,8 @@ export type V19VersionSummary = {
   updatedAt: string;
   isMine: boolean;
   isVirtual: boolean;
+  /** true when this version was manually created from the final version's payload (spec 五、13). */
+  baseIsFinal: boolean;
 };
 
 export type V19CurrentVersion = V19VersionSummary & {
@@ -30,6 +32,34 @@ export type V19CurrentVersion = V19VersionSummary & {
   basePayload: V04DraftPayloadV1 | null;
   revision: number;
   contentHash: string;
+  /** true when `current` is the final version rather than a per-editor version (spec 4.1). */
+  isFinal: boolean;
+};
+
+// 最终版摘要，与 GET 响应顶层的 `final` 字段同形（spec 4.1）。案例还没有任何真实版本时为 null。
+export type V19FinalSummary = {
+  id: string | null;
+  status: "OPEN" | "DONE";
+  doneAt: string | null;
+  doneByName: string | null;
+  updatedAt: string;
+  pendingCount: number;
+  isVirtual: boolean;
+};
+
+// 溯源视图里一条汇入记录（spec 4.1 / 三、3.1-3.2）。
+export type V19FinalIntake = {
+  id: string;
+  seq: number;
+  kind: "FIELD" | "INSERT_GROUP" | "INSERT_SHOT" | "REMOVE_GROUP" | "REMOVE_SHOT";
+  targetKey: string;
+  targetLabel: string;
+  value: unknown;
+  source: "VERSION" | "FINAL_DIRECT";
+  sourceVersionNumber: number | null;
+  actorName: string;
+  applied: boolean;
+  createdAt: string;
 };
 
 export type V19StudioModel = {
@@ -39,6 +69,9 @@ export type V19StudioModel = {
   versions: V19VersionSummary[];
   current: V19CurrentVersion;
   myVersionId: string | null;
+  final: V19FinalSummary | null;
+  /** 只在 `?version=final` 时携带（spec 4.1）。 */
+  finalTrace?: { originPayload: V04DraftPayloadV1; intakes: V19FinalIntake[] };
 };
 
 export type V19SaveRequestBody = {
@@ -55,10 +88,22 @@ export type V19SaveResponseBody = {
   updatedAt: string;
   createdVersion: boolean;
   skippedTargets?: string[];
+  finalIntake: { merged: boolean; pending: number };
 };
 
 export type V19CreateVersionRequestBody = {
   baseVersionId: string;
+};
+
+// 新增 POST /api/videos/[id]/analysis/v19/final（spec 4.3）。
+export type V19FinalActionRequestBody =
+  | { action: "DONE" }
+  | { action: "OPEN" }
+  | { action: "ADOPT"; intakeIds?: string[]; all?: boolean };
+
+export type V19FinalActionResponseBody = {
+  final: V19FinalSummary;
+  adopted?: number;
 };
 
 // `formatV19VersionLabel` is also exported from lib/v19-version-chain.ts, but
@@ -192,6 +237,8 @@ export function createV19UiApiClient(fetcher: FetchLike = fetch) {
         body: { baseVersionId } satisfies V19CreateVersionRequestBody,
         signal,
       }),
+    finalAction: (videoId: string, body: V19FinalActionRequestBody, signal?: AbortSignal) =>
+      request<V19FinalActionResponseBody>(basePath(videoId, "/final"), { method: "POST", body, signal }),
   };
 }
 

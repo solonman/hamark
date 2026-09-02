@@ -25,11 +25,19 @@ import {
 } from "./v04-domain";
 import { V04ServiceError } from "./v04-errors";
 import { materializeV04Workspace, type V04Actor } from "./v04-workspace-service";
+import {
+  intakeIntoFinal,
+  loadFinalTrace,
+  loadFinalVersion,
+  type FinalSummary,
+  type FinalTraceIntake,
+  type LoadedFinalVersion,
+} from "./final-version";
 
 const WORKFLOW = V04_WORKFLOW_VERSION;
 
-const id = (prefix: string) => `${prefix}_${randomUUID()}`;
-const iso = (value: Date) => value.toISOString();
+export const id = (prefix: string) => `${prefix}_${randomUUID()}`;
+export const iso = (value: Date) => value.toISOString();
 
 // ---------------------------------------------------------------------------
 // Pure helpers (no I/O) — exported so unit tests can exercise the decision
@@ -96,6 +104,7 @@ export type V19VersionSummary = {
   updatedAt: string;
   isMine: boolean;
   isVirtual: boolean;
+  baseIsFinal: boolean;
 };
 
 export type V19CurrentVersion = V19VersionSummary & {
@@ -103,12 +112,15 @@ export type V19CurrentVersion = V19VersionSummary & {
   basePayload: V04DraftPayloadV1 | null;
   revision: number;
   contentHash: string;
+  isFinal: boolean;
 };
 
 export type V19VersionChain = {
   versions: V19VersionSummary[];
   current: V19CurrentVersion;
   myVersionId: string | null;
+  final: FinalSummary | null;
+  finalTrace?: { originPayload: V04DraftPayloadV1; intakes: FinalTraceIntake[] };
 };
 
 export type V19SaveInput = {
@@ -126,6 +138,8 @@ export type V19SaveResult = {
   contentHash: string;
   updatedAt: string;
   createdVersion: boolean;
+  skippedTargets?: string[];
+  finalIntake: { merged: boolean; pending: number };
 };
 
 export type V19CreateFromInput = {
@@ -138,7 +152,7 @@ export type V19CreateFromInput = {
 // Row shapes and small DB helpers
 // ---------------------------------------------------------------------------
 
-type WorkspaceRow = QueryResultRow & {
+export type WorkspaceRow = QueryResultRow & {
   id: string;
   video_id: string;
   canonical_annotation_id: string;
@@ -149,7 +163,7 @@ type WorkspaceRow = QueryResultRow & {
   updated_at: string;
 };
 
-type AnalysisVersionRow = QueryResultRow & {
+export type AnalysisVersionRow = QueryResultRow & {
   id: string;
   workspace_id: string;
   video_id: string;
@@ -167,20 +181,21 @@ type AnalysisVersionRow = QueryResultRow & {
   workflow_version: string;
   vocabulary_version: string;
   payload_schema_version: string;
+  base_is_final: boolean;
   created_at: string;
   updated_at: string;
 };
 
-const VERSION_COLUMNS = `id, workspace_id, video_id, version_number, owner_user_id, owner_name_snapshot,
+export const VERSION_COLUMNS = `id, workspace_id, video_id, version_number, owner_user_id, owner_name_snapshot,
   base_version_id, base_version_number, base_payload_json, base_captured_at,
   payload_json, content_hash, revision, taxonomy_version, workflow_version,
-  vocabulary_version, payload_schema_version, created_at, updated_at`;
+  vocabulary_version, payload_schema_version, base_is_final, created_at, updated_at`;
 
-function parseJsonPayload(value: V04DraftPayloadV1 | string): V04DraftPayloadV1 {
+export function parseJsonPayload(value: V04DraftPayloadV1 | string): V04DraftPayloadV1 {
   return typeof value === "string" ? JSON.parse(value) as V04DraftPayloadV1 : value;
 }
 
-async function workspaceForVideo(db: DbClient, videoId: string, lock = false) {
+export async function workspaceForVideo(db: DbClient, videoId: string, lock = false) {
   return db.prepare(
     `SELECT id, video_id, canonical_annotation_id, active_round_id,
       current_working_snapshot_id, created_by_user_id, status, updated_at
@@ -227,7 +242,7 @@ async function userDisplayName(db: DbClient, userId: string) {
   return row?.display_name ?? "";
 }
 
-async function insertAudit(
+export async function insertAudit(
   db: DbClient,
   actor: V04Actor,
   action: string,
@@ -246,14 +261,14 @@ async function insertAudit(
   ).run();
 }
 
-async function listVersionRows(db: DbClient, workspaceId: string) {
+export async function listVersionRows(db: DbClient, workspaceId: string) {
   return (await db.prepare(
     `SELECT ${VERSION_COLUMNS} FROM analysis_versions
     WHERE workspace_id = ? ORDER BY version_number ASC`,
   ).bind(workspaceId).all<AnalysisVersionRow>()).results;
 }
 
-async function findVersionById(db: DbClient, versionId: string) {
+export async function findVersionById(db: DbClient, versionId: string) {
   return db.prepare(`SELECT ${VERSION_COLUMNS} FROM analysis_versions WHERE id = ?`)
     .bind(versionId).first<AnalysisVersionRow>();
 }
@@ -264,7 +279,7 @@ async function findVersionByOwner(db: DbClient, workspaceId: string, ownerUserId
   ).bind(workspaceId, ownerUserId).first<AnalysisVersionRow>();
 }
 
-function toSummary(row: AnalysisVersionRow, actorUserId: string): V19VersionSummary {
+export function toSummary(row: AnalysisVersionRow, actorUserId: string): V19VersionSummary {
   return {
     id: row.id,
     number: Number(row.version_number),
@@ -277,6 +292,7 @@ function toSummary(row: AnalysisVersionRow, actorUserId: string): V19VersionSumm
     updatedAt: row.updated_at,
     isMine: row.owner_user_id === actorUserId,
     isVirtual: false,
+    baseIsFinal: Boolean(row.base_is_final),
   };
 }
 
@@ -287,6 +303,28 @@ function toCurrentVersion(row: AnalysisVersionRow, actorUserId: string): V19Curr
     basePayload: row.base_payload_json == null ? null : parseJsonPayload(row.base_payload_json),
     revision: Number(row.revision),
     contentHash: row.content_hash,
+    isFinal: false,
+  };
+}
+
+/** `current` when the viewer is looking at the final version instead of a per-editor one (spec 4.1). */
+function finalToCurrentVersion(final: LoadedFinalVersion): V19CurrentVersion {
+  return {
+    id: final.id,
+    number: 0,
+    ownerUserId: "",
+    ownerName: "最终版",
+    baseNumber: null,
+    createdAt: final.createdAt,
+    updatedAt: final.updatedAt,
+    isMine: false,
+    isVirtual: final.isVirtual,
+    baseIsFinal: false,
+    isFinal: true,
+    payload: final.payload,
+    basePayload: null,
+    revision: final.revision,
+    contentHash: final.contentHash,
   };
 }
 
@@ -306,6 +344,7 @@ function virtualVersion(
     updatedAt,
     isMine: ownerUserId === actorUserId,
     isVirtual: true,
+    baseIsFinal: false,
   };
 }
 
@@ -317,20 +356,22 @@ export async function loadV19VersionChain(
   db: DbClient,
   videoId: string,
   actor: V04Actor,
-  options: { versionId?: string } = {},
+  options: { versionId?: string; includeFinalTrace?: boolean } = {},
 ): Promise<V19VersionChain> {
   const workspace = await workspaceForVideo(db, videoId);
   if (!workspace) {
     // Nobody has touched this case yet: nothing to read but an empty draft.
     // Attribute the not-yet-created v1 to the viewer — it becomes real and
-    // theirs the moment they make the first edit.
+    // theirs the moment they make the first edit. The final version has no
+    // meaning until the case has at least one real version (spec 二、11).
     const payload = emptyV04DraftPayload();
     const nowIso = new Date().toISOString();
     const virtual = virtualVersion(actor.userId, actor.displayName, actor.userId, nowIso);
     return {
       versions: [virtual],
-      current: { ...virtual, payload, basePayload: null, revision: 1, contentHash: hashV04Payload(payload) },
+      current: { ...virtual, payload, basePayload: null, revision: 1, contentHash: hashV04Payload(payload), isFinal: false },
       myVersionId: null,
+      final: null,
     };
   }
 
@@ -341,20 +382,43 @@ export async function loadV19VersionChain(
     const virtual = virtualVersion(workspace.created_by_user_id, ownerName, actor.userId, workspace.updated_at);
     return {
       versions: [virtual],
-      current: { ...virtual, payload, basePayload: null, revision: 1, contentHash: hashV04Payload(payload) },
+      current: { ...virtual, payload, basePayload: null, revision: 1, contentHash: hashV04Payload(payload), isFinal: false },
       myVersionId: null,
+      final: null,
     };
   }
 
   const summaries = rows.map((row) => toSummary(row, actor.userId));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const requested = options.versionId ? byId.get(options.versionId) : undefined;
-  const chosen = requested ?? byId.get(resolveV19DefaultVersion(summaries).id as string)!;
   const mine = rows.find((row) => row.owner_user_id === actor.userId);
+
+  // spec 二、11: whenever the case has any real version, `final` is meaningful
+  // (materialized or virtual) and becomes the default `current` unless a
+  // specific real version was explicitly requested.
+  const finalLoaded = await loadFinalVersion(db, workspace);
+  const final: FinalSummary = {
+    id: finalLoaded.id,
+    status: finalLoaded.status,
+    doneAt: finalLoaded.doneAt,
+    doneByName: finalLoaded.doneByName,
+    updatedAt: finalLoaded.updatedAt,
+    pendingCount: finalLoaded.pendingCount,
+    isVirtual: finalLoaded.isVirtual,
+  };
+
+  const requested = options.versionId && options.versionId !== "final"
+    ? byId.get(options.versionId)
+    : undefined;
+  const current = requested ? toCurrentVersion(requested, actor.userId) : finalToCurrentVersion(finalLoaded);
+
+  const finalTrace = options.includeFinalTrace ? await loadFinalTrace(db, workspace) : undefined;
+
   return {
     versions: summaries,
-    current: toCurrentVersion(chosen, actor.userId),
+    current,
     myVersionId: mine?.id ?? null,
+    final,
+    finalTrace,
   };
 }
 
@@ -362,7 +426,7 @@ export async function loadV19VersionChain(
 // Write path.
 // ---------------------------------------------------------------------------
 
-async function materializeV19FirstVersion(db: DbClient, workspace: WorkspaceRow, now: Date) {
+export async function materializeV19FirstVersion(db: DbClient, workspace: WorkspaceRow, now: Date) {
   const payload = await currentWorkspacePayload(db, workspace);
   const ownerName = await userDisplayName(db, workspace.created_by_user_id);
   const contentHash = hashV04Payload(payload);
@@ -388,7 +452,7 @@ async function materializeV19FirstVersion(db: DbClient, workspace: WorkspaceRow,
   ).run();
 }
 
-async function insertVersionFromBase(
+export async function insertVersionFromBase(
   db: DbClient,
   workspace: WorkspaceRow,
   actor: V04Actor,
@@ -417,6 +481,41 @@ async function insertVersionFromBase(
   ).first<{ id: string } & QueryResultRow>();
   // No row back means a concurrent writer already took this owner slot or
   // version number; the caller re-reads instead of treating it as an error.
+  return inserted?.id ?? null;
+}
+
+/**
+ * "基于最终版" 手动创建（spec 五、13）：以最终版当前 payload 为快照。最终版的 id
+ * 不在 analysis_versions 里（不能满足 base_version_id 的外键），所以
+ * base_version_id / base_version_number 记 null，改用 base_is_final 标记来源。
+ */
+export async function insertVersionFromFinal(
+  db: DbClient,
+  workspace: WorkspaceRow,
+  actor: V04Actor,
+  finalPayload: V04DraftPayloadV1,
+  finalContentHash: string,
+  versionNumber: number,
+  now: Date,
+) {
+  const newId = id("analysis_version");
+  const savedAt = iso(now);
+  const inserted = await db.prepare(
+    `INSERT INTO analysis_versions (
+      id, workspace_id, video_id, version_number, owner_user_id, owner_name_snapshot,
+      base_version_id, base_version_number, base_payload_json, base_captured_at,
+      payload_json, content_hash, revision, taxonomy_version, workflow_version,
+      vocabulary_version, payload_schema_version, base_is_final, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?::jsonb, ?::timestamptz, ?::jsonb, ?, 1, ?, ?, ?, ?, true, ?::timestamptz, ?::timestamptz)
+    ON CONFLICT DO NOTHING
+    RETURNING id`,
+  ).bind(
+    newId, workspace.id, workspace.video_id, versionNumber, actor.userId, actor.displayName,
+    JSON.stringify(finalPayload), savedAt,
+    JSON.stringify(finalPayload), finalContentHash,
+    V04_TAXONOMY_VERSION, V04_WORKFLOW_VERSION, V04_VOCABULARY_VERSION, V04_PAYLOAD_SCHEMA_VERSION,
+    savedAt, savedAt,
+  ).first<{ id: string } & QueryResultRow>();
   return inserted?.id ?? null;
 }
 
@@ -473,7 +572,7 @@ async function resolveOrCreateActorVersion(
   throw new V04ServiceError("VERSION_NOT_FOUND", "版本创建未完成，请重试。");
 }
 
-async function resolveWorkspaceForWrite(db: DbClient, actor: V04Actor, videoId: string) {
+export async function resolveWorkspaceForWrite(db: DbClient, actor: V04Actor, videoId: string) {
   await assertCaseAvailable(db, videoId, true);
   let workspace = await workspaceForVideo(db, videoId, true);
   if (!workspace) {
@@ -520,6 +619,17 @@ export async function saveV19VersionChanges(
     if (replay) {
       const versionRow = await findVersionById(tx, replay.version_id);
       if (!versionRow) throw new V04ServiceError("VERSION_NOT_FOUND", "幂等保存对应的版本不存在。");
+      // 3.4: intake 落库以 change_set_id + source_version_id 判重，这里安全地
+      // 重放同一次请求——原始保存早已写过汇入记录，这里只是重新读出 merged/pending。
+      const finalIntake = await intakeIntoFinal(tx, workspace, {
+        changes: input.changes,
+        sourceVersionId: versionRow.id,
+        sourceVersionNumber: Number(versionRow.version_number),
+        actorUserId: actor.userId,
+        actorName: actor.displayName,
+        changeSetId: input.changeSetId,
+        now,
+      });
       return {
         versionId: versionRow.id,
         versionNumber: Number(versionRow.version_number),
@@ -527,6 +637,7 @@ export async function saveV19VersionChanges(
         contentHash: versionRow.content_hash,
         updatedAt: versionRow.updated_at,
         createdVersion: false,
+        finalIntake,
       };
     }
 
@@ -560,6 +671,15 @@ export async function saveV19VersionChanges(
 
     const nextHash = hashV04Payload(after);
     if (nextHash === versionRow.content_hash) {
+      const finalIntake = await intakeIntoFinal(tx, workspace, {
+        changes: [],
+        sourceVersionId: versionRow.id,
+        sourceVersionNumber: Number(versionRow.version_number),
+        actorUserId: actor.userId,
+        actorName: actor.displayName,
+        changeSetId: input.changeSetId,
+        now,
+      });
       return {
         versionId: versionRow.id,
         versionNumber: Number(versionRow.version_number),
@@ -568,6 +688,7 @@ export async function saveV19VersionChanges(
         updatedAt: versionRow.updated_at,
         createdVersion,
         skippedTargets,
+        finalIntake,
       };
     }
     const nextRevision = Number(versionRow.revision) + 1;
@@ -607,6 +728,19 @@ export async function saveV19VersionChanges(
       contentHash: nextHash,
     });
 
+    // spec 三、3.4: 汇入最终版必须发生在修订事件写完之后、同一事务内；任何最终版侧
+    // 失败都不能让这次保存本身失败——intakeIntoFinal 内部把落不下去的记录标记为
+    // NOOP，从不向外抛出跟内容有关的错误。
+    const finalIntake = await intakeIntoFinal(tx, workspace, {
+      changes: appliedChanges,
+      sourceVersionId: versionRow.id,
+      sourceVersionNumber: Number(versionRow.version_number),
+      actorUserId: actor.userId,
+      actorName: actor.displayName,
+      changeSetId: input.changeSetId,
+      now,
+    });
+
     return {
       versionId: versionRow.id,
       versionNumber: Number(versionRow.version_number),
@@ -615,6 +749,7 @@ export async function saveV19VersionChanges(
       updatedAt: savedAt,
       createdVersion,
       skippedTargets,
+      finalIntake,
     };
   });
 }
@@ -648,20 +783,35 @@ export async function createV19VersionFrom(
     if (mine) throw alreadyOwnsVersion();
 
     const allRows = await listVersionRows(tx, workspace.id);
-    const base = allRows.find((row) => row.id === input.baseVersionId);
-    if (!base) throw new V04ServiceError("VERSION_NOT_FOUND", "指定的基版不存在。");
     const versionNumber = nextV19VersionNumber(allRows.map((row) => Number(row.version_number)));
+    // Always resolved (even off the "final" branch) so the response can report
+    // the final version's current pending count either way — spec 4.2's
+    // finalIntake is present on every save-shaped response.
+    const finalLoaded = await loadFinalVersion(tx, workspace);
 
-    // A no-op insert means someone else took this owner slot or version number
-    // in between; for a manual creation that can only be the actor's own
-    // second attempt, so it reports the same "already has a version" outcome.
-    const newId = await insertVersionFromBase(tx, workspace, actor, base, versionNumber, now);
+    let newId: string | null;
+    let contentHash: string;
+    if (input.baseVersionId === "final") {
+      newId = await insertVersionFromFinal(
+        tx, workspace, actor, finalLoaded.payload, finalLoaded.contentHash, versionNumber, now,
+      );
+      contentHash = finalLoaded.contentHash;
+    } else {
+      const base = allRows.find((row) => row.id === input.baseVersionId);
+      if (!base) throw new V04ServiceError("VERSION_NOT_FOUND", "指定的基版不存在。");
+      // A no-op insert means someone else took this owner slot or version
+      // number in between; for a manual creation that can only be the actor's
+      // own second attempt, so it reports the same "already has a version"
+      // outcome.
+      newId = await insertVersionFromBase(tx, workspace, actor, base, versionNumber, now);
+      contentHash = base.content_hash;
+    }
     if (!newId) throw alreadyOwnsVersion();
 
     const savedAt = iso(now);
     await insertAudit(tx, actor, "V19_VERSION_CREATED", "V19_VERSION", newId, {
       workspaceId: workspace.id,
-      baseVersionId: base.id,
+      baseVersionId: input.baseVersionId,
       versionNumber,
     });
 
@@ -669,9 +819,10 @@ export async function createV19VersionFrom(
       versionId: newId,
       versionNumber,
       revision: 1,
-      contentHash: base.content_hash,
+      contentHash,
       updatedAt: savedAt,
       createdVersion: true,
+      finalIntake: { merged: true, pending: finalLoaded.pendingCount },
     };
   });
 }

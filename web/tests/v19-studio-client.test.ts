@@ -177,9 +177,9 @@ test("countV19CascadedShots is 0 across a structural change (insert/reorder), no
 
 test("buildV19VersionTree roots versions with baseNumber === null and nests the rest by base version number", () => {
   const rows = buildV19VersionTree([
-    { id: "v2", number: 2, ownerUserId: "u2", ownerName: "李晓芸", baseNumber: 1, createdAt: "", updatedAt: "", isMine: false, isVirtual: false },
-    { id: "v1", number: 1, ownerUserId: "u1", ownerName: "王大明", baseNumber: null, createdAt: "", updatedAt: "", isMine: false, isVirtual: false },
-    { id: "v3", number: 3, ownerUserId: "u3", ownerName: "张三", baseNumber: 1, createdAt: "", updatedAt: "", isMine: true, isVirtual: false },
+    { id: "v2", number: 2, ownerUserId: "u2", ownerName: "李晓芸", baseNumber: 1, createdAt: "", updatedAt: "", isMine: false, isVirtual: false, baseIsFinal: false },
+    { id: "v1", number: 1, ownerUserId: "u1", ownerName: "王大明", baseNumber: null, createdAt: "", updatedAt: "", isMine: false, isVirtual: false, baseIsFinal: false },
+    { id: "v3", number: 3, ownerUserId: "u3", ownerName: "张三", baseNumber: 1, createdAt: "", updatedAt: "", isMine: true, isVirtual: false, baseIsFinal: false },
   ]);
   assert.deepEqual(rows.map((row) => [row.version.id, row.depth]), [
     ["v1", 0],

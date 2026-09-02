@@ -389,7 +389,14 @@ function clonePayload(payload: V04DraftPayloadV1) {
   return structuredClone(payload);
 }
 
-function locateTarget(payload: V04DraftPayloadV1, targetKey: string) {
+/**
+ * Locates the object/key pair a stable target key addresses inside a payload,
+ * or null when it no longer exists. Exported so lib/final-version.ts can
+ * apply single-field FIELD intakes to the final version's payload with the
+ * exact same targeting rules used everywhere else — see
+ * docs/20_最终版与评论跨版本_实施规格_V0.1.md 三、3.2.
+ */
+export function locateTarget(payload: V04DraftPayloadV1, targetKey: string) {
   const groupMatch = targetKey.match(/^shotGroup:([^.]+)\.(.+)$/);
   if (groupMatch) {
     const group = payload.script.shotGroups.find((item) => item.id === groupMatch[1]);
