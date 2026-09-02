@@ -58,7 +58,11 @@ test("one comment per item per version, enforced by the table itself", async () 
   const schema = CASE_ENGAGEMENT_SCHEMA_STATEMENTS.join("\n");
   assert.match(schema, /CREATE TABLE IF NOT EXISTS analysis_version_comments[\s\S]*PRIMARY KEY \(version_id, target_key\)/);
   // 评论挂在版本上：评的是这个人这一版的写法，不该跟着案例漂到别人的版本上。
-  assert.match(schema, /version_id TEXT NOT NULL REFERENCES analysis_versions\(id\)/);
+  // version_id 从 spec 20（最终版）起不再是外键：最终版的 id 不在 analysis_versions
+  // 里，服务端自己校验 version_id 属于该案例（普通版本或最终版）——
+  // 见 db/final-version-schema.ts 与 db/migrations/2026-09-02-final-version.sql。
+  assert.match(schema, /version_id TEXT NOT NULL,/);
+  assert.doesNotMatch(schema, /version_id TEXT NOT NULL REFERENCES analysis_versions\(id\)/);
   assert.match(schema, /body TEXT NOT NULL CHECK \(length\(body\) > 0\)/);
   assert.match(schema, /ALTER TABLE analysis_version_comments ENABLE ROW LEVEL SECURITY/);
   const migration = await source("../db/migrations/2026-09-01-case-engagement.sql");
