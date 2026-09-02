@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { cloneV04UiDraft } from "../lib/v04-ui-model.ts";
 import { getV04UiCase } from "../lib/v04-ui-fixture.ts";
 import type { V19BaseDiff } from "../lib/v19-base-diff.ts";
+import { formatShortDateTime } from "../lib/date-format.ts";
 
 // Same technique as `tests/v19-editable-value.test.ts`: stub any `.css` specifier
 // so the real component (and everything it imports — `V19EditableValue.tsx`,
@@ -404,4 +405,143 @@ test("溯源视图：final 缺省时（普通版本／默认视图）行为跟�
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({})));
   assert.doesNotMatch(html, /当前采用/);
   assert.doesNotMatch(html, /采纳这一版/);
+});
+
+// ---------------------------------------------------------------------------
+// 溯源视图（用户反馈第二轮）：第三模块（主导感知类型发生路径）此前遗漏了
+// 主导路径细项／辅助路径描述·创意作用／固定选项字段（故事参照类型等）的
+// 「当前采用」——这些字段现在都走 finalPrimaryDetailExtras /
+// finalAuxiliaryPathExtras / finalChoiceFieldExtras（lib/v19-final-trace.ts
+// 里的 deriveV19PrimaryDetailTrace / deriveV19AuxiliaryPathTrace /
+// deriveV19ChoiceFieldTrace 已单测过），这里只验证组件层真的把每一个细项都
+// 接上了，而不是仍旧漏掉。aurora 夹具的 primaryPath 是 LOVE，五个细项、一个
+// 辅助路径（PERCEPTION）、故事参照类型都取了各自独一无二的文本，用来定位
+// 「当前采用」是否紧跟在它自己那一条内容附近。
+// ---------------------------------------------------------------------------
+
+test("溯源视图：第三模块每一条主导路径细项都渲染了「当前采用」，紧跟在它自己的文本旁边", () => {
+  const draft = fixtureDraft();
+  assert.equal(draft.primaryPath, "LOVE", "this test's per-detail unique strings assume the aurora fixture's LOVE path");
+  const originPayload = v04UiDraftToPayload(draft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({ originPayload, originOwnerName: "赵雅诗", intakes: [] }),
+  })));
+  const module3Html = html.slice(html.indexOf('id="module-3"'));
+  assert.ok(module3Html.length > 0, "expected module 3 to render");
+  for (const detailText of draft.primaryPathAnswers.LOVE) {
+    const valueIndex = module3Html.indexOf(detailText);
+    assert.ok(valueIndex >= 0, `expected the detail text "${detailText}" to render in module 3`);
+    // 「当前采用」渲在这一条细项自己的正文之后不远处（同一个字段的 after 插槽），
+    // 不是随便哪里出现过就算数——从这条文本往后开一个小窗口找。
+    const nearby = module3Html.slice(valueIndex, valueIndex + 400);
+    assert.match(nearby, /当前采用 · v1 赵雅诗 原稿/,
+      `expected "${detailText}" to be followed by its own 当前采用 line`);
+  }
+});
+
+test("溯源视图：第三模块的辅助路径描述／创意作用也各自渲染了「当前采用」", () => {
+  const draft = fixtureDraft();
+  assert.deepEqual(draft.auxiliaryPaths, ["PERCEPTION"], "this test's unique strings assume the aurora fixture's single PERCEPTION auxiliary path");
+  const originPayload = v04UiDraftToPayload(draft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({ originPayload, originOwnerName: "赵雅诗", intakes: [] }),
+  })));
+  const module3Html = html.slice(html.indexOf('id="module-3"'));
+  const perceptionAuxDetail = draft.auxiliaryPathDetails.PERCEPTION ?? { description: "", role: "" };
+  for (const auxText of [perceptionAuxDetail.description, perceptionAuxDetail.role]) {
+    const valueIndex = module3Html.indexOf(auxText);
+    assert.ok(valueIndex >= 0, `expected the auxiliary-path text "${auxText}" to render in module 3`);
+    const nearby = module3Html.slice(valueIndex, valueIndex + 400);
+    assert.match(nearby, /当前采用 · v1 赵雅诗 原稿/,
+      `expected "${auxText}" to be followed by its own 当前采用 line`);
+  }
+});
+
+test("溯源视图：固定选项字段（故事参照类型）也渲染了「当前采用」，文案是选项的中文标签", () => {
+  const draft = fixtureDraft();
+  assert.deepEqual(draft.storyReference.selectedOptionIds, ["GROWTH_COMPANIONSHIP"], "this test's expected label assumes the aurora fixture's story reference selection");
+  const originPayload = v04UiDraftToPayload(draft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({ originPayload, originOwnerName: "赵雅诗", intakes: [] }),
+  })));
+  const storyIndex = html.indexOf("故事参照类型");
+  assert.ok(storyIndex >= 0, "expected the 故事参照类型 field to render");
+  const nearby = html.slice(storyIndex, storyIndex + 600);
+  assert.match(nearby, /成长陪伴片/, "expected the selected option's 中文 label, not its raw id");
+  assert.match(nearby, /当前采用 · v1 赵雅诗 原稿/,
+    "expected the 故事参照类型 field to show its own 当前采用 line, formatted via describeV19ChoiceValue");
+});
+
+test("溯源视图：固定选项字段变更后，「当前采用」跟着换成新记录的来源，正文也变成新选项的中文标签", () => {
+  const draft = fixtureDraft();
+  const originPayload = v04UiDraftToPayload(draft); // unchanged origin — draft.storyReference is what v1 wrote
+  draft.storyReference = { ...draft.storyReference, selectedOptionIds: ["FAMILY_AFFECTION"] }; // 最终版这边已经改了
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "赵雅诗",
+      intakes: [{
+        id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.storyReference", targetLabel: "故事参照类型",
+        value: { selectedOptionIds: ["FAMILY_AFFECTION"], customText: "", advancedText: "", vocabularyVersion: "AD_VIDEO_VOCAB_V1" },
+        source: "VERSION", sourceVersionNumber: 2, actorName: "老孙", applied: true, createdAt: "2026-09-02T03:00:00.000Z",
+      }],
+    }),
+  })));
+  const storyIndex = html.indexOf("故事参照类型");
+  const nearby = html.slice(storyIndex, storyIndex + 600);
+  assert.match(nearby, /家庭亲情片/, "the field's own rendered text is the new selection's label");
+  assert.match(nearby, /当前采用 · v2 老孙/, "当前采用 attributes to the record that actually changed the selection");
+});
+
+test("默认视图（非溯源模式）下，第三模块的主导路径细项与固定选项字段也带上了来源 hover title——不再是之前遗漏的两类字段", () => {
+  const draft = fixtureDraft();
+  const originDraft = fixtureDraft();
+  originDraft.primaryPathAnswers.LOVE[0] = "王大明写的原稿细项";
+  const originPayload = v04UiDraftToPayload(originDraft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "王大明",
+      traceMode: false, // 默认视图，不是溯源视图——这里只测 hover title，不测展开的旧写法/未纳入列表
+      intakes: [{
+        id: "i1", seq: 1, kind: "FIELD", targetKey: "path.primaryDetails", targetLabel: "主导路径细项",
+        value: { emotionalBase: draft.primaryPathAnswers.LOVE[0] },
+        source: "VERSION", sourceVersionNumber: 2, actorName: "李晓芸", applied: true, createdAt: "2026-08-23T09:47:00.000Z",
+      }],
+    }),
+  })));
+  assert.doesNotMatch(html, /当前采用/, "default mode must not render the 溯源 line list, only the hover title");
+  assert.match(html, new RegExp(`title="点击编辑 · 来自 v2·李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}"`),
+    "the primary-detail field must carry the default-mode hover title too, per spec 五、19");
+});
+
+test("默认视图（非溯源模式）下，固定选项字段（故事参照类型）改过之后触发按钮也带上了来源 hover title", () => {
+  // An unchanged field's current row *is* the origin row, and
+  // describeV19FinalTraceHoverSource deliberately returns undefined for an
+  // origin row (原稿本身不算 hover 来源 — see the pure-function test in
+  // tests/v19-final-trace.test.ts), so this needs an actual change to prove
+  // the hover title wiring, same as the primary-detail test above.
+  const draft = fixtureDraft();
+  const originPayload = v04UiDraftToPayload(draft); // v1 wrote draft.storyReference as-is
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "王大明",
+      traceMode: false,
+      intakes: [{
+        id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.storyReference", targetLabel: "故事参照类型",
+        value: { selectedOptionIds: ["FAMILY_AFFECTION"], customText: "", advancedText: "", vocabularyVersion: "AD_VIDEO_VOCAB_V1" },
+        source: "VERSION", sourceVersionNumber: 2, actorName: "老孙", applied: true, createdAt: "2026-09-02T03:00:00.000Z",
+      }],
+    }),
+  })));
+  assert.doesNotMatch(html, /当前采用/, "default mode must not render the 溯源 line list, only the hover title");
+  assert.match(html, new RegExp(`title="点击选择 · 来自 v2·老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}"`),
+    "the choice field's trigger must carry the default-mode hover title too, per spec 五、19");
 });
