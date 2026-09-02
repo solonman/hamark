@@ -1,4 +1,6 @@
 import { getDbClient } from "@/db";
+import { isCaseReviewer } from "@/lib/case-review";
+import { saveFinalVersionDirect } from "@/lib/final-version";
 import { v04Route } from "@/lib/v04-api";
 import { loadV04WorkspaceReadModel } from "@/lib/v04-read-models";
 import type { V04Change } from "@/lib/v04-contract";
@@ -18,16 +20,23 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         actor,
         tabToken: request.headers.get("x-v04-tab-token"),
       }),
-      loadV19VersionChain(db, id, actor, versionId ? { versionId } : {}),
+      loadV19VersionChain(db, id, actor, {
+        ...(versionId ? { versionId } : {}),
+        includeFinalTrace: versionId === "final",
+      }),
     ]);
     const { media, ...caseFields } = workspace.video;
     // The shared read model still derives canEdit from holding the edit lease,
     // which the old single-draft surface needs. This surface has no lease at
     // all: every ACTIVE member writes to their own version, so edit rights
     // follow read rights. Submission and lease controls do not exist here.
+    // On the final version, only 老孙 can edit (spec 四、4.1) — everyone else
+    // still reads it fine, they just cannot write to it.
     const viewerCapabilities = {
       ...workspace.viewerCapabilities,
-      canEdit: workspace.viewerCapabilities.canRead,
+      canEdit: chain.current.isFinal
+        ? isCaseReviewer(actor.displayName)
+        : workspace.viewerCapabilities.canRead,
       canSubmit: false,
       canAcquireLease: false,
       canForceRelease: false,
@@ -39,6 +48,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       versions: chain.versions,
       current: chain.current,
       myVersionId: chain.myVersionId,
+      final: chain.final,
+      ...(chain.finalTrace ? { finalTrace: chain.finalTrace } : {}),
     };
     return Response.json(model);
   });
@@ -50,12 +61,18 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   return v04Route(request, { mutation: true }, async (actor) => {
     const { id } = await context.params;
     const body = await request.json() as V19SaveRequestBody;
-    const result = await saveV19VersionChanges(getDbClient(), actor, {
-      videoId: id,
-      basedOnVersionId: body.basedOnVersionId ?? null,
-      changeSetId: body.changeSetId ?? "",
-      changes: Array.isArray(body.changes) ? body.changes as V04Change[] : [],
-    });
+    const changes = Array.isArray(body.changes) ? body.changes as V04Change[] : [];
+    const changeSetId = body.changeSetId ?? "";
+    // spec 三、3.5: editing the final version directly is a different write
+    // path (no per-editor version involved) than the normal per-editor save.
+    const result = body.basedOnVersionId === "final"
+      ? await saveFinalVersionDirect(getDbClient(), actor, { videoId: id, changeSetId, changes })
+      : await saveV19VersionChanges(getDbClient(), actor, {
+        videoId: id,
+        basedOnVersionId: body.basedOnVersionId ?? null,
+        changeSetId,
+        changes,
+      });
     return Response.json(result);
   });
 }
