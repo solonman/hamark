@@ -237,10 +237,12 @@ test("a pending deletion always offers a way out", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 溯源视图简化（用户看了线上效果后的要求）：一个字段通常只多一行小字来源，
-// 有历史的才多几行可展开摘要。逻辑本身在 lib/v19-final-trace.ts 里单测过
-// （tests/v19-final-trace.test.ts）；这里只验证 `V19StudioDocument` 真的按
-// `final` prop 接出对应的渲染（有 trace 数据时渲染什么、没有时什么都不渲染）。
+// 溯源视图简化（用户看了线上效果后的要求，以及看了线上溯源模式后的两点调整）：
+// 每个字段都显示「当前采用 · …」一行（包括没变过的字段，如「当前采用 ·
+// v1 赵雅诗 原稿」），紧跟正文；有历史的才多几行可展开摘要，排在当前采用
+// 之后。逻辑本身在 lib/v19-final-trace.ts 里单测过（tests/v19-final-trace.
+// test.ts）；这里只验证 `V19StudioDocument` 真的按 `final` prop 接出对应的
+// 渲染与顺序。
 // ---------------------------------------------------------------------------
 
 const { v04UiDraftToPayload } = await import("../lib/v04-ui-model.ts");
@@ -258,17 +260,19 @@ function finalContextFor(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-test("溯源视图：字段没有历史（合并后只剩当前采用一行且就是原稿）时不渲染任何东西", () => {
+test("溯源视图：字段没有历史（合并后只剩当前采用一行且就是原稿）时仍显示当前采用行，但没有旧写法/未纳入列表", () => {
   const draft = fixtureDraft();
   draft.commercialIntent = "没有人改过的商业意图";
   const originPayload = v04UiDraftToPayload(draft);
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
     draft,
-    final: finalContextFor({ originPayload, intakes: [] }),
+    final: finalContextFor({ originPayload, originOwnerName: "赵雅诗", intakes: [] }),
   })));
-  assert.doesNotMatch(html, /当前采用/, "unchanged field must not show a current-source line");
+  assert.match(html, /当前采用 · v1 赵雅诗 原稿/,
+    "溯源视图本身就是这一行——即使字段没变过也要显示，不显示会让人以为漏了");
   assert.doesNotMatch(html, /没有人改过的商业意图[\s\S]*没有人改过的商业意图/,
     "the field's own text must appear exactly once — no duplicated trace value");
+  assert.doesNotMatch(html, /采纳这一版/, "an unchanged field still has no history/pending list to show");
 });
 
 test("溯源视图：有历史的字段渲染「当前采用」一行小字来源，正文本身不再重复一遍", () => {
@@ -327,6 +331,52 @@ test("溯源视图：旧写法收成默认收起的摘要行——只显示版�
   // 原稿也在旧写法里（v1 王大明），但当前采用（张三改的最新的商业意图）不该
   // 再重复一遍全文——已经在上一条测试验证过，这里只确认摘要行本身出现。
   assert.match(html, /v1 王大明 原稿/);
+  // 「当前采用」必须紧跟正文——排在旧写法摘要列表之前，不是之后。
+  const currentIndex = html.indexOf("当前采用");
+  const overriddenIndex = html.indexOf("v1 王大明 原稿");
+  assert.ok(currentIndex >= 0 && overriddenIndex >= 0, "both the current line and the overridden summary must render");
+  assert.ok(currentIndex < overriddenIndex, "当前采用 must appear before the 旧写法 summary in the markup, right under the field");
+});
+
+test("溯源视图：当前采用行排在旧写法与未纳入列表之前——用 markup 出现顺序断言", () => {
+  const draft = fixtureDraft();
+  draft.commercialIntent = "最新的商业意图";
+  const originDraft = fixtureDraft();
+  originDraft.commercialIntent = "王大明写的原稿商业意图";
+  const originPayload = v04UiDraftToPayload(originDraft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "王大明",
+      canAdopt: true,
+      intakes: [
+        {
+          id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+          value: "李晓芸改的内容", source: "VERSION", sourceVersionNumber: 2,
+          actorName: "李晓芸", applied: true, createdAt: "2026-08-23T09:47:00.000Z",
+        },
+        {
+          id: "i2", seq: 2, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+          value: "最新的商业意图", source: "VERSION", sourceVersionNumber: 3, actorName: "张三",
+          applied: true, createdAt: "2026-08-24T11:20:00.000Z",
+        },
+        {
+          id: "i3", seq: 3, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+          value: "老王想改成这样，还没被采纳", source: "VERSION", sourceVersionNumber: 4,
+          actorName: "老王", applied: false, createdAt: "2026-09-02T05:00:00.000Z",
+        },
+      ],
+    }),
+  })));
+  const currentIndex = html.indexOf("当前采用 · v3 张三");
+  const overriddenIndex = html.indexOf("v1 王大明 原稿"); // the oldest 旧写法 summary row
+  const pendingIndex = html.indexOf("老王想改成这样，还没被采纳");
+  assert.ok(currentIndex >= 0, "expected the 当前采用 line to render");
+  assert.ok(overriddenIndex >= 0, "expected an 旧写法 summary row to render");
+  assert.ok(pendingIndex >= 0, "expected the 未纳入 row to render");
+  assert.ok(currentIndex < overriddenIndex, "当前采用 must come before 旧写法");
+  assert.ok(overriddenIndex < pendingIndex, "旧写法 must come before 未纳入 (unchanged ordering)");
 });
 
 test("溯源视图：未纳入照旧完整展示，带「采纳这一版」按钮", () => {

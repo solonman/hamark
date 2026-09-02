@@ -267,11 +267,13 @@ function V19FinalTraceSummaryRow({ row }: { row: V19FinalTraceHistoryRow }): JSX
 }
 
 /**
- * 溯源视图，简化版（用户看了线上效果后的要求）：`lib/v19-final-trace.ts` 的
- * `deriveV19FinalFieldTrace` 已经把合并重复行、当前采用、旧写法、未纳入都算好了
- * ——这里只管渲染。顺序是时间线：旧写法（收起的摘要）→ 当前采用（一行小字）→
- * 未纳入（照旧完整展示，带「采纳这一版」）。`hasTrace === false` 时调用方
- * 根本不会渲染这个组件（见 `finalFieldExtras`），所以这里不必再判断一遍。
+ * 溯源视图，简化版（用户看了线上效果后的要求，以及看了线上溯源模式后的两点
+ * 调整）：`lib/v19-final-trace.ts` 的 `deriveV19FinalFieldTrace` 已经把合并
+ * 重复行、当前采用、旧写法、未纳入都算好了——这里只管渲染。「当前采用」这
+ * 一行必须紧跟正文（它就是溯源本身，包括没变过的字段），所以永远排第一；
+ * 旧写法（收起的摘要）与未纳入（照旧完整展示，带「采纳这一版」）跟在它下面。
+ * `hasTrace === false` 时调用方根本不会渲染这个组件（见 `finalFieldExtras`），
+ * 所以这里不必再判断一遍。
  */
 function V19FinalTraceRows({
   currentSourceLabel,
@@ -288,8 +290,8 @@ function V19FinalTraceRows({
 }): JSX.Element {
   return (
     <div className={styles.finalTrace}>
-      {overridden.map((row) => <V19FinalTraceSummaryRow key={row.key} row={row} />)}
       {currentSourceLabel && <div className={styles.finalTraceCurrent}>{currentSourceLabel}</div>}
+      {overridden.map((row) => <V19FinalTraceSummaryRow key={row.key} row={row} />)}
       {pending.map((row) => {
         // 未纳入照旧：版本/谁写的/时间/全文/采纳按钮，跟简化前完全一样的拼法。
         const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "最终版" : `v${row.sourceVersionNumber ?? "?"}`;

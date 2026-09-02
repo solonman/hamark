@@ -68,21 +68,25 @@ export type V19FinalTraceHistoryRow = {
 
 export type V19FinalFieldTrace = {
   /**
-   * false when there is nothing worth showing at all — 合并后只剩当前采用
-   * 一行，且它就是原稿、没有旧写法、没有未纳入（简化规则 4）。The caller
+   * false only when there is truly nothing to attribute at all — the target
+   * doesn't exist in `originPayload` and has never had a FIELD intake
+   * either, so there is no known applied row and no pending one. The caller
    * renders nothing under the field in that case, same as if `final` were
-   * absent entirely.
+   * absent entirely. For every ordinary existing field this is true, even
+   * one nobody has ever touched — 用户看了线上溯源模式后的调整: the 当前采用
+   * line is 溯源模式本身，不显示反而让人以为漏了，所以它现在总是渲染，包括
+   * 「当前采用 · v1 赵雅诗 原稿」这种没变过的字段。
    */
   hasTrace: boolean;
   /**
-   * The one-line "当前采用 · …" source description (简化规则 2), or null
-   * when there is no known applied row at all (e.g. a freshly inserted
-   * shot's field whose only recorded intake is still pending — the value on
-   * screen is just that new shot's blank initial state, with no intake to
-   * attribute it to).
+   * The one-line "当前采用 · …" source description (简化规则 2) — rendered
+   * for every field that has one, changed or not. null only when there is no
+   * known applied row at all (e.g. a freshly inserted shot's field whose
+   * only recorded intake is still pending — the value on screen is just
+   * that new shot's blank initial state, with no intake to attribute it to).
    */
   currentSourceLabel: string | null;
-  /** Superseded rows before the current one, oldest first — one-line collapsible summaries (简化规则 3). */
+  /** Superseded rows before the current one, oldest first — one-line collapsible summaries (简化规则 3). Empty for an unchanged field. */
   overridden: V19FinalTraceHistoryRow[];
   /** `applied === false` rows — shown in full, unabbreviated (简化规则 5, unchanged), in seq order. */
   pending: V19FinalTraceHistoryRow[];
@@ -131,14 +135,17 @@ function isEmptyV19TraceValue(value: unknown): boolean {
  * every `FIELD` intake for `targetKey`, oldest first, deduplicated against
  * its immediate predecessor (简化规则 1). Whichever of those rows is
  * currently in effect (the highest-seq applied one — null when there is no
- * applied row at all) becomes `currentSourceLabel`; every other applied row
- * with a non-empty value becomes an `overridden` summary (本机复核收尾: a
- * blank value — e.g. an empty 原稿 later overridden by real content — isn't
- * a "写法" worth listing, so it's dropped here; `current`/`pending` are
- * unaffected, they can legitimately be empty); every `applied === false` row
- * becomes `pending`, regardless of where it falls in seq order relative to
- * the current row (取消定稿后重开时，未采纳的旧记录可能 seq 比之后新产生的已应用
- * 记录更早 — 判定纯看各自的 applied 状态，不看位置).
+ * applied row at all) becomes `currentSourceLabel`, rendered every time it
+ * exists — including for a field nobody has ever changed, where it's just
+ * "当前采用 · v1 赵雅诗 原稿" with empty `overridden`/`pending` (用户看了线上
+ * 溯源模式后的调整: 这一行就是溯源本身，不显示反而让人以为漏了). Every other
+ * applied row with a non-empty value becomes an `overridden` summary (本机
+ * 复核收尾: a blank value — e.g. an empty 原稿 later overridden by real
+ * content — isn't a "写法" worth listing, so it's dropped here;
+ * `current`/`pending` are unaffected, they can legitimately be empty); every
+ * `applied === false` row becomes `pending`, regardless of where it falls in
+ * seq order relative to the current row (取消定稿后重开时，未采纳的旧记录可能
+ * seq 比之后新产生的已应用记录更早 — 判定纯看各自的 applied 状态，不看位置).
  */
 export function deriveV19FinalFieldTrace(
   originPayload: V04DraftPayloadV1,
@@ -186,18 +193,13 @@ export function deriveV19FinalFieldTrace(
   const overridden = appliedRows.slice(0, -1).filter((row) => !isEmptyV19TraceValue(row.value));
   const pending = merged.filter((row) => !row.applied);
 
-  // 简化规则 4: nothing changed at all — no history, no pending, and
-  // whatever is current is (at most) the lone origin row itself.
-  if (overridden.length === 0 && pending.length === 0 && (!current || current.isOrigin)) {
-    return { hasTrace: false, currentSourceLabel: null, overridden: [], pending: [] };
-  }
+  const currentSourceLabel = current ? `当前采用 · ${describeV19FinalTraceRowLabel(current)}` : null;
+  // 简化规则 4 (调整后): only truly nothing to attribute — no current line,
+  // no history, no pending — hides the whole trace slot. Otherwise the
+  // current line always renders on its own even with empty lists.
+  const hasTrace = currentSourceLabel !== null || overridden.length > 0 || pending.length > 0;
 
-  return {
-    hasTrace: true,
-    currentSourceLabel: current ? `当前采用 · ${describeV19FinalTraceRowLabel(current)}` : null,
-    overridden,
-    pending,
-  };
+  return { hasTrace, currentSourceLabel, overridden, pending };
 }
 
 /** The first line of a trace value, trimmed to "—" when empty — the collapsed preview for a 旧写法摘要行 (简化规则 3). Full-text display and expand/collapse belong to the renderer. */

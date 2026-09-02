@@ -80,21 +80,25 @@ function factsOrigin(commercialIntent: string): V04DraftPayloadV1 {
 }
 
 // ---------------------------------------------------------------------------
-// 简化规则 4: 没变过的字段（合并后只剩当前采用一行，且就是原稿）不加任何东西。
+// 简化规则 4（用户看了线上溯源模式后的调整）: 没变过的字段也要显示「当前采用」
+// 一行（如「当前采用 · v1 赵雅诗 原稿」）——这一行就是溯源本身，不显示反而
+// 让人以为漏了；只是不加旧写法／未纳入列表。真正什么都不渲染，只发生在连
+// 当前采用都定不出来的时候：目标在原稿里不存在、也从没有过任何汇入记录。
 // ---------------------------------------------------------------------------
 
-test("deriveV19FinalFieldTrace: a field with no intakes at all — origin only — has no trace", () => {
+test("deriveV19FinalFieldTrace: a field with no intakes at all still shows its 当前采用 line, just no history/pending lists", () => {
   const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), [], "facts.commercialIntent", "王大明");
-  assert.equal(trace.hasTrace, false);
-  assert.equal(trace.currentSourceLabel, null);
+  assert.equal(trace.hasTrace, true);
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
   assert.deepEqual(trace.overridden, []);
   assert.deepEqual(trace.pending, []);
 });
 
-test("deriveV19FinalFieldTrace: a field whose target does not exist in originPayload and has no intakes has no trace either", () => {
+test("deriveV19FinalFieldTrace: a field whose target does not exist in originPayload and has no intakes has truly nothing to show (no current line either)", () => {
   const origin = payloadWithGroups([group("b1", [shot("s1")])]);
   const trace = deriveV19FinalFieldTrace(origin, [], "shot:s-not-there.visualContent");
   assert.equal(trace.hasTrace, false);
+  assert.equal(trace.currentSourceLabel, null);
 });
 
 // ---------------------------------------------------------------------------
@@ -103,10 +107,13 @@ test("deriveV19FinalFieldTrace: a field whose target does not exist in originPay
 // 相同却各占一行的 bug。
 // ---------------------------------------------------------------------------
 
-test("deriveV19FinalFieldTrace: an intake whose value exactly repeats the origin's (the v1-replay bug) is merged away — nothing changed after all", () => {
+test("deriveV19FinalFieldTrace: an intake whose value exactly repeats the origin's (the v1-replay bug) is merged away — the field just shows its 当前采用 line, no duplicated history row", () => {
   const intakes = [intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 1, actorName: "王大明" })];
   const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "王大明");
-  assert.equal(trace.hasTrace, false, "the replayed intake exactly repeats the origin, so nothing actually changed");
+  assert.equal(trace.hasTrace, true);
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+  assert.deepEqual(trace.overridden, [], "the replayed intake exactly repeats the origin, so there is no separate history row for it");
+  assert.deepEqual(trace.pending, []);
 });
 
 test("deriveV19FinalFieldTrace: only the adjacent duplicate is dropped — a later, genuinely different intake still becomes current", () => {
@@ -242,14 +249,16 @@ test("deriveV19FinalFieldTrace: an empty origin with only a whitespace-only inta
   assert.deepEqual(trace.overridden, [], "both blank rows (origin and i1) are dropped, not just the origin");
 });
 
-test("deriveV19FinalFieldTrace: an empty field with no intakes that actually diverge from it collapses to 简化规则 4's no-history case — the blank-filter never has to fire because current is the origin itself", () => {
+test("deriveV19FinalFieldTrace: a blank field with no intakes that actually diverge from it still shows its (blank) 当前采用 line, per the adjusted 简化规则 4", () => {
   const emptyOrigin = factsOrigin("");
   // Same literal value as the (blank) origin, so 简化规则 1's dedupe already
-  // merges it away — the blank-filter added here is not what makes this
-  // case empty, it's just that current ends up being the origin either way.
+  // merges it away — current ends up being the origin either way, and its
+  // 当前采用 line renders regardless of the origin's value being blank.
   const intakes = [intake({ id: "i1", seq: 1, value: "", applied: true, sourceVersionNumber: 1, actorName: "王大明" })];
   const trace = deriveV19FinalFieldTrace(emptyOrigin, intakes, "facts.commercialIntent", "王大明");
-  assert.equal(trace.hasTrace, false);
+  assert.equal(trace.hasTrace, true);
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 王大明 原稿");
+  assert.deepEqual(trace.overridden, []);
 });
 
 test("deriveV19FinalFieldTrace: current being blank-but-genuinely-different from a blank origin still shows a current line — only 旧写法 rows get the blank filter, not current", () => {
