@@ -116,9 +116,11 @@ export function formatV19VersionLabel(input: {
   baseNumber: number | null;
   ownerName: string;
   ownerIsUploader: boolean;
+  /** true when this version was created from the final version's payload rather than another editor's (spec 五、13). */
+  baseIsFinal?: boolean;
 }): string {
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
-  const basis = input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
+  const basis = input.baseIsFinal ? "基于最终版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
   return `v${input.number}（${basis}，${ownerLabel}）`;
 }
 

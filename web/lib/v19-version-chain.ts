@@ -70,15 +70,19 @@ export function resolveV19DefaultVersion<T extends { number: number; updatedAt: 
   });
 }
 
-/** `v3（基于v1，张三）` / `v1（初始版本，王大明·上传者）`, per spec 二、2.5. */
+/** `v3（基于v1，张三）` / `v1（初始版本，王大明·上传者）`, per spec 二、2.5.
+ * Kept in sync with the client-safe duplicate in `lib/v19-ui-model.ts` — see
+ * that copy's comment for why it cannot just import this module. */
 export function formatV19VersionLabel(input: {
   number: number;
   baseNumber: number | null;
   ownerName: string;
   ownerIsUploader: boolean;
+  /** true when this version was created from the final version's payload rather than another editor's (spec 五、13). */
+  baseIsFinal?: boolean;
 }): string {
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
-  const basis = input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
+  const basis = input.baseIsFinal ? "基于最终版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
   return `v${input.number}（${basis}，${ownerLabel}）`;
 }
 

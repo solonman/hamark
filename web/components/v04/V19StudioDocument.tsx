@@ -1,7 +1,7 @@
 "use client";
 
 import type { JSX, ReactNode } from "react";
-import type { V04ChoiceValue, V04CreativeGrade, V04ShotFieldKey } from "@/lib/v04-contract";
+import type { V04ChoiceValue, V04CreativeGrade, V04DraftPayloadV1, V04ShotFieldKey } from "@/lib/v04-contract";
 import type { V04UiDraft, V04UiShot, V04UiShotGroup } from "@/lib/v04-ui-model";
 import { V04_UI_SHOT_FIELDS } from "@/lib/v04-ui-model";
 import { numberedV04Shots, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
@@ -9,6 +9,14 @@ import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_S
 import type { V19BaseDiff } from "@/lib/v19-base-diff";
 import { CASE_REVIEW_TARGETS, type CaseReviewComment } from "@/lib/case-review";
 import { cascadeV19Timeline, parseV19TimecodeInput } from "@/lib/v19-timeline";
+import { formatShortDateTime } from "@/lib/date-format";
+import type { V19FinalIntake } from "@/lib/v19-ui-model";
+import {
+  deriveV19FinalFieldTrace,
+  describeV19FinalIntakeSource,
+  latestAppliedV19FinalIntake,
+  type V19FinalTraceRow,
+} from "@/lib/v19-final-trace";
 import V19EditableValue, { V19SystemValue } from "./V19EditableValue";
 import V19ReviewComment from "./V19ReviewComment";
 import V04ChoiceField from "./V04ChoiceField";
@@ -39,6 +47,23 @@ export type V19StudioReview = {
 
 const NO_COMMENTS: readonly CaseReviewComment[] = [];
 
+/**
+ * 最终版视角下每个可编辑字段需要的额外上下文（spec 五、16/18/19）。缺省
+ * （`undefined`）时正文渲染与普通版本完全一样——最终版专属的锁定样式、
+ * hover 来源、溯源来源链都只在这个视角下出现。
+ */
+export type V19StudioFinalContext = {
+  /** true when the viewer is looking at the final version but is not 老孙 — still looks editable, but clicking it toasts instead of opening the editor. */
+  locked: boolean;
+  /** 默认（false）只显示 hover 来源；溯源（true）在每个字段下方展开完整来源链。 */
+  traceMode: boolean;
+  originPayload: V04DraftPayloadV1;
+  intakes: readonly V19FinalIntake[];
+  /** true only for 老孙 — gates the "采纳这一版" button on pending trace rows. */
+  canAdopt: boolean;
+  onAdopt: (intakeId: string) => void;
+};
+
 export type V19StudioDocumentProps = {
   draft: V04UiDraft;
   diff: V19BaseDiff | null;
@@ -65,6 +90,8 @@ export type V19StudioDocumentProps = {
   onBeforeEdit?: () => boolean;
   /** 缺省即不渲染任何评论入口（只读页与测试用例据此保持原样）。 */
   review?: V19StudioReview;
+  /** 缺省即不渲染任何最终版专属的锁定／来源展示（只读页与测试用例据此保持原样）。 */
+  final?: V19StudioFinalContext;
 };
 
 // ---------------------------------------------------------------------------
@@ -200,6 +227,58 @@ function ChoiceDiffNote({ diff, targetKey, labels }: { diff: V19BaseDiff | null;
   );
 }
 
+function formatV19TraceValue(value: unknown): string {
+  if (typeof value === "string") return value.trim() === "" ? "—" : value;
+  if (value == null) return "—";
+  return JSON.stringify(value);
+}
+
+/**
+ * 溯源视图（spec 五、18）：一个字段下方按更新顺序列出的来源链。`rows` 已经
+ * 由 `lib/v19-final-trace.ts` 的 `deriveV19FinalFieldTrace` 算好状态
+ * （原稿／当前采用／已被覆盖／未纳入），这里只管渲染与「采纳这一版」按钮。
+ */
+function V19FinalTraceRows({
+  rows,
+  canAdopt,
+  onAdopt,
+}: {
+  rows: readonly V19FinalTraceRow[];
+  canAdopt: boolean;
+  onAdopt: (intakeId: string) => void;
+}): JSX.Element {
+  return (
+    <div className={styles.finalTrace}>
+      {rows.map((row) => {
+        const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "最终版" : `v${row.sourceVersionNumber ?? "?"}`;
+        const who = row.isOrigin ? "原稿" : row.source === "FINAL_DIRECT" ? `${row.actorName}·直接修改` : row.actorName;
+        const statusLabel = row.status === "current" ? "当前采用" : row.status === "pending" ? "未纳入" : row.isOrigin ? "原稿" : "已被覆盖";
+        return (
+          <div
+            key={row.key}
+            className={[
+              styles.finalTraceRow,
+              row.status === "current" && styles.finalTraceRowCurrent,
+              row.status === "pending" && styles.finalTraceRowPending,
+            ].filter(Boolean).join(" ")}
+          >
+            <span className={styles.finalTraceVersion}>{versionTag}</span>
+            <span className={styles.finalTraceWho}>{who}</span>
+            {row.createdAt && <span className={styles.finalTraceTime}>{formatShortDateTime(row.createdAt)}</span>}
+            <span className={styles.finalTraceTag}>{statusLabel}</span>
+            <div className={styles.finalTraceValue}>{formatV19TraceValue(row.value)}</div>
+            {row.status === "pending" && canAdopt && row.intakeId && (
+              <button type="button" className={styles.finalTraceAdopt} onClick={() => onAdopt(row.intakeId as string)}>
+                采纳这一版
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Applies spec rule 6's timeline cascade after a shot's end time changes; mutates `next` in place. */
 function applyV19TimelineCascade(next: V04UiDraft, shotId: string): void {
   const flatShots = next.shotGroups.flatMap((group) => group.shots);
@@ -241,6 +320,7 @@ export default function V19StudioDocument({
   onInvalid,
   onBeforeEdit,
   review,
+  final,
 }: V19StudioDocumentProps): JSX.Element {
   const setFactText = (key: "commercialIntent" | "storySummary" | "creativeMotif" | "tensionButton" | "creativeThinkingChain" | "carrierExplanation" | "creativeContract" | "gradeReason") =>
     (value: string) => onChange((next) => { next[key] = value; });
@@ -338,6 +418,26 @@ export default function V19StudioDocument({
     return <small>{label}{commentAnchor(targetKey, label)}</small>;
   }
 
+  /**
+   * 最终版专属的 `V19EditableValue` 附加 props（spec 五、16/18/19）。没接
+   * `final` 时返回 `{}`，正文行为与普通版本完全一样。溯源视图下方挂完整
+   * 来源链；默认视图只在 hover 标题里带最新来源。锁定态（非老孙）两种视图
+   * 都要传，让字段始终看得出「这里能点，但点了会被拦下」。
+   */
+  function finalFieldExtras(targetKey: string): { locked?: boolean; sourceHint?: string; after?: ReactNode } {
+    if (!final) return {};
+    if (final.traceMode) {
+      const trace = deriveV19FinalFieldTrace(final.originPayload, final.intakes, targetKey);
+      if (!trace.rows.length) return { locked: final.locked };
+      return {
+        locked: final.locked,
+        after: <V19FinalTraceRows rows={trace.rows} canAdopt={final.canAdopt} onAdopt={final.onAdopt} />,
+      };
+    }
+    const latest = latestAppliedV19FinalIntake(final.intakes, targetKey);
+    return { locked: final.locked, sourceHint: latest ? describeV19FinalIntakeSource(latest) : undefined };
+  }
+
   function moduleHeader(number: number, eyebrow: string, title: string): ReactNode {
     return (
       <header className={styles.stickyModuleHeader}>
@@ -358,30 +458,35 @@ export default function V19StudioDocument({
               {labelWithComment("商业意图", V19_FIELD_TARGET_KEYS.facts.commercialIntent)}
               <V19EditableValue kind="textarea" block ariaLabel="商业意图" value={draft.commercialIntent} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.commercialIntent)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.commercialIntent)}
                 onCommit={setFactText("commercialIntent")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.storySummary}>
               {labelWithComment("故事梗概", V19_FIELD_TARGET_KEYS.facts.storySummary)}
               <V19EditableValue kind="textarea" block ariaLabel="故事梗概" value={draft.storySummary} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.storySummary)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.storySummary)}
                 onCommit={setFactText("storySummary")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.creativeMotif}>
               {labelWithComment("创意母题", V19_FIELD_TARGET_KEYS.facts.creativeMotif)}
               <V19EditableValue kind="textarea" block ariaLabel="创意母题" value={draft.creativeMotif} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeMotif)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.creativeMotif)}
                 onCommit={setFactText("creativeMotif")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.tensionButton}>
               {labelWithComment("张力按钮", V19_FIELD_TARGET_KEYS.facts.tensionButton)}
               <V19EditableValue kind="textarea" block ariaLabel="张力按钮" value={draft.tensionButton} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.tensionButton)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.tensionButton)}
                 onCommit={setFactText("tensionButton")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.creativeThinkingChain}>
               {labelWithComment("创意思维链", V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
               <V19EditableValue kind="textarea" block ariaLabel="创意思维链" value={draft.creativeThinkingChain} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
                 onCommit={setFactText("creativeThinkingChain")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.storyReference}>
@@ -429,12 +534,14 @@ export default function V19StudioDocument({
               {labelWithComment("创意承重载体具体说明", V19_FIELD_TARGET_KEYS.facts.carrierExplanation)}
               <V19EditableValue kind="textarea" block ariaLabel="创意承重载体具体说明" value={draft.carrierExplanation} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.carrierExplanation)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.carrierExplanation)}
                 onCommit={setFactText("carrierExplanation")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.creativeContract} style={{ gridColumn: "1 / -1" }}>
               {labelWithComment("创意成立契约（隐含情理）", V19_FIELD_TARGET_KEYS.facts.creativeContract)}
               <V19EditableValue kind="textarea" block ariaLabel="创意成立契约（隐含情理）" value={draft.creativeContract} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeContract)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.creativeContract)}
                 onCommit={setFactText("creativeContract")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
           </div>
@@ -485,6 +592,7 @@ export default function V19StudioDocument({
             <h3>
               <V19EditableValue ariaLabel="桥段名称" value={group.title} placeholder="未命名桥段" readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "bridgeName"))}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "bridgeName"))}
                 onCommit={setBridgeTitle(group.id)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
               {commentAnchor(
                 CASE_REVIEW_TARGETS.bridge(group.id),
@@ -508,6 +616,7 @@ export default function V19StudioDocument({
             <small>本桥段关键创意描述</small>
             <V19EditableValue kind="textarea" block ariaLabel="本桥段关键创意描述" value={group.creativeDescription} readOnly={readOnly}
               baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "keyCreativeDescription"))}
+              {...finalFieldExtras(V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "keyCreativeDescription"))}
               onCommit={setBridgeDescription(group.id)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
           </div>
         </div>
@@ -574,6 +683,7 @@ export default function V19StudioDocument({
                     readOnly={readOnly}
                     warning={key === "endTime" ? endWarning : undefined}
                     baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.shotField(shot.id, key))}
+                    {...finalFieldExtras(V19_FIELD_TARGET_KEYS.shotField(shot.id, key))}
                     onCommit={setShotField(shot.id, key)}
                     onInvalid={onInvalid} onBeforeEdit={onBeforeEdit}
                   />
@@ -619,6 +729,7 @@ export default function V19StudioDocument({
                   const raw = diff.changedFields.get(V19_FIELD_TARGET_KEYS.path.primaryType);
                   return raw == null ? "" : pathLabels[String(raw)] ?? String(raw);
                 })()}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.path.primaryType)}
                 onCommit={setPrimaryPath} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             {draft.primaryPathAnswers[path].map((value, index) => (
@@ -627,8 +738,13 @@ export default function V19StudioDocument({
                   {pathFieldLabels[index]}
                   {commentAnchor(CASE_REVIEW_TARGETS.primaryPathDetail(path, index), pathFieldLabels[index] ?? "主导路径细项")}
                 </small>
+                {/* 后端把这一路径下全部细项合并存成一条 path.primaryDetails 汇入记录
+                    （结构值，不是逐项的标量），所以这里只跟随最终版的锁定态，
+                    不接每项独立的来源链／hover 来源——那需要按 key 拆开一条
+                    合并记录，收益对这一期不成比例。 */}
                 <V19EditableValue kind="textarea" block ariaLabel={pathFieldLabels[index] ?? "主导路径细项"} value={value} readOnly={readOnly}
                   baseValue={basePrimaryDetails ? (basePrimaryDetails[PRIMARY_PATH_DETAIL_KEYS[path][index]] ?? "") : undefined}
+                  locked={final?.locked}
                   onCommit={setPrimaryPathAnswer(path, index)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
               </div>
             ))}
@@ -641,11 +757,14 @@ export default function V19StudioDocument({
                     辅助路径｜{pathLabels[auxPath]}
                     {commentAnchor(CASE_REVIEW_TARGETS.auxiliaryPath(auxPath), `辅助路径｜${pathLabels[auxPath]}`)}
                   </small>
+                  {/* 同上：path.auxiliaryTypes 也是一条合并的结构记录，这里只锁定，不接来源链。 */}
                   <V19EditableValue kind="textarea" block ariaLabel={`辅助路径描述｜${pathLabels[auxPath]}`} value={detail.description} readOnly={readOnly}
                     baseValue={baseAuxiliaryTypes ? (baseEntry?.description ?? "") : undefined}
+                    locked={final?.locked}
                     onCommit={setAuxiliaryPathDetail(auxPath, "description")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
                   <V19EditableValue kind="textarea" block ariaLabel={`辅助路径创意作用｜${pathLabels[auxPath]}`} value={detail.role} readOnly={readOnly}
                     baseValue={baseAuxiliaryTypes ? (baseEntry?.creativeRole ?? "") : undefined}
+                    locked={final?.locked}
                     onCommit={setAuxiliaryPathDetail(auxPath, "role")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
                 </div>
               );
@@ -654,12 +773,14 @@ export default function V19StudioDocument({
               {labelWithComment("整体创意评价", V19_FIELD_TARGET_KEYS.facts.overallGrade)}
               <V19EditableValue kind="select" options={GRADE_OPTIONS} monospace ariaLabel="整体创意评价" value={draft.overallGrade} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.overallGrade)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.overallGrade)}
                 onCommit={setOverallGrade} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
             <div id={V04_WORKSPACE_TARGETS.gradeReason}>
               {labelWithComment("评价理由", V19_FIELD_TARGET_KEYS.facts.gradeReason)}
               <V19EditableValue kind="textarea" block ariaLabel="评价理由" value={draft.gradeReason} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.gradeReason)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.gradeReason)}
                 onCommit={setFactText("gradeReason")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
           </div>

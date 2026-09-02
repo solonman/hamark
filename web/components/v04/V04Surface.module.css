@@ -490,6 +490,10 @@
 .editableBlock { display: block; white-space: pre-wrap; }
 .editableEmpty { color: var(--v04-muted); }
 .editableWarn { border-bottom: 1px dashed rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); color: rgba(255, 174, 120, .95); }
+/* 最终版锁定态：看起来仍是可编辑区（不像纯只读那样退成普通正文），
+   但点不进去——禁止光标 + 悬停转琥珀色，跟警告色系共用同一组变量。 */
+.editableLocked { cursor: not-allowed; }
+.editableLocked:hover { border-bottom-color: rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); }
 /* 编辑态填满所在容器。没有 width 时 <input> 用的是浏览器默认尺寸（约 20ch），
    于是点开编辑反而比阅读态窄一大截，旁边整片空间白白空着。 */
 .editableInput { width: 100%; min-width: 5ch; max-width: 100%; border: 1px solid rgba(223, 255, 79, .4); border-radius: 7px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; }
@@ -846,6 +850,87 @@ input.editableTimecode { padding: 5px 8px; }
 .ratingStrip[data-readonly="true"] span { cursor: default; }
 .ratingStrip button:disabled { cursor: not-allowed; }
 .ratingStarOn { color: var(--v04-subject) !important; }
+
+/* ---------- 最终版（docs/20_..._V0.1.md 五、13-19；配色对齐 demo 的 --warn 系金色 #ffd166） ---------- */
+.finalVersionNum { color: #ffd166; }
+.finalStatusPill {
+  display: inline-flex; flex: none; align-items: center; gap: 5px; border-radius: 999px;
+  padding: 2px 8px; font-size: 9px; font-weight: 800; white-space: nowrap;
+}
+.finalStatusPill .finalStatusDot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+.finalStatusOpen { color: #8fd3ff; border: 1px solid rgba(143, 211, 255, .45); }
+.finalStatusOpen .finalStatusDot { animation: v04SavePulse 1.4s infinite; }
+@media (prefers-reduced-motion: reduce) { .finalStatusOpen .finalStatusDot { animation: none; } }
+.finalStatusDone { color: #ffd166; border: 1px solid rgba(255, 209, 102, .55); background: rgba(255, 209, 102, .08); }
+
+.finalViewSwitch { display: inline-flex; flex: none; border: 1px solid var(--v04-line); border-radius: 999px; padding: 2px; font-size: 11px; }
+.finalViewSwitch button { padding: 5px 11px; border: 0; border-radius: 999px; background: transparent; color: var(--v04-muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.finalViewSwitch button.on { background: rgba(223, 255, 79, .12); color: var(--v04-accent); }
+
+.finalActionButton {
+  flex: none; border: 1px solid rgba(255, 209, 102, .6); border-radius: 999px; background: transparent;
+  color: #ffd166; padding: 7px 14px; font: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer;
+}
+.finalActionButton:hover:not(:disabled) { background: rgba(255, 209, 102, .12); }
+.finalActionButton:disabled { cursor: wait; opacity: .6; }
+.finalActionButtonUndo { color: var(--v04-muted); font-weight: 500; }
+.finalActionButtonUndo:hover:not(:disabled) { color: var(--v04-ink); background: transparent; border-color: rgba(223, 255, 79, .5); }
+
+/* 版本面板置顶的最终版行：金色描边区分于普通版本行，说明性文字换行到下一行铺满。 */
+.versionRowFinal { flex-wrap: wrap; margin-bottom: 8px; border: 1px solid rgba(255, 209, 102, .35); background: rgba(255, 209, 102, .05); }
+.versionRowFinal .versionNumber { color: #ffd166; }
+.finalPendingBadge { flex: none; color: #ffae78; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px; padding: 1px 7px; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.versionDesc { flex-basis: 100%; padding-left: 23px; color: var(--v04-muted); font-size: 10px; line-height: 1.6; }
+
+/* 视频下方横幅：进行中／已定稿说明，未纳入计数与「全部采纳」「到溯源视图逐条看」。 */
+.finalBanner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 22px;
+  padding: 12px 18px; border: 1px solid rgba(255, 209, 102, .35); border-radius: 14px;
+  background: rgba(255, 209, 102, .05); color: var(--v04-ink); font-size: 12px; line-height: 1.7;
+}
+.finalPendingText { color: #ffae78; }
+.finalBannerSpacer { flex: 1; }
+.finalBanner button { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 5px 11px; font: inherit; font-size: 11px; cursor: pointer; }
+.finalBanner button:hover:not(:disabled) { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
+.finalBanner button:disabled { cursor: wait; opacity: .6; }
+
+/* 结构改动未纳入：插入/删除桥段与镜头没有单个字段可挂，单独列一组。 */
+.finalStructuralPending {
+  display: grid; gap: 6px; margin: -8px 0 22px; padding: 12px 16px;
+  border: 1px solid rgba(255, 174, 120, .35); border-radius: 12px; background: rgba(255, 174, 120, .05);
+}
+.finalStructuralPending > b { color: #ffcfad; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.finalStructuralRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--v04-muted); font-size: 11.5px; }
+.finalStructuralRow button { flex: none; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px; background: transparent; color: #ffae78; padding: 3px 11px; font: inherit; font-size: 10px; cursor: pointer; }
+.finalStructuralRow button:hover:not(:disabled) { background: rgba(255, 174, 120, .15); }
+.finalStructuralRow button:disabled { cursor: wait; opacity: .6; }
+
+/* 溯源视图：一个字段下方按更新顺序列出的来源链。 */
+.finalTrace { display: grid; gap: 4px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--v04-line); }
+.finalTraceRow {
+  display: grid; grid-template-columns: auto auto auto 1fr; gap: 4px 10px; align-items: baseline;
+  padding: 5px 9px; border-left: 2px solid var(--v04-line); border-radius: 8px; color: var(--v04-muted); font-size: 11px;
+}
+.finalTraceVersion { color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; }
+.finalTraceWho { font-size: 10.5px; }
+.finalTraceTime { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 9.5px; }
+.finalTraceValue { grid-column: 1 / -1; color: var(--v04-muted); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.finalTraceTag { justify-self: start; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; font-size: 9px; font-weight: 800; }
+.finalTraceRowCurrent { border-left-color: var(--v04-accent); background: rgba(223, 255, 79, .05); }
+.finalTraceRowCurrent .finalTraceVersion, .finalTraceRowCurrent .finalTraceTag { color: var(--v04-accent); }
+.finalTraceRowCurrent .finalTraceValue { color: #d4d6cd; }
+.finalTraceRowPending { border-left-color: rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); }
+.finalTraceRowPending .finalTraceTag { color: #ffae78; }
+.finalTraceAdopt {
+  grid-column: 1 / -1; justify-self: start; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px;
+  background: transparent; color: #ffae78; padding: 2px 10px; font: inherit; font-size: 10px; cursor: pointer;
+}
+.finalTraceAdopt:hover { background: rgba(255, 174, 120, .15); }
+
+@media (max-width: 620px) {
+  .finalBanner, .finalStructuralPending { padding: 11px 13px; }
+  .versionDesc { padding-left: 0; }
+}
 
 @media (max-width: 620px) {
   .commentPopover { width: min(288px, calc(100vw - 48px)); }

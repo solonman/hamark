@@ -110,6 +110,64 @@ test("readOnly still shows the placeholder for an empty value, still with no aff
   assert.doesNotMatch(html, /role="button"/);
 });
 
+// ---------------------------------------------------------------------------
+// locked (spec 五、16/19): a final-version field for a viewer who isn't 老孙.
+// Unlike plain readOnly, it must still look clickable — real content stays
+// reachable by click/keyboard so `onBeforeEdit` gets a chance to veto and
+// toast — but it carries the locked class and a different tooltip.
+// ---------------------------------------------------------------------------
+
+test("locked (readOnly + locked) still renders the clickable reading affordance, not the plain readOnly span", () => {
+  const html = renderToStaticMarkup(createElement(V19EditableValue, {
+    value: "中景",
+    ariaLabel: "景别",
+    readOnly: true,
+    locked: true,
+    onCommit: () => { throw new Error("must not be reachable"); },
+  }));
+  assert.match(html, /role="button"/);
+  assert.match(html, /tabindex="0"/);
+  assert.match(html, /title="最终版只有老孙可以编辑"/);
+});
+
+test("locked never opens the editor even if onBeforeEdit returns true — it only gets a chance to veto/toast", () => {
+  let beforeEditCalls = 0;
+  const html = renderToStaticMarkup(createElement(V19EditableValue, {
+    value: "中景",
+    ariaLabel: "景别",
+    readOnly: true,
+    locked: true,
+    onBeforeEdit: () => { beforeEditCalls += 1; return true; },
+    onCommit: () => { throw new Error("must not be reachable"); },
+  }));
+  // react-dom/server never fires click handlers — this only proves the
+  // markup itself never renders an <input>/<textarea>/<select> for a locked
+  // field, i.e. it always starts (and, since it's server-rendered once,
+  // stays) in the reading state. The onBeforeEdit-gating logic itself is
+  // covered by the source-level assertions below.
+  assert.doesNotMatch(html, /<input|<textarea|<select/);
+  assert.equal(beforeEditCalls, 0);
+});
+
+test("locked field's hover title appends the source hint after the locked reason", () => {
+  const html = renderToStaticMarkup(createElement(V19EditableValue, {
+    value: "中景",
+    ariaLabel: "景别",
+    readOnly: true,
+    locked: true,
+    sourceHint: "v2·李晓芸 08-24 11:05",
+    onCommit: () => { throw new Error("must not be reachable"); },
+  }));
+  assert.match(html, /title="最终版只有老孙可以编辑 · 来自 v2·李晓芸 08-24 11:05"/);
+});
+
+test("source: startEditing never enters edit mode for a locked field, even if onBeforeEdit somehow returned true", async () => {
+  const source = await readFile(new URL("../components/v04/V19EditableValue.tsx", import.meta.url), "utf8");
+  const guardMatch = source.match(/const startEditing = \(\) => \{([\s\S]*?)\n {2}\};/);
+  assert.ok(guardMatch, "expected to find startEditing");
+  assert.match(guardMatch[1], /if \(readOnly\) return; \/\/ locked:/);
+});
+
 test("editable reading state exposes the keyboard affordance and the empty placeholder", () => {
   const html = renderToStaticMarkup(createElement(V19EditableValue, {
     value: "",
@@ -204,7 +262,10 @@ test("source: onCommit only fires through resolveV19CommitValue's \"commit\" bra
 
 test("source: readOnly short-circuits startEditing and the reading state uses the required class names", async () => {
   const source = await readFile(new URL("../components/v04/V19EditableValue.tsx", import.meta.url), "utf8");
-  assert.match(source, /const startEditing = \(\) => \{\s*if \(readOnly \|\| isEditing\) return;/);
+  assert.match(source, /const startEditing = \(\) => \{\s*if \(isEditing\) return;/);
+  // Plain readOnly (not `locked` — the final-version-非老孙 case, spec 五、16)
+  // still returns before ever calling onBeforeEdit or opening the editor.
+  assert.match(source, /if \(readOnly && !locked\) return;/);
   assert.match(source, /"use client";/);
   for (const className of [
     "styles.editable",
