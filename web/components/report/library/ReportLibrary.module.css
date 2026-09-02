@@ -8,10 +8,15 @@
 .cover {
   position: relative;
   display: block;
+  width: 100%;
   aspect-ratio: 4 / 3;
   overflow: hidden;
   border: 1px solid var(--v04-line);
   background: #0b0c0a;
+  /* 未就绪时 .cover 是一个真正的 <button>（点了弹 toast，demo 第 181、251 行），
+     这两条清掉浏览器给 <button> 加的默认内边距/对齐，让它跟 <a> 版本长得一样。 */
+  padding: 0;
+  text-align: left;
 }
 .cover::after {
   position: absolute; inset: 0;
@@ -23,14 +28,16 @@
 .coverPlaceholder {
   position: absolute; inset: 0;
   display: grid; place-items: center;
-  color: var(--v04-muted); font-size: 12px; text-align: center; padding: 0 16px;
+  /* demo 用 --ink3（#6d7066），比正文的 --v04-muted 更沉一档，见 demo 第 117 行。 */
+  color: #6d7066; font-size: 12px;
   background: radial-gradient(circle at 24% 22%, #2a2c24, #15160f 46%, #0b0c0a);
 }
 .coverFormat {
   position: absolute; top: 12px; left: 12px; z-index: 2;
   border: 1px solid rgba(255,255,255,.28); border-radius: 999px;
   padding: 4px 9px; font-size: 9px; letter-spacing: .06em;
-  background: rgba(0,0,0,.4); color: #fff;
+  background: rgba(0,0,0,.4);
+  /* demo 没给 .fmt 单独设色，跟着 .cover 继承正文墨色；.pages 才是明确的纯白，见下一条规则。 */
 }
 .coverPages {
   position: absolute; right: 12px; bottom: 12px; z-index: 2;
@@ -44,33 +51,38 @@
   display: grid; gap: 7px;
 }
 .coverState b { font-size: 12px; color: #fff; font-weight: 800; }
-.coverStateFailed b { color: #ff9a9a; }
+/* 失败态整支用 demo 的 --danger（#ff8f7d，见 demo 第 17、180 行），报告库自己的类，不碰共享文件。 */
+.coverStateFailed b { color: #ff8f7d; }
 .coverState small { color: rgba(255,255,255,.72); font-size: 10.5px; line-height: 1.5; display: block; }
 .coverBar { height: 5px; border-radius: 99px; background: rgba(255,255,255,.18); overflow: hidden; }
 .coverBarFill { display: block; height: 100%; background: var(--v04-accent); border-radius: 99px; transition: width .4s; }
-.coverBarError { background: rgba(255,122,122,.85); }
+.coverBarError { background: #ff8f7d; }
 
-/* ---------- 就绪之外的主按钮：只看不点 ---------- */
+/* ---------- 就绪之外的主按钮：鼠标点不动，键盘还能聚焦触发 toast ---------- */
+/* demo 的禁用态就是 .enter 本体套 opacity:.45 + pointer-events:none（demo 第 118 行），
+   不是另配一套更淡的配色；pointer-events:none 挡住鼠标点击，但键盘 Tab+Enter 仍能触发
+   （见 demo 第 251 行的 data-enter 委托——键盘激活不走指针命中测试）。 */
 .enterPillDisabled {
-  display: inline-flex; align-items: center; min-height: 38px;
-  border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
-  background: rgba(18,19,16,.6); color: var(--v04-muted);
-  padding: 0 16px; font-size: 11px; font-weight: 900; cursor: not-allowed;
-}
-
-/* ---------- 重试／改传 PDF／删除（仅上传者本人或管理员，仅 FAILED，见 demo 第 188 行） ---------- */
-.retryGroup { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.retryButton {
   display: inline-flex; align-items: center; min-height: 38px;
   border: 1px solid rgba(255,255,255,.22); border-radius: 999px;
   background: rgba(18,19,16,.88); color: var(--v04-ink);
-  padding: 0 16px; font-size: 11px; font-weight: 900; cursor: pointer;
-  backdrop-filter: blur(10px); transition: border-color .12s, color .12s, background .12s;
+  padding: 0 16px; font-size: 11px; font-weight: 900;
+  opacity: .45; cursor: not-allowed; pointer-events: none;
 }
-.retryButton:hover:not(:disabled) { border-color: rgba(223,255,79,.55); background: rgba(223,255,79,.1); color: var(--v04-accent); }
+
+/* ---------- 重试／改传 PDF／删除（仅上传者本人或管理员，仅 FAILED，见 demo 第 119-122 行） ---------- */
+/* demo 里这一组按钮明显比 .enter 轻：细边、无底色、不加粗，跟主按钮拉开一档视觉权重。 */
+.retryGroup { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.retryButton {
+  border: 1px solid var(--v04-line); border-radius: 999px;
+  background: none; color: var(--v04-muted);
+  padding: 6px 11px; font-size: 10.5px; cursor: pointer;
+}
+.retryButton:hover:not(:disabled) { border-color: rgba(223,255,79,.4); color: var(--v04-accent); }
 .retryButton:disabled { cursor: progress; opacity: .55; }
-/* 删除是不可逆动作，hover 用站内既有的「危险」红（案例卡收藏态、评论删除同一色），不再引入新色。 */
-.retryButtonDanger:hover:not(:disabled) { border-color: rgba(255,122,122,.6); background: rgba(255,122,122,.1); color: #ff9a9a; }
+/* 删除是不可逆动作，demo 给它单独一支橙红（.retry button.del:hover，--danger:#ff8f7d），
+   与站内别处收藏/评论删除用的 #ff9a9a 不是同一个值——这里照 demo 保留这处细微差异。 */
+.retryButtonDanger:hover:not(:disabled) { border-color: rgba(255,143,125,.5); color: #ff8f7d; }
 
 /* 任务类型 chip 比普通标签多一点强调，呼应 demo 的 .cband .task。 */
 .taskTypeTag { border-color: rgba(223,255,79,.4) !important; color: var(--v04-accent) !important; }
@@ -96,11 +108,14 @@
 .fileDrop {
   display: grid; place-items: center; gap: 4px;
   width: 100%; border: 1px dashed var(--v04-line); border-radius: 12px; padding: 22px;
-  text-align: center; cursor: pointer; color: var(--v04-muted); font-size: 11.5px;
+  text-align: center; cursor: pointer; font-size: 11.5px;
+  /* demo 用 --ink3（#6d7066），比正文的 --v04-muted 更沉一档，见 demo 第 132 行。 */
+  color: #6d7066;
   background: none;
 }
 .fileDrop b { color: var(--v04-accent); font-size: 13px; }
-.fileDropHas { border-style: solid; border-color: rgba(223,255,79,.4); color: var(--v04-ink); }
+/* demo 的 --answer（#d4d6cd）比 --v04-ink（#e6e7df）暗一档，见 demo 第 134 行。 */
+.fileDropHas { border-style: solid; border-color: rgba(223,255,79,.4); color: #d4d6cd; }
 .fileDrop:hover { border-color: rgba(223,255,79,.4); background: rgba(223,255,79,.05); }
 .fileDrop:disabled { cursor: not-allowed; opacity: .6; }
 
@@ -113,26 +128,18 @@
 .field select { appearance: none; background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px; padding-right: 28px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-.tagBox {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  min-height: 30px; border: 1px solid var(--v04-line); border-radius: 12px;
-  background: #0f100e; padding: 5px 8px;
-}
-.tagBox input { flex: 1; min-width: 90px; border: 0; background: none; padding: 3px 2px; font-size: 12px; color: var(--v04-ink); }
-.tagChip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-raised); color: var(--v04-ink); padding: 3px 4px 3px 9px; font-size: 11px; white-space: nowrap; }
-.tagChip button { border: 0; background: none; color: var(--v04-muted); font-size: 13px; line-height: 1; padding: 2px 5px; cursor: pointer; }
-.tagChip button:hover { color: #ff9a9a; }
-.tagHint { color: var(--v04-muted); font-size: 10px; }
-
 .hint {
   border-left: 3px solid var(--v04-subject); background: rgba(199,170,114,.07);
-  padding: 9px 12px; border-radius: 0 9px 9px 0; color: var(--v04-ink); font-size: 11.5px; line-height: 1.7;
+  padding: 9px 12px; border-radius: 0 9px 9px 0; font-size: 11.5px; line-height: 1.7;
+  /* demo 的 --answer（#d4d6cd），见 demo 第 141 行。 */
+  color: #d4d6cd;
 }
 
 .formError { color: #ff9a9a; font-size: 11.5px; line-height: 1.6; }
 
+/* 正在上传时整张表单换成这一小块（demo 的 .up，第 146 行）：文件名／百分比／进度条／状态语
+   四个直接子节点，靠 .uploadBody 的 grid 逐行堆叠，不是横向并排。 */
 .uploadProgress { display: grid; gap: 6px; font-size: 11.5px; color: var(--v04-muted); }
-.uploadProgress > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .uploadProgress b { color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 
 .uploadFooter { display: flex; justify-content: flex-end; gap: 9px; padding: 12px 18px; border-top: 1px solid var(--v04-line); }
@@ -140,3 +147,15 @@
 .uploadFooter button:hover:not(:disabled) { border-color: rgba(223,255,79,.4); color: var(--v04-accent); }
 .uploadGo { border-color: rgba(223,255,79,.4) !important; color: var(--v04-accent) !important; background: rgba(223,255,79,.1) !important; }
 .uploadGo:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---------------- toast：点击未就绪卡片给个响应，demo 第 106-107 行 ---------------- */
+.toastStack {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 99;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  pointer-events: none;
+}
+.toastStack > div {
+  border: 1px solid var(--v04-line); border-radius: 12px;
+  background: rgba(31,25,20,.97); padding: 9px 15px; font-size: 12px; color: var(--v04-ink);
+  box-shadow: 0 16px 42px rgba(0,0,0,.4);
+}

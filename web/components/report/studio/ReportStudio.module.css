@@ -10,20 +10,14 @@
 
 .main { max-width: 1720px; margin: 0 auto; padding: 20px clamp(14px, 2vw, 28px) 90px; }
 
-/* 标题区：报告标题、任务类型、标签、上传者、页数——顶栏之下、PART 01 之上，不吸顶。 */
-.titleBand {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  margin: 22px clamp(14px, 2vw, 28px) 6px; max-width: 1720px;
-}
-.titleBandTitle { margin: 0; max-width: 60ch; font-size: clamp(20px, 2.4vw, 28px); letter-spacing: -.02em; }
-.titleBandMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-
+/* demo 没有顶栏之下、PART 01 之上的独立标题区——报告标题与来源已经在顶栏里
+   （`ReportStudioClient` 的 `siteNav`），这里不再重复一份大标题＋chip 行。
+   `.chip` 留着给 PART 03 标题栏的统计条、以及别处沿用 demo 同款药丸样式用。 */
 .chip {
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   border: 1px solid var(--v04-line); border-radius: 999px; padding: 5px 10px;
-  color: var(--v04-muted); font-size: 10.5px;
+  color: var(--v04-muted); font-size: 10px;
 }
-.chipAccent { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
 
 /* ============================ PART 卡片 ============================ */
 
@@ -34,7 +28,7 @@
   padding: 15px 20px; border-bottom: 1px solid rgba(255, 255, 255, .07);
   border-radius: 16px 16px 0 0; background: rgba(23, 24, 21, .97); backdrop-filter: blur(12px);
 }
-.modHeaderLeft { display: flex; align-items: baseline; gap: 14px; }
+.modHeaderLeft { display: flex; align-items: center; gap: 14px; }
 .modEyebrow { display: block; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .16em; }
 .modTitle { margin: 2px 0 0; color: var(--v04-subject); font-size: 16px; letter-spacing: -.02em; }
 .modActions { display: flex; align-items: center; gap: 8px; }
@@ -109,7 +103,7 @@
   display: flex; align-items: center; gap: 10px; border: 1px dashed var(--v04-line); border-radius: 10px;
   padding: 10px 12px; cursor: pointer; color: var(--v04-muted); font-size: 11.5px;
 }
-.dropzone:hover { border-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .06); }
+.dropzone:hover, .dropzoneOver { border-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .06); }
 .dropzone b { color: var(--v04-accent); font-size: 12px; }
 .uploadEmpty { margin: 0; color: var(--v04-muted); font-size: 11.5px; }
 .fieldError { margin: 4px 0 0; color: #ffb58c; font-size: 11px; }

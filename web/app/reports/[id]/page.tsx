@@ -47,18 +47,12 @@ export default async function ReportStudioPage({ params }: { params: Promise<{ i
     return <V04BrowserCompatibilityMessage mode="EDIT" />;
   }
 
-  const menuUser = {
-    displayName: user.displayName,
-    avatarUrl: user.avatarUrl,
-    departmentName: user.departments.find((item) => item.isPrimary)?.name ?? user.departments[0]?.name ?? null,
-  };
-
   return (
     <V04BrowserCompatibilityGate mode="EDIT">
       <ReportStudioClient
         reportId={id}
         initialReport={report}
-        menuUser={menuUser}
+        viewerName={user.displayName}
         navigation={{ libraryHref }}
       />
     </V04BrowserCompatibilityGate>

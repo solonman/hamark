@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { ReportAnnotation } from "@/lib/report-structure";
 import type { ReportDetail, ReportFileView } from "@/lib/report-model";
 import { V19SystemValue } from "@/components/v04/V19EditableValue";
+import V19ReviewComment from "@/components/v04/V19ReviewComment";
 import type { CaseReviewComment } from "@/lib/case-review";
 import ReportFieldItem from "./ReportFieldItem";
 import styles from "./ReportStudio.module.css";
@@ -24,6 +25,18 @@ const fileExt = (name: string): string => {
   const match = /\.([a-z0-9]+)$/i.exec(name);
   return match ? match[1].toUpperCase() : "FILE";
 };
+
+/**
+ * 来源信息「文件格式」的展示文案，照 demo 的 mock 值（`source.format`，约 496
+ * 行）：demo 只示范了 .ppt 一种，PPTX／PDF 按同一套软件名／格式名的写法补齐，
+ * 不是直接秀 `SourceFormat`（"PPT"／"PPTX"／"PDF"）这个内部枚举值。
+ */
+const SOURCE_FORMAT_LABELS: Record<string, string> = {
+  PPT: "Microsoft PowerPoint 97-2003",
+  PPTX: "Microsoft PowerPoint",
+  PDF: "PDF",
+};
+const formatSourceFormat = (format: string): string => SOURCE_FORMAT_LABELS[format] ?? format;
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
@@ -70,6 +83,7 @@ export default function ReportPartOne({
   files,
 }: ReportPartOneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const patchBackground = (patch: Partial<ReportAnnotation["background"]>) => {
     onChange({ ...annotation, background: { ...annotation.background, ...patch } });
@@ -86,87 +100,96 @@ export default function ReportPartOne({
   });
 
   return (
-    <div className={styles.form2}>
-      <ReportFieldItem
-        label="城市"
-        value={annotation.background.city}
-        readOnly={readOnly}
-        onCommit={(next) => patchBackground({ city: next })}
-        review={fieldReview("background.city", "城市")}
-      />
-      <ReportFieldItem
-        label="开发商"
-        value={annotation.background.developer}
-        readOnly={readOnly}
-        onCommit={(next) => patchBackground({ developer: next })}
-        review={fieldReview("background.developer", "开发商")}
-      />
-      <ReportFieldItem
-        label="项目背景"
-        kind="textarea"
-        wide
-        value={annotation.background.projectBackground}
-        readOnly={readOnly}
-        onCommit={(next) => patchBackground({ projectBackground: next })}
-        review={fieldReview("background.projectBackground", "项目背景")}
-      />
-      <ReportFieldItem
-        label="业务背景"
-        kind="textarea"
-        wide
-        value={annotation.background.businessBackground}
-        readOnly={readOnly}
-        onCommit={(next) => patchBackground({ businessBackground: next })}
-        review={fieldReview("background.businessBackground", "业务背景")}
-      />
+    <>
+      <div className={styles.form2}>
+        <ReportFieldItem
+          label="城市"
+          value={annotation.background.city}
+          readOnly={readOnly}
+          onCommit={(next) => patchBackground({ city: next })}
+          review={fieldReview("background.city", "城市")}
+        />
+        <ReportFieldItem
+          label="开发商"
+          value={annotation.background.developer}
+          readOnly={readOnly}
+          onCommit={(next) => patchBackground({ developer: next })}
+          review={fieldReview("background.developer", "开发商")}
+        />
+        <ReportFieldItem
+          label="项目背景"
+          kind="textarea"
+          wide
+          value={annotation.background.projectBackground}
+          readOnly={readOnly}
+          onCommit={(next) => patchBackground({ projectBackground: next })}
+          review={fieldReview("background.projectBackground", "项目背景")}
+        />
+        <ReportFieldItem
+          label="业务背景"
+          kind="textarea"
+          wide
+          value={annotation.background.businessBackground}
+          readOnly={readOnly}
+          onCommit={(next) => patchBackground({ businessBackground: next })}
+          review={fieldReview("background.businessBackground", "业务背景")}
+        />
 
-      <div className={`${styles.item} ${styles.wide}`}>
-        <small>任务类型</small>
-        <span className={styles.chip}>{report.taskType || "未选择"}</span>
-      </div>
-
-      <div className={`${styles.item} ${styles.wide}`}>
-        <small>相关资料</small>
-        <div className={styles.upload}>
-          {files.items.map((file) => (
-            <div className={styles.file} key={file.id}>
-              <i>{fileExt(file.originalName)}</i>
-              <a href={file.url} target="_blank" rel="noreferrer" title={file.originalName}>
-                {file.originalName}
-              </a>
-              <em>{fmtSize(file.fileSize)}</em>
-              {files.canManage ? (
-                <button type="button" title="移除" disabled={files.busy} onClick={() => files.onDelete(file.id)}>
-                  ×
-                </button>
-              ) : null}
-            </div>
-          ))}
-          {files.canManage ? (
-            <label className={styles.dropzone}>
-              <input
-                ref={inputRef}
-                type="file"
-                multiple
-                hidden
-                disabled={files.busy}
-                onChange={(event) => {
-                  if (event.target.files?.length) files.onUpload(event.target.files);
-                  event.target.value = "";
+        <div className={`${styles.item} ${styles.wide}`}>
+          <small>
+            相关资料
+            <V19ReviewComment {...fieldReview("background.files", "相关资料")} />
+          </small>
+          <div className={styles.upload}>
+            {files.items.map((file) => (
+              <div className={styles.file} key={file.id}>
+                <i>{fileExt(file.originalName)}</i>
+                <a href={file.url} target="_blank" rel="noreferrer" title={file.originalName}>
+                  {file.originalName}
+                </a>
+                <em>{fmtSize(file.fileSize)}</em>
+                {files.canManage ? (
+                  <button type="button" title="移除" disabled={files.busy} onClick={() => files.onDelete(file.id)}>
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            {files.canManage ? (
+              <label
+                className={[styles.dropzone, dragOver ? styles.dropzoneOver : ""].filter(Boolean).join(" ")}
+                onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragOver(false);
+                  if (event.dataTransfer.files?.length) files.onUpload(event.dataTransfer.files);
                 }}
-              />
-              <b>{files.busy ? "上传中…" : "＋ 添加文件"}</b>
-              <span>PPT／PDF／图片／文档</span>
-            </label>
-          ) : files.items.length === 0 ? (
-            <p className={styles.uploadEmpty}>还没有相关资料。</p>
-          ) : null}
-          {files.error ? <p className={styles.fieldError}>{files.error}</p> : null}
+              >
+                <input
+                  ref={inputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  disabled={files.busy}
+                  onChange={(event) => {
+                    if (event.target.files?.length) files.onUpload(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+                <b>{files.busy ? "上传中…" : "＋ 添加文件"}</b>
+                <span>或把文件拖进来 · PPT／PDF／图片／文档</span>
+              </label>
+            ) : files.items.length === 0 ? (
+              <p className={styles.uploadEmpty}>还没有相关资料。</p>
+            ) : null}
+            {files.error ? <p className={styles.fieldError}>{files.error}</p> : null}
+          </div>
         </div>
       </div>
 
-      <div className={`${styles.trace} ${styles.wide}`}>
-        <h4>来源信息</h4>
+      <div className={styles.trace}>
+        <h4>SOURCE TRACE｜来源信息</h4>
         <dl>
           <div>
             <dt>来源文件</dt>
@@ -174,7 +197,7 @@ export default function ReportPartOne({
           </div>
           <div>
             <dt>文件格式</dt>
-            <dd><V19SystemValue>{report.sourceFormat}</V19SystemValue></dd>
+            <dd><V19SystemValue>{formatSourceFormat(report.sourceFormat)}</V19SystemValue></dd>
           </div>
           <div>
             <dt>页数</dt>
@@ -195,6 +218,6 @@ export default function ReportPartOne({
         </dl>
         <p>来自上传的文件，不需要填写。</p>
       </div>
-    </div>
+    </>
   );
 }

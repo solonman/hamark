@@ -17,6 +17,7 @@ import {
 } from "@/lib/report-library-view";
 import v04 from "../../v04/V04Surface.module.css";
 import ReportCard from "./ReportCard";
+import { ReportToastStack, useReportToast } from "./ReportToast";
 
 /** 只要列表里还有没转完的报告，就每 10 秒悄悄拉一次；比案例库那种一次性加载更频繁，
     因为转换是后台脚本异步在跑，用户在等它从「排队中」变成「可拆解」。 */
@@ -71,6 +72,7 @@ export default function ReportLibrary({
   const [retryError, setRetryError] = useState("");
   const [deletePendingId, setDeletePendingId] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const { toasts, notify } = useReportToast();
 
   const load = useCallback(async (signal: AbortSignal) => {
     const list = await fetchReports(signal);
@@ -234,6 +236,7 @@ export default function ReportLibrary({
       deletePending={deletePendingId === report.id}
       onDelete={deleteReport}
       onReplaceWithPdf={(target) => onRequestUpload(target)}
+      notify={notify}
     />
   );
 
@@ -241,7 +244,7 @@ export default function ReportLibrary({
     <>
       <section className={v04.libraryHero}>
         <p>REPORT REVERSE-ENGINEERING LIBRARY</p>
-        <h1>把一份报告，<br />拆回它的判断。</h1>
+        <h1>把一份提报，<br />拆回它的判断。</h1>
         <span>沿真实页序，按「模块 → 单元 → 页 → 组块」把一份策略报告拆开，看清它是怎么被讲成立的。</span>
       </section>
       <section className={v04.libraryToolbar}>
@@ -309,11 +312,11 @@ export default function ReportLibrary({
           <button type="button" onClick={() => onRequestUpload()}>上传报告</button>
         </section>
       ) : !visible.length ? (
+        // 与 demo 第 203 行一致：没有找到对应报告时只给一句提示，不带图标也不带「清空搜索」按钮
+        // （demo 从没建模过真正的空库，这一支只对应「有报告但搜索命中为零」）。
         <section className={v04.emptyState}>
-          <span>⌕</span>
           <h2>没有找到对应报告</h2>
           <p>换一个报告名、上传者、任务类型或标签试试。</p>
-          <button type="button" onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button>
         </section>
       ) : weeklyView ? (
         weeklyGroups.map((group) => (
@@ -329,6 +332,8 @@ export default function ReportLibrary({
       ) : (
         <section className={v04.caseGrid} aria-label="报告列表">{visible.map(renderCard)}</section>
       )}
+      {/* demo 的 #toast 是 #app 的固定兄弟节点，不随当前视图状态换掉（demo 第 149 行）。 */}
+      <ReportToastStack toasts={toasts} />
     </>
   );
 }

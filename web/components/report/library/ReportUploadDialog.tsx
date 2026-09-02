@@ -5,7 +5,6 @@ import { readJsonResponse } from "@/lib/http-json";
 import {
   isValidTaskType,
   REPORT_ALLOWED_EXTENSIONS,
-  REPORT_MAX_TAGS,
   TASK_TYPES,
   validateReportUpload,
 } from "@/lib/report-model";
@@ -64,8 +63,9 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
   // 而对话框每次打开都是全新挂载（父组件用条件渲染开关它），所以不需要额外的 effect 去同步。
   const [title, setTitle] = useState(() => replacing?.title ?? "");
   const [taskType, setTaskType] = useState(() => replacing?.taskType ?? "");
-  const [tags, setTags] = useState<string[]>(() => replacing?.tags ?? []);
-  const [tagDraft, setTagDraft] = useState("");
+  // 标签是一个逗号分隔的纯文本框（demo 第 226 行、视频上传对话框 app/components/UploadDialog.tsx
+  // 同一做法），不是 chip 编辑器；上限（REPORT_MAX_TAGS）由服务端 normalizeReportTags 兜底截断。
+  const [tagsText, setTagsText] = useState(() => (replacing?.tags ?? []).join(","));
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -95,22 +95,6 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
     setTitle((current) => current || stripExtension(picked.name));
   }
 
-  function addTag() {
-    const trimmed = tagDraft.trim();
-    if (!trimmed) return;
-    setTagDraft("");
-    setTags((current) => (current.includes(trimmed) || current.length >= REPORT_MAX_TAGS ? current : [...current, trimmed]));
-  }
-
-  function handleTagKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addTag();
-    } else if (event.key === "Backspace" && !tagDraft && tags.length) {
-      setTags((current) => current.slice(0, -1));
-    }
-  }
-
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!file) {
@@ -138,7 +122,7 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
           contentType: file.type,
           fileSize: file.size,
           taskType,
-          tags,
+          tags: tagsText.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
         }),
       });
       if (redirectOnUnauthorized(createResponse)) return;
@@ -185,113 +169,109 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
     >
       <section className={styles.uploadDialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className={styles.uploadHead}>
-          <div><small>UPLOAD</small><b id={titleId}>{replacing ? "改传 PDF" : "上传报告"}</b></div>
-          <button type="button" className={styles.uploadClose} onClick={onClose} disabled={busy} aria-label="关闭上传窗口">×</button>
+          <div><small>UPLOAD</small><b id={titleId}>{busy ? "正在上传" : replacing ? "改传 PDF" : "上传报告"}</b></div>
+          {/* demo 在「正在上传」阶段整个不渲染关闭按钮（第 218 行），不是留着但点不动。 */}
+          {busy ? null : (
+            <button type="button" className={styles.uploadClose} onClick={onClose} aria-label="关闭上传窗口">×</button>
+          )}
         </div>
-        <form onSubmit={submit}>
+        {busy ? (
+          // demo 上传中把整张表单换成这一小块（第 219-220 行）：文件名／百分比／进度条／状态语，
+          // 不是给表单字段套 disabled 然后在下面再叠一段进度条。
           <div className={styles.uploadBody}>
-            {replacing ? (
-              <p className={styles.hint}>
-                改传一份 PDF。转换成功后，《{replacing.title}》那份失败记录会自动删除。
-              </p>
-            ) : null}
-            <button
-              type="button"
-              className={`${styles.fileDrop} ${file ? styles.fileDropHas : ""}`.trim()}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={replacing ? ".pdf" : REPORT_ALLOWED_EXTENSIONS.join(",")}
-                onChange={handleFileChange}
-                hidden
-              />
-              {file ? (
-                <span><b>{file.name}</b><span>{(file.size / 1024 / 1024).toFixed(1)} MB · 点击换一个</span></span>
-              ) : replacing ? (
-                <span><b>选择 PDF 文件</b><span>只接受 PDF，单个不超过 200 MB</span></span>
-              ) : (
-                <span><b>选择文件</b><span>PPT／PPTX／PDF，单个不超过 200 MB</span></span>
-              )}
-            </button>
-            {fileError ? <p className={styles.formError}>{fileError}</p> : null}
-
-            <label className={styles.field}>
-              <small>报告名</small>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="默认用文件名"
-                disabled={busy}
-                required
-              />
-            </label>
-
-            <div className={styles.two}>
-              <label className={styles.field}>
-                <small>任务类型</small>
-                <select value={taskType} onChange={(event) => setTaskType(event.target.value)} disabled={busy} required>
-                  <option value="">请选择</option>
-                  {TASK_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-                </select>
-              </label>
-              <div className={styles.field}>
-                {/* 这里不用 <label> 包一整个 tagBox：框里除了草稿输入框还有每个 chip 的删除按钮，
-                    <label> 只会把点击指给它找到的第一个可聚焦控件，包多个控件点击目标就不确定了。
-                    改用 aria-labelledby 把说明文字和输入框显式关联，行为上更可预期。 */}
-                <small id={`${titleId}-tags-label`}>标签</small>
-                <div className={styles.tagBox} role="group" aria-labelledby={`${titleId}-tags-label`}>
-                  {tags.map((tag) => (
-                    <span className={styles.tagChip} key={tag}>
-                      {tag}
-                      <button
-                        type="button"
-                        onClick={() => setTags((current) => current.filter((item) => item !== tag))}
-                        disabled={busy}
-                        aria-label={`移除标签 ${tag}`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  <input
-                    value={tagDraft}
-                    onChange={(event) => setTagDraft(event.target.value)}
-                    onKeyDown={handleTagKeyDown}
-                    aria-label="添加标签，回车确认"
-                    placeholder={tags.length >= REPORT_MAX_TAGS ? "" : "回车添加，选填"}
-                    disabled={busy || tags.length >= REPORT_MAX_TAGS}
-                  />
-                </div>
-              </div>
+            <div className={styles.uploadProgress}>
+              <span>{file?.name}</span>
+              <b>{progress}%</b>
+              <div className={styles.coverBar}><i className={styles.coverBarFill} style={{ width: `${progress}%` }} /></div>
+              <span>{progress < 100 ? "直传到对象存储，浏览器不用等服务器中转" : "上传完成，进入转换队列…"}</span>
             </div>
-            <p className={styles.tagHint}>最多 {REPORT_MAX_TAGS} 个标签{tags.length ? `，已添加 ${tags.length} 个` : ""}。</p>
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            <div className={styles.uploadBody}>
+              {replacing ? (
+                <p className={styles.hint}>
+                  改传一份 PDF。转换成功后，《{replacing.title}》那份失败记录会自动删除。
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className={`${styles.fileDrop} ${file ? styles.fileDropHas : ""}`.trim()}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={replacing ? ".pdf" : REPORT_ALLOWED_EXTENSIONS.join(",")}
+                  onChange={handleFileChange}
+                  hidden
+                />
+                {/* .fileDrop 是 grid 容器（demo 第 132 行），<b> 与 <span> 要是它的直接子节点才会
+                    各占一行；套一层 <span> 包起来会让两段文字挤在同一行，见 demo 第 223 行。 */}
+                {file ? (
+                  <>
+                    <b>{file.name}</b>
+                    <span>{(file.size / 1024 / 1024).toFixed(1)} MB · 点击换一个</span>
+                  </>
+                ) : replacing ? (
+                  <>
+                    <b>选择 PDF 文件</b>
+                    <span>只接受 PDF，单个不超过 200 MB</span>
+                  </>
+                ) : (
+                  <>
+                    <b>选择文件</b>
+                    <span>PPT／PPTX／PDF，单个不超过 200 MB</span>
+                  </>
+                )}
+              </button>
+              {fileError ? <p className={styles.formError}>{fileError}</p> : null}
 
-            {replacing ? null : (
-              <p className={styles.hint}>
-                PPT 会在服务端转成 PDF 再逐页出图，绝大多数版式能还原；动画、未嵌入的字体、部分 SmartArt 可能有出入。
-                <b>版式要求高的，建议直接上传 PDF。</b>
-              </p>
-            )}
+              <label className={styles.field}>
+                <small>报告名</small>
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="默认用文件名"
+                  required
+                />
+              </label>
 
-            {error ? <p className={styles.formError} role="alert">{error}</p> : null}
-            {busy ? (
-              <div className={styles.uploadProgress}>
-                <div>
-                  <span>{progress < 100 ? "正在上传原件" : "上传完成，正在进入转换队列…"}</span>
-                  <b>{progress}%</b>
-                </div>
-                <div className={styles.coverBar}><i className={styles.coverBarFill} style={{ width: `${progress}%` }} /></div>
+              <div className={styles.two}>
+                <label className={styles.field}>
+                  <small>任务类型</small>
+                  <select value={taskType} onChange={(event) => setTaskType(event.target.value)} required>
+                    <option value="">请选择</option>
+                    {TASK_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </label>
+                {/* 标签是一个逗号分隔的纯文本框，与 demo 第 226 行、视频上传对话框同一做法——
+                    不是 chip 编辑器；上限由服务端 normalizeReportTags 截断兜底。 */}
+                <label className={styles.field}>
+                  <small>标签</small>
+                  <input
+                    value={tagsText}
+                    onChange={(event) => setTagsText(event.target.value)}
+                    placeholder="用逗号分开，选填"
+                  />
+                </label>
               </div>
-            ) : null}
-          </div>
-          <div className={styles.uploadFooter}>
-            <button type="button" onClick={onClose} disabled={busy}>取消</button>
-            <button type="submit" className={styles.uploadGo} disabled={busy || !file}>{busy ? "正在上传…" : "开始上传"}</button>
-          </div>
-        </form>
+
+              {replacing ? null : (
+                <p className={styles.hint}>
+                  PPT 会在服务端转成 PDF 再逐页出图，绝大多数版式能还原；动画、未嵌入的字体、部分 SmartArt 可能有出入。
+                  <b>版式要求高的，建议直接上传 PDF。</b>
+                </p>
+              )}
+
+              {error ? <p className={styles.formError} role="alert">{error}</p> : null}
+            </div>
+            <div className={styles.uploadFooter}>
+              <button type="button" onClick={onClose}>取消</button>
+              <button type="submit" className={styles.uploadGo} disabled={!file}>开始上传</button>
+            </div>
+          </form>
+        )}
       </section>
     </div>
   );

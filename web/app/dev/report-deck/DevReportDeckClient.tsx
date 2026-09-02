@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import ReportDeck from "@/components/report/studio/deck/ReportDeck";
 import { ReportMindMapButton } from "@/components/report/studio/deck/ReportMindMap";
-import { emptyReportAnnotation, type ReportAnnotation } from "@/lib/report-structure";
+import { deckSummary } from "@/components/report/studio/deck/deck-view";
+import { emptyReportAnnotation, type ReportAnnotation, type ReportDeckKey } from "@/lib/report-structure";
 import { isCaseReviewer } from "@/lib/case-review";
 import type { DeckReviewComment } from "@/components/report/studio/deck/deck-types";
 import type { ReportPageView } from "@/lib/report-model";
@@ -55,7 +56,13 @@ export default function DevReportDeckClient({
   const initial = useMemo(() => seedAnnotation(pages.map((p) => p.pageNo)), [pages]);
   const [annotation, setAnnotation] = useState<ReportAnnotation>(initial);
   const [comments, setComments] = useState<Record<string, DeckReviewComment>>({});
+  const [guideOff, setGuideOff] = useState(false);
+  // 脑图节点点击要点亮左列（demo 第 1230～1234 行 `S.focus=key`），"定位"
+  // state 受控化之后由持有它的人（这里是预览页自己，真实工作台是
+  // `ReportStudioClient`）在 `ReportDeck` 和 `ReportMindMapButton` 之间接线。
+  const [focusKey, setFocusKey] = useState<ReportDeckKey | null>(null);
   const canReview = isCaseReviewer(viewerName);
+  const summary = deckSummary(annotation);
 
   return (
     <div className={v04styles.surface} style={{ padding: "18px 20px 60px" }}>
@@ -64,10 +71,28 @@ export default function DevReportDeckClient({
           ReportDeck 预览 · {reportTitle}
         </h1>
         <span style={{ color: "#92958b", fontSize: 11 }}>身份：{viewerName}{canReview ? "（可评审）" : "（只读评审）"}</span>
-        {/* ReportDeck 自己不再渲染这个按钮（外壳把它放在"第三部分"标题栏右侧，
-            deck 内部去掉了重复的一份），这个预览页没有外壳的标题栏，所以在
-            这里补一个入口，脑图功能才测得到。 */}
-        <ReportMindMapButton annotation={annotation} pages={pages} />
+        {/* 这三样都是 demo PART 03 标题栏（modHead 的 extra/leftExtra 位）的
+            内容，deck 自己不画：统计栏（stat chip）与"引导"重开按钮由外壳用
+            `deckSummary`/`guideOff` 拼出来，脑图入口是 `ReportMindMapButton`。
+            这个预览页没有外壳的标题栏，所以在这里补一份，三个功能才都测得到。 */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #2a2c26", borderRadius: 999, padding: "5px 10px", fontSize: 10, color: "#92958b", whiteSpace: "nowrap" }}>
+          {summary.moduleCount} 模块 · {summary.unitCount} 单元 · {summary.blockCount} 组块 ｜ 已填完 {summary.donePages}/{summary.totalPages} 页
+          {summary.inProgressPages ? `（在标 ${summary.inProgressPages}）` : ""}
+        </span>
+        {guideOff ? (
+          <button
+            type="button"
+            title="重新显示分步引导"
+            onClick={() => setGuideOff(false)}
+            style={{ border: "1px solid #2a2c26", borderRadius: 999, padding: "4px 11px", fontSize: 10.5, color: "#92958b", background: "transparent", cursor: "pointer" }}
+          >
+            引导
+          </button>
+        ) : null}
+        <ReportMindMapButton
+          annotation={annotation} pages={pages} reportTitle={reportTitle}
+          onGoTo={(key) => setFocusKey(key as ReportDeckKey)}
+        />
         <button
           type="button"
           onClick={() => setAnnotation(emptyReportAnnotation(pages.map((p) => p.pageNo)))}
@@ -88,6 +113,10 @@ export default function DevReportDeckClient({
         annotation={annotation}
         readOnly={false}
         onChange={setAnnotation}
+        guideOff={guideOff}
+        onGuideOffChange={setGuideOff}
+        focusKey={focusKey}
+        onFocusKeyChange={setFocusKey}
         review={{
           canReview,
           comments,

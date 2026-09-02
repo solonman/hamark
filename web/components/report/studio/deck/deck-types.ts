@@ -2,7 +2,7 @@
 // 改动需双方同步（见 docs/19_报告逆向工程_实施规格_V0.1.md §6.2）。
 
 import type { ReportPageView } from "@/lib/report-model";
-import type { ReportAnnotation } from "@/lib/report-structure";
+import type { ReportAnnotation, ReportDeckKey } from "@/lib/report-structure";
 
 export type DeckReviewComment = { body: string; authorName: string; updatedAt: string };
 
@@ -13,6 +13,25 @@ export type ReportDeckProps = {
   readOnly: boolean;
   /** 每次变化给一个全新的不可变对象（外壳负责撤销/重做与保存）。 */
   onChange: (next: ReportAnnotation) => void;
+  /**
+   * 分步引导整体是否已被关掉（demo 里"引导"重开按钮在 PART 03 标题栏，由
+   * 外壳渲染、外壳持久化，见 docs/demos 第 775～777 行）。不传时 deck 退回
+   * 自己的内部状态（关闭后没有任何重开入口，仅供独立预览这类没有外壳标题
+   * 栏的场景兜底）。
+   */
+  guideOff?: boolean;
+  /** 用户点引导卡的 × 时调用；不传时 deck 用内部状态自己记账。 */
+  onGuideOffChange?: (off: boolean) => void;
+  /**
+   * "定位"高亮当前指向哪个框（demo 的 `S.focus`，见第 704、738、749、758
+   * 行）——受控化是为了让 `ReportMindMapButton`（跟 deck 平级、不共享内部
+   * state 的兄弟组件）点节点时也能点亮左列，同 demo 第 1230～1234 行
+   * `data-mindgo` 处理器里 `S.focus=key` 那一步。不传时 deck 退回自己的内部
+   * state（点收纳框标题栏背景仍然能切换，只是脑图那边打不通）。
+   */
+  focusKey?: ReportDeckKey | null;
+  /** 点收纳框标题栏背景切换"定位"时调用；不传时 deck 用内部状态自己记账。 */
+  onFocusKeyChange?: (key: ReportDeckKey | null) => void;
   review: {
     /** 老孙为 true。 */
     canReview: boolean;
@@ -26,4 +45,19 @@ export type ReportDeckProps = {
 export type ReportMindMapButtonProps = {
   annotation: ReportAnnotation;
   pages: ReportPageView[];
+  /**
+   * demo 的脑图头部与根节点都要秀报告标题（`S.data.title`，见 demo 第 820、
+   * 822 行）——`ReportAnnotation`/`ReportPageView` 都不带这个字段，报告标题
+   * 只在外壳持有的 `Report` 对象上，所以单独要一个。可选＋空串兜底，好让
+   * 还没接上这个 prop 的调用点（旧的 `ReportStudioClient`）先不炸。
+   */
+  reportTitle?: string;
+  /**
+   * 点节点跳到收纳框时调用（先关脑图、滚过去，再喊这个）——demo 第
+   * 1230～1234 行的 `data-mindgo` 处理器在跳转前顺手 `S.focus=key`，点亮
+   * 左列对应页；这个按钮自己不持有 `ReportDeck` 的内部 state，所以要外壳
+   * 把它接到 `ReportDeckProps.onFocusKeyChange` 上才能打通。不传时只关闭
+   * ＋滚动，没有点亮效果（不影响脑图本身的其余行为）。
+   */
+  onGoTo?: (key: string) => void;
 };

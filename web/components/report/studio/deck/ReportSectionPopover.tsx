@@ -170,8 +170,13 @@ export default function ReportSectionPopover({
     const depth = unitDepth(annotation, id);
     title = `${UNIT_DEPTH_TITLES[Math.min(depth, UNIT_DEPTH_TITLES.length - 1)]} ${nums[id] ?? ""}`;
     const range = unitPages(annotation, id);
-    const fields: { key: "name" | "task" | "role" | "psy" | "concl"; label: string; multi: boolean; placeholder?: string }[] = [
-      { key: "name", label: "单元名称", multi: false, placeholder: "未起名" },
+    // 字段顺序照抄 demo `popover()` 的 unit 分支（约 959-965 行）：单元名称
+    // →单元间组织关系→页码范围→传播／讲述任务→讲述作用→预期心理→候选结论。
+    // "单元名称"字段虽然不是多选，但 demo 仍把它排进 "wide"（`item(...,"wide")`），
+    // 跟"单元间组织关系"/"页码范围"这两个非 wide 字段区分开——wide 不能直接
+    // 用 field.multi 代替。
+    const nameKey = `unit:${id}:name`;
+    const restFields: { key: "task" | "role" | "psy" | "concl"; label: string; multi: boolean }[] = [
       { key: "task", label: "传播／讲述任务", multi: true },
       { key: "role", label: "讲述作用", multi: true },
       { key: "psy", label: "预期心理", multi: false },
@@ -179,7 +184,37 @@ export default function ReportSectionPopover({
     ];
     body = (
       <>
-        {fields.map((field) => {
+        <DeckItem
+          label="单元名称" wide
+          commentSlot={(
+            <DeckCommentEntry
+              targetKey={nameKey} targetLabel={`${title}·单元名称`}
+              comment={review.comments[nameKey]} canReview={review.canReview}
+              onSave={saveComment}
+            />
+          )}
+        >
+          <DeckEditableValue
+            value={unit.name} disabled={readOnly} placeholder="未起名"
+            onCommit={(next) => setField((a) => ({
+              ...a, units: a.units.map((u) => (u.id === id ? { ...u, name: next } : u)),
+            }))}
+          />
+        </DeckItem>
+        <DeckItem label="单元间组织关系">
+          <ReportSelect
+            value={unit.rel}
+            options={REPORT_RELATIONS}
+            disabled={readOnly}
+            onChange={(next) => setField((a) => ({
+              ...a, units: a.units.map((u) => (u.id === id ? { ...u, rel: next } : u)),
+            }))}
+          />
+        </DeckItem>
+        <DeckItem label="页码范围">
+          <DeckStaticValue text={`${pageRangeLabel(range)} · ${range.length} 页`} />
+        </DeckItem>
+        {restFields.map((field) => {
           const key = `unit:${id}:${field.key}`;
           return (
             <DeckItem
@@ -196,7 +231,6 @@ export default function ReportSectionPopover({
             >
               <DeckEditableValue
                 value={unit[field.key]} multiline={field.multi} disabled={readOnly}
-                placeholder={field.placeholder}
                 onCommit={(next) => setField((a) => ({
                   ...a, units: a.units.map((u) => (u.id === id ? { ...u, [field.key]: next } : u)),
                 }))}
@@ -204,25 +238,12 @@ export default function ReportSectionPopover({
             </DeckItem>
           );
         })}
-        <DeckItem label="单元间组织关系">
-          <ReportSelect
-            value={unit.rel}
-            options={REPORT_RELATIONS}
-            disabled={readOnly}
-            onChange={(next) => setField((a) => ({
-              ...a, units: a.units.map((u) => (u.id === id ? { ...u, rel: next } : u)),
-            }))}
-          />
-        </DeckItem>
-        <DeckItem label="页码范围">
-          <DeckStaticValue text={`${pageRangeLabel(range)} · ${range.length} 页`} />
-        </DeckItem>
       </>
     );
   }
 
   return (
-    <div ref={rootRef} className={styles.pop} style={{ left: pos.x, top: pos.y }} role="dialog" aria-label={title}>
+    <div ref={rootRef} className={styles.pop} data-pop-panel="1" style={{ left: pos.x, top: pos.y }} role="dialog" aria-label={title}>
       <div
         ref={headerRef}
         className={styles.popHead}

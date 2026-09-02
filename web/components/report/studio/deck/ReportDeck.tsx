@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  MODULE_NAME_CANDIDATES,
   applyMove,
   assignToNewModule,
   assignToNewUnit,
@@ -28,7 +29,6 @@ import {
   DECK_DEFAULT_COLUMN_WIDTH,
   clampColumnWidth,
   clampFloatingPosition,
-  deckSummary,
   describePlanMove,
   fabDescriptor,
   insertMarkerPageNo,
@@ -46,6 +46,7 @@ import {
 import ReportGuide from "./ReportGuide";
 import ReportSectionPopover from "./ReportSectionPopover";
 import ReportPageModal from "./ReportPageModal";
+import { DeckEditableValue } from "./DeckField";
 import styles from "./ReportDeck.module.css";
 import type { ReportDeckProps } from "./deck-types";
 
@@ -92,7 +93,10 @@ function storeColumnWidth(px: number) {
   try { window.localStorage.setItem(DECK_COLUMN_WIDTH_STORAGE_KEY, String(px)); } catch { /* ignore */ }
 }
 
-export default function ReportDeck({ pages, annotation, readOnly, onChange, review }: ReportDeckProps) {
+export default function ReportDeck({
+  pages, annotation, readOnly, onChange, guideOff, onGuideOffChange,
+  focusKey: controlledFocusKey, onFocusKeyChange, review,
+}: ReportDeckProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<SelectionState>({ key: "free", ids: [] });
   const [anchor, setAnchor] = useState<number | null>(null);
@@ -101,7 +105,21 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
   const [colw, setColw] = useState(DECK_DEFAULT_COLUMN_WIDTH);
   const [openTrays, setOpenTrays] = useState<Set<string>>(new Set());
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
-  const [collapsedBoxes, setCollapsedBoxes] = useState<Set<string>>(new Set());
+  // 点收纳框标题栏（非按钮区域）＝"定位"：50 页里已归入的页在左列会被压暗，
+  // 这个开关让所属页在左列亮起来，方便找——demo 的 `S.focus`/`data-focus`/
+  // `.pc.lit`（约 704、738、749、758 行），只影响左列卡片，不影响托盘卡片。
+  // 受控/不受控两态同 `guideOff`：外壳传了 `focusKey`/`onFocusKeyChange` 就
+  // 受外壳摆布（这样 `ReportMindMapButton` 点节点才能点亮左列），没传就退回
+  // 内部 state 自己记账。
+  const [internalFocusKey, setInternalFocusKey] = useState<ReportDeckKey | null>(null);
+  const focusKey = controlledFocusKey !== undefined ? controlledFocusKey : internalFocusKey;
+  const setFocusKey = onFocusKeyChange ?? setInternalFocusKey;
+  // 模块名称候选菜单：header 里紧跟名称的圆形 chevron 按钮，等价 demo 的
+  // `.cbtn.inline` + `#cbmenu`（约 761、643 行）——header 上的名称本身用
+  // `DeckEditableValue` 直接可编辑（demo 的 `val()`），这个菜单只负责从
+  // `MODULE_NAME_CANDIDATES` 里选一个候选值回填，不是另一套下拉组件。
+  const [nameMenu, setNameMenu] = useState<{ moduleId: string; x: number; y: number } | null>(null);
+  const nameMenuRef = useRef<HTMLDivElement>(null);
   const [press, setPress] = useState<PressState | null>(null);
   const [split, setSplit] = useState<{ x: number; w: number } | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
@@ -109,6 +127,8 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
   const [dropZoneKey, setDropZoneKey] = useState<ReportDeckKey | null>(null);
   const [insertMarker, setInsertMarker] = useState<{ zoneKey: ReportDeckKey; beforeN: number | null } | null>(null);
   const [peek, setPeek] = useState<{ n: number; x: number; y: number } | null>(null);
+  const [peekPos, setPeekPos] = useState<{ x: number; y: number } | null>(null);
+  const peekRef = useRef<HTMLDivElement>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [fabPos, setFabPos] = useState<{ x: number; y: number } | null>(null);
   const fabRef = useRef<HTMLDivElement>(null);
@@ -266,8 +286,13 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
 
   useEffect(() => {
     const onDocClick = (event: MouseEvent) => {
-      if (justDraggedRef.current) { justDraggedRef.current = false; return; }
       const target = event.target as HTMLElement;
+      // 模块名称候选菜单：点菜单本身或触发它的 chevron 按钮以外的任何地方都关掉
+      // ——demo 全局 click 里的 `S.cb&&!closest("#cbmenu")&&!closest("[data-cb]")`。
+      if (nameMenu && !target.closest("[data-name-menu]") && !target.closest("[data-name-chevron]")) {
+        setNameMenu(null);
+      }
+      if (justDraggedRef.current) { justDraggedRef.current = false; return; }
       if (target.closest("select,input,textarea,option,datalist,button")) return;
       if (sel.ids.length && !target.closest("[data-fab]") && !target.closest("[data-pick]")) {
         clearSelection();
@@ -275,29 +300,27 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     };
     document.addEventListener("click", onDocClick);
     return () => document.removeEventListener("click", onDocClick);
-  }, [sel, clearSelection]);
+  }, [sel, clearSelection, nameMenu]);
 
-  /* ---------------- Esc 清选区（浮层/modal 自己处理各自的 Esc） ---------------- */
-
+  /* ---------------- Esc：先关名称候选菜单，再清选区（浮层/modal 自己处理各自的 Esc） ----------------
+   * 优先级对齐 demo 全局 keydown 的 `mind > cb > drawMode > modal > sel` 链——
+   * mind/drawMode/modal 分别是 ReportMindMapButton／ReportPageModal 自己的
+   * Esc 监听，这里只需要在 `cb`（名称候选菜单）和 `sel`（选区）之间排先后。
+   * demo 没有"选中的页按 Delete/Backspace 退回未归入"这个功能——退回未归入
+   * 只能靠拖到左列，这里不要发明一个键盘快捷方式。
+   */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (pop || modalPage != null) return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (event.key === "Escape" && sel.ids.length) { clearSelection(); return; }
-      if ((event.key === "Delete" || event.key === "Backspace") && sel.ids.length && sel.key !== "free" && !readOnly) {
-        const label = rangeLabelForPageNumbers(sel.ids);
-        if (window.confirm(`把 ${label}（${sel.ids.length} 页）退回左边的未归入页？`)) {
-          const { next, removedSegments } = applyMove(annotation, sel.ids, "free");
-          onChange(next);
-          pushToast(moveToastText(sel.ids.length, removedSegments));
-          clearSelection();
-        }
-      }
+      if (event.key !== "Escape") return;
+      if (nameMenu) { setNameMenu(null); return; }
+      if (sel.ids.length) clearSelection();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [pop, modalPage, sel, readOnly, annotation, onChange, pushToast, clearSelection]);
+  }, [pop, modalPage, sel, nameMenu, clearSelection]);
 
   /* ---------------- hover 预览：只在浮层打开、且不在拖动/modal 时生效 ---------------- */
 
@@ -339,6 +362,30 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     placeFab();
   }, [placeFab]);
 
+  // hover 预览的定位：demo `placePeek`——宽度定死 440，高度用 `el.offsetHeight
+  // ||380` 兜底，且遮住正在填的标注框时翻到指针左边（查 `#pop` 的真实屏幕位
+  // 置）。这些都要读 DOM（`peekRef`/`rootRef`），不能放进渲染期间的普通表达
+  // 式里算（ref 只能在事件处理器/effect 里读），所以放效果里、算完存 state，
+  // JSX 直接用 state，不摸 ref.current。
+  useLayoutEffect(() => {
+    let next: { x: number; y: number } | null = null;
+    if (peek) {
+      const width = 440;
+      const popEl = pop ? rootRef.current?.querySelector<HTMLElement>("[data-pop-panel]") : null;
+      const popRect = popEl?.getBoundingClientRect() ?? null;
+      let left = peek.x + 20;
+      const top = peek.y - 60;
+      if (popRect && left + width > popRect.left && peek.x < popRect.right) left = peek.x - 20 - width;
+      const height = peekRef.current?.offsetHeight || 380;
+      next = clampFloatingPosition({
+        x: left, y: top, width, height,
+        viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+        margin: 8,
+      });
+    }
+    setPeekPos((current) => (current?.x === next?.x && current?.y === next?.y ? current : next));
+  }, [peek, pop]);
+
   useEffect(() => {
     if (!sel.ids.length) return;
     window.addEventListener("resize", placeFab);
@@ -362,7 +409,8 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     onChange(next);
     clearSelection();
     setPop({ key: `mod:${moduleId}`, anchorRect: syntheticAnnoAnchor() });
-  }, [annotation, onChange, readOnly, clearSelection]);
+    pushToast("已建模块，左边这些页变灰＝已归入。标题栏「标注」可以就地填这一段的条目。");
+  }, [annotation, onChange, readOnly, clearSelection, pushToast]);
 
   const makeUnit = useCallback((containerKey: ReportDeckKey, ids: number[]) => {
     if (readOnly) return;
@@ -434,7 +482,6 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
   /* ---------------- 派生数据 ---------------- */
 
   const nums = moduleNumbers(annotation);
-  const summary = deckSummary(annotation);
   const frozen = !!pop;
   const fab = fabDescriptor(annotation, sel.key, sel.ids);
 
@@ -449,20 +496,21 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
   }
 
   /**
-   * "已填完"／"在标"两种标记不能只靠颜色深浅区分——14px 的小圆点上很容易看
-   * 混。改成形状也不一样：已填完＝实心圆＋✓，在标＝纯空心圆（不放勾），
-   * 并且各自的 hover title 把具体状态说清楚（在标还说明差什么），门槛照抄
-   * `lib/report-structure.ts` 的 `pageStatus`。
+   * "已填完"／"在标"两种标记照抄 demo 的 `doneBadge`（约 609 行）：两种都是
+   * 一个 ✓，靠 `.dot`（实心）／`.dot.half`（描边、半透明）的形状区分，不是
+   * "在标就不放勾"——之前一版把"在标"改成纯空心圆、还把"已填完"的 title 从
+   * demo 的"已标注完成"错写成"已填完"，两处都是自行发挥，按验收清单第 5 条
+   * 改回 demo 原样。
    */
   function pageMarkBadge(p: ReportPage, extraClassName?: string) {
     const mark = pageMarkKind(p);
     if (mark === "none") return null;
     const cls = (extra: string) => [styles.dot, extra, extraClassName].filter(Boolean).join(" ");
     if (mark === "done") {
-      return <i className={cls("")} title="已填完">✓</i>;
+      return <i className={cls("")} title="已标注完成">✓</i>;
     }
     const status = pageStatus(p);
-    return <i className={cls(styles.dotHalf)} title={`在标：还差 ${status.missing.join("、")}`} />;
+    return <i className={cls(styles.dotHalf)} title={`在标：还差 ${status.missing.join("、")}`}>✓</i>;
   }
 
   function openHintButton(n: number) {
@@ -470,13 +518,10 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     return (
       <button
         type="button"
-        className={styles.smBtn}
+        className={styles.openHint}
         data-open-hint="1"
         title="标注"
         onClick={(event) => { event.stopPropagation(); setModalPage(n); }}
-        style={{ position: "absolute", top: 4, right: 4, zIndex: 3, opacity: 0, padding: "1px 7px", fontSize: 9 }}
-        onMouseEnter={(event) => { (event.currentTarget.style.opacity = "1"); }}
-        onMouseLeave={(event) => { (event.currentTarget.style.opacity = "0"); }}
       >
         标注
       </button>
@@ -486,6 +531,10 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
   function freeColumn() {
     const allPages = [...annotation.pages].sort((a, b) => a.n - b.n);
     const claimedCount = allPages.filter((p) => p.mid).length;
+    // "定位"高亮：focusKey 所指的框名下的全部页（含已被下级收走的），只点亮
+    // 左列——demo 的 `S.focus&&shownPagesOf(S.focus).some(...)`（约 704 行）。
+    const litPageNos = focusKey ? new Set(shownPagesOf(annotation, focusKey).map((p) => p.n)) : null;
+    const litColorForMid = (mid: string) => moduleColor(sortedModules(annotation).findIndex((m) => m.id === mid));
     return (
       <aside className={styles.pagecol} data-container="free" data-drop="free">
         <div className={styles.colhead}>
@@ -496,7 +545,9 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
           {allPages.map((p) => {
             const taken = !!p.mid;
             const selected = sel.key === "free" && sel.ids.includes(p.n);
-            const cls = [styles.pc, selected ? styles.pcSel : "", taken ? styles.pcTaken : ""].filter(Boolean).join(" ");
+            const lit = !!litPageNos?.has(p.n);
+            const litColor = lit && p.mid ? litColorForMid(p.mid) : undefined;
+            const cls = [styles.pc, selected ? styles.pcSel : "", taken ? styles.pcTaken : "", lit ? styles.pcLit : ""].filter(Boolean).join(" ");
             return (
               <div
                 key={p.n}
@@ -504,6 +555,7 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
                 data-pick="free"
                 data-n={p.n}
                 title={pageByNo(p.n)?.textExcerpt || undefined}
+                style={litColor ? ({ "--rd-lit": litColor } as React.CSSProperties) : undefined}
                 onDoubleClick={() => setModalPage(p.n)}
               >
                 <span className={styles.pcN}>{String(p.n).padStart(2, "0")}</span>
@@ -583,12 +635,51 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     );
   }
 
-  function boxHeader(kind: "mod" | "unit", id: string, colorHex: string, name: string, range: ReportPage[]) {
+  /**
+   * 点标题栏背景（不是任一按钮）＝ demo 的 `data-focus`：切换这个框的
+   * "定位"态——`.box.focus` 描边，并让它名下的页在左列 `.pc.lit` 亮起来。
+   */
+  function onBoxHeaderClick(key: ReportDeckKey) {
+    // 直接读已解出的 `focusKey`（受控时就是外壳传的值），不用函数式 updater
+    // ——`setFocusKey` 受控时是外壳给的普通回调，不支持 `(current) => ...`
+    // 那种只有真正的 state setter 才有的写法。
+    setFocusKey(focusKey === key ? null : key);
+  }
+
+  function boxHeader(kind: "mod" | "unit", id: string, name: string, range: ReportPage[]) {
     const key: ReportDeckKey = kind === "mod" ? `mod:${id}` : `unit:${id}`;
+    const commitName = (next: string) => {
+      if (readOnly) return;
+      onChange(kind === "mod"
+        ? { ...annotation, modules: annotation.modules.map((m) => (m.id === id ? { ...m, name: next } : m)) }
+        : { ...annotation, units: annotation.units.map((u) => (u.id === id ? { ...u, name: next } : u)) });
+    };
     return (
-      <header className={styles.boxHead}>
+      <header className={styles.boxHead} onClick={() => onBoxHeaderClick(key)}>
         <span className={styles.boxNo}>{kind === "mod" ? "模块 " : "单元 "}{nums[id]}</span>
-        <span className={styles.boxNm}>{name || <em style={{ color: "var(--rd-ink3)", fontStyle: "normal" }}>未起名 · 点标注填写</em>}</span>
+        <span className={styles.boxNm} onClick={(event) => event.stopPropagation()}>
+          <DeckEditableValue
+            value={name} disabled={readOnly} placeholder="未起名 · 点此填写"
+            onCommit={commitName}
+          />
+          {kind === "mod" && !readOnly ? (
+            <button
+              type="button"
+              className={styles.boxNameChevron}
+              data-name-chevron="1"
+              title="从候选里选一个"
+              onClick={(event) => {
+                event.stopPropagation();
+                const r = event.currentTarget.getBoundingClientRect();
+                setNameMenu((current) => (current && current.moduleId === id ? null : {
+                  moduleId: id,
+                  x: Math.max(8, Math.min(window.innerWidth - 160, r.left - 100)),
+                  y: Math.min(window.innerHeight - 200, r.bottom + 6),
+                }));
+              }}
+            />
+          ) : null}
+        </span>
         <span className={styles.boxRg}>{pageRangeLabel(range)} · {range.length} 页</span>
         {sel.ids.length === 0 ? (
           <button
@@ -609,21 +700,6 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
             {confirmDeleteKey === key ? "再点一次删除" : "删除"}
           </button>
         ) : null}
-        <button
-          type="button"
-          className={styles.boxAct}
-          title={collapsedBoxes.has(key) ? "展开这个框" : "收起这个框"}
-          onClick={(event) => {
-            event.stopPropagation();
-            setCollapsedBoxes((current) => {
-              const next = new Set(current);
-              if (next.has(key)) next.delete(key); else next.add(key);
-              return next;
-            });
-          }}
-        >
-          {collapsedBoxes.has(key) ? "展开" : "收起"}
-        </button>
       </header>
     );
   }
@@ -632,14 +708,16 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     const key: ReportDeckKey = `unit:${u.id}`;
     const color = unitColorFor(annotation, u.id);
     const range = shownPagesOf(annotation, key);
-    const collapsed = collapsedBoxes.has(key);
     return (
       <div key={u.id} className={styles.unitbox}>
-        <div className={styles.box} data-box={key} data-drop={key} style={{ "--rd-k": color } as React.CSSProperties}>
-          {boxHeader("unit", u.id, color, u.name, range)}
-          {collapsed ? null : renderTray(key, "这个单元里还没有页")}
+        <div
+          className={focusKey === key ? `${styles.box} ${styles.boxFocus}` : styles.box}
+          data-box={key} data-drop={key} style={{ "--rd-k": color } as React.CSSProperties}
+        >
+          {boxHeader("unit", u.id, u.name, range)}
+          {renderTray(key, "这个单元里还没有页")}
         </div>
-        {collapsed ? null : sortedChildUnits(annotation, u.id).map((k) => renderUnitBox(k))}
+        {sortedChildUnits(annotation, u.id).map((k) => renderUnitBox(k))}
       </div>
     );
   }
@@ -649,12 +727,15 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     const index = sortedModules(annotation).findIndex((x) => x.id === m.id);
     const color = moduleColor(index);
     const range = shownPagesOf(annotation, key);
-    const collapsed = collapsedBoxes.has(key);
     return (
-      <div key={m.id} className={styles.box} data-box={key} data-drop={key} style={{ "--rd-k": color } as React.CSSProperties}>
-        {boxHeader("mod", m.id, color, m.name, range)}
-        {collapsed ? null : renderTray(key, "这个模块里还没有页")}
-        {collapsed ? null : sortedRootUnits(annotation, m.id).map((u) => renderUnitBox(u))}
+      <div
+        key={m.id}
+        className={focusKey === key ? `${styles.box} ${styles.boxFocus}` : styles.box}
+        data-box={key} data-drop={key} style={{ "--rd-k": color } as React.CSSProperties}
+      >
+        {boxHeader("mod", m.id, m.name, range)}
+        {renderTray(key, "这个模块里还没有页")}
+        {sortedRootUnits(annotation, m.id).map((u) => renderUnitBox(u))}
       </div>
     );
   }
@@ -669,9 +750,10 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
     const style: React.CSSProperties = fabPos
       ? { left: fabPos.x, top: fabPos.y }
       : { left: -9999, top: -9999, visibility: "hidden" };
+    const rangeLabel = rangeLabelForPageNumbers(sel.ids);
     return (
       <div ref={fabRef} className={styles.fab} data-fab="1" style={style}>
-        已选 <b>{sel.ids.length}</b> 页
+        已选 <b>{sel.ids.length}</b> 页 · {rangeLabel}
         {fab.available ? (
           <button type="button" className={styles.fabAct} onClick={handleFabAction}>{label}</button>
         ) : (
@@ -686,13 +768,6 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
 
   return (
     <div ref={rootRef} className={`${styles.root}${frozen ? ` ${styles.frozen}` : ""}`}>
-      <div className={styles.toolbar}>
-        <span className={styles.headStat}>
-          {summary.moduleCount} 模块 · {summary.unitCount} 单元 · {summary.blockCount} 组块 ｜ 已填完 {summary.donePages}/{summary.totalPages} 页
-          {summary.inProgressPages ? `（在标 ${summary.inProgressPages}）` : ""}
-        </span>
-      </div>
-
       <div
         className={styles.deck}
         style={{ "--rd-colw": `${colw}px` } as React.CSSProperties}
@@ -709,7 +784,7 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
             左列页序也一起往下挤：非空结构时左列该从顶部开始，跟右列有没有
             内容无关。 */}
         <div className={styles.boxcol}>
-          <ReportGuide annotation={annotation} />
+          <ReportGuide annotation={annotation} guideOff={guideOff} onGuideOffChange={onGuideOffChange} />
           {empty ? (
             <div className={styles.startpanel}>
               <div className={styles.startpanelBig}>从左边的页序开始</div>
@@ -737,12 +812,43 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
 
       {peek && pageByNo(peek.n) ? (() => {
         const view = pageByNo(peek.n)!;
-        const clamped = clampFloatingPosition({ x: peek.x + 20, y: peek.y - 60, width: 320, height: 280, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+        // 位置由上面的 effect 算好存进 peekPos——没算出来之前先摆在视口外、
+        // 隐藏起来（同 fab 的"没量出位置前先不画"手法），这一帧 peekRef 也才
+        // 挂得上，下一效应周期就能量出真实高度。
+        const style: React.CSSProperties = peekPos
+          ? { left: peekPos.x, top: peekPos.y }
+          : { left: -9999, top: -9999, visibility: "hidden" };
         return (
-          <div className={styles.peek} data-peek="1" style={{ left: clamped.x, top: clamped.y }}>
+          <div ref={peekRef} className={styles.peek} data-peek="1" style={style}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={(view.largeUrl || view.thumbUrl) ?? undefined} alt="" />
             <div className={styles.peekCap}><b>p{String(peek.n).padStart(2, "0")}</b><span>{view.textExcerpt}</span></div>
+          </div>
+        );
+      })() : null}
+
+      {nameMenu ? (() => {
+        const mod = annotation.modules.find((m) => m.id === nameMenu.moduleId);
+        if (!mod) return null;
+        return (
+          <div ref={nameMenuRef} className={styles.cbMenu} data-name-menu="1" style={{ left: nameMenu.x, top: nameMenu.y }} role="listbox">
+            {MODULE_NAME_CANDIDATES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="option"
+                aria-selected={option === mod.name}
+                className={option === mod.name ? styles.cbMenuOn : undefined}
+                onClick={() => {
+                  if (!readOnly) {
+                    onChange({ ...annotation, modules: annotation.modules.map((m) => (m.id === nameMenu.moduleId ? { ...m, name: option } : m)) });
+                  }
+                  setNameMenu(null);
+                }}
+              >
+                {option}
+              </button>
+            ))}
           </div>
         );
       })() : null}
@@ -772,6 +878,7 @@ export default function ReportDeck({ pages, annotation, readOnly, onChange, revi
           onChange={commit}
           onNavigate={setModalPage}
           onClose={() => setModalPage(null)}
+          pushToast={pushToast}
           review={review}
         />
       ) : null}

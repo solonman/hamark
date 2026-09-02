@@ -456,6 +456,51 @@ export function moveToastText(movedCount: number, removedSegments: number): stri
   return `已移动 ${movedCount} 页。${suffix}`;
 }
 
+/* ============================ Page-image block drawing ============================ */
+// Restores the demo's `wireDraw()` (docs/demos 第 1181-1198 行): "＋ 框选"
+// draws a rectangle directly on the page image to create a content block.
+// The coordinator corrected an earlier misreading of "页面坐标取消" — that
+// instruction meant *don't show the x/y/w/h numbers as text*, not *drop the
+// draw interaction*. These are the pure geometry pieces; `ReportPageModal`
+// wires the pointer events.
+
+export type StageRect = { left: number; top: number; width: number; height: number };
+
+/** Pointer position as a percentage of the page-image stage — mirrors `wireDraw`'s `pt(e)`. */
+export function pointToStagePercent(clientX: number, clientY: number, stage: StageRect): { x: number; y: number } {
+  return {
+    x: ((clientX - stage.left) / stage.width) * 100,
+    y: ((clientY - stage.top) / stage.height) * 100,
+  };
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/** The drag-box rect in stage-percent, rounded to one decimal — mirrors `wireDraw`'s pointermove/pointerup math. */
+export function drawnBlockRect(
+  start: { x: number; y: number },
+  current: { x: number; y: number },
+): { x: number; y: number; w: number; h: number } {
+  return {
+    x: round1(Math.min(start.x, current.x)),
+    y: round1(Math.min(start.y, current.y)),
+    w: round1(Math.abs(current.x - start.x)),
+    h: round1(Math.abs(current.y - start.y)),
+  };
+}
+
+/** Below this the demo refuses the box and toasts "框太小了，再拖大一点。" instead of creating a block. */
+export function isDrawnBlockTooSmall(w: number, h: number): boolean {
+  return w < 3 || h < 2;
+}
+
+/** New blocks land in reading order (top-to-bottom, then left-to-right) — mirrors the post-draw `p.blocks.sort(...)`. */
+export function sortBlocksByPosition<T extends { x: number; y: number }>(blocks: readonly T[]): T[] {
+  return [...blocks].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+}
+
 /* ============================ Header summary ============================ */
 
 export type DeckSummary = {

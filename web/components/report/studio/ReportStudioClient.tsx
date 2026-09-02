@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReportAnnotation } from "@/lib/report-structure";
+import type { ReportAnnotation, ReportDeckKey } from "@/lib/report-structure";
 import type { ReportDetail } from "@/lib/report-model";
 import type { ReportCurrentVersion, ReportVersionChain, ReportVersionRecord } from "@/lib/report-version-chain";
 import { commentsByTarget, emptyCaseReview, type CaseReviewModel } from "@/lib/case-review";
@@ -19,7 +19,6 @@ import {
   type ReportHistoryState,
   type ReportSaveStatus,
 } from "@/lib/report-studio-state";
-import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import V19AssignmentRating from "@/components/v04/V19AssignmentRating";
 import {
   commentOnVersion,
@@ -40,6 +39,7 @@ import ReportVersionBar from "./ReportVersionBar";
 // 第三部分：deck 已交付并通过验收，直接接真组件。
 import ReportDeck from "./deck/ReportDeck";
 import { ReportMindMapButton } from "./deck/ReportMindMap";
+import { deckSummary } from "./deck/deck-view";
 import type { DeckReviewComment } from "./deck/deck-types";
 import v04styles from "@/components/v04/V04Surface.module.css";
 import styles from "./ReportStudio.module.css";
@@ -47,16 +47,41 @@ import styles from "./ReportStudio.module.css";
 export type ReportStudioClientProps = {
   reportId: string;
   initialReport: ReportDetail;
-  menuUser: UserMenuUser;
+  /** 顶栏末尾的身份文字——照抄 `V04StudioClient` 的做法（纯文本，不是可交互的用户菜单）。 */
+  viewerName: string;
   navigation: { libraryHref: string };
 };
 
+/** 分步引导的关闭状态存本地，跟 deck 自己的列宽记忆（`DECK_COLUMN_WIDTH_STORAGE_KEY`）同一个前缀习惯。 */
+const GUIDE_OFF_STORAGE_KEY = "report-deck:guide-off";
+
+function readStoredGuideOff(): boolean {
+  try {
+    return window.localStorage.getItem(GUIDE_OFF_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function storeGuideOff(off: boolean) {
+  try {
+    window.localStorage.setItem(GUIDE_OFF_STORAGE_KEY, off ? "1" : "0");
+  } catch { /* ignore */ }
+}
+
+/** 第三部分标题栏右侧的统计 chip 文案，逐字照 demo `module3()`（约 773 行）。 */
+function formatDeckSummary(annotation: ReportAnnotation): string {
+  const s = deckSummary(annotation);
+  const going = s.inProgressPages ? `（在标 ${s.inProgressPages}）` : "";
+  return `${s.moduleCount} 模块 · ${s.unitCount} 单元 · ${s.blockCount} 组块 ｜ 已填完 ${s.donePages}/${s.totalPages} 页${going}`;
+}
+
 type PartId = 1 | 2 | 3;
 
+/** HH:MM，照 demo 的 `S.saveAt`（`pad(d.getHours())+":"+pad(d.getMinutes())`，约 549 行）。 */
 function formatClock(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toTimeString().slice(0, 8);
+  return date.toTimeString().slice(0, 5);
 }
 
 /**
@@ -96,7 +121,7 @@ function applySavedVersion(
 export default function ReportStudioClient({
   reportId,
   initialReport,
-  menuUser,
+  viewerName,
   navigation,
 }: ReportStudioClientProps) {
   const [report, setReport] = useState(initialReport);
@@ -110,6 +135,23 @@ export default function ReportStudioClient({
   const [filesBusy, setFilesBusy] = useState(false);
   const [filesError, setFilesError] = useState("");
   const [collapsed, setCollapsed] = useState<Set<PartId>>(() => new Set());
+  // 分步引导整体开关：demo 里"引导"重开按钮在 PART 03 标题栏（约 775～777 行），
+  // 关闭状态由外壳持有并存本地，deck 收到 `guideOff` 就不再自己渲染引导。
+  const [guideOff, setGuideOff] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 从 localStorage 读初始值，SSR 期间不存在更早的时机
+    setGuideOff(readStoredGuideOff());
+  }, []);
+  const updateGuideOff = useCallback((off: boolean) => {
+    setGuideOff(off);
+    storeGuideOff(off);
+  }, []);
+
+  // "定位"高亮当前指向哪个收纳框：脑图点节点（`ReportMindMapButton`，跟
+  // deck 平级、不共享内部 state）与 deck 点收纳框标题栏背景都要能改它，
+  // 所以提到外壳受控，对应 demo 第 1230～1234 行 `S.focus=key`。不持久化，
+  // 纯会话内状态（demo 里也是内存变量，刷新即丢）。
+  const [focusKey, setFocusKey] = useState<ReportDeckKey | null>(null);
 
   // 给事件处理器／定时器用的"最新值"镜像：只在 effect 里写，渲染期间绝不写 ref
   // （React 编译器的 lint 规则不允许渲染期间改 ref），读的都是回调触发那一刻的最新值。
@@ -394,7 +436,6 @@ export default function ReportStudioClient({
     acc[item.targetKey] = { body: item.body, authorName: item.authorName, updatedAt: item.updatedAt };
     return acc;
   }, {});
-  const hasHistory = history.past.length > 0 || history.future.length > 0;
   const annotation = history.present;
 
   return (
@@ -419,7 +460,7 @@ export default function ReportStudioClient({
               onSwitchToMine={(versionId) => void selectVersion(versionId)}
             />
           </div>
-          {!readOnly && hasHistory ? (
+          {!readOnly ? (
             <div className={v04styles.historyControl} role="group" aria-label="撤销与重做">
               <button type="button" onClick={undo} disabled={history.past.length === 0} title="撤销上一步（⌘/Ctrl+Z）">
                 ↩ 撤销
@@ -440,36 +481,21 @@ export default function ReportStudioClient({
             <span className={v04styles.saveDot} />
             <span>
               {readOnly && "只读，看的是别人的版本"}
-              {!readOnly && saveStatus.kind === "IDLE" && "已自动保存"}
+              {!readOnly && saveStatus.kind === "IDLE" && `已保存 ${formatClock(chain.current.updatedAt)}`}
               {!readOnly && saveStatus.kind === "SAVING" && "保存中…"}
-              {!readOnly && saveStatus.kind === "SAVED" && `已自动保存 · ${formatClock(saveStatus.at)}`}
+              {!readOnly && saveStatus.kind === "SAVED" && `已保存 ${formatClock(saveStatus.at)}`}
               {!readOnly && saveStatus.kind === "UNCHANGED" && "没有变化"}
               {!readOnly && saveStatus.kind === "INVALID" && "内容不符合规则，未保存"}
               {!readOnly && saveStatus.kind === "CONFLICT" && saveStatus.message}
               {!readOnly && saveStatus.kind === "ERROR" && saveStatus.message}
             </span>
-            {!readOnly && (saveStatus.kind === "IDLE" || saveStatus.kind === "SAVED" || saveStatus.kind === "UNCHANGED") ? (
-              <button type="button" onClick={() => void flushSave()}>保存</button>
-            ) : null}
             {!readOnly && saveStatus.kind === "ERROR" ? (
               <button type="button" onClick={() => void flushSave()}>重试</button>
             ) : null}
           </span>
-          <UserMenu user={menuUser} />
+          <span>{viewerName}</span>
         </div>
       </header>
-
-      <div className={styles.titleBand}>
-        <h1 className={styles.titleBandTitle}>{report.title}</h1>
-        <div className={styles.titleBandMeta}>
-          <span className={`${styles.chip} ${styles.chipAccent}`}>{report.taskType || "未选择任务类型"}</span>
-          {report.tags.map((tag) => (
-            <span className={styles.chip} key={tag}>#{tag}</span>
-          ))}
-          <span className={styles.chip}>上传者 {report.createdByName}</span>
-          <span className={styles.chip}>{report.pageCount} 页</span>
-        </div>
-      </div>
 
       {saveStatus.kind === "INVALID" ? (
         <div className={styles.saveBanner} role="alert">
@@ -565,9 +591,33 @@ export default function ReportStudioClient({
                 <small className={styles.modEyebrow}>PART 03</small>
                 <h2 className={styles.modTitle}>第三部分｜报告详细拆解</h2>
               </div>
+              {/* 「查看脑图」紧跟标题，同一行——demo `modHead(3,...,mindBtn)` 把它当 leftExtra，
+                  不是标题栏右侧那一组（跟统计 chip／收起分属两侧）。 */}
+              {!collapsed.has(3) ? (
+                <ReportMindMapButton
+                  annotation={annotation}
+                  pages={report.pages}
+                  reportTitle={report.title}
+                  onGoTo={(key) => setFocusKey(key as ReportDeckKey)}
+                />
+              ) : null}
             </div>
             <div className={styles.modActions}>
-              <ReportMindMapButton annotation={annotation} pages={report.pages} />
+              {!collapsed.has(3) ? (
+                <>
+                  {guideOff ? (
+                    <button
+                      type="button"
+                      className={styles.sm}
+                      title="重新显示分步引导"
+                      onClick={() => updateGuideOff(false)}
+                    >
+                      引导
+                    </button>
+                  ) : null}
+                  <span className={styles.chip}>{formatDeckSummary(annotation)}</span>
+                </>
+              ) : null}
               <button type="button" className={styles.sm} onClick={() => toggleCollapsed(3)}>
                 {collapsed.has(3) ? "展开" : "收起"}
               </button>
@@ -579,6 +629,10 @@ export default function ReportStudioClient({
               annotation={annotation}
               readOnly={readOnly}
               onChange={applyChange}
+              guideOff={guideOff}
+              onGuideOffChange={updateGuideOff}
+              focusKey={focusKey}
+              onFocusKeyChange={setFocusKey}
               review={{
                 canReview: review.canReview,
                 comments: deckComments,

@@ -11,23 +11,35 @@ import {
   type ReportBlock,
 } from "@/lib/report-structure";
 import type { ReportPageView } from "@/lib/report-model";
-import { navStripCell } from "./deck-view";
+import {
+  drawnBlockRect,
+  isDrawnBlockTooSmall,
+  navStripCell,
+  pointToStagePercent,
+  sortBlocksByPosition,
+  type StageRect,
+} from "./deck-view";
 import { ReportCombobox, ReportSelect } from "@/components/report/studio/ReportSelect";
 import { DeckChipToggle, DeckChipsMulti, DeckCommentEntry, DeckEditableValue, DeckItem, DeckStaticValue } from "./DeckField";
 import styles from "./ReportDeck.module.css";
 import type { ReportDeckProps } from "./deck-types";
 
 /**
- * 页面与组块标注 modal：大图（纯预览，不可交互）＋组块列表增删、首/尾/翻页、
- * 按模块／单元着色并标注进度的导航条。移植自 demo 的 `modal()`（约 998 行），
- * 但**不**移植 demo 里配套的 `wireDraw()`——页面坐标／在页图上框选组块区域
- * 这件事，任务交底里被用户明确取消了（"页面坐标/框选组块区域不做（用户已
- * 取消）"），组块靠列表右上角「＋ 添加组块」增删，不靠在图上拖框；坐标字段
- * （`x/y/w/h`）继续留在 `ReportBlock` 类型里但从不在表单出现数字，新建时给
- * 一组不展示的占位值即可（校验层要求 w/h > 0，见
- * `lib/report-structure.ts` 的 `validateReportAnnotation`）。键盘左右翻页
- * 是本组件在 demo 文案（引导第 3 步："用 ←→ 翻页"）基础上补的——demo 自己的
- * keydown 监听只处理了 Escape，从没真的接上方向键，这里按引导文案把它做实。
+ * 页面与组块标注 modal：大图＋组块列表增删、首/尾/翻页、按模块／单元着色并
+ * 标注进度的导航条。移植自 demo 的 `modal()`（约 998 行）**及**配套的
+ * `wireDraw()`（约 1181 行）——组块靠在页图上拖框新建，不是列表旁边一个
+ * "＋添加"按钮：点"＋ 框选"进入框选态，在左边的页图上按住拖一个矩形，松开
+ * 手就生成一个组块，连续拖可以一次建好几个（Esc 或再点一次「结束框选」退出）；
+ * 页图上每个组块画一个带编号的框，跟右边列表的条目通过同一个 `selBlock`
+ * 双向联动（点框选中对应条目并滚过去，点条目高亮对应框）。之前一版把这件事
+ * 整个去掉了，理由是"任务交底里用户已取消页面坐标"——这理解错了：用户取消
+ * 的只是"在 UI 上显示 x/y/w/h 数值"，框选交互本身要 100% 照抄 demo，坐标只是
+ * 拿来定位框、从不以数字形式出现在界面上。
+ *
+ * 键盘左右翻页是本组件在 demo 文案（引导第 3 步："用 ←→ 翻页"）基础上补的——
+ * demo 自己的 keydown 监听只处理了 Escape，从没真的接上方向键，这里按引导
+ * 文案把它做实；drawMode 开着时 Escape 先退出框选态而不是关掉整个 modal，
+ * 优先级对齐 demo 全局 keydown 里 `drawMode` 排在 `modal` 前面那条链。
  */
 
 export type ReportPageModalProps = {
@@ -38,6 +50,8 @@ export type ReportPageModalProps = {
   onChange: (next: ReportAnnotation) => void;
   onNavigate: (pageNo: number) => void;
   onClose: () => void;
+  /** 复用 `ReportDeck` 自己的 toast host——demo 的 `#toast` 是全页面单例，框太小、进入框选态都从这里冒泡出来。 */
+  pushToast: (text: string) => void;
   review: ReportDeckProps["review"];
 };
 
@@ -48,11 +62,11 @@ function newBlockId(): string {
   return `b${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** 坐标字段还在类型里、还过校验，但不再有任何 UI 让人去设它——固定给一个安全占位。 */
-function placeholderBlock(): ReportBlock {
+/** 新组块除坐标外的默认值——demo `wireDraw` 的 `nb`：标题类型、中性文风、"展开"关系，作用/标记都留空待填。 */
+function drawnBlock(rect: { x: number; y: number; w: number; h: number }): ReportBlock {
   return {
     id: newBlockId(), name: "新内容组块",
-    x: 5, y: 5, w: 90, h: 10,
+    x: rect.x, y: rect.y, w: rect.w, h: rect.h,
     type: CONTENT_TYPES[0], roles: [], style: "中性", rel: "展开", narr: "", mark: "",
   };
 }
@@ -65,10 +79,14 @@ function updateBlock(a: ReportAnnotation, pageNo: number, blockId: string, fn: (
 }
 
 export default function ReportPageModal({
-  annotation, pages, pageNo, readOnly, onChange, onNavigate, onClose, review,
+  annotation, pages, pageNo, readOnly, onChange, onNavigate, onClose, pushToast, review,
 }: ReportPageModalProps) {
   const [selBlock, setSelBlock] = useState<string | null>(null);
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawing, setDrawing] = useState<{ start: { x: number; y: number }; current: { x: number; y: number } } | null>(null);
   const blockRefs = useRef(new Map<string, HTMLDivElement>());
+  const stageRef = useRef<HTMLDivElement>(null);
+  const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const sortedPages = [...annotation.pages].sort((a, b) => a.n - b.n);
   const idx = sortedPages.findIndex((p) => p.n === pageNo);
@@ -79,7 +97,13 @@ export default function ReportPageModal({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { onClose(); return; }
+      if (event.key === "Escape") {
+        // 优先级对齐 demo 的全局 keydown 链：drawMode 排在 modal 前面——
+        // Esc 先退出框选态，不直接把整个标注窗关掉。
+        if (drawMode) { setDrawMode(false); return; }
+        onClose();
+        return;
+      }
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (event.key === "ArrowLeft" && idx > 0) onNavigate(sortedPages[idx - 1].n);
@@ -88,7 +112,7 @@ export default function ReportPageModal({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, sortedPages.length]);
+  }, [idx, sortedPages.length, drawMode]);
 
   useEffect(() => {
     if (!selBlock) return;
@@ -116,10 +140,51 @@ export default function ReportPageModal({
     onChange(updateBlock(annotation, pageNo, blockId, fn));
   };
 
-  const addBlock = () => {
+  const toggleDrawMode = () => {
     if (readOnly) return;
-    const block = placeholderBlock();
-    setPageField((p) => ({ ...p, blocks: [...p.blocks, block] }));
+    const next = !drawMode;
+    setDrawMode(next);
+    setDrawing(null);
+    drawStartRef.current = null;
+    if (next) pushToast("在左边页图上拖一个框。");
+  };
+
+  const stageRect = (): StageRect | null => {
+    const el = stageRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  };
+
+  const onStagePointerDown = (event: React.PointerEvent) => {
+    if (!drawMode || readOnly) return;
+    const rect = stageRect();
+    if (!rect) return;
+    const p = pointToStagePercent(event.clientX, event.clientY, rect);
+    drawStartRef.current = p;
+    setDrawing({ start: p, current: p });
+    try { (event.target as HTMLElement).setPointerCapture(event.pointerId); } catch { /* not all targets support capture */ }
+  };
+  const onStagePointerMove = (event: React.PointerEvent) => {
+    const start = drawStartRef.current;
+    if (!start) return;
+    const rect = stageRect();
+    if (!rect) return;
+    setDrawing({ start, current: pointToStagePercent(event.clientX, event.clientY, rect) });
+  };
+  const onStagePointerUp = (event: React.PointerEvent) => {
+    const start = drawStartRef.current;
+    drawStartRef.current = null;
+    if (!start) return;
+    const rect = stageRect();
+    setDrawing(null);
+    if (!rect) return;
+    const current = pointToStagePercent(event.clientX, event.clientY, rect);
+    const box = drawnBlockRect(start, current);
+    if (isDrawnBlockTooSmall(box.w, box.h)) { pushToast("框太小了，再拖大一点。"); return; }
+    const block = drawnBlock(box);
+    // 连续框选：画完一个不退出 drawMode，接着画下一个（Esc 或再点一次「结束框选」退出）。
+    setPageField((p) => ({ ...p, blocks: sortBlocksByPosition([...p.blocks, block]) }));
     setSelBlock(block.id);
   };
 
@@ -136,13 +201,39 @@ export default function ReportPageModal({
         </div>
         <div className={styles.ovmain}>
           <div className={styles.ovstage}>
-            <div className={styles.ovpage}>
+            <div
+              ref={stageRef}
+              className={drawMode ? `${styles.ovpage} ${styles.ovpageDraw}` : styles.ovpage}
+              onPointerDown={onStagePointerDown}
+              onPointerMove={onStagePointerMove}
+              onPointerUp={onStagePointerUp}
+              onPointerCancel={() => { drawStartRef.current = null; setDrawing(null); }}
+            >
               {renderFailed ? (
                 <div className={styles.pcFail} style={{ aspectRatio: "4 / 3", width: "100%" }}>该页渲染失败</div>
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element -- 报告页图来自本地对象存储签名 URL，不走 next/image 的远程域名白名单
                 <img src={pageView!.largeUrl ?? undefined} alt="" draggable={false} />
               )}
+              {page.blocks.map((block, index) => (
+                <span
+                  key={block.id}
+                  className={block.id === selBlock ? `${styles.ovb} ${styles.ovbOn}` : styles.ovb}
+                  style={{ left: `${block.x}%`, top: `${block.y}%`, width: `${block.w}%`, height: `${block.h}%` }}
+                  onClick={() => { if (!drawMode) setSelBlock(block.id); }}
+                >
+                  <b className={styles.ovbNum}>{index + 1}</b>
+                </span>
+              ))}
+              {drawing ? (
+                <span
+                  className={styles.ovb}
+                  style={(() => {
+                    const box = drawnBlockRect(drawing.start, drawing.current);
+                    return { left: `${box.x}%`, top: `${box.y}%`, width: `${box.w}%`, height: `${box.h}%` };
+                  })()}
+                />
+              ) : null}
             </div>
           </div>
           <div className={styles.ovside}>
@@ -195,13 +286,13 @@ export default function ReportPageModal({
               <h4>
                 内容组块
                 {!readOnly ? (
-                  <button type="button" className={styles.ovsecAdd} onClick={addBlock}>
-                    ＋ 添加组块
+                  <button type="button" className={styles.ovsecAdd} onClick={toggleDrawMode}>
+                    {drawMode ? "结束框选" : "＋ 框选"}
                   </button>
                 ) : null}
               </h4>
               {page.blocks.length === 0 ? (
-                <p className={styles.bkEmpty}>还没有组块。{readOnly ? "" : "点上面「＋ 添加组块」新建一个。"}</p>
+                <p className={styles.bkEmpty}>还没有组块。{readOnly ? "" : "点上面「＋ 框选」，在左边页图上拖一个框。"}</p>
               ) : page.blocks.map((block, index) => {
                 const nameKey = `block:${block.id}:name`;
                 const narrKey = `block:${block.id}:narr`;

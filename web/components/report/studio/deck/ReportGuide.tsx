@@ -6,10 +6,14 @@ import styles from "./ReportDeck.module.css";
 import type { ReportAnnotation } from "@/lib/report-structure";
 
 /**
- * 分步引导：三步只展开当前步的空态大版，有结构后缩成一条进度条，随时能关、
- * 随时能唤回（自己管自己的关闭状态，不需要外部 props 协调）。措辞照抄 demo
- * 的 `GUIDE_STEPS`（`docs/demos/2026-09-01-报告拆解工作台demo-V2.html` 约
- * 916 行）——它已经是"从页图外面按住拉框选中连续页"的准确描述，没有"按住
+ * 分步引导：三步只展开当前步的空态大版，有结构后缩成一条进度条，随时能关。
+ * 关闭状态可以由外壳受控（`guideOff`/`onGuideOffChange`，对应 demo 里 PART 03
+ * 标题栏那个"引导"重开按钮——demo 第 775～777 行，`modHead` 的 `extra` 位）：
+ * 关掉之后 deck 这边不渲染任何东西，重开入口在外壳的标题栏，不在这个组件
+ * 里画第二个。没传这两个 prop 时退回内部 state 自己记账，且此时没有任何重
+ * 开入口——只给没有外壳标题栏的独立预览场景兜底，不是常规用法。措辞照抄
+ * demo 的 `GUIDE_STEPS`（`docs/demos/2026-09-01-报告拆解工作台demo-V2.html`
+ * 约 916 行）——它已经是"从页图外面按住拉框选中连续页"的准确描述，没有"按住
  * 一页拖到另一页"那种会跟"拖页搬运"混淆的说法。
  */
 
@@ -45,16 +49,23 @@ const GUIDE_STEPS: GuideStep[] = [
   },
 ];
 
-export default function ReportGuide({ annotation }: { annotation: ReportAnnotation }) {
-  const [dismissed, setDismissed] = useState(false);
+export type ReportGuideProps = {
+  annotation: ReportAnnotation;
+  guideOff?: boolean;
+  onGuideOffChange?: (off: boolean) => void;
+};
+
+export default function ReportGuide({ annotation, guideOff, onGuideOffChange }: ReportGuideProps) {
+  const [internalDismissed, setInternalDismissed] = useState(false);
+  const dismissed = guideOff ?? internalDismissed;
+  const setDismissed = onGuideOffChange ?? setInternalDismissed;
   const cur = guideStepIndex(annotation);
 
   if (dismissed) {
-    return (
-      <button type="button" className={styles.smBtn} data-guide-recall onClick={() => setDismissed(false)}>
-        重新显示分步引导
-      </button>
-    );
+    // 重开入口在外壳的 PART 03 标题栏（demo 第 775～777 行的 `guideBtn`），
+    // 不在这里画第二个；没受控（没传 onGuideOffChange）时纯粹是独立预览
+    // 场景的兜底，关掉之后确实没有任何重开入口，这不算 bug。
+    return null;
   }
 
   if (cur === 0) {

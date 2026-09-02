@@ -7,9 +7,11 @@ import {
   clampFloatingPosition,
   deckSummary,
   describePlanMove,
+  drawnBlockRect,
   fabDescriptor,
   guideStepIndex,
   insertMarkerPageNo,
+  isDrawnBlockTooSmall,
   marqueeHits,
   moduleCommentKey,
   moveToastText,
@@ -18,11 +20,13 @@ import {
   pageMarkKind,
   placeAnchoredPanel,
   placeFloatingToolbar,
+  pointToStagePercent,
   rangeLabelForPageNumbers,
   rectsIntersect,
   resolveMarqueeSelection,
   resolveRangeSelection,
   resolveShiftExtend,
+  sortBlocksByPosition,
   toggleOrReplaceSingle,
   unitCommentKey,
 } from "../components/report/studio/deck/deck-view.ts";
@@ -490,6 +494,44 @@ test("rangeLabelForPageNumbers formats a single page, a span, or an empty list",
   assert.equal(rangeLabelForPageNumbers([5]), "p05");
   assert.equal(rangeLabelForPageNumbers([9, 5, 7]), "p05–p09");
   assert.equal(rangeLabelForPageNumbers([]), "空");
+});
+
+/* ============================ page-image block drawing ============================ */
+// Restored box-draw feature ("＋ 框选") — the coordinator corrected an
+// earlier misreading of "页面坐标取消" (that meant don't *display* x/y/w/h
+// as numbers, not drop the draw interaction). These mirror the demo's
+// `wireDraw()` pointer math (docs/demos 第 1181-1198 行).
+
+test("pointToStagePercent converts a viewport point to a percentage of the stage rect", () => {
+  const stage = { left: 100, top: 50, width: 400, height: 200 };
+  assert.deepEqual(pointToStagePercent(100, 50, stage), { x: 0, y: 0 });
+  assert.deepEqual(pointToStagePercent(500, 250, stage), { x: 100, y: 100 });
+  assert.deepEqual(pointToStagePercent(300, 150, stage), { x: 50, y: 50 });
+});
+
+test("drawnBlockRect normalizes a drag in either direction and rounds to one decimal", () => {
+  assert.deepEqual(drawnBlockRect({ x: 10, y: 20 }, { x: 30, y: 25 }), { x: 10, y: 20, w: 20, h: 5 });
+  // Dragged up-and-left of the start point: x/y should still be the min corner.
+  assert.deepEqual(drawnBlockRect({ x: 30, y: 25 }, { x: 10, y: 20 }), { x: 10, y: 20, w: 20, h: 5 });
+  assert.deepEqual(drawnBlockRect({ x: 1.23, y: 1.26 }, { x: 4.56, y: 1.26 }), { x: 1.2, y: 1.3, w: 3.3, h: 0 });
+});
+
+test("isDrawnBlockTooSmall matches the demo's w<3||h<2 refusal threshold", () => {
+  assert.equal(isDrawnBlockTooSmall(2.9, 10), true, "too narrow");
+  assert.equal(isDrawnBlockTooSmall(10, 1.9), true, "too short");
+  assert.equal(isDrawnBlockTooSmall(3, 2), false, "right at the threshold is accepted");
+  assert.equal(isDrawnBlockTooSmall(10, 10), false);
+});
+
+test("sortBlocksByPosition orders top-to-bottom then left-to-right, matching the demo's post-draw sort", () => {
+  const blocks = [
+    { id: "c", x: 10, y: 50 },
+    { id: "a", x: 5, y: 10 },
+    { id: "b", x: 60, y: 10 },
+  ];
+  assert.deepEqual(sortBlocksByPosition(blocks).map((b) => b.id), ["a", "b", "c"]);
+  // Doesn't mutate the input.
+  assert.equal(blocks[0].id, "c");
 });
 
 /* ============================ header summary ============================ */

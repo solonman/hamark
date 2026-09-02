@@ -13,7 +13,7 @@ import {
   type CaseEngagement,
   type WeeklyGroup,
 } from "@/lib/case-engagement";
-import type { ReportListItem, ReportStatus } from "@/lib/report-model";
+import type { ReportListItem, ReportStatus, ReportVersionSummary } from "@/lib/report-model";
 
 /**
  * 报告库的收藏和视频库的收藏是两张独立的库表（见 lib/report-engagement-server.ts 的
@@ -66,6 +66,17 @@ export function reportStatusLabel(status: ReportStatus): string {
   }
 }
 
+/**
+ * 封面左上角格式角标的展示文案：demo 的 mock 数据里 PPT 一律显示成「PPT 97-2003」
+ * （honggutan/pujiang 两条 fmt:"PPT 97-2003"，字面就是普通连字符 "-" U+002D，
+ * 逐字节核对过，不是 en dash），PPTX／PDF 原样展示。真实上传只按扩展名/content-type
+ * 判出 PPT/PPTX/PDF 三选一（lib/report-model.ts 的 sourceFormatOf），不再细分具体的
+ * PPT 年份版本，角标统一补这个后缀。
+ */
+export function reportFormatBadgeLabel(sourceFormat: string): string {
+  return sourceFormat === "PPT" ? "PPT 97-2003" : sourceFormat;
+}
+
 /** 卡片主按钮上的文案：就绪是唯一能点进工作台的状态，其余都是说明当前卡在哪一步。 */
 export function reportEnterLabel(status: ReportStatus): string {
   switch (status) {
@@ -99,6 +110,25 @@ export function formatReportCardTime(iso: string): string {
   if (Number.isNaN(date.getTime())) return "";
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * 卡片信息带里的「版本摘要」文案：未就绪的报告谈不上版本，那一格改用状态说明卡在哪一步
+ * （demo 的 mock 数据：QUEUED→等待转换／PROCESSING→页图生成中／FAILED→转换失败）；只有
+ * READY 才回到版本数 + 最近更新人时间，没有版本记录时是「尚未开始拆解」。
+ */
+export function reportVersionSummaryLabel(
+  status: ReportStatus,
+  versionSummary: Pick<ReportVersionSummary, "count" | "latestOwnerName" | "latestUpdatedAt">,
+): string {
+  if (status === "QUEUED" || status === "UPLOADING") return "等待转换";
+  if (status === "PROCESSING") return "页图生成中";
+  if (status === "FAILED") return "转换失败";
+  if (versionSummary.count > 0) {
+    const time = versionSummary.latestUpdatedAt ? formatReportCardTime(versionSummary.latestUpdatedAt) : "";
+    return `${versionSummary.count} 个版本 · 最近 ${versionSummary.latestOwnerName ?? "未知"} ${time}`;
+  }
+  return "尚未开始拆解";
 }
 
 /** 收藏数据还没读到时的兜底：周次照样按上传时间现算，只是票数暂时是 0。 */

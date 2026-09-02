@@ -386,7 +386,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         onRequestUpload={(replacing) => setReportUploadRequest({ replacing: replacing ?? null })}
       />
     ) : <>
-      <section className={styles.libraryHero}><p>REPORT REVERSE-ENGINEERING LIBRARY</p><h1>把一份报告，<br />拆回它的判断。</h1></section>
+      <section className={styles.libraryHero}><p>REPORT REVERSE-ENGINEERING LIBRARY</p><h1>把一份提报，<br />拆回它的判断。</h1></section>
       <section className={styles.emptyState}>
         <span>◫</span>
         <h2>报告逆向工程建设中</h2>

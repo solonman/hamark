@@ -35,9 +35,11 @@
 .root :global(img) { -webkit-user-drag: none; user-drag: none; }
 .root *:focus-visible { outline: 2px solid var(--rd-acc); outline-offset: 2px; }
 
-/* ---------------- 顶部：块统计条 / 引导重开按钮 ---------------- */
-.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-.headStat { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rd-line); border-radius: 999px; padding: 5px 10px; font-size: 10px; color: var(--rd-ink2); white-space: nowrap; }
+/* ---------------- 小号按钮（脑图入口、引导重开按钮等外壳/组件共用） ---------------- */
+/* 统计条（"N 模块 · N 单元 · N 组块 ｜ 已填完 x/y 页"）与"引导"重开按钮都在
+   demo 的 PART 03 标题栏（modHead 的 extra 位，约 777 行），不在这个组件的
+   画布里——那两样都由外壳渲染，外壳直接 import `deckSummary`
+   （见 `./deck-view.ts`）自己拼文案，这里不重复画一份。 */
 .smBtn { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 11px; font-size: 10.5px; color: var(--rd-ink2); }
 .smBtn:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
 
@@ -61,6 +63,7 @@
 .pcTaken { opacity: 0.3; cursor: default; }
 .pcTaken:hover { border-color: transparent; background: none; }
 .pcLit { border-color: var(--rd-lit, var(--rd-acc)); background: color-mix(in srgb, var(--rd-lit, var(--rd-acc)) 14%, transparent); opacity: 1; }
+.pcLit .pcN { color: var(--rd-lit, var(--rd-acc)); }
 .pcFail { display: flex; align-items: center; justify-content: center; width: 100%; grid-column: 2; aspect-ratio: 4 / 3; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 9.5px; text-align: center; padding: 4px; }
 
 .marquee { position: fixed; border: 1px solid var(--rd-acc); background: rgba(223, 255, 79, 0.14); border-radius: 3px; pointer-events: none; z-index: 75; }
@@ -108,7 +111,24 @@
 .boxHead { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--rd-line2); cursor: pointer; flex-wrap: wrap; }
 .boxNo { flex: none; font-family: var(--rd-mono); font-size: 11px; color: var(--rd-k, var(--rd-subject)); font-weight: 800; }
 .boxNm { flex: 1; min-width: 60px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+/* 标题栏名称走 DeckEditableValue（demo 的 val()），但 .val 自己在别处定死了
+   12.5px 的正文字号——这里改回 header 该有的 13px/700，对齐 demo 里 `.nm`
+   继承不到 .val 自身字号、直接吃 header 样式的效果。 */
+.boxNm .val { font-size: 13px; font-weight: 700; }
 .boxRg { flex: none; font-family: var(--rd-mono); font-size: 10px; color: var(--rd-ink2); }
+/* 模块名称候选 chevron——demo 的 `.cbtn.inline`：跟 `.cbtn` 共用箭头图案，
+   但脱离绝对定位、直接排在名称右边。 */
+.boxNameChevron {
+  flex: none; width: 27px; height: 27px; border: 1px solid var(--rd-line); border-radius: 999px;
+  background-color: var(--rd-field); background-image: var(--rd-chev); background-repeat: no-repeat;
+  background-position: center; background-size: 10px 6px; opacity: 1;
+}
+.boxNameChevron:hover { border-color: var(--rd-acc-dim); background-color: rgba(223, 255, 79, 0.12); }
+/* 候选菜单——demo 的 `#cbmenu`。 */
+.cbMenu { position: fixed; z-index: 97; display: grid; gap: 2px; min-width: 130px; border: 1px solid var(--rd-line); border-radius: 10px; background: var(--rd-panel); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); padding: 5px; }
+.cbMenu button { text-align: left; padding: 6px 10px; border-radius: 7px; font-size: 11.5px; white-space: nowrap; color: var(--rd-ink); }
+.cbMenu button:hover { background: rgba(223, 255, 79, 0.1); color: var(--rd-acc); }
+.cbMenuOn { color: var(--rd-acc); font-weight: 700; }
 .boxAct { flex: none; border: 1px solid var(--rd-line); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-ink2); }
 .boxAct:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
 .boxActOn { border-color: var(--rd-acc-dim); color: var(--rd-acc); background: rgba(223, 255, 79, 0.1); }
@@ -129,6 +149,13 @@
 .dotHalf { background: transparent; border: 1px solid rgba(223, 255, 79, 0.55); color: rgba(223, 255, 79, 0.75); font-weight: 600; }
 .pcDot { left: auto; right: 4px; top: 4px; }
 .dropok { outline: 2px dashed var(--rd-acc); outline-offset: -3px; }
+/* 卡片右上角悬浮出的"标注"入口——demo 的 `.pc .open,.tk .open`：hover／
+   键盘 focus 才现身，选中态直接不露（选中已经是主要操作，两个入口叠一起
+   会乱）。CSS 驱动而不是内联 JS 切 opacity，才接得上 :focus-visible 和
+   .sel 这两条规则。 */
+.openHint { position: absolute; top: 4px; right: 4px; z-index: 3; opacity: 0; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(16, 17, 15, 0.92); color: var(--rd-acc); font-size: 9px; padding: 1px 7px; transition: opacity 0.12s; }
+.pc:hover .openHint, .tk:hover .openHint, .openHint:focus-visible { opacity: 1; }
+.pcSel .openHint, .tkSel .openHint { display: none; }
 .insbar { width: 3px; align-self: stretch; min-height: 52px; margin: 3px 1px; border-radius: 2px; background: var(--rd-acc); box-shadow: 0 0 10px rgba(223, 255, 79, 0.7); flex: none; }
 .trayfold { display: flex; align-items: center; gap: 8px; padding: 7px 12px; color: var(--rd-ink3); font-size: 10.5px; cursor: pointer; width: 100%; }
 .trayfold:hover { color: var(--rd-acc); }
@@ -160,7 +187,7 @@
 .popReadOnlyNote { grid-column: 1 / -1; margin: 0; color: var(--rd-ink3); font-size: 11px; }
 
 /* ---------------- 悬浮预览 ---------------- */
-.peek { position: fixed; z-index: 79; width: 320px; border: 1px solid var(--rd-line); border-radius: 12px; background: var(--rd-panel); box-shadow: 0 20px 54px rgba(0, 0, 0, 0.65); overflow: hidden; pointer-events: none; }
+.peek { position: fixed; z-index: 79; width: 440px; border: 1px solid var(--rd-line); border-radius: 12px; background: var(--rd-panel); box-shadow: 0 20px 54px rgba(0, 0, 0, 0.65); overflow: hidden; pointer-events: none; }
 .peek img { display: block; width: 100%; }
 .peekCap { display: flex; gap: 9px; align-items: baseline; padding: 7px 11px; font-size: 11px; color: var(--rd-ink2); border-top: 1px solid var(--rd-line2); }
 .peekCap b { font-family: var(--rd-mono); color: var(--rd-subject); }
@@ -194,10 +221,12 @@
 .ovheadT { color: var(--rd-ink2); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .ovmain { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr); min-height: 0; flex: 1; }
 .ovstage { display: flex; align-items: center; justify-content: center; padding: 16px; background: #080907; overflow: auto; }
-/* 页图在这个 modal 里纯预览，不接指针事件——页面坐标／框选组块区域这件事
-   本身被取消了（组块靠列表右上角"＋添加组块"增删，不靠在图上拖框）。 */
-.ovpage { position: relative; width: min(760px, 100%); user-select: none; }
+.ovpage { position: relative; width: min(760px, 100%); user-select: none; touch-action: none; }
 .ovpage img { display: block; width: 100%; height: auto; }
+.ovpageDraw { cursor: crosshair; }
+.ovb { position: absolute; border: 1.5px solid rgba(223, 255, 79, 0.8); background: rgba(223, 255, 79, 0.1); cursor: pointer; }
+.ovbOn { border-color: #fff; background: rgba(255, 255, 255, 0.16); box-shadow: 0 0 0 1px var(--rd-acc-dim); }
+.ovbNum { position: absolute; top: -2px; left: -2px; background: var(--rd-acc); color: #111; font-family: var(--rd-mono); font-size: 10px; padding: 0 5px; }
 .ovside { border-left: 1px solid var(--rd-line); overflow: auto; }
 .ovsec { padding: 12px 15px; border-bottom: 1px solid var(--rd-line2); }
 .ovsec h4 { color: var(--rd-subject); font-size: 9.5px; letter-spacing: 0.12em; margin: 0 0 9px; display: flex; align-items: center; gap: 8px; font-weight: 800; }
@@ -253,10 +282,10 @@
 .frozen .pagecol, .frozen .boxcol { opacity: 0.6; pointer-events: none; }
 .frozen .boxHead { cursor: default; }
 .frozen .boxAct[data-anno] { pointer-events: auto; opacity: 1; cursor: pointer; }
-/* 分隔条、顶部工具条、引导都不在 .pagecol/.boxcol 里面，得单独冻结，
-   否则浮层开着的时候还能拖动改列宽、点"查看脑图"、操作分步引导。 */
+/* 分隔条、引导都不在 .pagecol/.boxcol 里面，得单独冻结，否则浮层开着的时候
+   还能拖动改列宽、操作分步引导。 */
 .frozen .splitter { pointer-events: none; opacity: 0.4; }
-.frozen .toolbar, .frozen .guide { pointer-events: none; opacity: 0.5; }
+.frozen .guide { pointer-events: none; opacity: 0.5; }
 
 @media (max-width: 1100px) {
   .deck { grid-template-columns: 1fr; }

@@ -11,8 +11,10 @@ import {
   matchesReportQuery,
   reportEnterLabel,
   reportEngagementFallback,
+  reportFormatBadgeLabel,
   reportProcessingPercent,
   reportStatusLabel,
+  reportVersionSummaryLabel,
   reportWeeklyGroups,
 } from "../lib/report-library-view.ts";
 
@@ -143,6 +145,33 @@ test("frozen weekly order keeps the vote from moving cards under the cursor, and
   const reapplied = applyFrozenReportOrder(after, reFrozen);
   assert.deepEqual(reapplied.groups[0].items.map((item) => item.id), ["a", "b"]);
   assert.equal(reapplied.stale, false);
+});
+
+test("version summary label falls back to conversion status while a report isn't ready yet", () => {
+  // 见 demo 第 160-165 行的 mock 数据：QUEUED/PROCESSING/FAILED 三态的「版本」格子里
+  // 放的是转换状态说明，不是版本计数——就算 versionSummary.count 恰好是 0。
+  const empty = { count: 0, latestOwnerName: null, latestUpdatedAt: null };
+  assert.equal(reportVersionSummaryLabel("QUEUED", empty), "等待转换");
+  assert.equal(reportVersionSummaryLabel("UPLOADING", empty), "等待转换");
+  assert.equal(reportVersionSummaryLabel("PROCESSING", empty), "页图生成中");
+  assert.equal(reportVersionSummaryLabel("FAILED", empty), "转换失败");
+  assert.equal(reportVersionSummaryLabel("READY", empty), "尚未开始拆解");
+
+  const withVersions = { count: 2, latestOwnerName: "李工", latestUpdatedAt: "2026-09-01T06:20:00.000Z" };
+  const date = new Date(withVersions.latestUpdatedAt);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const time = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  assert.equal(reportVersionSummaryLabel("READY", withVersions), `2 个版本 · 最近 李工 ${time}`);
+  // 就绪状态下如果版本数是 0，用户名/时间都还没有意义，落回「尚未开始拆解」。
+  assert.equal(reportVersionSummaryLabel("READY", { count: 0, latestOwnerName: "老孙", latestUpdatedAt: null }), "尚未开始拆解");
+});
+
+test("format badge maps PPT to the demo's '97-2003' label and leaves PPTX/PDF alone", () => {
+  // demo mock 数据（honggutan/pujiang）fmt 字段写的是 "PPT 97-2003"，不是裸 "PPT"；
+  // 逐字节核对过，中间是普通连字符 "-"（U+002D），不是 en dash。
+  assert.equal(reportFormatBadgeLabel("PPT"), "PPT 97-2003");
+  assert.equal(reportFormatBadgeLabel("PPTX"), "PPTX");
+  assert.equal(reportFormatBadgeLabel("PDF"), "PDF");
 });
 
 test("card time formatting drops seconds and reports an empty string for unparseable input", () => {

@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatStars, pickTopCaseRating, type CaseEngagement } from "@/lib/case-engagement";
 import {
-  formatReportCardTime,
   REPORT_FAVORITE_BALLOT,
   reportEnterLabel,
+  reportFormatBadgeLabel,
   reportProcessingPercent,
   reportStatusLabel,
+  reportVersionSummaryLabel,
   type ReportListItemView,
 } from "@/lib/report-library-view";
 import v04 from "../../v04/V04Surface.module.css";
@@ -81,8 +82,11 @@ function ReportRating({ engagement }: { engagement: CaseEngagement }) {
   );
 }
 
+/** demo 里点击未就绪的东西弹的那句提示（demo 第 251 行 data-enter 的委托处理）。 */
+const NOT_READY_TOAST = "页图还没生成好，先等一下。";
+
 /** 封面：READY 是缩略图 + 页数角标；其余三态是占位图 + 状态条（进度／排队／失败原因）。 */
-function ReportCover({ report }: { report: ReportListItemView }) {
+function ReportCover({ report, notify }: { report: ReportListItemView; notify: (message: string) => void }) {
   const ready = report.status === "READY";
   const picture = report.coverUrl
     ? <img className={styles.coverImage} src={report.coverUrl} alt="" loading="lazy" />
@@ -119,7 +123,7 @@ function ReportCover({ report }: { report: ReportListItemView }) {
   const body = (
     <>
       {picture}
-      <span className={styles.coverFormat}>{report.sourceFormat}</span>
+      <span className={styles.coverFormat}>{reportFormatBadgeLabel(report.sourceFormat)}</span>
       {ready ? <span className={styles.coverPages}>{report.pageCount} 页</span> : null}
       {state}
     </>
@@ -132,10 +136,17 @@ function ReportCover({ report }: { report: ReportListItemView }) {
       </Link>
     );
   }
+  // demo 的封面在未就绪时仍是一个真链接（href="#"，data-enter），点了会弹 toast（demo 第 181、251
+  // 行）——这里用真正的 <button> 而不是一个静态 <div>，鼠标点击/键盘 Enter 都能触发同一句提示。
   return (
-    <div className={`${styles.cover} ${styles.busy}`} role="img" aria-label={`《${report.title}》${reportStatusLabel(report.status)}`}>
+    <button
+      type="button"
+      className={`${styles.cover} ${styles.busy}`}
+      aria-label={`《${report.title}》${reportStatusLabel(report.status)}，点击查看`}
+      onClick={() => notify(NOT_READY_TOAST)}
+    >
       {body}
-    </div>
+    </button>
   );
 }
 
@@ -150,6 +161,7 @@ export default function ReportCard({
   deletePending,
   onDelete,
   onReplaceWithPdf,
+  notify,
 }: {
   report: ReportListItemView;
   caseNumber: number;
@@ -161,15 +173,15 @@ export default function ReportCard({
   deletePending: boolean;
   onDelete: (reportId: string) => void;
   onReplaceWithPdf: (target: { reportId: string; title: string; taskType: string; tags: string[] }) => void;
+  /** 点击未就绪的封面/主按钮时弹的提示，状态由 ReportLibrary 的 useReportToast 统一管理。 */
+  notify: (message: string) => void;
 }) {
   const ready = report.status === "READY";
-  const versionText = report.versionSummary.count > 0
-    ? `${report.versionSummary.count} 个版本 · 最近 ${report.versionSummary.latestOwnerName ?? "未知"} ${formatReportCardTime(report.versionSummary.latestUpdatedAt ?? "")}`
-    : "尚未开始拆解";
+  const versionText = reportVersionSummaryLabel(report.status, report.versionSummary);
 
   return (
     <article className={v04.caseCard} data-report-id={report.id} data-report-status={report.status}>
-      <ReportCover report={report} />
+      <ReportCover report={report} notify={notify} />
       <div className={v04.caseBody}>
         <div className={v04.caseQuickActions}>
           {ready ? (
@@ -210,7 +222,16 @@ export default function ReportCard({
               </button>
             </span>
           ) : (
-            <span className={styles.enterPillDisabled} aria-disabled="true">{reportEnterLabel(report.status)}</span>
+            // demo：<a class="enter" aria-disabled="true"> + pointer-events:none，鼠标点不动，
+            // 键盘 Tab+Enter 还能触发（demo 第 118、189、251 行）；这里用真 <button> 复刻同样的手感。
+            <button
+              type="button"
+              className={styles.enterPillDisabled}
+              aria-disabled="true"
+              onClick={() => notify(NOT_READY_TOAST)}
+            >
+              {reportEnterLabel(report.status)}
+            </button>
           )}
           <div className={v04.caseCardMetrics}>
             <button
@@ -248,7 +269,6 @@ export default function ReportCard({
         <div className={v04.caseInfoBand}>
           <span className={`${v04.caseCategoryTag} ${styles.taskTypeTag}`.trim()}>{report.taskType || "未选任务类型"}</span>
           <span>上传者 {report.createdByName || "未知"}</span>
-          {report.pageCount > 0 ? <span>{report.pageCount} 页</span> : null}
           <span>{versionText}</span>
           {report.tags.map((tag) => <span className={v04.caseCategoryTag} key={tag}>#{tag}</span>)}
         </div>
