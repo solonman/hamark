@@ -28,11 +28,16 @@ import styles from "./V04Surface.module.css";
  */
 export type V19StudioReview = {
   canReview: boolean;
-  comments: ReadonlyMap<string, CaseReviewComment>;
+  /** 一个条目现在可能挂着好几个版本各写的一条评论，按写入时间升序。 */
+  comments: ReadonlyMap<string, CaseReviewComment[]>;
+  /** 当前正在看的版本 id（含最终版）；用来判定哪一条评论是「本版」。 */
+  currentVersionId: string | null;
   /** 版本尚未落库时无处可锚定，按钮仍在但说明原因。 */
   disabled: boolean;
   onSave: (input: { targetKey: string; targetLabel: string; body: string }) => Promise<void>;
 };
+
+const NO_COMMENTS: readonly CaseReviewComment[] = [];
 
 export type V19StudioDocumentProps = {
   draft: V04UiDraft;
@@ -319,7 +324,8 @@ export default function V19StudioDocument({
       <V19ReviewComment
         targetKey={targetKey}
         targetLabel={label}
-        comment={review.comments.get(targetKey)}
+        comments={review.comments.get(targetKey) ?? NO_COMMENTS}
+        currentVersionId={review.currentVersionId}
         canReview={review.canReview}
         disabled={review.disabled}
         onSave={review.onSave}

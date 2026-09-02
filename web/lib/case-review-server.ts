@@ -13,13 +13,19 @@ import {
 export type CaseReviewViewer = { userId: string; displayName: string };
 
 type VersionRow = QueryResultRow & { id: string; video_id: string };
+type VersionWithNumberRow = VersionRow & { version_number: number };
 type RatingRow = QueryResultRow & { stars: number };
-type CommentRow = QueryResultRow & {
+type SavedCommentRow = QueryResultRow & {
   target_key: string;
   target_label: string;
   body: string;
   author_name: string;
   updated_at: string;
+};
+type CommentRow = SavedCommentRow & {
+  version_id: string;
+  /** `LEFT JOIN analysis_versions` 联查所得；为 null 的评论写在最终版上。 */
+  version_number: number | null;
 };
 
 /**
@@ -36,6 +42,33 @@ async function requireVersionOfVideo(db: DbClient, videoId: string, versionId: s
   return row;
 }
 
+/**
+ * 评论现在可能锚定在最终版上，最终版的 id 不在 `analysis_versions` 里，
+ * 所以校验分两步：先当普通版本查，查不到再当最终版查。两处都查不到才拒绝——
+ * 这样一个能读 A 案例的人依旧不能拿 B 案例的版本号／最终版 id 往这里写评语。
+ *
+ * `analysis_final_versions` 由同一批改动新增（见 `docs/20_..._V0.1.md` 二），
+ * 本机若还没跑过那张表的 migration，这条 SELECT 落空是正常的失败，不是 bug。
+ */
+async function requireCommentVersionOfVideo(
+  db: DbClient,
+  videoId: string,
+  versionId: string,
+): Promise<{ id: string; label: string }> {
+  const trimmed = versionId.trim();
+  const version = await db.prepare(
+    "SELECT id, video_id, version_number FROM analysis_versions WHERE id = ?",
+  ).bind(trimmed).first<VersionWithNumberRow>();
+  if (version && version.video_id === videoId) {
+    return { id: version.id, label: `v${version.version_number}` };
+  }
+  const final = await db.prepare(
+    "SELECT id FROM analysis_final_versions WHERE id = ? AND video_id = ?",
+  ).bind(trimmed, videoId).first<VersionRow>();
+  if (final) return { id: final.id, label: "最终版" };
+  throw new Error("指定的版本不存在。");
+}
+
 function requireReviewer(viewer: CaseReviewViewer) {
   if (!isCaseReviewer(viewer.displayName)) {
     throw new Error("只有评审可以评分和评论。");
@@ -48,33 +81,47 @@ export async function loadCaseReview(
 ): Promise<CaseReviewModel> {
   const canReview = isCaseReviewer(input.viewer.displayName);
   const versionId = input.versionId?.trim() || "";
-  if (!versionId) return { canReview, versionId: null, stars: null, comments: [] };
-  const version = await db.prepare(
-    "SELECT id, video_id FROM analysis_versions WHERE id = ?",
-  ).bind(versionId).first<VersionRow>();
-  // 版本还没落库（新版本尚未保存过）时不是错误，只是还没有可评的东西。
-  if (!version || version.video_id !== input.videoId) {
-    return { canReview, versionId: null, stars: null, comments: [] };
+
+  // 星级仍只锚定 `?version=` 指定的那一版；只有普通版本能评分——
+  // 找不到（含最终版，其 id 不在 `analysis_versions` 里）就是不能评分。
+  let ratableVersionId: string | null = null;
+  if (versionId) {
+    const version = await db.prepare(
+      "SELECT id, video_id FROM analysis_versions WHERE id = ?",
+    ).bind(versionId).first<VersionRow>();
+    if (version && version.video_id === input.videoId) ratableVersionId = versionId;
   }
+  const canRate = ratableVersionId != null;
+
+  // 评论不再按单一版本取：不管正看着哪一版，都汇总显示这个案例所有版本上的评论。
   const [rating, comments] = await Promise.all([
-    db.prepare("SELECT stars FROM analysis_version_ratings WHERE version_id = ?")
-      .bind(versionId).first<RatingRow>(),
+    ratableVersionId
+      ? db.prepare("SELECT stars FROM analysis_version_ratings WHERE version_id = ?")
+        .bind(ratableVersionId).first<RatingRow>()
+      : Promise.resolve(null),
     db.prepare(
-      `SELECT target_key, target_label, body, author_name, updated_at
-      FROM analysis_version_comments WHERE version_id = ?
-      ORDER BY updated_at ASC`,
-    ).bind(versionId).all<CommentRow>(),
+      `SELECT c.target_key, c.target_label, c.body, c.author_name, c.updated_at,
+        c.version_id, av.version_number
+      FROM analysis_version_comments c
+      LEFT JOIN analysis_versions av ON av.id = c.version_id
+      WHERE c.video_id = ?
+      ORDER BY c.updated_at ASC`,
+    ).bind(input.videoId).all<CommentRow>(),
   ]);
   return {
     canReview,
-    versionId,
+    versionId: versionId || null,
     stars: rating ? Number(rating.stars) : null,
+    canRate,
     comments: comments.results.map((row) => ({
       targetKey: row.target_key,
       targetLabel: row.target_label,
       body: row.body,
       authorName: row.author_name,
       updatedAt: String(row.updated_at),
+      versionId: row.version_id,
+      // `analysis_versions` 里找不到（联查落空）的评论写在最终版上。
+      versionLabel: row.version_number != null ? `v${row.version_number}` : "最终版",
     } satisfies CaseReviewComment)),
   };
 }
@@ -120,7 +167,8 @@ export async function saveCaseReviewComment(
   const targetKey = input.targetKey.trim();
   if (!targetKey) throw new Error("评论缺少对应条目。");
   const body = normalizeReviewComment(input.body);
-  const version = await requireVersionOfVideo(db, input.videoId, input.versionId);
+  // 普通版本或最终版都行——写下去锚定的是当前正在看的那一版。
+  const version = await requireCommentVersionOfVideo(db, input.videoId, input.versionId);
   if (!body) {
     await db.prepare(
       "DELETE FROM analysis_version_comments WHERE version_id = ? AND target_key = ?",
@@ -142,7 +190,7 @@ export async function saveCaseReviewComment(
   ).bind(
     version.id, targetKey, input.videoId, targetLabel, body,
     input.viewer.userId, input.viewer.displayName,
-  ).first<CommentRow>();
+  ).first<SavedCommentRow>();
   return {
     comment: saved ? {
       targetKey: saved.target_key,
@@ -150,6 +198,8 @@ export async function saveCaseReviewComment(
       body: saved.body,
       authorName: saved.author_name,
       updatedAt: String(saved.updated_at),
+      versionId: version.id,
+      versionLabel: version.label,
     } : null,
   };
 }

@@ -839,12 +839,14 @@ export default function V04StudioClient({
     const data = await postReview<{ comment: CaseReviewComment | null }>(
       { kind: "COMMENT", versionId, ...input }, "评论保存",
     );
-    setReview((current) => ({
-      ...current,
-      comments: data.comment
-        ? [...current.comments.filter((item) => item.targetKey !== input.targetKey), data.comment]
-        : current.comments.filter((item) => item.targetKey !== input.targetKey),
-    }));
+    // 一个条目现在可能挂着好几个版本各写的一条评论，所以按 (versionId, targetKey)
+    // 替换，不能再只按 targetKey——那会把别的版本写的那条也顶掉。
+    setReview((current) => {
+      const others = current.comments.filter(
+        (item) => !(item.targetKey === input.targetKey && item.versionId === versionId),
+      );
+      return { ...current, comments: data.comment ? [...others, data.comment] : others };
+    });
   }, [postReview]);
 
   const saveReviewRating = useCallback(async (stars: number) => {
@@ -855,6 +857,9 @@ export default function V04StudioClient({
   }, [postReview]);
 
   const reviewComments = useMemo(() => commentsByTarget(review.comments), [review.comments]);
+  // `isFinal` 由最终版改动新增在 `V19CurrentVersion` 上；这里可选链读取,
+  // 不强依赖它的类型定义已经落地。最终版页面不渲染评分组件（规格一之 A 第 5 条）。
+  const isFinalVersionView = Boolean((model?.current as { isFinal?: boolean } | undefined)?.isFinal);
 
   const versionRows = useMemo(() => (model ? buildV19VersionTree(model.versions) : []), [model]);
   const createBaseOptions = useMemo(
@@ -1131,18 +1136,22 @@ export default function V04StudioClient({
             review={{
               canReview: review.canReview,
               comments: reviewComments,
+              currentVersionId: model.current.id,
               disabled: !model.current.id,
               onSave: saveReviewComment,
             }}
           />
-          {/* 打分放在正文末尾：读完整份作业才谈得上给分。 */}
-          <V19AssignmentRating
-            stars={review.stars}
-            canReview={review.canReview}
-            versionLabel={`v${model.current.number} · ${model.current.ownerName}`}
-            disabled={!model.current.id}
-            onRate={saveReviewRating}
-          />
+          {/* 打分放在正文末尾：读完整份作业才谈得上给分。最终版不评分——
+              星级只锚定个人版本，`review.canRate` 与最终版视角都会关掉它。 */}
+          {!isFinalVersionView && review.canRate && (
+            <V19AssignmentRating
+              stars={review.stars}
+              canReview={review.canReview}
+              versionLabel={`v${model.current.number} · ${model.current.ownerName}`}
+              disabled={!model.current.id}
+              onRate={saveReviewRating}
+            />
+          )}
         </div>
       </div>
 
