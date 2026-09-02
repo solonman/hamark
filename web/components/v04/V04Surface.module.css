@@ -792,7 +792,7 @@ input.editableTimecode { padding: 5px 8px; }
 }
 .commentActions button:first-child { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .commentActions button:disabled { cursor: not-allowed; color: var(--v04-muted); border-color: var(--v04-line); opacity: .6; }
-.commentSubmit { margin-left: auto; border-color: rgba(223, 255, 79, .5) !important; color: var(--v04-accent) !important; }
+.commentSubmit { border-color: rgba(223, 255, 79, .5) !important; color: var(--v04-accent) !important; }
 .commentSubmit:disabled { color: var(--v04-muted) !important; border-color: var(--v04-line) !important; }
 .commentDelete { margin-left: auto; color: #ff9a9a !important; border-color: rgba(255, 122, 122, .4) !important; }
 
@@ -823,7 +823,8 @@ input.editableTimecode { padding: 5px 8px; }
 }
 .commentVersionTag[data-here="true"] { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
 .commentWrite { padding-top: 8px; border-top: 1px solid var(--v04-line); display: flex; flex-direction: column; gap: 6px; }
-.commentWriteHint { color: var(--v04-muted); font-size: 10px; }
+/* flex:1 把删除／取消／发布挤到右边一簇，跟 hint 文案分开两端对齐。 */
+.commentWriteHint { flex: 1; color: var(--v04-muted); font-size: 10px; }
 
 /* 评分在正文最后、靠右：读完才谈得上打分，所以它是收束，不是抬头。 */
 .assignmentRating {

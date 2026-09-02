@@ -32,3 +32,17 @@ export function formatLongDate(value: string) {
     minute: "2-digit",
   }).format(date);
 }
+
+/**
+ * `MM-DD HH:mm`，本地时区。给评论列表这类挤在一行里的时间戳用——
+ * 比 `formatShortDate` 多带分钟，又不用 `formatLongDate` 那么长。
+ * 写法仿照 `V04StudioClient.tsx` 的 `formatV19Date` / `formatV19Clock`：
+ * 手动 pad，不经 `Intl.DateTimeFormat`。
+ */
+export function formatShortDateTime(value: string) {
+  const date = parseDatabaseDate(value);
+  if (!date) return "未知时间";
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

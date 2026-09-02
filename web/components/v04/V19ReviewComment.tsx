@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CASE_REVIEW_COMMENT_MAX_LENGTH, type CaseReviewComment } from "@/lib/case-review";
+import { formatShortDateTime } from "@/lib/date-format";
 import styles from "./V04Surface.module.css";
 
 /**
@@ -101,6 +102,13 @@ export default function V19ReviewComment({
     }
   };
 
+  // 取消：关掉面板、丢弃还没提交的文字——不回写，下次打开自然会用 mine 的正文重新填。
+  const cancelWrite = () => {
+    setError("");
+    setText(mine?.body ?? "");
+    close();
+  };
+
   const openReading = () => {
     // 本版没写过时气泡里带一份空白输入区；本版写过就带上它的正文,
     // 免得上一次没提交的草稿糊在这次打开的框里。
@@ -167,7 +175,7 @@ export default function V19ReviewComment({
                       {item.versionLabel}{here ? "·本版" : ""}
                     </span>
                     <b>{item.authorName}</b>
-                    <span className={styles.commentItemTime}>{item.updatedAt}</span>
+                    <span className={styles.commentItemTime}>{formatShortDateTime(item.updatedAt)}</span>
                     {isMine ? (
                       <button type="button" onClick={startEditing}>编辑</button>
                     ) : (
@@ -201,6 +209,10 @@ export default function V19ReviewComment({
                 {error ? <em role="alert">{error}</em> : null}
                 <span className={styles.commentActions}>
                   <span className={styles.commentWriteHint}>{mine ? "修改本版评论；清空即删除" : "锚定本版，一个条目一条"}</span>
+                  {mine ? (
+                    <button type="button" className={styles.commentDelete} disabled={busy} onClick={() => void submit("")}>删除</button>
+                  ) : null}
+                  <button type="button" disabled={busy} onClick={cancelWrite}>取消</button>
                   <button type="button" className={styles.commentSubmit} disabled={busy || (!text.trim() && !mine)} onClick={() => void submit(text)}>
                     {busy ? "保存中…" : (mine ? "保存" : "发布")}
                   </button>

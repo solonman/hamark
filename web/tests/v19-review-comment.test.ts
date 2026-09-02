@@ -113,3 +113,43 @@ test("source: the marker's count is every version's comments, and it gets a soli
   );
   assert.match(css, /\.commentMarker\[data-here="true"\][^}]*border-color: var\(--v04-accent\)/);
 });
+
+// 返工三点：docs/20_..._V0.1.md 五之 20——时间不再是原始 ISO 字符串、写入区有
+// 「取消」、本版已有评论时保留老版本那个显式的「删除」按钮。
+test("source: item timestamps go through formatShortDateTime, never the raw updatedAt ISO string", async () => {
+  const source = await (await import("node:fs/promises")).readFile(
+    new URL("../components/v04/V19ReviewComment.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /import \{ formatShortDateTime \} from "@\/lib\/date-format";/);
+  assert.match(source, /<span className=\{styles\.commentItemTime\}>\{formatShortDateTime\(item\.updatedAt\)\}<\/span>/);
+  // 不能改在组件里手搓一份格式化逻辑——必须复用 lib/date-format.ts 里已有的实现。
+  assert.doesNotMatch(source, /getFullYear\(\)|getMonth\(\)|padStart/, "must not hand-roll date formatting in the component");
+});
+
+test("source: the write panel has a 取消 button that discards the draft, left of 发布/保存", async () => {
+  const source = await (await import("node:fs/promises")).readFile(
+    new URL("../components/v04/V19ReviewComment.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /const cancelWrite = \(\) => \{[\s\S]*close\(\);\s*\};/);
+  assert.match(
+    source,
+    /<button type="button" disabled=\{busy\} onClick=\{cancelWrite\}>取消<\/button>\s*<button type="button" className=\{styles\.commentSubmit\}/,
+    "取消 must sit immediately to the left of 发布/保存",
+  );
+});
+
+test("source: an existing current-version comment keeps an explicit 删除 button next to clear-to-delete", async () => {
+  const source = await (await import("node:fs/promises")).readFile(
+    new URL("../components/v04/V19ReviewComment.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /\{mine \? \(\s*<button type="button" className=\{styles\.commentDelete\} disabled=\{busy\} onClick=\{\(\) => void submit\(""\)\}>删除<\/button>\s*\) : null\}/);
+  const css = await (await import("node:fs/promises")).readFile(
+    new URL("../components/v04/V04Surface.module.css", import.meta.url),
+    "utf8",
+  );
+  // commentDelete 样式还在，没被这次改动删掉。
+  assert.match(css, /\.commentDelete \{/);
+});
