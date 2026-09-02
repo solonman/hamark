@@ -81,6 +81,19 @@ test("deriveV19FinalFieldTrace prepends the origin row when the target exists in
   assert.equal(rows[0].status, "overridden");
 });
 
+test("deriveV19FinalFieldTrace's origin row carries v1's ownerName when given, not a blank actorName", () => {
+  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent: "原稿意图" } };
+  const { rows } = deriveV19FinalFieldTrace(origin, [], "facts.commercialIntent", "王大明");
+  assert.equal(rows[0].isOrigin, true);
+  assert.equal(rows[0].actorName, "王大明");
+});
+
+test("deriveV19FinalFieldTrace's origin row falls back to an empty actorName when originOwnerName is omitted", () => {
+  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent: "原稿意图" } };
+  const { rows } = deriveV19FinalFieldTrace(origin, [], "facts.commercialIntent");
+  assert.equal(rows[0].actorName, "");
+});
+
 test("deriveV19FinalFieldTrace omits the origin row when the target does not exist in originPayload (e.g. an inserted shot's field)", () => {
   const origin = payloadWithGroups([group("b1", [shot("s1")])]);
   const intakes = [intake({

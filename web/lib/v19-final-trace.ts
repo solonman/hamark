@@ -84,6 +84,8 @@ export function deriveV19FinalFieldTrace(
   originPayload: V04DraftPayloadV1,
   intakes: readonly V19FinalIntake[],
   targetKey: string,
+  /** v1's `ownerName` (the case's uploader) — 本机走查修饰: the 谁 column for the origin row, so it doesn't just repeat the 原稿 status tag next to it. */
+  originOwnerName = "",
 ): V19FinalFieldTrace {
   const rows: V19FinalTraceRow[] = [];
   const origin = locateV19FinalTarget(originPayload, targetKey);
@@ -95,7 +97,7 @@ export function deriveV19FinalFieldTrace(
       value: origin.object[origin.key],
       source: "ORIGIN",
       sourceVersionNumber: null,
-      actorName: "",
+      actorName: originOwnerName,
       createdAt: "",
       applied: true,
       status: "overridden",

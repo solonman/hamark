@@ -57,11 +57,20 @@ export type V19StudioFinalContext = {
   locked: boolean;
   /** 默认（false）只显示 hover 来源；溯源（true）在每个字段下方展开完整来源链。 */
   traceMode: boolean;
-  originPayload: V04DraftPayloadV1;
+  /**
+   * null when the GET response carried no `finalTrace` (should not normally
+   * happen once the route always requests it for a final `current` — 本机
+   * 走查 bug fix — but `locked` must not depend on this being present, so
+   * every lookup here degrades to "no trace data" rather than skipping the
+   * whole `final` context).
+   */
+  originPayload: V04DraftPayloadV1 | null;
   intakes: readonly V19FinalIntake[];
   /** true only for 老孙 — gates the "采纳这一版" button on pending trace rows. */
   canAdopt: boolean;
   onAdopt: (intakeId: string) => void;
+  /** v1（原稿）的 ownerName — 溯源列表原稿行的「谁写的」，见 V19FinalTraceRows。 */
+  originOwnerName: string;
 };
 
 export type V19StudioDocumentProps = {
@@ -251,7 +260,9 @@ function V19FinalTraceRows({
     <div className={styles.finalTrace}>
       {rows.map((row) => {
         const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "最终版" : `v${row.sourceVersionNumber ?? "?"}`;
-        const who = row.isOrigin ? "原稿" : row.source === "FINAL_DIRECT" ? `${row.actorName}·直接修改` : row.actorName;
+        // 原稿行的「谁写的」用 v1 的 ownerName（本机走查修饰：原来写死「原稿」，
+        // 跟同一行的状态标签重复）；没传时（理论上不该发生）退化回旧文案。
+        const who = row.isOrigin ? (row.actorName || "原稿") : row.source === "FINAL_DIRECT" ? `${row.actorName}·直接修改` : row.actorName;
         const statusLabel = row.status === "current" ? "当前采用" : row.status === "pending" ? "未纳入" : row.isOrigin ? "原稿" : "已被覆盖";
         return (
           <div
@@ -425,9 +436,15 @@ export default function V19StudioDocument({
    * 都要传，让字段始终看得出「这里能点，但点了会被拦下」。
    */
   function finalFieldExtras(targetKey: string): { locked?: boolean; sourceHint?: string; after?: ReactNode } {
+    // `locked` must apply purely from being on the final version as a
+    // non-老孙 viewer — it must never depend on `finalTrace` having loaded
+    // (本机走查 bug fix: that response field is optional server-side, and a
+    // missing/slow one must still lock the field, just without a source
+    // chain or hover hint to show).
     if (!final) return {};
+    if (!final.originPayload) return { locked: final.locked };
     if (final.traceMode) {
-      const trace = deriveV19FinalFieldTrace(final.originPayload, final.intakes, targetKey);
+      const trace = deriveV19FinalFieldTrace(final.originPayload, final.intakes, targetKey, final.originOwnerName);
       if (!trace.rows.length) return { locked: final.locked };
       return {
         locked: final.locked,

@@ -71,3 +71,21 @@ test("V1.9 PUT dispatches to saveFinalVersionDirect only when basedOnVersionId i
   assert.match(putBody, /basedOnVersionId === "final"/);
   assert.match(putBody, /saveV19VersionChanges/);
 });
+
+// ---------------------------------------------------------------------------
+// 本机走查 bug fix: `loadV19VersionChain` defaults `current` to the final
+// version whenever no specific real version was requested (versionId is
+// undefined) — not only for the explicit `?version=final` — per spec 二、11
+// ("进入页面默认展示最终版"). `includeFinalTrace` must follow that same
+// condition, or a colleague opening `/videos/<id>` with no `?version` gets
+// `current.isFinal === true` but no `finalTrace`: no locked styling, no
+// 最终版只有老孙可以编辑 toast, no source chain in 溯源视图.
+// ---------------------------------------------------------------------------
+
+test("V1.9 GET requests finalTrace whenever versionId is undefined, not only for the literal \"final\"", async () => {
+  const route = codeOnly(await source("../app/api/videos/[id]/analysis/v19/route.ts"));
+  const getBody = route.slice(route.indexOf("export async function GET"), route.indexOf("export async function PUT"));
+  assert.match(getBody, /includeFinalTrace: versionId === undefined \|\| versionId === "final"/);
+  // The narrower, buggy condition must not reappear anywhere in GET.
+  assert.doesNotMatch(getBody, /includeFinalTrace: versionId === "final",?\s*\n\s*\}\),/);
+});

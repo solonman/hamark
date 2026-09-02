@@ -192,6 +192,16 @@ function formatV19Clock(iso: string): string {
   return date.toTimeString().slice(0, 8);
 }
 
+/**
+ * 本机走查修饰: every place that used to build a short version label as
+ * `v${number}` must say "最终版" instead when `current` is the final version
+ * — its `number` is a fixed `0` placeholder (spec 四、4.1), never a real
+ * version number to display. Exported so it's directly unit-testable.
+ */
+export function formatV19CurrentVersionShortLabel(current: { isFinal: boolean; number: number }): string {
+  return current.isFinal ? "最终版" : `v${current.number}`;
+}
+
 function emptyV19ChoiceValue(): V04ChoiceValue {
   return { selectedOptionIds: [], customText: "", vocabularyVersion: V04_VOCABULARY_VERSION };
 }
@@ -324,6 +334,14 @@ export default function V04StudioClient({
 
   useEffect(() => {
     try {
+      // A lazy `useState(() => ...)` initializer would run during SSR too,
+      // where `window` doesn't exist, and would also diverge from the
+      // server-rendered markup on a client whose localStorage says "1" —
+      // a hydration mismatch. Reading it only after mount is the correct
+      // SSR-safe shape for this "restore a browser-only preference" case;
+      // `react-hooks/set-state-in-effect` doesn't have a better answer for
+      // that case, so it's suppressed here rather than worked around.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (window.localStorage.getItem(V19_FINAL_TRACE_MODE_KEY) === "1") setFinalTraceModeState(true);
     } catch {
       // localStorage 不可用（隐私模式等）：分段开关照旧只存在组件状态里。
@@ -399,6 +417,31 @@ export default function V04StudioClient({
       setModelState(merged);
     } catch {
       // Version list simply stays as-is until the next successful load.
+    }
+  }, [videoId]);
+
+  // Best-effort background refresh after 老孙 saves directly onto the final
+  // version (本机走查 bug fix): the save response itself carries the new
+  // payload but not an updated `finalTrace` — without this, the field he
+  // just edited still shows only its `v1 原稿` row as 当前采用 in 溯源视图,
+  // and its default-view hover source never picks up the 最终版·直接修改
+  // entry. Re-fetches `?version=final` and merges only `final` /
+  // `finalTrace` — never `current` or the local draft, so it cannot clobber
+  // whatever the person is mid-typing (same discipline as `refreshVersionList`).
+  const refreshFinalTrace = useCallback(async () => {
+    try {
+      const fresh = await v19Api.load(videoId, "final");
+      const latest = modelRef.current;
+      if (!latest) return;
+      const merged: V19StudioModel = {
+        ...latest,
+        final: fresh.final,
+        ...(fresh.finalTrace ? { finalTrace: fresh.finalTrace } : {}),
+      };
+      modelRef.current = merged;
+      setModelState(merged);
+    } catch {
+      // Trace simply stays as-is until the next successful load/switch.
     }
   }, [videoId]);
 
@@ -503,6 +546,12 @@ export default function V04StudioClient({
           finalIntakeSignatureRef.current = finalIntakeToast.signature;
           pushToast(finalIntakeToast.text);
         }
+      } else {
+        // 本机走查 bug fix: refresh finalTrace so the field 老孙 just edited
+        // shows its new 最终版·直接修改 row as 当前采用 (溯源视图) and the
+        // right hover source (默认视图), instead of staying stuck on
+        // whatever was loaded when the page opened.
+        void refreshFinalTrace();
       }
       if (response.skippedTargets && response.skippedTargets.length > 0) {
         pushToast(`${response.skippedTargets.length} 项修改所在的镜头或桥段已不存在，其余修改已保存`);
@@ -517,7 +566,7 @@ export default function V04StudioClient({
       setSaveStatus({ kind: "ERROR", message });
       return false;
     }
-  }, [videoId, viewerName, viewerUserId, refreshVersionList, pushToast]);
+  }, [videoId, viewerName, viewerUserId, refreshVersionList, refreshFinalTrace, pushToast]);
 
   // Undo/redo. On a surface with no save button there is also no "discard
   // changes", so stepping back has to be its own affordance. An undo is just
@@ -821,7 +870,11 @@ export default function V04StudioClient({
         pushToast(`已采纳 ${response.adopted ?? 0} 处未纳入的修改`);
       }
     } catch (reason) {
-      pushToast(reason instanceof V04UiApiError ? reason.message : "操作失败，请重试。");
+      // 本机走查 bug fix: 定稿／取消定稿／采纳失败时（例如后端 404）之前
+      // 什么反馈都没有——状态胶囊纹丝不动，人不知道点了有没有用。始终报一次
+      // 服务端的错误文案，拿不到就用这条最终版专属的兜底，跟其他操作共用的
+      // 「操作失败，请重试」区分开，一眼看出是定稿/采纳这条链路出的问题。
+      pushToast(reason instanceof V04UiApiError ? reason.message : "最终版操作失败，请重试。");
     } finally {
       setFinalActionBusy(false);
     }
@@ -1068,18 +1121,32 @@ export default function V04StudioClient({
   // 锁定态就是「最终版视角下的只读」，据此区分「压根不是可编辑区」的普通只读。
   const finalLocked = isFinalVersionView && readOnly;
   const canAdoptFinal = isFinalVersionView && !readOnly;
-  const finalContext: V19StudioFinalContext | undefined = isFinalVersionView && model.finalTrace
+  // `finalContext` (and so `locked`) must not depend on `model.finalTrace`
+  // having loaded — it's an optional field on the GET response, and gating
+  // the whole context on it left a colleague opening the case with no
+  // `?version` (current defaults to the final version, spec 二、11) with no
+  // locked styling, no toast, and no source chain (本机走查 bug). Trace data
+  // degrades gracefully to null/empty inside `finalFieldExtras` instead.
+  const finalContext: V19StudioFinalContext | undefined = isFinalVersionView
     ? {
       locked: finalLocked,
       traceMode: finalTraceMode,
-      originPayload: model.finalTrace.originPayload,
-      intakes: model.finalTrace.intakes,
+      originPayload: model.finalTrace?.originPayload ?? null,
+      intakes: model.finalTrace?.intakes ?? [],
       canAdopt: canAdoptFinal,
       onAdopt: adoptFinalIntake,
+      originOwnerName: model.versions.find((version) => version.number === 1)?.ownerName ?? "",
     }
     : undefined;
-  const pendingStructuralIntakes = finalContext && finalTraceMode
-    ? pendingV19StructuralIntakes(finalContext.intakes)
+  // Reads `model.finalTrace` directly rather than `finalContext.intakes`:
+  // `finalContext` carries `onAdopt` (a `useCallback` closing over `modelRef`,
+  // a real ref), and `eslint-plugin-react-hooks`'s `react-hooks/refs` rule
+  // conservatively treats a later property read off that same object as a
+  // render-time ref read (本机走查 bug fix — this file used to fail lint).
+  // Passing `finalContext` itself as a prop below is fine; only synchronously
+  // reading a property off it in this render body tripped the rule.
+  const pendingStructuralIntakes = isFinalVersionView && finalTraceMode
+    ? pendingV19StructuralIntakes(model.finalTrace?.intakes ?? [])
     : [];
 
   return (
@@ -1309,7 +1376,7 @@ export default function V04StudioClient({
             <span className={styles.saveDot} />
             <span>
               {saveStatus.kind === "SAVING" && "保存中…"}
-              {saveStatus.kind === "SAVED" && `已自动保存至 v${model.current.number} · ${formatV19Clock(saveStatus.at)}`}
+              {saveStatus.kind === "SAVED" && `已自动保存至 ${formatV19CurrentVersionShortLabel(model.current)} · ${formatV19Clock(saveStatus.at)}`}
               {saveStatus.kind === "ERROR" && saveStatus.message}
               {saveStatus.kind === "IDLE" && "已自动保存"}
             </span>
@@ -1449,7 +1516,7 @@ export default function V04StudioClient({
             <V19AssignmentRating
               stars={review.stars}
               canReview={review.canReview}
-              versionLabel={`v${model.current.number} · ${model.current.ownerName}`}
+              versionLabel={`${formatV19CurrentVersionShortLabel(model.current)} · ${model.current.ownerName}`}
               disabled={!model.current.id}
               onRate={saveReviewRating}
             />

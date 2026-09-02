@@ -23,7 +23,10 @@ registerHooks({
 
 const componentModule = await import("../components/v04/V04StudioClient.tsx");
 const V04StudioClient = componentModule.default;
-const { resolveV19EditGuard, countV19CascadedShots, buildV19VersionTree, describeV19FinalIntakeToast } = componentModule;
+const {
+  resolveV19EditGuard, countV19CascadedShots, buildV19VersionTree, describeV19FinalIntakeToast,
+  formatV19CurrentVersionShortLabel,
+} = componentModule;
 
 const { formatV19VersionLabel } = await import("../lib/v19-ui-model.ts");
 
@@ -66,6 +69,30 @@ test("source: 定稿／取消定稿 only renders for the final version view", ()
   assert.match(source, /取消定稿/);
 });
 
+// ---------------------------------------------------------------------------
+// 本机走查 bug fix: `finalContext` (and so `locked`) must not be gated on
+// `model.finalTrace` existing — that field is optional on the GET response,
+// and a colleague opening the case with no `?version` used to land on the
+// final version (spec 二、11) with `finalTrace` present-or-not depending on
+// a route bug now fixed server-side, but the client must be robust to it
+// independently: locked styling is purely "final version, viewer can't edit
+// it", trace-derived extras (hover source, 溯源 chain) degrade gracefully
+// when absent instead of the whole `final` context disappearing.
+// ---------------------------------------------------------------------------
+
+test("source: finalContext is gated only on isFinalVersionView, never on model.finalTrace being present", () => {
+  const contextMatch = source.match(
+    /const finalContext: V19StudioFinalContext \| undefined = isFinalVersionView\s*\? \{/,
+  );
+  assert.ok(contextMatch, "expected finalContext to be built whenever isFinalVersionView is true, with no additional && model.finalTrace gate");
+  assert.doesNotMatch(source, /isFinalVersionView && model\.finalTrace/, "locked must not depend on finalTrace having loaded");
+});
+
+test("source: finalContext's trace fields degrade to null/empty instead of requiring model.finalTrace", () => {
+  assert.match(source, /originPayload: model\.finalTrace\?\.originPayload \?\? null/);
+  assert.match(source, /intakes: model\.finalTrace\?\.intakes \?\? \[\]/);
+});
+
 test("source: interceptForeignEdit toasts the exact spec 五、16 message for a blocked final-version edit, and never redirects it", () => {
   const guardMatch = source.match(
     /const interceptForeignEdit = useCallback\(\(\): boolean => \{([\s\S]*?)\n {2}\}, \[switchToVersion, pushToast\]\);/,
@@ -83,6 +110,69 @@ test("source: a normal version save's finalIntake toast is dedupe-gated through 
 });
 
 // ---------------------------------------------------------------------------
+// 走查 3: every short version label built as `v${number}` must say "最终版"
+// instead when `current` is the final version — its `number` is a fixed `0`
+// placeholder (spec 四、4.1), never a real version number to show.
+// ---------------------------------------------------------------------------
+
+test("formatV19CurrentVersionShortLabel says 最终版 for the final version, not v0", () => {
+  assert.equal(formatV19CurrentVersionShortLabel({ isFinal: true, number: 0 }), "最终版");
+});
+
+test("formatV19CurrentVersionShortLabel renders vN for an ordinary version", () => {
+  assert.equal(formatV19CurrentVersionShortLabel({ isFinal: false, number: 3 }), "v3");
+});
+
+test("source: the save-status chip and the assignment-rating版本标签 both go through formatV19CurrentVersionShortLabel, not a raw v${model.current.number}", () => {
+  assert.match(source, /已自动保存至 \$\{formatV19CurrentVersionShortLabel\(model\.current\)\} · \$\{formatV19Clock\(saveStatus\.at\)\}/);
+  assert.match(source, /versionLabel=\{`\$\{formatV19CurrentVersionShortLabel\(model\.current\)\} · \$\{model\.current\.ownerName\}`\}/);
+  assert.doesNotMatch(source, /已自动保存至 v\$\{model\.current\.number\}/, "the raw v${number} form must not reappear for the save chip");
+  assert.doesNotMatch(source, /versionLabel=\{`v\$\{model\.current\.number\}/, "the raw v${number} form must not reappear for the rating label");
+});
+
+// ---------------------------------------------------------------------------
+// 走查 4: a direct final-version save must refresh finalTrace afterward
+// (without touching current/draft), or the field 老孙 just edited keeps
+// showing only its v1 原稿 row as 当前采用 in 溯源视图, and the default
+// view's hover source never picks up the new 最终版·直接修改 entry.
+// ---------------------------------------------------------------------------
+
+test("source: refreshFinalTrace only merges final/finalTrace into the model, never current or the draft", () => {
+  const functionMatch = source.match(
+    /const refreshFinalTrace = useCallback\(async \(\) => \{([\s\S]*?)\n {2}\}, \[videoId\]\);/,
+  );
+  assert.ok(functionMatch, "expected to find refreshFinalTrace");
+  const body = functionMatch[1];
+  assert.match(body, /v19Api\.load\(videoId, "final"\)/);
+  assert.match(body, /final: fresh\.final/);
+  assert.match(body, /fresh\.finalTrace/);
+  assert.doesNotMatch(body, /current:/, "refreshFinalTrace must never touch `current`");
+  assert.doesNotMatch(body, /setDraftState|draftRef\.current\s*=|applyLoadedModel/, "refreshFinalTrace must never touch the local draft");
+});
+
+test("source: commitSaveAttempt calls refreshFinalTrace after a successful direct final-version save (the isFinalSave branch), not after an ordinary version save", () => {
+  const elseBranch = source.match(/\} else \{\s*\/\/ 本机走查 bug fix: refresh finalTrace([\s\S]*?)\n {6}\}/);
+  assert.ok(elseBranch, "expected an else branch (isFinalSave) calling refreshFinalTrace");
+  assert.match(elseBranch[1], /void refreshFinalTrace\(\);/);
+});
+
+// ---------------------------------------------------------------------------
+// 走查 5: 定稿／取消定稿／采纳 failing (e.g. a 404) must still surface a
+// toast — it used to fail silently, leaving the status pill looking
+// unchanged with no indication anything went wrong.
+// ---------------------------------------------------------------------------
+
+test("source: runFinalAction's catch always toasts — the server's error message, or a dedicated 最终版 fallback", () => {
+  const functionMatch = source.match(
+    /const runFinalAction = useCallback\(async \(body: V19FinalActionRequestBody\) => \{([\s\S]*?)\n {2}\}, \[videoId, finalActionBusy, applyLoadedModel, pushToast\]\);/,
+  );
+  assert.ok(functionMatch, "expected to find runFinalAction");
+  const catchMatch = functionMatch[1].match(/\} catch \(reason\) \{([\s\S]*?)\n {4}\} finally \{/);
+  assert.ok(catchMatch, "expected to find runFinalAction's catch block");
+  assert.match(catchMatch[1], /pushToast\(reason instanceof V04UiApiError \? reason\.message : "最终版操作失败，请重试。"\);/);
+});
+
+// ---------------------------------------------------------------------------
 // 2. A failed save never clears local draft state.
 // ---------------------------------------------------------------------------
 
@@ -91,7 +181,7 @@ test("source: commitSaveAttempt's catch path never touches draftRef or draft sta
   // are other `catch` blocks in this file, e.g. in `switchToVersion`), then
   // find its single catch block within that isolated body.
   const functionMatch = source.match(
-    /const commitSaveAttempt = useCallback\(async \(attempt: \{ version: number; draft: V04UiDraft \}\): Promise<boolean> => \{([\s\S]*?)\n {2}\}, \[videoId, viewerName, viewerUserId, refreshVersionList, pushToast\]\);/,
+    /const commitSaveAttempt = useCallback\(async \(attempt: \{ version: number; draft: V04UiDraft \}\): Promise<boolean> => \{([\s\S]*?)\n {2}\}, \[videoId, viewerName, viewerUserId, refreshVersionList, refreshFinalTrace, pushToast\]\);/,
   );
   assert.ok(functionMatch, "expected to find commitSaveAttempt");
   const functionBody = functionMatch[1];

@@ -22,7 +22,16 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       }),
       loadV19VersionChain(db, id, actor, {
         ...(versionId ? { versionId } : {}),
-        includeFinalTrace: versionId === "final",
+        // Whenever no specific real version is requested (versionId is
+        // undefined) `loadV19VersionChain` defaults `current` to the final
+        // version itself (spec 二、11) — not only for the explicit
+        // `?version=final`. Trace has to be fetched in both cases, or a
+        // colleague opening the case with no query string gets a final
+        // view with no `locked` styling and no source chain (bug found in
+        // 本机走查). Safe even for a brand-new case: `loadV19VersionChain`
+        // returns before ever consulting this flag when the workspace has
+        // no real version yet.
+        includeFinalTrace: versionId === undefined || versionId === "final",
       }),
     ]);
     const { media, ...caseFields } = workspace.video;
