@@ -904,8 +904,31 @@ input.editableTimecode { padding: 5px 8px; }
 .finalStructuralRow button:hover:not(:disabled) { background: rgba(255, 174, 120, .15); }
 .finalStructuralRow button:disabled { cursor: wait; opacity: .6; }
 
-/* 溯源视图：一个字段下方按更新顺序列出的来源链。 */
-.finalTrace { display: grid; gap: 4px; margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--v04-line); }
+/* 溯源视图：合并重复行、当前采用只留一行来源提示、旧写法收成可展开摘要，
+   未纳入照旧完整显示（见 lib/v19-final-trace.ts 的简化规则 1-5）。 */
+.finalTrace { display: grid; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--v04-line); }
+/* 当前采用：比正文小一号的灰字，不重复正文内容，只说来源。 */
+.finalTraceCurrent { color: var(--v04-muted); font-size: 10.5px; line-height: 1.5; }
+/* 旧写法摘要行：整行可点，收起时只留版本/作者/时间 + 第一行预览（省略号截断），
+   点开后预览换成跟未纳入一样的整段正文。 */
+.finalTraceSummaryRow {
+  display: block; width: 100%; border: 0; border-left: 2px solid var(--v04-line); border-radius: 8px;
+  background: transparent; padding: 4px 9px; text-align: left; font: inherit; color: var(--v04-muted);
+  font-size: 10.5px; cursor: pointer;
+}
+.finalTraceSummaryRow:hover { border-left-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .05); }
+.finalTraceSummaryLabel {
+  color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 700; margin-right: 8px;
+}
+.finalTraceSummaryPreview { color: var(--v04-muted); }
+.finalTraceSummaryRow[aria-expanded="false"] .finalTraceSummaryPreview {
+  display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+.finalTraceSummaryRow[aria-expanded="true"] .finalTraceSummaryPreview {
+  display: block; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55;
+}
+/* 未纳入：照旧完整展示（版本/作者/时间/全文/采纳按钮），只是数据来源换了形状。 */
 .finalTraceRow {
   display: grid; grid-template-columns: auto auto auto 1fr; gap: 4px 10px; align-items: baseline;
   padding: 5px 9px; border-left: 2px solid var(--v04-line); border-radius: 8px; color: var(--v04-muted); font-size: 11px;
@@ -915,9 +938,6 @@ input.editableTimecode { padding: 5px 8px; }
 .finalTraceTime { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 9.5px; }
 .finalTraceValue { grid-column: 1 / -1; color: var(--v04-muted); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 .finalTraceTag { justify-self: start; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; font-size: 9px; font-weight: 800; }
-.finalTraceRowCurrent { border-left-color: var(--v04-accent); background: rgba(223, 255, 79, .05); }
-.finalTraceRowCurrent .finalTraceVersion, .finalTraceRowCurrent .finalTraceTag { color: var(--v04-accent); }
-.finalTraceRowCurrent .finalTraceValue { color: #d4d6cd; }
 .finalTraceRowPending { border-left-color: rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); }
 .finalTraceRowPending .finalTraceTag { color: #ffae78; }
 .finalTraceAdopt {

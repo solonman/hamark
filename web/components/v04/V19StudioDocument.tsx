@@ -1,6 +1,6 @@
 "use client";
 
-import type { JSX, ReactNode } from "react";
+import { useState, type JSX, type ReactNode } from "react";
 import type { V04ChoiceValue, V04CreativeGrade, V04DraftPayloadV1, V04ShotFieldKey } from "@/lib/v04-contract";
 import type { V04UiDraft, V04UiShot, V04UiShotGroup } from "@/lib/v04-ui-model";
 import { V04_UI_SHOT_FIELDS } from "@/lib/v04-ui-model";
@@ -14,8 +14,10 @@ import type { V19FinalIntake } from "@/lib/v19-ui-model";
 import {
   deriveV19FinalFieldTrace,
   describeV19FinalIntakeSource,
+  describeV19FinalTraceRowLabel,
+  firstLineV19TraceValue,
   latestAppliedV19FinalIntake,
-  type V19FinalTraceRow,
+  type V19FinalTraceHistoryRow,
 } from "@/lib/v19-final-trace";
 import V19EditableValue, { V19SystemValue } from "./V19EditableValue";
 import V19ReviewComment from "./V19ReviewComment";
@@ -243,42 +245,63 @@ function formatV19TraceValue(value: unknown): string {
 }
 
 /**
- * 溯源视图（spec 五、18）：一个字段下方按更新顺序列出的来源链。`rows` 已经
- * 由 `lib/v19-final-trace.ts` 的 `deriveV19FinalFieldTrace` 算好状态
- * （原稿／当前采用／已被覆盖／未纳入），这里只管渲染与「采纳这一版」按钮。
+ * 一条「旧写法」摘要行：整行可点，默认收起只显示第一行预览（超出一行由 CSS
+ * 省略号截断），点开换成跟未纳入一样的整段正文。展开状态是这一行自己的本地
+ * state——每个摘要行独立记，收起来不影响别的行，也不用往上层传。
+ */
+function V19FinalTraceSummaryRow({ row }: { row: V19FinalTraceHistoryRow }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <button
+      type="button"
+      className={styles.finalTraceSummaryRow}
+      aria-expanded={expanded}
+      onClick={() => setExpanded((current) => !current)}
+    >
+      <span className={styles.finalTraceSummaryLabel}>{describeV19FinalTraceRowLabel(row)}</span>
+      <span className={styles.finalTraceSummaryPreview}>
+        {expanded ? formatV19TraceValue(row.value) : firstLineV19TraceValue(row.value)}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * 溯源视图，简化版（用户看了线上效果后的要求）：`lib/v19-final-trace.ts` 的
+ * `deriveV19FinalFieldTrace` 已经把合并重复行、当前采用、旧写法、未纳入都算好了
+ * ——这里只管渲染。顺序是时间线：旧写法（收起的摘要）→ 当前采用（一行小字）→
+ * 未纳入（照旧完整展示，带「采纳这一版」）。`hasTrace === false` 时调用方
+ * 根本不会渲染这个组件（见 `finalFieldExtras`），所以这里不必再判断一遍。
  */
 function V19FinalTraceRows({
-  rows,
+  currentSourceLabel,
+  overridden,
+  pending,
   canAdopt,
   onAdopt,
 }: {
-  rows: readonly V19FinalTraceRow[];
+  currentSourceLabel: string | null;
+  overridden: readonly V19FinalTraceHistoryRow[];
+  pending: readonly V19FinalTraceHistoryRow[];
   canAdopt: boolean;
   onAdopt: (intakeId: string) => void;
 }): JSX.Element {
   return (
     <div className={styles.finalTrace}>
-      {rows.map((row) => {
+      {overridden.map((row) => <V19FinalTraceSummaryRow key={row.key} row={row} />)}
+      {currentSourceLabel && <div className={styles.finalTraceCurrent}>{currentSourceLabel}</div>}
+      {pending.map((row) => {
+        // 未纳入照旧：版本/谁写的/时间/全文/采纳按钮，跟简化前完全一样的拼法。
         const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "最终版" : `v${row.sourceVersionNumber ?? "?"}`;
-        // 原稿行的「谁写的」用 v1 的 ownerName（本机走查修饰：原来写死「原稿」，
-        // 跟同一行的状态标签重复）；没传时（理论上不该发生）退化回旧文案。
         const who = row.isOrigin ? (row.actorName || "原稿") : row.source === "FINAL_DIRECT" ? `${row.actorName}·直接修改` : row.actorName;
-        const statusLabel = row.status === "current" ? "当前采用" : row.status === "pending" ? "未纳入" : row.isOrigin ? "原稿" : "已被覆盖";
         return (
-          <div
-            key={row.key}
-            className={[
-              styles.finalTraceRow,
-              row.status === "current" && styles.finalTraceRowCurrent,
-              row.status === "pending" && styles.finalTraceRowPending,
-            ].filter(Boolean).join(" ")}
-          >
+          <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowPending}`}>
             <span className={styles.finalTraceVersion}>{versionTag}</span>
             <span className={styles.finalTraceWho}>{who}</span>
             {row.createdAt && <span className={styles.finalTraceTime}>{formatShortDateTime(row.createdAt)}</span>}
-            <span className={styles.finalTraceTag}>{statusLabel}</span>
+            <span className={styles.finalTraceTag}>未纳入</span>
             <div className={styles.finalTraceValue}>{formatV19TraceValue(row.value)}</div>
-            {row.status === "pending" && canAdopt && row.intakeId && (
+            {canAdopt && row.intakeId && (
               <button type="button" className={styles.finalTraceAdopt} onClick={() => onAdopt(row.intakeId as string)}>
                 采纳这一版
               </button>
@@ -445,10 +468,19 @@ export default function V19StudioDocument({
     if (!final.originPayload) return { locked: final.locked };
     if (final.traceMode) {
       const trace = deriveV19FinalFieldTrace(final.originPayload, final.intakes, targetKey, final.originOwnerName);
-      if (!trace.rows.length) return { locked: final.locked };
+      // 简化规则 4: nothing changed at all — render nothing, same as a plain field.
+      if (!trace.hasTrace) return { locked: final.locked };
       return {
         locked: final.locked,
-        after: <V19FinalTraceRows rows={trace.rows} canAdopt={final.canAdopt} onAdopt={final.onAdopt} />,
+        after: (
+          <V19FinalTraceRows
+            currentSourceLabel={trace.currentSourceLabel}
+            overridden={trace.overridden}
+            pending={trace.pending}
+            canAdopt={final.canAdopt}
+            onAdopt={final.onAdopt}
+          />
+        ),
       };
     }
     const latest = latestAppliedV19FinalIntake(final.intakes, targetKey);

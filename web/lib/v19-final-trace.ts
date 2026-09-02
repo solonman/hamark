@@ -49,10 +49,11 @@ export function v19FinalTraceTargetExists(payload: V04DraftPayloadV1, targetKey:
 }
 
 // ---------------------------------------------------------------------------
-// 一个字段的来源链（spec 18：默认取值，之后按 seq 升序的 FIELD 记录）
+// 一个字段的来源链（spec 18 + 用户看了线上效果后的简化：合并重复行、当前
+// 采用只留一行来源提示、旧写法收成可展开摘要、未纳入照旧完整显示）。
 // ---------------------------------------------------------------------------
 
-export type V19FinalTraceRow = {
+export type V19FinalTraceHistoryRow = {
   /** React key. */
   key: string;
   /** null for the synthetic origin row — nothing to adopt there. */
@@ -63,31 +64,81 @@ export type V19FinalTraceRow = {
   sourceVersionNumber: number | null;
   actorName: string;
   createdAt: string;
-  applied: boolean;
-  status: "current" | "overridden" | "pending";
 };
 
 export type V19FinalFieldTrace = {
-  rows: V19FinalTraceRow[];
-  /** Index into `rows` of the row currently in effect; -1 when the chain is empty. */
-  currentIndex: number;
+  /**
+   * false when there is nothing worth showing at all — 合并后只剩当前采用
+   * 一行，且它就是原稿、没有旧写法、没有未纳入（简化规则 4）。The caller
+   * renders nothing under the field in that case, same as if `final` were
+   * absent entirely.
+   */
+  hasTrace: boolean;
+  /**
+   * The one-line "当前采用 · …" source description (简化规则 2), or null
+   * when there is no known applied row at all (e.g. a freshly inserted
+   * shot's field whose only recorded intake is still pending — the value on
+   * screen is just that new shot's blank initial state, with no intake to
+   * attribute it to).
+   */
+  currentSourceLabel: string | null;
+  /** Superseded rows before the current one, oldest first — one-line collapsible summaries (简化规则 3). */
+  overridden: V19FinalTraceHistoryRow[];
+  /** `applied === false` rows — shown in full, unabbreviated (简化规则 5, unchanged), in seq order. */
+  pending: V19FinalTraceHistoryRow[];
 };
 
+type V19FinalTraceRawRow = V19FinalTraceHistoryRow & { applied: boolean };
+
 /**
- * Spec 五、18: builds the source chain shown under a field in 溯源 view —
- * `原稿` (if it exists in `originPayload`) followed by every `FIELD` intake
- * for `targetKey`, oldest first. The last `applied` row is `current`, the
- * `applied` ones before it are `overridden`, and any `applied === false` rows
- * are `pending` (采纳这一版 is offered there, gated by the caller on 老孙).
+ * 简化规则 1: after sorting 原稿 + 该字段全部 FIELD 汇入记录 by seq, drop any
+ * row whose value equals its immediately preceding row's — this is exactly
+ * the bug where replaying a workspace's own v1 event during backfill leaves
+ * "v1 原稿" and "v1 <its own replayed write>" showing identical content as
+ * two separate rows. Only ever compares strictly adjacent rows in this
+ * seq-sorted order, and always keeps the earlier-occurring one.
+ */
+function dedupeAdjacentV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19FinalTraceRawRow[] {
+  const deduped: V19FinalTraceRawRow[] = [];
+  for (const row of rows) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && JSON.stringify(previous.value) === JSON.stringify(row.value)) continue;
+    deduped.push(row);
+  }
+  return deduped;
+}
+
+/**
+ * `v2 老孙 09-02 11:00` / `v1 赵雅诗 原稿` / `最终版 老孙 直接修改 09-02 11:00` —
+ * shared by the 当前采用 line (prefixed with `当前采用 · `, inside
+ * `deriveV19FinalFieldTrace`) and each 旧写法摘要行's "版本、作者、时间"
+ * column (used as-is by the renderer, exported so it doesn't get re-derived).
+ */
+export function describeV19FinalTraceRowLabel(row: V19FinalTraceHistoryRow): string {
+  if (row.isOrigin) return `v1 ${row.actorName} 原稿`;
+  if (row.source === "FINAL_DIRECT") return `最终版 ${row.actorName} 直接修改 ${formatShortDateTime(row.createdAt)}`;
+  return `v${row.sourceVersionNumber ?? "?"} ${row.actorName} ${formatShortDateTime(row.createdAt)}`;
+}
+
+/**
+ * Spec 五、18, simplified: 原稿 (if it exists in `originPayload`) followed by
+ * every `FIELD` intake for `targetKey`, oldest first, deduplicated against
+ * its immediate predecessor (简化规则 1). Whichever of those rows is
+ * currently in effect (the highest-seq applied one — null when there is no
+ * applied row at all) becomes `currentSourceLabel`; every other applied row
+ * becomes an `overridden` summary; every `applied === false` row becomes
+ * `pending`, regardless of where it falls in seq order relative to the
+ * current row (取消定稿后重开时，未采纳的旧记录可能 seq 比之后新产生的已应用
+ * 记录更早 — 判定纯看各自的 applied 状态，不看位置).
  */
 export function deriveV19FinalFieldTrace(
   originPayload: V04DraftPayloadV1,
   intakes: readonly V19FinalIntake[],
   targetKey: string,
-  /** v1's `ownerName` (the case's uploader) — 本机走查修饰: the 谁 column for the origin row, so it doesn't just repeat the 原稿 status tag next to it. */
+  /** v1's `ownerName` (the case's uploader) — the 谁 column for the origin row. */
   originOwnerName = "",
 ): V19FinalFieldTrace {
-  const rows: V19FinalTraceRow[] = [];
+  const rows: V19FinalTraceRawRow[] = [];
   const origin = locateV19FinalTarget(originPayload, targetKey);
   if (origin) {
     rows.push({
@@ -100,7 +151,6 @@ export function deriveV19FinalFieldTrace(
       actorName: originOwnerName,
       createdAt: "",
       applied: true,
-      status: "overridden",
     });
   }
   const fieldIntakes = intakes
@@ -118,15 +168,36 @@ export function deriveV19FinalFieldTrace(
       actorName: intake.actorName,
       createdAt: intake.createdAt,
       applied: intake.applied,
-      status: intake.applied ? "overridden" : "pending",
     });
   }
-  let currentIndex = -1;
-  rows.forEach((row, index) => { if (row.applied) currentIndex = index; });
-  if (currentIndex >= 0 && rows[currentIndex].status !== "current") {
-    rows[currentIndex] = { ...rows[currentIndex], status: "current" };
+
+  const merged = dedupeAdjacentV19TraceRows(rows);
+  const appliedRows = merged.filter((row) => row.applied);
+  const current = appliedRows.length ? appliedRows[appliedRows.length - 1] : null;
+  const overridden = appliedRows.slice(0, -1);
+  const pending = merged.filter((row) => !row.applied);
+
+  // 简化规则 4: nothing changed at all — no history, no pending, and
+  // whatever is current is (at most) the lone origin row itself.
+  if (overridden.length === 0 && pending.length === 0 && (!current || current.isOrigin)) {
+    return { hasTrace: false, currentSourceLabel: null, overridden: [], pending: [] };
   }
-  return { rows, currentIndex };
+
+  return {
+    hasTrace: true,
+    currentSourceLabel: current ? `当前采用 · ${describeV19FinalTraceRowLabel(current)}` : null,
+    overridden,
+    pending,
+  };
+}
+
+/** The first line of a trace value, trimmed to "—" when empty — the collapsed preview for a 旧写法摘要行 (简化规则 3). Full-text display and expand/collapse belong to the renderer. */
+export function firstLineV19TraceValue(value: unknown): string {
+  const text = typeof value === "string" ? value : value == null ? "" : JSON.stringify(value);
+  const trimmed = text.trim();
+  if (trimmed === "") return "—";
+  const [firstLine] = trimmed.split("\n");
+  return firstLine;
 }
 
 /** The most recently applied `FIELD` intake for `targetKey`, or null when only the origin applies. */

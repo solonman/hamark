@@ -5,7 +5,9 @@ import test from "node:test";
 import {
   deriveV19FinalFieldTrace,
   describeV19FinalIntakeSource,
+  describeV19FinalTraceRowLabel,
   describeV19StructuralIntake,
+  firstLineV19TraceValue,
   latestAppliedV19FinalIntake,
   pendingV19StructuralIntakes,
   v19FinalTraceTargetExists,
@@ -13,6 +15,11 @@ import {
 import { emptyV04ChoiceValue, emptyV04DraftPayload } from "../lib/v04-domain.ts";
 import type { V04DraftPayloadV1, V04ShotGroupPayload, V04ShotPayload } from "../lib/v04-contract.ts";
 import type { V19FinalIntake } from "../lib/v19-ui-model.ts";
+// Used to build expected strings for time-bearing assertions below instead of
+// hardcoding a clock time — `formatShortDateTime` reads the local timezone
+// (`date.getHours()`), so a literal "09-02 11:00" would only hold on a
+// machine set to UTC+8.
+import { formatShortDateTime } from "../lib/date-format.ts";
 
 function shot(id: string, overrides: Partial<V04ShotPayload> = {}): V04ShotPayload {
   return {
@@ -68,53 +75,142 @@ test("v19FinalTraceTargetExists is false for a shot that does not exist in the p
   assert.equal(v19FinalTraceTargetExists(payload, "shot:s-not-there.visualContent"), false);
 });
 
-test("deriveV19FinalFieldTrace prepends the origin row when the target exists in originPayload", () => {
-  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent: "原稿意图" } };
-  const intakes = [intake({ id: "i1", seq: 1, value: "李晓芸改的意图" })];
-  const { rows, currentIndex } = deriveV19FinalFieldTrace(origin, intakes, "facts.commercialIntent");
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].isOrigin, true);
-  assert.equal(rows[0].value, "原稿意图");
-  assert.equal(rows[1].value, "李晓芸改的意图");
-  assert.equal(currentIndex, 1);
-  assert.equal(rows[1].status, "current");
-  assert.equal(rows[0].status, "overridden");
+function factsOrigin(commercialIntent: string): V04DraftPayloadV1 {
+  return { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent } };
+}
+
+// ---------------------------------------------------------------------------
+// 简化规则 4: 没变过的字段（合并后只剩当前采用一行，且就是原稿）不加任何东西。
+// ---------------------------------------------------------------------------
+
+test("deriveV19FinalFieldTrace: a field with no intakes at all — origin only — has no trace", () => {
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), [], "facts.commercialIntent", "王大明");
+  assert.equal(trace.hasTrace, false);
+  assert.equal(trace.currentSourceLabel, null);
+  assert.deepEqual(trace.overridden, []);
+  assert.deepEqual(trace.pending, []);
 });
 
-test("deriveV19FinalFieldTrace's origin row carries v1's ownerName when given, not a blank actorName", () => {
-  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent: "原稿意图" } };
-  const { rows } = deriveV19FinalFieldTrace(origin, [], "facts.commercialIntent", "王大明");
-  assert.equal(rows[0].isOrigin, true);
-  assert.equal(rows[0].actorName, "王大明");
-});
-
-test("deriveV19FinalFieldTrace's origin row falls back to an empty actorName when originOwnerName is omitted", () => {
-  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent: "原稿意图" } };
-  const { rows } = deriveV19FinalFieldTrace(origin, [], "facts.commercialIntent");
-  assert.equal(rows[0].actorName, "");
-});
-
-test("deriveV19FinalFieldTrace omits the origin row when the target does not exist in originPayload (e.g. an inserted shot's field)", () => {
+test("deriveV19FinalFieldTrace: a field whose target does not exist in originPayload and has no intakes has no trace either", () => {
   const origin = payloadWithGroups([group("b1", [shot("s1")])]);
-  const intakes = [intake({
-    id: "i1", seq: 1, targetKey: "shot:s2.visualContent", targetLabel: "画面内容", value: "新镜头内容",
-  })];
-  const { rows, currentIndex } = deriveV19FinalFieldTrace(origin, intakes, "shot:s2.visualContent");
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].isOrigin, false);
-  assert.equal(currentIndex, 0);
+  const trace = deriveV19FinalFieldTrace(origin, [], "shot:s-not-there.visualContent");
+  assert.equal(trace.hasTrace, false);
 });
 
-test("deriveV19FinalFieldTrace marks a later override current, the earlier applied row overridden, and an unapplied row pending", () => {
-  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, commercialIntent: "原稿" } };
+// ---------------------------------------------------------------------------
+// 简化规则 1: 合并重复行 — 紧邻前一行值相同就删掉，保留先出现的那行。这修的是
+// 回填时 v1 自己的修改被重放，导致「v1 原稿」与「v1 <它自己的重放>」内容完全
+// 相同却各占一行的 bug。
+// ---------------------------------------------------------------------------
+
+test("deriveV19FinalFieldTrace: an intake whose value exactly repeats the origin's (the v1-replay bug) is merged away — nothing changed after all", () => {
+  const intakes = [intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 1, actorName: "王大明" })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.hasTrace, false, "the replayed intake exactly repeats the origin, so nothing actually changed");
+});
+
+test("deriveV19FinalFieldTrace: only the adjacent duplicate is dropped — a later, genuinely different intake still becomes current", () => {
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "原稿意图", sourceVersionNumber: 1, actorName: "王大明" }), // duplicate of origin, dropped
+    intake({ id: "i2", seq: 2, value: "李晓芸改的意图", sourceVersionNumber: 2, actorName: "李晓芸", createdAt: "2026-08-23T09:47:00.000Z" }),
+  ];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿意图"), intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.hasTrace, true);
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 李晓芸 ${formatShortDateTime("2026-08-23T09:47:00.000Z")}`);
+  // The origin survives as the sole overridden entry — the duplicate i1 never appears at all.
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin"]);
+  assert.deepEqual(trace.pending, []);
+});
+
+test("deriveV19FinalFieldTrace: two consecutive intakes with the same value merge into one, keeping the earlier (lower-seq) one's identity", () => {
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "李晓芸的版本", sourceVersionNumber: 2, actorName: "李晓芸" }),
+    intake({ id: "i2", seq: 2, value: "李晓芸的版本", sourceVersionNumber: 3, actorName: "张三" }), // same value as i1 — dropped
+    intake({ id: "i3", seq: 3, value: "张三的新版本", sourceVersionNumber: 3, actorName: "张三", createdAt: "2026-08-24T11:20:00.000Z" }),
+  ];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent", "王大明");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v3 张三 ${formatShortDateTime("2026-08-24T11:20:00.000Z")}`);
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin", "i1"]);
+});
+
+test("deriveV19FinalFieldTrace: a pending row identical to its immediately preceding row is merged away too", () => {
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "现在的内容", applied: true, sourceVersionNumber: 2, actorName: "李晓芸" }),
+    intake({ id: "i2", seq: 2, value: "现在的内容", applied: false, sourceVersionNumber: 4, actorName: "老王" }), // duplicate of i1, dropped
+  ];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent", "王大明");
+  assert.deepEqual(trace.pending, []);
+});
+
+// ---------------------------------------------------------------------------
+// 简化规则 2: 当前采用来源行文案 — 「当前采用 · v2 老孙 09-02 11:00」/
+// 「当前采用 · v1 赵雅诗 原稿」/「当前采用 · 最终版 老孙 直接修改 09-02 11:00」。
+// ---------------------------------------------------------------------------
+
+test("deriveV19FinalFieldTrace: currentSourceLabel names the origin's owner and says 原稿 when nothing has overridden it yet but something else has changed", () => {
+  // origin is current because the only intake is still pending — origin itself was never overridden.
+  const intakes = [intake({ id: "i1", seq: 1, value: "老王想改的", applied: false, sourceVersionNumber: 4, actorName: "老王" })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("赵雅诗写的原稿"), intakes, "facts.commercialIntent", "赵雅诗");
+  assert.equal(trace.currentSourceLabel, "当前采用 · v1 赵雅诗 原稿");
+});
+
+test("deriveV19FinalFieldTrace: currentSourceLabel names the version, actor, and time for a VERSION-sourced current row", () => {
+  const intakes = [intake({
+    id: "i1", seq: 1, value: "老孙改的", applied: true, sourceVersionNumber: 2, actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
+  })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v2 老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+});
+
+test("deriveV19FinalFieldTrace: currentSourceLabel says 最终版 ... 直接修改 for a FINAL_DIRECT current row", () => {
+  const intakes = [intake({
+    id: "i1", seq: 1, value: "老孙直接改的", applied: true, source: "FINAL_DIRECT", sourceVersionNumber: null,
+    actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
+  })];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent");
+  assert.equal(trace.currentSourceLabel, `当前采用 · 最终版 老孙 直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+});
+
+test("deriveV19FinalFieldTrace: currentSourceLabel is null when there is no applied row at all (e.g. a freshly inserted shot's field with only a pending edit)", () => {
+  const origin = payloadWithGroups([group("b1", [shot("s1")])]); // shot s2 doesn't exist in origin
+  const intakes = [intake({
+    id: "i1", seq: 1, targetKey: "shot:s2.visualContent", targetLabel: "画面内容", value: "有人写了但还没采纳",
+    applied: false, sourceVersionNumber: 4, actorName: "老王",
+  })];
+  const trace = deriveV19FinalFieldTrace(origin, intakes, "shot:s2.visualContent");
+  assert.equal(trace.hasTrace, true, "the pending edit itself must still show, per 简化规则 5");
+  assert.equal(trace.currentSourceLabel, null);
+  assert.deepEqual(trace.overridden, []);
+  assert.equal(trace.pending.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 简化规则 3/5: 旧写法（合并后当前采用之前的行）与未纳入（applied=false）分类，
+// 后者排在旧写法列表之后照旧展示，不受合并/位置影响。
+// ---------------------------------------------------------------------------
+
+test("deriveV19FinalFieldTrace: classifies every applied row before current as overridden and every unapplied row as pending, in seq order within each group", () => {
   const intakes = [
     intake({ id: "i1", seq: 1, value: "李晓芸的版本", applied: true, sourceVersionNumber: 2, actorName: "李晓芸" }),
     intake({ id: "i2", seq: 2, value: "张三的版本", applied: true, sourceVersionNumber: 3, actorName: "张三" }),
     intake({ id: "i3", seq: 3, value: "定稿后老王的版本", applied: false, sourceVersionNumber: 4, actorName: "老王" }),
   ];
-  const { rows, currentIndex } = deriveV19FinalFieldTrace(origin, intakes, "facts.commercialIntent");
-  assert.deepEqual(rows.map((row) => row.status), ["overridden", "overridden", "current", "pending"]);
-  assert.equal(currentIndex, 2);
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent", "赵雅诗");
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin", "i1"]);
+  assert.deepEqual(trace.pending.map((row) => row.key), ["i3"]);
+  assert.match(trace.currentSourceLabel ?? "", /^当前采用 · v3 张三/);
+});
+
+test("deriveV19FinalFieldTrace: classification is by each row's own applied flag, not by position — a pending row can sit seq-earlier than the current applied row (e.g. after 取消定稿 reopens and new edits land before the old pending one is adopted)", () => {
+  const intakes = [
+    intake({ id: "i1", seq: 1, value: "OPEN 期间已应用", applied: true, sourceVersionNumber: 2, actorName: "李晓芸" }),
+    intake({ id: "i2", seq: 2, value: "DONE 期间未采纳", applied: false, sourceVersionNumber: 3, actorName: "张三" }),
+    intake({ id: "i3", seq: 3, value: "重开后又应用了", applied: true, sourceVersionNumber: 5, actorName: "老王", createdAt: "2026-09-02T05:00:00.000Z" }),
+  ];
+  const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent", "赵雅诗");
+  assert.equal(trace.currentSourceLabel, `当前采用 · v5 老王 ${formatShortDateTime("2026-09-02T05:00:00.000Z")}`);
+  assert.deepEqual(trace.overridden.map((row) => row.key), ["origin", "i1"]);
+  assert.deepEqual(trace.pending.map((row) => row.key), ["i2"]);
 });
 
 test("deriveV19FinalFieldTrace ignores intakes for other target keys and other kinds", () => {
@@ -123,8 +219,49 @@ test("deriveV19FinalFieldTrace ignores intakes for other target keys and other k
     intake({ id: "i1", seq: 1, targetKey: "shot:s-other.visualContent" }),
     intake({ id: "i2", seq: 2, kind: "INSERT_SHOT", targetKey: "shot:s2.visualContent", value: {} }),
   ];
-  const { rows } = deriveV19FinalFieldTrace(origin, intakes, "shot:s2.visualContent");
-  assert.equal(rows.length, 0);
+  const trace = deriveV19FinalFieldTrace(origin, intakes, "shot:s2.visualContent");
+  assert.equal(trace.hasTrace, false);
+});
+
+// ---------------------------------------------------------------------------
+// describeV19FinalTraceRowLabel / firstLineV19TraceValue — the small pure
+// helpers the 旧写法摘要行 renderer reuses directly.
+// ---------------------------------------------------------------------------
+
+test("describeV19FinalTraceRowLabel formats each source kind", () => {
+  assert.equal(
+    describeV19FinalTraceRowLabel({
+      key: "origin", intakeId: null, isOrigin: true, value: "x", source: "ORIGIN",
+      sourceVersionNumber: null, actorName: "赵雅诗", createdAt: "",
+    }),
+    "v1 赵雅诗 原稿",
+  );
+  assert.equal(
+    describeV19FinalTraceRowLabel({
+      key: "i1", intakeId: "i1", isOrigin: false, value: "x", source: "VERSION",
+      sourceVersionNumber: 2, actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
+    }),
+    `v2 老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`,
+  );
+  assert.equal(
+    describeV19FinalTraceRowLabel({
+      key: "i1", intakeId: "i1", isOrigin: false, value: "x", source: "FINAL_DIRECT",
+      sourceVersionNumber: null, actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
+    }),
+    `最终版 老孙 直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`,
+  );
+});
+
+test("firstLineV19TraceValue keeps only the first line and trims it", () => {
+  assert.equal(firstLineV19TraceValue("第一行\n第二行\n第三行"), "第一行");
+  assert.equal(firstLineV19TraceValue("  只有一行，带首尾空格  "), "只有一行，带首尾空格");
+});
+
+test("firstLineV19TraceValue renders an em dash for empty/whitespace-only/nullish values", () => {
+  assert.equal(firstLineV19TraceValue(""), "—");
+  assert.equal(firstLineV19TraceValue("   "), "—");
+  assert.equal(firstLineV19TraceValue(null), "—");
+  assert.equal(firstLineV19TraceValue(undefined), "—");
 });
 
 // ---------------------------------------------------------------------------

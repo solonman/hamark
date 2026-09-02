@@ -235,3 +235,123 @@ test("a pending deletion always offers a way out", async () => {
   assert.match(shell, /event\.key === "Escape"[\s\S]{0,80}setPendingDeleteId\(null\)/);
   assert.match(shell, /closest\("\[data-v19-confirming\], \[data-v19-cancel-delete\]"\)/);
 });
+
+// ---------------------------------------------------------------------------
+// 溯源视图简化（用户看了线上效果后的要求）：一个字段通常只多一行小字来源，
+// 有历史的才多几行可展开摘要。逻辑本身在 lib/v19-final-trace.ts 里单测过
+// （tests/v19-final-trace.test.ts）；这里只验证 `V19StudioDocument` 真的按
+// `final` prop 接出对应的渲染（有 trace 数据时渲染什么、没有时什么都不渲染）。
+// ---------------------------------------------------------------------------
+
+const { v04UiDraftToPayload } = await import("../lib/v04-ui-model.ts");
+
+function finalContextFor(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    locked: false,
+    traceMode: true,
+    originPayload: null,
+    intakes: [],
+    canAdopt: false,
+    onAdopt: () => undefined,
+    originOwnerName: "",
+    ...overrides,
+  };
+}
+
+test("溯源视图：字段没有历史（合并后只剩当前采用一行且就是原稿）时不渲染任何东西", () => {
+  const draft = fixtureDraft();
+  draft.commercialIntent = "没有人改过的商业意图";
+  const originPayload = v04UiDraftToPayload(draft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({ originPayload, intakes: [] }),
+  })));
+  assert.doesNotMatch(html, /当前采用/, "unchanged field must not show a current-source line");
+  assert.doesNotMatch(html, /没有人改过的商业意图[\s\S]*没有人改过的商业意图/,
+    "the field's own text must appear exactly once — no duplicated trace value");
+});
+
+test("溯源视图：有历史的字段渲染「当前采用」一行小字来源，正文本身不再重复一遍", () => {
+  const draft = fixtureDraft();
+  draft.commercialIntent = "老孙改过的商业意图";
+  const originDraft = fixtureDraft();
+  originDraft.commercialIntent = "王大明写的原稿商业意图";
+  const originPayload = v04UiDraftToPayload(originDraft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "王大明",
+      intakes: [{
+        id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+        value: "老孙改过的商业意图", source: "VERSION", sourceVersionNumber: 2, actorName: "老孙",
+        applied: true, createdAt: "2026-09-02T03:00:00.000Z",
+      }],
+    }),
+  })));
+  assert.match(html, /当前采用 · v2 老孙/);
+  // The field's current text (rendered once as the field's own content) must
+  // not also show up a second time inside a duplicated trace-value block.
+  const occurrences = html.split("老孙改过的商业意图").length - 1;
+  assert.equal(occurrences, 1, "current value must render exactly once, not repeated in the trace");
+});
+
+test("溯源视图：旧写法收成默认收起的摘要行——只显示版本/作者/时间和第一行预览，不吐出全文", () => {
+  const draft = fixtureDraft();
+  draft.commercialIntent = "最新的商业意图";
+  const originDraft = fixtureDraft();
+  originDraft.commercialIntent = "王大明写的原稿商业意图";
+  const originPayload = v04UiDraftToPayload(originDraft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      originOwnerName: "王大明",
+      intakes: [
+        {
+          id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+          value: "李晓芸改的第一行\n李晓芸改的第二行（收起时不该出现）", source: "VERSION", sourceVersionNumber: 2,
+          actorName: "李晓芸", applied: true, createdAt: "2026-08-23T09:47:00.000Z",
+        },
+        {
+          id: "i2", seq: 2, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+          value: "最新的商业意图", source: "VERSION", sourceVersionNumber: 3, actorName: "张三",
+          applied: true, createdAt: "2026-08-24T11:20:00.000Z",
+        },
+      ],
+    }),
+  })));
+  assert.match(html, /aria-expanded="false"/, "the overridden summary row starts collapsed");
+  assert.match(html, /李晓芸改的第一行/);
+  assert.doesNotMatch(html, /李晓芸改的第二行/, "the collapsed summary shows only the first line");
+  // 原稿也在旧写法里（v1 王大明），但当前采用（张三改的最新的商业意图）不该
+  // 再重复一遍全文——已经在上一条测试验证过，这里只确认摘要行本身出现。
+  assert.match(html, /v1 王大明 原稿/);
+});
+
+test("溯源视图：未纳入照旧完整展示，带「采纳这一版」按钮", () => {
+  const draft = fixtureDraft();
+  draft.commercialIntent = "现在的商业意图";
+  const originPayload = v04UiDraftToPayload(draft);
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
+    draft,
+    final: finalContextFor({
+      originPayload,
+      canAdopt: true,
+      intakes: [{
+        id: "i1", seq: 1, kind: "FIELD", targetKey: "facts.commercialIntent", targetLabel: "商业意图",
+        value: "老王想改成这样，还没被采纳", source: "VERSION", sourceVersionNumber: 4, actorName: "老王",
+        applied: false, createdAt: "2026-09-02T05:00:00.000Z",
+      }],
+    }),
+  })));
+  assert.match(html, /老王想改成这样，还没被采纳/, "pending shows the full text unabbreviated");
+  assert.match(html, /未纳入/);
+  assert.match(html, /采纳这一版/);
+});
+
+test("溯源视图：final 缺省时（普通版本／默认视图）行为跟简化前完全一样，不受影响", () => {
+  const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({})));
+  assert.doesNotMatch(html, /当前采用/);
+  assert.doesNotMatch(html, /采纳这一版/);
+});
