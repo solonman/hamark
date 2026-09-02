@@ -909,17 +909,24 @@ input.editableTimecode { padding: 5px 8px; }
 .finalStructuralRow button:disabled { cursor: wait; opacity: .6; }
 
 /* 溯源视图：合并重复行、当前采用只留一行来源提示、旧写法收成可展开摘要，
-   未纳入照旧完整显示（见 lib/v19-final-trace.ts 的简化规则 1-5）。 */
-.finalTrace { display: grid; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--v04-line); }
-/* 当前采用：这一组里唯一的锚，用 --v04-subject（跟字段标签同一色系）压住
-   旧写法的灰字——字号也要明显大于旧写法摘要行（见下面 .finalTraceSummaryRow
-   降到 11px 后，这里跟着从 10.5px 提到 12px，否则锚点反而比摘要还小）。 */
-.finalTraceCurrent { color: var(--v04-subject); font-size: 12px; font-weight: 700; line-height: 1.4; }
-/* 旧写法摘要行：整体弱化——版本号／作者普通字重、灰色，正文摘要更淡，
-   只有「未纳入」保留琥珀色强调（见下面 .finalTraceRowPending）。整行可点，
-   收起时只留版本/作者/时间 + 第一行预览（省略号截断），行高收紧成 1.3；
-   点开后预览换成跟未纳入一样的整段正文，字号放到 12px 保证读得下去，但
-   仍是弱化配色，视觉上压不过上面的当前采用。
+   未纳入照旧完整显示（见 lib/v19-final-trace.ts 的简化规则 1-5）。用户看了
+   线上效果后的第三轮反馈：去掉正文和这一组之间的虚线分隔（不是另一个独立
+   的框，是正文的脚注），间距收到 4px；这条虚线分隔跟 .editableLocked 的
+   琥珀色虚线 hover 是两回事，不要混着改。 */
+.finalTrace { display: grid; gap: 4px; margin-top: 4px; }
+/* 当前采用：不再用 --v04-subject（那是条目名称的金色，用在这里显得像另一
+   个标题）——改成跟默认视图里辅助说明文字同一色阶的 --v04-muted；字号跟
+   字重也降下来（10.5px / 400），这只是紧跟正文的一行来源注释，不是标题。
+   旧写法摘要行同样是灰色小字（11px），两者不比谁更显眼，靠位置（当前采用
+   永远排第一）和「当前采用 ·」前缀本身区分。 */
+.finalTraceCurrent { color: var(--v04-muted); font-size: 10.5px; font-weight: 400; line-height: 1.4; }
+/* 旧写法摘要行：跟当前采用同样是灰色小字（11px，比当前采用的 10.5px 略
+   大一点，纯粹是展开后的整段正文要读得下去），版本号／作者普通字重，正文
+   摘要更淡，只有「未纳入」保留琥珀色强调（见下面 .finalTraceRowPending）。
+   整行可点，收起时只留版本/作者/时间 + 第一行预览（省略号截断），行高收紧
+   成 1.3；点开后预览换成跟未纳入一样的整段正文，字号放到 12px 保证读得下
+   去。跟当前采用不比谁更显眼——两条都是弱化的灰字，靠先后顺序和「当前采用
+   ·」前缀本身区分，不需要谁压过谁。
    选择器必须是 `.surface .finalTraceSummaryRow`（0,2,0），不能只写
    `.finalTraceSummaryRow`（0,1,0）：这是个 <button>，顶部 `.surface button,
    .surface input, .surface textarea { font: inherit; }`（0,1,1）优先级更

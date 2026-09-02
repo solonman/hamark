@@ -590,9 +590,15 @@ test("溯源视图：创意承重载体变更后，「当前采用」换成新�
 });
 
 // ---------------------------------------------------------------------------
-// 溯源视图字号（合并进 main 后的反馈）：旧写法摘要行不能比「当前采用」更
-// 显眼——这里只做一个粗粒度的守卫：当前采用的字号必须严格大于旧写法摘要行
-// 收起时的字号，防止样式再次反过来。
+// 溯源视图样式，第三轮反馈：用户看了线上效果后不满意「当前采用」的样式——
+// 1) 颜色跟条目名称（金色 --v04-subject）撞了，改用跟默认视图辅助说明文字
+//    同一色阶的 --v04-muted；2) 字号/字重太重（原先刻意做成「比旧写法摘要
+//    行更显眼的锚点」），改成 10.5px / 400——它就是紧跟正文的一行来源注释，
+//    不是标题，旧写法摘要行也还是 11px 灰字，两者不比谁压过谁；3) 去掉正文
+//    与这一组之间的虚线分隔，间距收紧成 4px，读起来是正文的脚注。上一轮
+//    "当前采用字号必须严格大于旧写法摘要行" 的比较关系本身被这轮反馈撤销
+//    了，所以这里不再断言两者的相对大小，只断言 .finalTraceCurrent 自己的
+//    颜色/字重，以及分隔线/间距。
 // ---------------------------------------------------------------------------
 
 // 上一轮的版本只比较了两条规则各自写的数字（.finalTraceCurrent 的
@@ -679,4 +685,37 @@ test("样式：旧写法摘要行与「采纳这一版」按钮各自的 font-si
     assert.ok(compareCssSpecificity(ownSpecificity, resetSpecificity) > 0,
       `.${className}'s font-size rule (selector "${ownFontSizeRule!.selector}", specificity ${JSON.stringify(ownSpecificity)}) must outrank the reset rule (selector "${resetRule!.selector}", specificity ${JSON.stringify(resetSpecificity)}) — otherwise the browser recomputes this button's font-size as "inherit" and it silently becomes .surface's 14px regardless of what this file says here`);
   }
+});
+
+test("样式：当前采用行不再用条目名称的金色 --v04-subject，字重也降到 400——它是紧跟正文的一行来源注释，不是标题", async () => {
+  const css = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, " ");
+  const currentRule = withoutComments.match(/\.finalTraceCurrent\s*\{([^}]*)\}/);
+  assert.ok(currentRule, "expected to find the .finalTraceCurrent rule");
+  const declarations = currentRule![1];
+  assert.doesNotMatch(declarations, /--v04-subject/,
+    "当前采用 must not use --v04-subject — that's the field label's gold, and reusing it here reads as a second heading");
+  assert.match(declarations, /color:\s*var\(--v04-muted\)/,
+    "当前采用 must use the same muted gray as ordinary hint/助 text in the default view");
+  assert.match(declarations, /font-weight:\s*400/,
+    "当前采用 must not be bold (font-weight: 400, not 700) — it's a footnote, not a heading");
+});
+
+test("样式：正文与「当前采用」之间不再有虚线分隔，间距收紧成脚注的样子——.editableLocked 的锁定态虚线 hover 不受影响", async () => {
+  const css = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, " ");
+  const finalTraceRule = withoutComments.match(/\.finalTrace\s*\{([^}]*)\}/);
+  assert.ok(finalTraceRule, "expected to find the .finalTrace rule");
+  const declarations = finalTraceRule![1];
+  assert.doesNotMatch(declarations, /border-top/,
+    "the dashed separator between the field's body text and the 溯源 group must be gone");
+  assert.doesNotMatch(declarations, /padding-top/,
+    "no leftover padding-top standing in for the removed border-top's spacing");
+  assert.match(declarations, /margin-top:\s*4px/,
+    "the group should sit close under the body text, like a footnote, not floating in its own box");
+  // 锁定态（非老孙）字段 hover 出来的琥珀色虚线是完全不同的一套东西
+  // （V19EditableValue/V04ChoiceField 的 .editableLocked / .choiceTriggerLocked），
+  // 这轮反馈明确说了不要动它。
+  assert.match(css, /\.editableLocked:hover \{ border-bottom-color: rgba\(255, 174, 120, \.55\); background: rgba\(255, 174, 120, \.08\); \}/,
+    "the locked-field amber dashed hover treatment must remain untouched");
 });
