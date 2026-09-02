@@ -316,6 +316,10 @@
 .choiceTrigger { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--v04-line); border-radius: 9px; background: #11120f; color: var(--v04-ink); padding: 8px 10px; text-align: left; }
 .choiceTrigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choiceTrigger b { color: var(--v04-accent); font-size: 10px; }
+/* 集成版锁定态：跟 V19EditableValue 的 .editableLocked 同一套语言——
+   看起来还能点，但悬停转琥珀色提示点了也没用。 */
+.choiceTriggerLocked { cursor: not-allowed; }
+.choiceTriggerLocked:hover { border-color: rgba(255, 174, 120, .55); }
 .choicePanel { display: flex; max-height: 260px; flex-wrap: wrap; gap: 6px; overflow: auto; padding: 9px; border: 1px solid var(--v04-line); border-radius: 9px; background: #0f100e; }
 .choicePanel button { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: #b9bbb2; padding: 7px 9px; font-size: 11px; }
 .isSelected { border-color: var(--v04-accent) !important; background: rgba(223,255,79,.12) !important; color: var(--v04-accent) !important; }
@@ -490,6 +494,10 @@
 .editableBlock { display: block; white-space: pre-wrap; }
 .editableEmpty { color: var(--v04-muted); }
 .editableWarn { border-bottom: 1px dashed rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); color: rgba(255, 174, 120, .95); }
+/* 集成版锁定态：看起来仍是可编辑区（不像纯只读那样退成普通正文），
+   但点不进去——禁止光标 + 悬停转琥珀色，跟警告色系共用同一组变量。 */
+.editableLocked { cursor: not-allowed; }
+.editableLocked:hover { border-bottom-color: rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); }
 /* 编辑态填满所在容器。没有 width 时 <input> 用的是浏览器默认尺寸（约 20ch），
    于是点开编辑反而比阅读态窄一大截，旁边整片空间白白空着。 */
 .editableInput { width: 100%; min-width: 5ch; max-width: 100%; border: 1px solid rgba(223, 255, 79, .4); border-radius: 7px; background: #0f100e; color: var(--v04-ink); padding: 6px 8px; }
@@ -762,16 +770,20 @@ input.editableTimecode { padding: 5px 8px; }
 .commentMarker[data-open="true"] { opacity: 1; pointer-events: auto; }
 .commentMarker:hover { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .commentMarker[data-has-comment="true"] { border-color: rgba(223, 255, 79, .45); color: var(--v04-accent); }
+/* 本版有评论时描边实色（不透明）：跟别版有评论的半透明描边分开，
+   一眼就能认出「这一版我自己被说过什么」。 */
+.commentMarker[data-here="true"] { border-color: var(--v04-accent); }
+.commentMarker span { font-size: 10px; font-weight: 700; margin-left: 1px; }
 /* 气泡就近弹在按钮下方；正文没有 overflow 裁剪，所以不需要传送到 body。 */
 .commentPopover {
   position: absolute; top: calc(100% + 7px); left: 0; z-index: 40;
-  display: flex; width: 288px; max-width: 76vw; flex-direction: column; gap: 8px;
+  display: flex; width: 320px; max-width: 80vw; flex-direction: column; gap: 8px;
   border: 1px solid var(--v04-line); border-radius: 12px; background: rgba(23, 24, 21, .99);
   box-shadow: 0 18px 44px rgba(0, 0, 0, .5); padding: 12px;
   color: var(--v04-ink); font-size: 12px; font-weight: 400; letter-spacing: 0; text-align: left;
   cursor: default;
 }
-.commentPopover > b { color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.commentPopover > b { color: var(--v04-subject); font-size: 10px; font-weight: 500; letter-spacing: 0; display: flex; gap: 8px; align-items: center; }
 /* 按钮与气泡之间留了 7px 空隙好看，但鼠标穿过这段空隙时会离开整个锚点，
    气泡就在人伸手去点「编辑」的路上消失了。用一条透明的桥把命中区补上。 */
 .commentPopover::before { position: absolute; top: -9px; left: 0; right: 0; height: 9px; content: ""; }
@@ -788,7 +800,39 @@ input.editableTimecode { padding: 5px 8px; }
 }
 .commentActions button:first-child { border-color: rgba(223, 255, 79, .5); color: var(--v04-accent); }
 .commentActions button:disabled { cursor: not-allowed; color: var(--v04-muted); border-color: var(--v04-line); opacity: .6; }
+.commentSubmit { border-color: rgba(223, 255, 79, .5) !important; color: var(--v04-accent) !important; }
+.commentSubmit:disabled { color: var(--v04-muted) !important; border-color: var(--v04-line) !important; }
 .commentDelete { margin-left: auto; color: #ff9a9a !important; border-color: rgba(255, 122, 122, .4) !important; }
+
+/* 评论列表：一个条目在所有版本上的评论汇总显示，本版那条高亮。 */
+.commentList { display: flex; flex-direction: column; }
+.commentNone { padding: 4px 0; color: var(--v04-muted); font-size: 11px; }
+.commentItem { padding: 7px 0; border-top: 1px solid var(--v04-line); }
+.commentItem:first-child { border-top: 0; padding-top: 0; }
+.commentItem[data-here="true"] {
+  background: rgba(223, 255, 79, .05); margin: 0 -6px; padding-left: 6px; padding-right: 6px; border-radius: 6px;
+}
+.commentItemHead { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--v04-muted); margin-bottom: 2px; }
+.commentItemHead b { color: var(--v04-ink); }
+.commentItemTime {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 9.5px; color: var(--v04-muted);
+}
+.commentItemHead button {
+  margin-left: auto; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
+  color: var(--v04-ink); padding: 1px 8px; font-size: 10px; cursor: pointer;
+}
+.commentItemHead button:hover { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
+.commentReadonly { margin-left: auto; color: var(--v04-muted); font-size: 9.5px; }
+.commentVersionTag {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 9px; font-weight: 700; color: var(--v04-muted); border: 1px solid var(--v04-line);
+  border-radius: 999px; padding: 0 6px; flex: none;
+}
+.commentVersionTag[data-here="true"] { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
+.commentWrite { padding-top: 8px; border-top: 1px solid var(--v04-line); display: flex; flex-direction: column; gap: 6px; }
+/* flex:1 把删除／取消／发布挤到右边一簇，跟 hint 文案分开两端对齐。 */
+.commentWriteHint { flex: 1; color: var(--v04-muted); font-size: 10px; }
 
 /* 评分在正文最后、靠右：读完才谈得上打分，所以它是收束，不是抬头。 */
 .assignmentRating {
@@ -810,6 +854,129 @@ input.editableTimecode { padding: 5px 8px; }
 .ratingStrip[data-readonly="true"] span { cursor: default; }
 .ratingStrip button:disabled { cursor: not-allowed; }
 .ratingStarOn { color: var(--v04-subject) !important; }
+
+/* ---------- 集成版（docs/20_..._V0.1.md 五、13-19；配色对齐 demo 的 --warn 系金色 #ffd166） ---------- */
+.finalVersionNum { color: #ffd166; }
+.finalStatusPill {
+  display: inline-flex; flex: none; align-items: center; gap: 5px; border-radius: 999px;
+  padding: 2px 8px; font-size: 9px; font-weight: 800; white-space: nowrap;
+}
+/* 圆点静止不闪——之前用 v04SavePulse 做呼吸动效，用户看了线上效果要求去掉，圆点本身留着。 */
+.finalStatusPill .finalStatusDot { width: 6px; height: 6px; border-radius: 99px; background: currentColor; }
+.finalStatusOpen { color: #8fd3ff; border: 1px solid rgba(143, 211, 255, .45); }
+.finalStatusDone { color: #ffd166; border: 1px solid rgba(255, 209, 102, .55); background: rgba(255, 209, 102, .08); }
+
+.finalViewSwitch { display: inline-flex; flex: none; border: 1px solid var(--v04-line); border-radius: 999px; padding: 2px; font-size: 11px; }
+.finalViewSwitch button { padding: 5px 11px; border: 0; border-radius: 999px; background: transparent; color: var(--v04-muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.finalViewSwitch button.on { background: rgba(223, 255, 79, .12); color: var(--v04-accent); }
+
+.finalActionButton {
+  flex: none; border: 1px solid rgba(255, 209, 102, .6); border-radius: 999px; background: transparent;
+  color: #ffd166; padding: 7px 14px; font: inherit; font-size: 11px; font-weight: 800; white-space: nowrap; cursor: pointer;
+}
+.finalActionButton:hover:not(:disabled) { background: rgba(255, 209, 102, .12); }
+.finalActionButton:disabled { cursor: wait; opacity: .6; }
+.finalActionButtonUndo { color: var(--v04-muted); font-weight: 500; }
+.finalActionButtonUndo:hover:not(:disabled) { color: var(--v04-ink); background: transparent; border-color: rgba(223, 255, 79, .5); }
+
+/* 版本面板置顶的集成版行：金色描边区分于普通版本行，说明性文字换行到下一行铺满。
+   说明文字（.versionDesc）左边缘要跟同一行「集成版」文字的左边缘对齐——两者
+   都只吃 .versionRow 自己的 8px padding，desc 不能再叠一段左内边距，不然会
+   比「集成版」缩进一截，还可能因此多占一行。 */
+.versionRowFinal { flex-wrap: wrap; margin-bottom: 8px; border: 1px solid rgba(255, 209, 102, .35); background: rgba(255, 209, 102, .05); }
+.versionRowFinal .versionNumber { color: #ffd166; }
+.finalPendingBadge { flex: none; color: #ffae78; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px; padding: 1px 7px; font-size: 9px; font-weight: 800; white-space: nowrap; }
+.versionDesc { flex-basis: 100%; color: var(--v04-muted); font-size: 10px; line-height: 1.6; }
+
+/* 视频下方横幅：未定稿／已定稿说明，未纳入计数与「全部采纳」「到溯源视图逐条看」。 */
+.finalBanner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 22px;
+  padding: 12px 18px; border: 1px solid rgba(255, 209, 102, .35); border-radius: 14px;
+  background: rgba(255, 209, 102, .05); color: var(--v04-ink); font-size: 12px; line-height: 1.7;
+}
+.finalPendingText { color: #ffae78; }
+.finalBannerSpacer { flex: 1; }
+.finalBanner button { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 5px 11px; font: inherit; font-size: 11px; cursor: pointer; }
+.finalBanner button:hover:not(:disabled) { color: var(--v04-accent); border-color: rgba(223, 255, 79, .5); }
+.finalBanner button:disabled { cursor: wait; opacity: .6; }
+
+/* 结构改动未纳入：插入/删除桥段与镜头没有单个字段可挂，单独列一组。 */
+.finalStructuralPending {
+  display: grid; gap: 6px; margin: -8px 0 22px; padding: 12px 16px;
+  border: 1px solid rgba(255, 174, 120, .35); border-radius: 12px; background: rgba(255, 174, 120, .05);
+}
+.finalStructuralPending > b { color: #ffcfad; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.finalStructuralRow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--v04-muted); font-size: 11.5px; }
+.finalStructuralRow button { flex: none; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px; background: transparent; color: #ffae78; padding: 3px 11px; font: inherit; font-size: 10px; cursor: pointer; }
+.finalStructuralRow button:hover:not(:disabled) { background: rgba(255, 174, 120, .15); }
+.finalStructuralRow button:disabled { cursor: wait; opacity: .6; }
+
+/* 溯源视图：合并重复行、当前采用只留一行来源提示、旧写法收成可展开摘要，
+   未纳入照旧完整显示（见 lib/v19-final-trace.ts 的简化规则 1-5）。用户看了
+   线上效果后的第三轮反馈：去掉正文和这一组之间的虚线分隔（不是另一个独立
+   的框，是正文的脚注），间距收到 4px；这条虚线分隔跟 .editableLocked 的
+   琥珀色虚线 hover 是两回事，不要混着改。 */
+.finalTrace { display: grid; gap: 4px; margin-top: 4px; }
+/* 当前采用：不再用 --v04-subject（那是条目名称的金色，用在这里显得像另一
+   个标题）——改成跟默认视图里辅助说明文字同一色阶的 --v04-muted；字号跟
+   字重也降下来（10.5px / 400），这只是紧跟正文的一行来源注释，不是标题。
+   旧写法摘要行同样是灰色小字（11px），两者不比谁更显眼，靠位置（当前采用
+   永远排第一）和「当前采用 ·」前缀本身区分。 */
+.finalTraceCurrent { color: var(--v04-muted); font-size: 10.5px; font-weight: 400; line-height: 1.4; }
+/* 旧写法摘要行：跟当前采用同样是灰色小字（11px，比当前采用的 10.5px 略
+   大一点，纯粹是展开后的整段正文要读得下去），版本号／作者普通字重，正文
+   摘要更淡，只有「未纳入」保留琥珀色强调（见下面 .finalTraceRowPending）。
+   整行可点，收起时只留版本/作者/时间 + 第一行预览（省略号截断），行高收紧
+   成 1.3；点开后预览换成跟未纳入一样的整段正文，字号放到 12px 保证读得下
+   去。跟当前采用不比谁更显眼——两条都是弱化的灰字，靠先后顺序和「当前采用
+   ·」前缀本身区分，不需要谁压过谁。
+   选择器必须是 `.surface .finalTraceSummaryRow`（0,2,0），不能只写
+   `.finalTraceSummaryRow`（0,1,0）：这是个 <button>，顶部 `.surface button,
+   .surface input, .surface textarea { font: inherit; }`（0,1,1）优先级更
+   高，会把这里的 font-size 重置成继承 .surface 的 14px，跟源码顺序无关——
+   之前就是这样在浏览器里实测成了 14px，CSS 不变量测试只比较了两条规则各
+   自写的数字，没有算实际级联结果，所以没测出来。 */
+.surface .finalTraceSummaryRow {
+  display: block; width: 100%; border: 0; border-left: 2px solid var(--v04-line); border-radius: 8px;
+  background: transparent; padding: 4px 9px; text-align: left; font: inherit; color: var(--v04-muted);
+  font-size: 11px; line-height: 1.3; cursor: pointer;
+}
+.finalTraceSummaryRow:hover { border-left-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .05); }
+.finalTraceSummaryLabel {
+  color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 400; margin-right: 8px;
+}
+.finalTraceSummaryPreview { color: var(--v04-muted); opacity: .72; }
+.finalTraceSummaryRow[aria-expanded="false"] .finalTraceSummaryPreview {
+  display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+.finalTraceSummaryRow[aria-expanded="true"] .finalTraceSummaryPreview {
+  display: block; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5;
+}
+/* 未纳入：照旧完整展示（版本/作者/时间/全文/采纳按钮），只是数据来源换了形状。 */
+.finalTraceRow {
+  display: grid; grid-template-columns: auto auto auto 1fr; gap: 4px 10px; align-items: baseline;
+  padding: 5px 9px; border-left: 2px solid var(--v04-line); border-radius: 8px; color: var(--v04-muted); font-size: 11px;
+}
+.finalTraceVersion { color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; }
+.finalTraceWho { font-size: 10.5px; }
+.finalTraceTime { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 9.5px; }
+.finalTraceValue { grid-column: 1 / -1; color: var(--v04-muted); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.finalTraceTag { justify-self: start; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; font-size: 9px; font-weight: 800; }
+.finalTraceRowPending { border-left-color: rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); }
+.finalTraceRowPending .finalTraceTag { color: #ffae78; }
+/* 同一个优先级坑：这也是个裸 <button>，跟 .finalTraceSummaryRow 一样要挂在
+   .surface 下面才能保住自己的 font-size，不然一样会被顶部的 .surface
+   button 重置成 14px。 */
+.surface .finalTraceAdopt {
+  grid-column: 1 / -1; justify-self: start; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px;
+  background: transparent; color: #ffae78; padding: 2px 10px; font: inherit; font-size: 10px; cursor: pointer;
+}
+.finalTraceAdopt:hover { background: rgba(255, 174, 120, .15); }
+
+@media (max-width: 620px) {
+  .finalBanner, .finalStructuralPending { padding: 11px 13px; }
+}
 
 @media (max-width: 620px) {
   .commentPopover { width: min(288px, calc(100vw - 48px)); }

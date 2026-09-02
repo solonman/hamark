@@ -34,8 +34,12 @@ export const CASE_ENGAGEMENT_SCHEMA_STATEMENTS = [
     ON analysis_version_ratings (video_id)`,
   // 一个条目一条评论：评审再写就是改这一条，不叠成讨论串。
   // 挂在版本上而不是案例上——评论说的是这个人这一版的写法。
+  // version_id 不建外键：最终版（analysis_final_versions）的 id 不在
+  // analysis_versions 里，写评论时改由服务端自行校验 version_id 属于该案例
+  // （普通版本或最终版之一）——见 db/final-version-schema.ts 与
+  // docs/20_最终版与评论跨版本_实施规格_V0.1.md 二。
   `CREATE TABLE IF NOT EXISTS analysis_version_comments (
-    version_id TEXT NOT NULL REFERENCES analysis_versions(id),
+    version_id TEXT NOT NULL,
     target_key TEXT NOT NULL,
     video_id TEXT NOT NULL REFERENCES videos(id),
     target_label TEXT NOT NULL DEFAULT '',

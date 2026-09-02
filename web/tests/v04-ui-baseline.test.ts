@@ -165,8 +165,22 @@ test("observer workspace keeps local reading interactions while every mutation r
   assert.match(comments, /onLocate\?: \(id: string\) => void/);
   assert.match(workspace, /<V04CommentDrawer[\s\S]*onLocate=\{locate\}[\s\S]*readOnly=\{!canEdit\}/);
 
-  assert.match(choice, /className=\{styles\.choiceTrigger\}[\s\S]*onClick=\{\(\) => setOpen/);
-  assert.doesNotMatch(choice, /className=\{styles\.choiceTrigger\}[^>]*disabled/);
+  // The trigger's className is no longer the bare `styles.choiceTrigger`
+  // literal these two assertions originally pinned — it's now
+  // `locked ? \`${styles.choiceTrigger} ${styles.choiceTriggerLocked}\` : styles.choiceTrigger`
+  // (spec 五、18/19's locked-hover treatment for a final-version viewer who
+  // isn't 老孙). The property these assertions actually protect — the
+  // open/close toggle is a purely local reading interaction and must never
+  // itself carry `disabled`, unlike the panel's option buttons a few lines
+  // down which do gate on `disabled={readOnly}` — still holds, so this
+  // anchors on `aria-expanded={open}` (unique to the trigger button) instead
+  // of the className literal, and stops the span before `onClick`'s own body
+  // so the arrow function's `=>` can't be mistaken for anything.
+  const choiceTriggerTagSpan = choice.match(/aria-expanded=\{open\}[\s\S]*?onClick=\{\(\) => setOpen/);
+  assert.ok(choiceTriggerTagSpan, "expected to find the choice trigger button's open/close wiring");
+  assert.match(choice, /choiceTrigger[\s\S]*?aria-expanded=\{open\}/, "expected the trigger button's className to reference styles.choiceTrigger");
+  assert.doesNotMatch(choiceTriggerTagSpan[0], /disabled/,
+    "the trigger toggle must stay clickable even when the field is readOnly/locked — only the option buttons and inputs inside the panel are gated");
   assert.match(choice, /disabled=\{readOnly\}/);
   assert.match(choice, /readOnly=\{readOnly\}/);
   assert.match(shot, /draggable=\{!readOnly\}/);

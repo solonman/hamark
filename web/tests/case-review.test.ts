@@ -11,6 +11,7 @@ import {
   normalizeReviewComment,
   normalizeReviewStars,
 } from "../lib/case-review.ts";
+import { toIsoTimestamp } from "../lib/case-review-server.ts";
 
 const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -47,18 +48,37 @@ test("comment anchors are stable per bridge, shot and path item", () => {
   assert.equal(CASE_REVIEW_TARGETS.primaryPathDetail("FUN", 2), "path.primaryDetails.FUN.2");
   assert.equal(CASE_REVIEW_TARGETS.auxiliaryPath("LOVE"), "path.auxiliary.LOVE");
   const index = commentsByTarget([
-    { targetKey: "bridge:g1", targetLabel: "桥段01", body: "a", authorName: "老孙", updatedAt: "" },
-    { targetKey: "shot:s1", targetLabel: "镜头01", body: "b", authorName: "老孙", updatedAt: "" },
+    { targetKey: "bridge:g1", targetLabel: "桥段01", body: "a", authorName: "老孙", updatedAt: "", versionId: "v1", versionLabel: "v1" },
+    { targetKey: "shot:s1", targetLabel: "镜头01", body: "b", authorName: "老孙", updatedAt: "", versionId: "v1", versionLabel: "v1" },
   ]);
-  assert.equal(index.get("bridge:g1")?.body, "a");
+  assert.equal(index.get("bridge:g1")?.[0]?.body, "a");
   assert.equal(index.get("missing"), undefined);
+});
+
+test("comments跨版本汇总到同一个条目下，组内按写入时间升序排列", () => {
+  // 一个条目现在可能挂着好几个版本各写的一条评论——不再是「一个条目一条」，
+  // 汇总到同一个 key 下，且不依赖调用方已经按时间排好序。
+  const grouped = commentsByTarget([
+    { targetKey: "bridge:g1", targetLabel: "桥段01", body: "后写的", authorName: "老孙", updatedAt: "2026-09-02T10:00:00Z", versionId: "final", versionLabel: "集成版" },
+    { targetKey: "shot:s1", targetLabel: "镜头01", body: "无关条目", authorName: "老孙", updatedAt: "2026-09-01T09:00:00Z", versionId: "v2", versionLabel: "v2" },
+    { targetKey: "bridge:g1", targetLabel: "桥段01", body: "先写的", authorName: "老孙", updatedAt: "2026-09-01T09:00:00Z", versionId: "v2", versionLabel: "v2" },
+  ]);
+  const bridgeComments = grouped.get("bridge:g1");
+  assert.equal(bridgeComments?.length, 2);
+  assert.deepEqual(bridgeComments?.map((c) => c.body), ["先写的", "后写的"]);
+  assert.deepEqual(bridgeComments?.map((c) => c.versionLabel), ["v2", "集成版"]);
+  assert.equal(grouped.get("shot:s1")?.length, 1);
 });
 
 test("one comment per item per version, enforced by the table itself", async () => {
   const schema = CASE_ENGAGEMENT_SCHEMA_STATEMENTS.join("\n");
   assert.match(schema, /CREATE TABLE IF NOT EXISTS analysis_version_comments[\s\S]*PRIMARY KEY \(version_id, target_key\)/);
   // 评论挂在版本上：评的是这个人这一版的写法，不该跟着案例漂到别人的版本上。
-  assert.match(schema, /version_id TEXT NOT NULL REFERENCES analysis_versions\(id\)/);
+  // version_id 从 spec 20（集成版）起不再是外键：集成版的 id 不在 analysis_versions
+  // 里，服务端自己校验 version_id 属于该案例（普通版本或集成版）——
+  // 见 db/final-version-schema.ts 与 db/migrations/2026-09-02-final-version.sql。
+  assert.match(schema, /version_id TEXT NOT NULL,/);
+  assert.doesNotMatch(schema, /version_id TEXT NOT NULL REFERENCES analysis_versions\(id\)/);
   assert.match(schema, /body TEXT NOT NULL CHECK \(length\(body\) > 0\)/);
   assert.match(schema, /ALTER TABLE analysis_version_comments ENABLE ROW LEVEL SECURITY/);
   const migration = await source("../db/migrations/2026-09-01-case-engagement.sql");
@@ -78,6 +98,40 @@ test("the server refuses every write that is not the reviewer's, and never trust
   assert.match(route, /requireSameOriginMutation\(request\)/);
   // 读不设门槛：其他人要看得见评审说了什么。
   assert.match(route, /export async function GET[\s\S]*loadCaseReview\(getDbClient\(\)/);
+  // 评论现在可以锚定在普通版本或集成版上：查不到普通版本再当集成版查,
+  // 两处都查不到才拒绝——同样不给别的案例的版本号／集成版 id 可乘之机。
+  assert.match(
+    server,
+    /function requireCommentVersionOfVideo[\s\S]*FROM analysis_versions[\s\S]*FROM analysis_final_versions WHERE id = \? AND video_id = \?[\s\S]*指定的版本不存在/,
+  );
+  assert.match(server, /export async function saveCaseReviewComment[\s\S]*requireCommentVersionOfVideo\(db, input\.videoId, input\.versionId\)/);
+});
+
+test("loadCaseReview fetches every version's comments for the case, and only a real version can be rated", async () => {
+  const server = await source("../lib/case-review-server.ts");
+  // 评论按整案例取，不再按单一版本——不管正看着哪一版都要看得见别版写了什么。
+  assert.match(server, /FROM analysis_version_comments c[\s\S]*LEFT JOIN analysis_versions av ON av\.id = c\.version_id[\s\S]*WHERE c\.video_id = \?/);
+  // 找不到版本号（联查落空）就是写在集成版上。
+  assert.match(server, /row\.version_number != null \? `v\$\{row\.version_number\}` : "集成版"/);
+  // 星级仍只锚定 `?version=` 指定的那一版；version 不在 analysis_versions 里（集成版）时不能评分。
+  assert.match(server, /const canRate = ratableVersionId != null;/);
+});
+
+test("toIsoTimestamp serializes whatever pg hands back for a timestamptz column into ISO", () => {
+  // pg 把 `timestamptz` 解析成 JS Date，不是字符串；String(date) 得到的是
+  // Date.prototype.toString()（"Tue Sep 01 2026 14:31:39 GMT+0800 ..."），
+  // 不是 ISO——这正是评论气泡里时间全显示「未知时间」的成因。
+  const date = new Date("2026-09-01T06:31:39.000Z");
+  assert.equal(toIsoTimestamp(date), "2026-09-01T06:31:39.000Z");
+  assert.doesNotMatch(String(date), /^\d{4}-\d{2}-\d{2}T/, "sanity: Date#toString() is not ISO to begin with");
+
+  // 某些查询路径／测试桩会给字符串：PostgreSQL 常见的 "YYYY-MM-DD HH:mm:ss+TZ"
+  // 写法也要能转成 ISO，而不是直接原样透出一个非 ISO 字符串。
+  assert.equal(toIsoTimestamp("2026-09-01 14:31:39.000000+08"), "2026-09-01T06:31:39.000Z");
+  assert.equal(toIsoTimestamp("2026-09-01T06:31:39.000Z"), "2026-09-01T06:31:39.000Z");
+
+  // 两者都解析不出来就原样返回，不该把一个解析不出的时间戳变成抛错或空字符串。
+  assert.equal(toIsoTimestamp("not-a-timestamp"), "not-a-timestamp");
 });
 
 test("comment buttons sit on open-ended items only, and on bridges and shots in module two", async () => {
@@ -107,13 +161,30 @@ test("the studio anchors both the rating and the comments to the version being v
   assert.match(studio, /\/review\$\{search\}`[\s\S]*\}, \[videoId, reviewVersionId\]\);/);
   assert.match(studio, /const versionId = modelRef\.current\?\.current\.id;[\s\S]*kind: "COMMENT"/);
   assert.match(studio, /const versionId = modelRef\.current\?\.current\.id;[\s\S]*kind: "RATING"/);
-  assert.match(studio, /<V19AssignmentRating[\s\S]*versionLabel=\{`v\$\{model\.current\.number\} · \$\{model\.current\.ownerName\}`\}/);
-  // 评分摆在正文之后：读完整份作业才谈得上给分。
-  assert.match(studio, /<V19StudioDocument[\s\S]*\/>\s*\{\/\*[\s\S]*?\*\/\}\s*<V19AssignmentRating/);
+  // versionLabel goes through formatV19CurrentVersionShortLabel rather than
+  // a raw `v${model.current.number}` — the final version's `number` is a
+  // fixed `0` placeholder (spec 四、4.1), never a real version number to show
+  // (though this component is unreachable in that view — `!isFinalVersionView`
+  // guards it below — the label expression is shared/tested for correctness
+  // regardless, per the local walkthrough that flagged every such spot).
+  assert.match(studio, /<V19AssignmentRating[\s\S]*versionLabel=\{`\$\{formatV19CurrentVersionShortLabel\(model\.current\)\} · \$\{model\.current\.ownerName\}`\}/);
+  // 评分摆在正文之后：读完整份作业才谈得上给分。集成版不评分——`isFinalVersionView`
+  // 与 `review.canRate` 任一为假都不渲染评分组件。
+  assert.match(
+    studio,
+    /<V19StudioDocument[\s\S]*\/>\s*\{\/\*[\s\S]*?\*\/\}\s*\{!isFinalVersionView && review\.canRate && \(\s*<V19AssignmentRating/,
+  );
   // 不能评分、又还没有评分时，整条评分栏不该出现——一排空星星对读者只是噪音。
   assert.match(rating, /if \(!canReview && stars == null\) return null;/);
   // 只读的人看到星级，但看不到可点的控件。
   assert.match(rating, /canReview \? \([\s\S]*<button[\s\S]*\) : \([\s\S]*data-readonly="true"/);
   // 没有评论、也没有权限的人，条目上不该留下任何痕迹。
-  assert.match(comment, /if \(!comment && !canReview\) return null;/);
+  assert.match(comment, /if \(!comments\.length && !canReview\) return null;/);
+  // 评论气泡改成列表：每条前缀版本标签，本版那条高亮「本版」。
+  assert.match(comment, /item\.versionId === currentVersionId/);
+  assert.match(comment, /"·本版"/);
+  // 老孙在别版写过的条目上看到「切到该版可改」，不能就地改别版那条。
+  assert.match(comment, /切到该版可改/);
+  // `commentsByTarget` 现在按条目分组返回一个列表，不再是一条。
+  assert.match(studio, /commentsByTarget\(review\.comments\)/);
 });

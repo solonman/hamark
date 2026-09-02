@@ -62,6 +62,13 @@ test("formatV19VersionLabel can combine a base reference with an uploader owner"
   );
 });
 
+test("formatV19VersionLabel renders 基于集成版 when baseIsFinal is set, regardless of baseNumber", () => {
+  assert.equal(
+    formatV19VersionLabel({ number: 5, baseNumber: null, ownerName: "老孙", ownerIsUploader: false, baseIsFinal: true }),
+    "v5（基于集成版，老孙）",
+  );
+});
+
 test("pickV19ActorVersion finds the version owned by the actor", () => {
   const versions = [{ ownerUserId: "user_a" }, { ownerUserId: "user_b" }];
   const found = pickV19ActorVersion(versions, "user_b");

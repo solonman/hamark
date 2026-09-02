@@ -33,8 +33,13 @@ test("V1.9 PUT contract drops the retired lease / expectedRevision conflict prot
   assert.doesNotMatch(route, /expectedRevision/i);
   assert.doesNotMatch(route, /\blease\s*[:,]/i, "no lease proof may be forwarded to the service");
   assert.doesNotMatch(route, /acquireV04Lease|requireValidLease|heartbeatV04Lease/);
-  assert.match(route, /canEdit: workspace\.viewerCapabilities\.canRead/,
-    "edit rights follow read rights here; holding a lease is not a precondition");
+  // Since spec 20 (集成版), canEdit is no longer a single unconditional
+  // assignment: the final version overrides it to "only 老孙" (spec 四、4.1),
+  // so the guard checks both halves rather than one literal expression.
+  assert.match(route, /workspace\.viewerCapabilities\.canRead/,
+    "edit rights follow read rights for a normal version; holding a lease is not a precondition");
+  assert.match(route, /isCaseReviewer\(actor\.displayName\)/,
+    "the final version overrides edit rights to reviewer-only");
 });
 
 test("V1.9 versions route also carries no lease / expectedRevision protocol", async () => {

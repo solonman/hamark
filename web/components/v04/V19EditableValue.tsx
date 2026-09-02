@@ -26,6 +26,17 @@ export type V19EditableProps = {
   monospace?: boolean;
   warning?: string;
   readOnly?: boolean;
+  /**
+   * Final-version viewer who is not 老孙 (spec 五、16): still rendered as an
+   * editable-looking field (unlike plain `readOnly`, which reads as inert
+   * text) so it can be clicked, but `startEditing` never actually opens the
+   * editor — `onBeforeEdit` is expected to veto it and toast instead.
+   */
+  locked?: boolean;
+  /** Spec 五、19: appended to the hover title as `· 来自 {sourceHint}` in the default (non-溯源) final view. */
+  sourceHint?: string;
+  /** Rendered after the value/diff markup — the 溯源 view's per-field source chain (spec 五、18). */
+  after?: ReactNode;
   /** Vetoes opening the editor. Returning false leaves the value untouched. */
   onBeforeEdit?: () => boolean;
   ariaLabel: string;
@@ -97,6 +108,9 @@ export default function V19EditableValue({
   monospace = false,
   warning,
   readOnly = false,
+  locked = false,
+  sourceHint,
+  after,
   onBeforeEdit,
   ariaLabel,
   id,
@@ -133,11 +147,19 @@ export default function V19EditableValue({
   };
 
   const startEditing = () => {
-    if (readOnly || isEditing) return;
+    if (isEditing) return;
+    // Plain read-only (no `locked`): nothing to click into at all — unchanged
+    // from before `locked` existed. A `locked` field (final version, viewer
+    // isn't 老孙) still looks clickable, so it falls through to the
+    // `onBeforeEdit` veto below instead of bailing here.
+    if (readOnly && !locked) return;
     // Asked before the editor opens, not after typing: a surface that may need
     // to redirect this edit elsewhere has to say so while the field is still
-    // empty of the person's words, rather than discard them afterwards.
+    // empty of the person's words, rather than discard them afterwards. For a
+    // `locked` field this is also the only place the "集成版只有老孙可以编辑"
+    // toast gets a chance to fire.
     if (onBeforeEdit && !onBeforeEdit()) return;
+    if (readOnly) return; // locked: never actually opens the editor, even if onBeforeEdit somehow allowed it
     setDraft(value);
     setIsEditing(true);
   };
@@ -169,13 +191,14 @@ export default function V19EditableValue({
   if (!isEditing) {
     const ReadingTag = block ? "div" : "span";
 
-    if (readOnly) {
+    if (readOnly && !locked) {
       return (
         <>
           <ReadingTag id={id} style={block ? { whiteSpace: "pre-wrap" } : undefined}>
             {isEmpty ? placeholder : displayLabel(value)}
           </ReadingTag>
           {diffMarkup}
+          {after}
         </>
       );
     }
@@ -186,7 +209,13 @@ export default function V19EditableValue({
       isEmpty && styles.editableEmpty,
       hasWarning && styles.editableWarn,
       isMonospace && styles.editableTimecode,
+      locked && styles.editableLocked,
     );
+    // spec 五、19: `点击编辑 · 来自 v2·李晓芸 08-24 11:05`；locked (final
+    // version, viewer isn't 老孙) swaps the verb for the reason it's locked,
+    // same suffix format either way.
+    const baseTitle = hasWarning ? warning : locked ? "集成版只有老孙可以编辑" : "点击编辑";
+    const title = sourceHint ? `${baseTitle} · 来自 ${sourceHint}` : baseTitle;
 
     return (
       <>
@@ -196,7 +225,7 @@ export default function V19EditableValue({
           role="button"
           tabIndex={0}
           aria-label={ariaLabel}
-          title={hasWarning ? warning : "点击编辑"}
+          title={title}
           onClick={startEditing}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") {
@@ -208,6 +237,7 @@ export default function V19EditableValue({
           {isEmpty ? placeholder : displayLabel(value)}
         </ReadingTag>
         {diffMarkup}
+        {after}
       </>
     );
   }
@@ -232,6 +262,7 @@ export default function V19EditableValue({
           }}
         />
         {diffMarkup}
+        {after}
       </>
     );
   }
@@ -263,6 +294,7 @@ export default function V19EditableValue({
           ))}
         </select>
         {diffMarkup}
+        {after}
       </>
     );
   }
@@ -291,6 +323,7 @@ export default function V19EditableValue({
         }}
       />
       {diffMarkup}
+      {after}
     </>
   );
 }
