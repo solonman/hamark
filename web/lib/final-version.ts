@@ -804,6 +804,12 @@ export async function setFinalVersionStatus(
   const now = input.now ?? new Date();
   return db.withTransaction(async (tx) => {
     const workspace = await resolveWorkspaceForWrite(tx, actor, input.videoId);
+    // A case migrated in without ever being saved through the V1.9 surface
+    // still has only a virtual final version (no analysis_final_versions
+    // row) — 老孙's very first action on it can be "定稿", so this has to
+    // materialize (with backfill) rather than 404 on a row that just hasn't
+    // been created yet.
+    await ensureFinalVersion(tx, workspace, now);
     const finalRow = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE`)
       .bind(workspace.id).first<FinalVersionRow>();
     if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "最终版尚不存在，无法定稿。");
@@ -839,6 +845,10 @@ export async function adoptFinalIntakes(
   const now = input.now ?? new Date();
   return db.withTransaction(async (tx) => {
     const workspace = await resolveWorkspaceForWrite(tx, actor, input.videoId);
+    // Same reasoning as setFinalVersionStatus: a never-saved case's final
+    // version is still virtual, so materialize (with backfill) before
+    // touching it rather than 404ing on a row that doesn't exist yet.
+    await ensureFinalVersion(tx, workspace, now);
     const finalRow = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE`)
       .bind(workspace.id).first<FinalVersionRow>();
     if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "最终版尚不存在。");
