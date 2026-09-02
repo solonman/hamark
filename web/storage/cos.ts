@@ -170,9 +170,12 @@ async function createCosSignatureFields({
       leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue));
   const headerList = headerEntries.map(([name]) => name).join(";");
   const parameterList = parameterEntries.map(([name]) => name).join(";");
+  // COS 的 HttpString 里要的是原始对象路径，不是 URL 编码后的：键里带中文、空格、括号时
+  // （报告的"相关资料"按原文件名存），用编码后的 pathname 签会得到 SignatureDoesNotMatch。
+  // 纯 ASCII 键解码后原样不变，视频那条线不受影响。
   const httpString = [
     method.toLowerCase(),
-    url.pathname,
+    decodeURIComponent(url.pathname),
     canonicalCosPairs(parameterEntries),
     canonicalCosPairs(headerEntries),
     "",
