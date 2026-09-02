@@ -10,6 +10,7 @@ import {
   applyFinalIntakeBatch,
   computeFinalFromHistory,
   decomposeV19ChangesForFinal,
+  deriveFinalOrigin,
   type FinalHistoryEvent,
   type FinalIntakeDraft,
 } from "../lib/final-version.ts";
@@ -341,6 +342,123 @@ test("computeFinalFromHistory: 事件里的 script.structure 变更同样先拆�
   assert.deepEqual(payload.script.shotGroups[0].shots.map((s) => s.id), ["s1", "s2"]);
   assert.equal(intakes.length, 1);
   assert.equal(intakes[0].kind, "INSERT_SHOT");
+});
+
+// ---------------------------------------------------------------------------
+// deriveFinalOrigin — the backfill's true starting point is v1's payload
+// *before* its own edits, not v1's current (already-edited) state. Getting
+// this wrong made the 溯源 view's "v1 原稿" row show v1's latest value
+// mislabeled as the original.
+// ---------------------------------------------------------------------------
+
+test("deriveFinalOrigin: v1 改过两次的字段，origin 是第一次修改前的值", () => {
+  const v1Current = payloadWithGroups([group("g1", 0, [], { bridgeName: "第二次改的值" })]);
+  const events: FinalHistoryEvent[] = [
+    historyEvent({
+      id: "event_1", versionId: "v1", createdAt: "2026-08-26T17:00:00.000Z",
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称",
+      beforeValue: "原始值", afterValue: "第一次改的值",
+    }),
+    historyEvent({
+      id: "event_2", versionId: "v1", createdAt: "2026-08-26T17:34:00.000Z",
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称",
+      beforeValue: "第一次改的值", afterValue: "第二次改的值",
+    }),
+  ];
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.equal(origin.script.shotGroups[0].bridgeName, "原始值");
+});
+
+test("deriveFinalOrigin: 只撤销 v1 自己的事件，其他版本的事件不影响 origin", () => {
+  const v1Current = payloadWithGroups([group("g1", 0, [], { bridgeName: "v1的当前值" })]);
+  const events: FinalHistoryEvent[] = [
+    historyEvent({
+      id: "event_v1", versionId: "v1", createdAt: "2026-08-26T10:00:00.000Z",
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称",
+      beforeValue: "v1真正的原始值", afterValue: "v1的当前值",
+    }),
+    historyEvent({
+      id: "event_v2", versionId: "v2", createdAt: "2026-08-26T12:00:00.000Z",
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称",
+      beforeValue: "不该被用到", afterValue: "李晓芸改的值，跟 v1 的 origin 无关",
+    }),
+  ];
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.equal(origin.script.shotGroups[0].bridgeName, "v1真正的原始值");
+});
+
+test("deriveFinalOrigin: script.structure 事件整体撤销回 before 的 shotGroups", () => {
+  const before = [group("g1", 0, [shot("s1", 0)])];
+  const after = [group("g1", 0, [shot("s1", 0), shot("s2", 1)])];
+  const v1Current = payloadWithGroups(after);
+  const events: FinalHistoryEvent[] = [
+    historyEvent({
+      id: "event_1", versionId: "v1", createdAt: "2026-08-26T10:00:00.000Z",
+      targetKey: "script.structure", targetLabel: "脚本结构", valueType: "STRUCTURE",
+      beforeValue: before, afterValue: after,
+    }),
+  ];
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.deepEqual(origin.script.shotGroups[0].shots.map((s) => s.id), ["s1"]);
+});
+
+test("deriveFinalOrigin: 目标已不存在的事件被跳过，其余撤销照常进行", () => {
+  const v1Current = payloadWithGroups([group("g1", 0, [], { bridgeName: "v1的当前值" })]);
+  const events: FinalHistoryEvent[] = [
+    historyEvent({
+      id: "event_missing", versionId: "v1", createdAt: "2026-08-26T09:00:00.000Z",
+      targetKey: "shotGroup:missing.bridgeName", targetLabel: "桥段名称",
+      beforeValue: "不存在", afterValue: "无所谓",
+    }),
+    historyEvent({
+      id: "event_real", versionId: "v1", createdAt: "2026-08-26T10:00:00.000Z",
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称",
+      beforeValue: "真正的原始值", afterValue: "v1的当前值",
+    }),
+  ];
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.equal(origin.script.shotGroups[0].bridgeName, "真正的原始值");
+});
+
+test("deriveFinalOrigin: created_at 相同时按 id 降序撤销", () => {
+  const v1Current = payloadWithGroups([group("g1", 0, [], { bridgeName: "z" })]);
+  const sameTime = "2026-08-26T10:00:00.000Z";
+  const events: FinalHistoryEvent[] = [
+    historyEvent({
+      id: "event_a", versionId: "v1", createdAt: sameTime,
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称", beforeValue: "x", afterValue: "y",
+    }),
+    historyEvent({
+      id: "event_b", versionId: "v1", createdAt: sameTime,
+      targetKey: "shotGroup:g1.bridgeName", targetLabel: "桥段名称", beforeValue: "y", afterValue: "z",
+    }),
+  ];
+  // 降序：先撤销 event_b（z → y），再撤销 event_a（y → x）。
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.equal(origin.script.shotGroups[0].bridgeName, "x");
+});
+
+test("deriveFinalOrigin: 撤销后不再符合契约（如无效的固定选项）时退回 v1 当前 payload", () => {
+  const v1Current = payloadWithGroups([group("g1", 0, [])]);
+  const events: FinalHistoryEvent[] = [
+    historyEvent({
+      id: "event_1", versionId: "v1", createdAt: "2026-08-26T10:00:00.000Z",
+      targetKey: "shotGroup:g1.primaryCreativeRole", targetLabel: "桥段主创意作用", valueType: "CHOICE_WITH_CUSTOM",
+      beforeValue: { selectedOptionIds: ["NOT_A_REAL_OPTION"], customText: "", vocabularyVersion: "AD_VIDEO_VOCAB_V1" },
+      afterValue: v1Current.script.shotGroups[0].primaryCreativeRole,
+    }),
+  ];
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.deepEqual(origin, v1Current);
+});
+
+test("deriveFinalOrigin: 没有 v1 自己的事件时，origin 就是 v1 当前 payload", () => {
+  const v1Current = payloadWithGroups([group("g1", 0, [], { bridgeName: "唯一的值" })]);
+  const events: FinalHistoryEvent[] = [
+    historyEvent({ id: "event_v2", versionId: "v2", beforeValue: "别的", afterValue: "跟 v1 无关" }),
+  ];
+  const origin = deriveFinalOrigin(v1Current, "v1", events);
+  assert.deepEqual(origin, v1Current);
 });
 
 // ---------------------------------------------------------------------------

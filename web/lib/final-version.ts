@@ -377,6 +377,59 @@ export function computeFinalFromHistory(
   return { payload, intakes };
 }
 
+/**
+ * The backfill's true starting point: v1's *own* payload before any of its
+ * own edits, not its current (already-edited) state. Undoes v1's own
+ * `collaboration_revision_events` in reverse (latest first) on top of v1's
+ * current payload — each FIELD-shaped event's target goes back to its
+ * `beforeValue`; a `script.structure` event's before is the whole prior
+ * shotGroups array, replaced wholesale (this is reconstructing v1's own
+ * linear history, not merging with anyone else's concurrent edits, so a
+ * straight array replace is correct and needs no per-item decomposition).
+ *
+ * Getting this wrong previously made the 溯源 (trace) view's "v1 原稿" row
+ * show v1's *latest* value relabeled as if it were the original — e.g.
+ * "v1 原稿 侧面平视 → v1 08-26 17:34 特写 → 当前采用 v1 17:35 侧面平视",
+ * where "原稿" was actually a copy of the last-applied entry, not what v1
+ * started from.
+ *
+ * `v1OwnEvents` may be given in any order and may include events for other
+ * versions too (the caller doesn't have to pre-filter) — only those whose
+ * `versionId` matches `v1Id` are undone. A target that no longer resolves
+ * (`locateTarget` returns null) is skipped rather than failing the whole
+ * backfill. If undoing everything leaves a payload that fails the payload
+ * contract, that result is untrustworthy, so this falls back to the old
+ * behaviour: origin = v1's current payload, unchanged.
+ */
+export function deriveFinalOrigin(
+  v1Payload: V04DraftPayloadV1,
+  v1Id: string,
+  events: readonly FinalHistoryEvent[],
+): V04DraftPayloadV1 {
+  const ownEvents = events.filter((event) => event.versionId === v1Id);
+  const descending = [...ownEvents].sort((left, right) => {
+    const diff = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    if (diff !== 0) return diff;
+    return right.id < left.id ? -1 : right.id > left.id ? 1 : 0;
+  });
+  const candidate = structuredClone(v1Payload);
+  for (const event of descending) {
+    if (event.targetKey === "script.structure") {
+      candidate.script.shotGroups = structuredClone(event.beforeValue as V04ShotGroupPayload[]);
+      continue;
+    }
+    const target = locateTarget(candidate, event.targetKey);
+    if (!target) continue;
+    target.object[target.key] = structuredClone(event.beforeValue);
+  }
+  try {
+    assertV04PayloadContract(candidate);
+  } catch {
+    return v1Payload;
+  }
+  return candidate;
+}
+
 // ---------------------------------------------------------------------------
 // Row shapes and small DB helpers.
 // ---------------------------------------------------------------------------
@@ -519,12 +572,13 @@ export async function ensureFinalVersion(
     await materializeV19FirstVersion(db, workspace, now);
   }
   const v1 = await db.prepare(
-    `SELECT payload_json FROM analysis_versions WHERE workspace_id = ? AND version_number = 1`,
-  ).bind(workspace.id).first<{ payload_json: V04DraftPayloadV1 | string } & QueryResultRow>();
+    `SELECT id, payload_json FROM analysis_versions WHERE workspace_id = ? AND version_number = 1`,
+  ).bind(workspace.id).first<{ id: string; payload_json: V04DraftPayloadV1 | string } & QueryResultRow>();
   if (!v1) throw new V04ServiceError("VERSION_NOT_FOUND", "案例还没有任何版本，无法生成最终版。");
 
-  const origin = parseJsonPayload(v1.payload_json);
   const events = await loadWorkspaceHistoryEvents(db, workspace.id);
+  // 原稿是 v1 修改前的样子，不是 v1 现在的样子——先把 v1 自己的修订事件倒着撤销掉。
+  const origin = deriveFinalOrigin(parseJsonPayload(v1.payload_json), v1.id, events);
   const { payload, intakes } = computeFinalFromHistory(origin, events);
 
   const newId = id("final");
