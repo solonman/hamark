@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import { REPORT_SCHEMA_STATEMENTS, REPORT_SCHEMA_TABLES } from "../db/report-schema.ts";
+
+const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
+
+test("the schema module declares a CREATE TABLE and an RLS lock for every table it lists", () => {
+  const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
+  for (const table of REPORT_SCHEMA_TABLES) {
+    assert.match(
+      schema,
+      new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`),
+      `missing CREATE TABLE for ${table}`,
+    );
+    assert.match(
+      schema,
+      new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),
+      `missing RLS lock for ${table}`,
+    );
+  }
+});
+
+test("the version chain enforces one version per person and a unique version number per report", () => {
+  const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
+  assert.match(
+    schema,
+    /CREATE TABLE IF NOT EXISTS report_versions[\s\S]*UNIQUE \(report_id, version_number\)/,
+  );
+  assert.match(
+    schema,
+    /CREATE TABLE IF NOT EXISTS report_versions[\s\S]*UNIQUE \(report_id, owner_user_id\)/,
+  );
+  // base_version_id 和 base_version_number 必须同生同灭：要么都有基版，要么都没有。
+  assert.match(
+    schema,
+    /CHECK \(\(base_version_id IS NULL\) = \(base_version_number IS NULL\)\)/,
+  );
+});
+
+test("the weekly favorite ballot is keyed by (user_id, week_key), one vote per person per week", () => {
+  const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
+  assert.match(
+    schema,
+    /CREATE TABLE IF NOT EXISTS report_weekly_favorites[\s\S]*PRIMARY KEY \(user_id, week_key\)/,
+  );
+});
+
+test("a version has at most one rating row and one comment per target", () => {
+  const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
+  assert.match(
+    schema,
+    /CREATE TABLE IF NOT EXISTS report_version_ratings[\s\S]*version_id TEXT PRIMARY KEY REFERENCES report_versions\(id\)/,
+  );
+  assert.match(
+    schema,
+    /stars INTEGER NOT NULL CHECK \(stars BETWEEN 1 AND 5\)/,
+  );
+  assert.match(
+    schema,
+    /CREATE TABLE IF NOT EXISTS report_version_comments[\s\S]*PRIMARY KEY \(version_id, target_key\)/,
+  );
+});
+
+test("the revoke guard covers every table the schema module declares", () => {
+  const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
+  for (const table of REPORT_SCHEMA_TABLES) {
+    assert.match(schema, new RegExp(`REVOKE ALL ON TABLE[^']*\\b${table}\\b`));
+  }
+});
+
+test("the migration file mirrors the schema module so production can apply it by hand", async () => {
+  const migration = await source("../db/migrations/2026-09-02-report-reverse.sql");
+  for (const table of REPORT_SCHEMA_TABLES) {
+    assert.match(
+      migration,
+      new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`),
+      `migration is missing CREATE TABLE for ${table}`,
+    );
+    assert.match(
+      migration,
+      new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),
+      `migration is missing RLS lock for ${table}`,
+    );
+  }
+  assert.match(migration, /UNIQUE \(report_id, version_number\)/);
+  assert.match(migration, /UNIQUE \(report_id, owner_user_id\)/);
+  assert.match(migration, /PRIMARY KEY \(user_id, week_key\)/);
+  assert.match(migration, /PRIMARY KEY \(version_id, target_key\)/);
+  // 生产执行口径：整段跑在 Supabase SQL 编辑器里，附加式、可重复执行；
+  // 并且要明确警告不要用 db:migrate（那条路径会撞上 V0.4 契约漂移守卫）。
+  assert.match(migration, /BEGIN;/);
+  assert.match(migration, /COMMIT;/);
+  assert.match(migration, /Supabase SQL 编辑器/);
+  assert.match(migration, /不要用 `npm run db:migrate`/);
+});
+
+test("bootstrap wires the report schema statements into the shared statement list", async () => {
+  const bootstrap = await source("../db/bootstrap.ts");
+  assert.match(bootstrap, /import \{ REPORT_SCHEMA_STATEMENTS \} from "\.\/report-schema";/);
+  assert.match(bootstrap, /\.\.\.REPORT_SCHEMA_STATEMENTS,/);
+});
+
+test("the CI converter columns exist on a fresh reports table and can be added to an existing one", () => {
+  const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
+  // 新库：CREATE TABLE 里直接带这四列。
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS reports[\s\S]*ci_job_large TEXT/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS reports[\s\S]*ci_job_small TEXT/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS reports[\s\S]*ci_callback_token TEXT/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS reports[\s\S]*ci_checked_at TIMESTAMPTZ/);
+  // 老库（2026-09-02-report-reverse.sql 已经跑过）：靠 ADD COLUMN IF NOT EXISTS 补列。
+  for (const column of ["ci_job_large TEXT", "ci_job_small TEXT", "ci_callback_token TEXT", "ci_checked_at TIMESTAMPTZ"]) {
+    assert.match(schema, new RegExp(`ALTER TABLE reports ADD COLUMN IF NOT EXISTS ${column}`));
+  }
+});
+
+test("the report-ci migration file adds the same four columns and can be re-run safely", async () => {
+  const migration = await source("../db/migrations/2026-09-02-report-ci.sql");
+  for (const column of ["ci_job_large TEXT", "ci_job_small TEXT", "ci_callback_token TEXT", "ci_checked_at TIMESTAMPTZ"]) {
+    assert.match(migration, new RegExp(`ALTER TABLE reports ADD COLUMN IF NOT EXISTS ${column}`));
+  }
+  assert.match(migration, /BEGIN;/);
+  assert.match(migration, /COMMIT;/);
+  assert.match(migration, /Supabase SQL 编辑器/);
+  assert.match(migration, /不要用 `npm run db:migrate`/);
+});

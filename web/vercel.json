@@ -8,6 +8,7 @@
     "V04_WORKFLOW_API_ENABLED": "true",
     "V04_WORKFLOW_UI_ENABLED": "true",
     "V04_DETAIL_UI_ENABLED": "true",
-    "V04_LIBRARY_UI_ENABLED": "true"
+    "V04_LIBRARY_UI_ENABLED": "true",
+    "REPORT_LIBRARY_UI_ENABLED": "true"
   }
 }

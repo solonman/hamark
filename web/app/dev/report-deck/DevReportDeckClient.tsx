@@ -1,0 +1,108 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import ReportDeck from "@/components/report/studio/deck/ReportDeck";
+import { ReportMindMapButton } from "@/components/report/studio/deck/ReportMindMap";
+import { emptyReportAnnotation, type ReportAnnotation } from "@/lib/report-structure";
+import { isCaseReviewer } from "@/lib/case-review";
+import type { DeckReviewComment } from "@/components/report/studio/deck/deck-types";
+import type { ReportPageView } from "@/lib/report-model";
+import v04styles from "@/components/v04/V04Surface.module.css";
+
+/**
+ * 本地开发用的最小外壳：不接版本链/保存/评审 API，annotation 与评论都只在
+ * 浏览器内存里，用来单独测 `ReportDeck` 本身的交互。评审身份判定直接复用
+ * 视频侧 `lib/case-review.ts` 的 `isCaseReviewer`（"老孙才能评审"，同一套
+ * 显示名口径，报告侧没有另立一套评审身份规则）。包一层 `v04styles.surface`——
+ * `ReportSelect`/`ReportCombobox`（外壳交付，见 `../../../components/report/
+ * studio/ReportSelect.tsx`）的样式吃 `--v04-*` 变量，真正的工作台由
+ * `ReportStudioClient` 包这一层，这个预览页自己不包就会看到下拉控件没有
+ * 边框/背景色（变量取不到值）。
+ */
+
+/** 一段小的起始结构（2 模块、含嵌套子单元、留一段自由页），比空白报告更方便测嵌套/拖边界/退回未归入。 */
+function seedAnnotation(pageNumbers: number[]): ReportAnnotation {
+  const base = emptyReportAnnotation(pageNumbers);
+  const has = (n: number) => pageNumbers.includes(n);
+  if (!has(1) || pageNumbers.length < 20) return base; // 页数不够就别硬凑，直接给空结构
+
+  const modules = [
+    { id: "M1", name: "营销命题", rel: "推导", role: "示例模块：用于测试拖动改边界与浮层。" },
+    { id: "M2", name: "", rel: "推导", role: "" },
+  ];
+  const units = [
+    { id: "U1", mid: "M1", pid: null as string | null, name: "单元一", rel: "并列", task: "", role: "", psy: "", concl: "" },
+    { id: "U2", mid: "M1", pid: null as string | null, name: "单元二", rel: "转折", task: "", role: "", psy: "", concl: "" },
+    { id: "U2a", mid: "M1", pid: "U2" as string | null, name: "子单元", rel: "展开", task: "", role: "", psy: "", concl: "" },
+  ];
+  const unitOf = (n: number): string | null => {
+    if (n >= 1 && n <= 5) return "U1";
+    if (n >= 6 && n <= 7) return "U2";
+    if (n >= 8 && n <= 10) return "U2a";
+    return null;
+  };
+  const pages = base.pages.map((p) => {
+    if (p.n >= 1 && p.n <= 10) return { ...p, mid: "M1", uid: unitOf(p.n) };
+    if (p.n >= 11 && p.n <= 20) return { ...p, mid: "M2" };
+    return p;
+  });
+  return { ...base, modules, units, pages };
+}
+
+export default function DevReportDeckClient({
+  pages, reportTitle, viewerName,
+}: { pages: ReportPageView[]; reportTitle: string; viewerName: string }) {
+  const initial = useMemo(() => seedAnnotation(pages.map((p) => p.pageNo)), [pages]);
+  const [annotation, setAnnotation] = useState<ReportAnnotation>(initial);
+  const [comments, setComments] = useState<Record<string, DeckReviewComment>>({});
+  const canReview = isCaseReviewer(viewerName);
+
+  return (
+    <div className={v04styles.surface} style={{ padding: "18px 20px 60px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <h1 style={{ color: "#e6e7df", fontSize: 15, margin: 0, fontFamily: "ui-monospace,monospace" }}>
+          ReportDeck 预览 · {reportTitle}
+        </h1>
+        <span style={{ color: "#92958b", fontSize: 11 }}>身份：{viewerName}{canReview ? "（可评审）" : "（只读评审）"}</span>
+        {/* ReportDeck 自己不再渲染这个按钮（外壳把它放在"第三部分"标题栏右侧，
+            deck 内部去掉了重复的一份），这个预览页没有外壳的标题栏，所以在
+            这里补一个入口，脑图功能才测得到。 */}
+        <ReportMindMapButton annotation={annotation} pages={pages} />
+        <button
+          type="button"
+          onClick={() => setAnnotation(emptyReportAnnotation(pages.map((p) => p.pageNo)))}
+          style={{ border: "1px solid #444", borderRadius: 999, padding: "5px 12px", fontSize: 11, color: "#e6e7df", background: "#171815", cursor: "pointer" }}
+        >
+          重置为空结构（测引导）
+        </button>
+        <button
+          type="button"
+          onClick={() => setAnnotation(seedAnnotation(pages.map((p) => p.pageNo)))}
+          style={{ border: "1px solid #444", borderRadius: 999, padding: "5px 12px", fontSize: 11, color: "#e6e7df", background: "#171815", cursor: "pointer" }}
+        >
+          重置为示例结构
+        </button>
+      </div>
+      <ReportDeck
+        pages={pages}
+        annotation={annotation}
+        readOnly={false}
+        onChange={setAnnotation}
+        review={{
+          canReview,
+          comments,
+          onComment: async (targetKey, targetLabel, body) => {
+            setComments((current) => {
+              if (!body.trim()) {
+                const next = { ...current };
+                delete next[targetKey];
+                return next;
+              }
+              return { ...current, [targetKey]: { body, authorName: viewerName, updatedAt: new Date().toISOString() } };
+            });
+          },
+        }}
+      />
+    </div>
+  );
+}

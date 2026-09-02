@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { getDbClient } from "@/db";
 import { isAppAdmin } from "@/lib/admin";
 import { requirePageUser } from "@/lib/current-user";
+import { isReportFeatureEnabled } from "@/lib/report-model";
 import { canAccessV04Surface } from "@/lib/v04-gray-access";
 import V04LibraryClient from "@/components/v04/V04LibraryClient";
 import V04BrowserCompatibilityGate from "@/components/v04/V04BrowserCompatibilityGate";
@@ -40,6 +41,7 @@ export default async function Home() {
           viewerName={user.displayName}
           user={userView}
           formal
+          reportLibraryEnabled={isReportFeatureEnabled()}
         />
       </V04BrowserCompatibilityGate>
     );

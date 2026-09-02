@@ -1,0 +1,168 @@
+/*
+ * 报告拆解工作台的外壳样式：三部分卡片、吸顶标题栏、表单网格、下拉/组合框、
+ * 相关资料上传、状态页、deck 占位。配色不重新定义——组件树整体挂在
+ * `V04Surface.module.css` 的 `.surface` 之下，直接吃它已经定义好的
+ * `--v04-bg/--v04-panel/--v04-ink/--v04-muted/--v04-subject/--v04-line/--v04-accent`
+ * 这套自定义属性（CSS 变量是顺 DOM 继承的，不受"两个不同 CSS Module 文件"这件事影响）。
+ * 少数 demo 里有、v04 没有的色阶（更深的输入框底色、更淡的分隔线、警示色）直接抄
+ * demo 的字面量，不另外造变量。
+ */
+
+.main { max-width: 1720px; margin: 0 auto; padding: 20px clamp(14px, 2vw, 28px) 90px; }
+
+/* 标题区：报告标题、任务类型、标签、上传者、页数——顶栏之下、PART 01 之上，不吸顶。 */
+.titleBand {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 22px clamp(14px, 2vw, 28px) 6px; max-width: 1720px;
+}
+.titleBandTitle { margin: 0; max-width: 60ch; font-size: clamp(20px, 2.4vw, 28px); letter-spacing: -.02em; }
+.titleBandMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  border: 1px solid var(--v04-line); border-radius: 999px; padding: 5px 10px;
+  color: var(--v04-muted); font-size: 10.5px;
+}
+.chipAccent { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
+
+/* ============================ PART 卡片 ============================ */
+
+.mod { margin: 0 0 18px; border: 1px solid var(--v04-line); border-radius: 16px; background: var(--v04-panel); }
+.modHeader {
+  position: sticky; top: 70px; z-index: 14;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 15px 20px; border-bottom: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 16px 16px 0 0; background: rgba(23, 24, 21, .97); backdrop-filter: blur(12px);
+}
+.modHeaderLeft { display: flex; align-items: baseline; gap: 14px; }
+.modEyebrow { display: block; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .16em; }
+.modTitle { margin: 2px 0 0; color: var(--v04-subject); font-size: 16px; letter-spacing: -.02em; }
+.modActions { display: flex; align-items: center; gap: 8px; }
+
+.sm {
+  border: 1px solid var(--v04-line); border-radius: 999px; padding: 4px 11px;
+  color: var(--v04-muted); font-size: 10.5px; background: transparent;
+}
+.sm:hover:not(:disabled) { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
+.sm:disabled { cursor: not-allowed; opacity: .5; }
+
+/* ============================ 表单网格（第一、二部分） ============================ */
+
+.form2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.item { position: relative; min-width: 0; padding: 14px 20px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+.form2 > .item:nth-child(even):not(.wide) { border-left: 1px solid rgba(255, 255, 255, .07); }
+.item > small { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; color: var(--v04-subject); font-size: 10px; font-weight: 800; }
+.wide { grid-column: 1 / -1; }
+
+/* ============================ 下拉与组合框（ReportSelect / ReportCombobox） ============================ */
+
+.dd, .combo {
+  height: 27px; border: 1px solid var(--v04-line); border-radius: 999px;
+  background-color: #0f100e; color: var(--v04-ink); padding: 0 28px 0 12px; font-size: 11.5px;
+}
+.dd {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px;
+}
+.dd:disabled, .combo:disabled { cursor: not-allowed; opacity: .55; }
+
+.cb { position: relative; display: inline-flex; align-items: center; }
+.combo { min-width: 132px; max-width: 220px; padding-right: 28px; }
+.combo:focus { border-color: rgba(223, 255, 79, .4); outline: none; }
+.cbtn {
+  position: absolute; right: 0; top: 0; width: 28px; height: 27px; border: 0; border-radius: 999px;
+  background-color: transparent; background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: center; background-size: 10px 6px; opacity: .85; cursor: pointer;
+}
+.cbtn:hover:not(:disabled) { opacity: 1; filter: brightness(1.6); }
+.cbtn:disabled { cursor: not-allowed; opacity: .4; }
+.cbmenu {
+  position: absolute; z-index: 30; top: calc(100% + 6px); left: 0;
+  display: grid; gap: 2px; min-width: 150px; max-height: 240px; overflow: auto;
+  border: 1px solid var(--v04-line); border-radius: 10px; background: var(--v04-panel);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .6); padding: 5px;
+}
+.cbmenu button { text-align: left; border: 0; background: transparent; border-radius: 7px; padding: 6px 10px; color: var(--v04-ink); font-size: 11.5px; }
+.cbmenu button:hover { background: rgba(223, 255, 79, .1); color: var(--v04-accent); }
+.cbmenuOn { color: var(--v04-accent); font-weight: 700; }
+
+/* ============================ 相关资料上传 ============================ */
+
+.upload { display: grid; gap: 6px; }
+.file {
+  display: flex; align-items: center; gap: 10px; border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 10px; background: #0f100e; padding: 7px 10px; font-size: 12px;
+}
+.file i {
+  flex: none; font-style: normal; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .06em; color: var(--v04-accent);
+  border: 1px solid rgba(223, 255, 79, .4); border-radius: 5px; padding: 2px 6px;
+}
+.file a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d4d6cd; text-decoration: none; }
+.file a:hover { text-decoration: underline; }
+.file em { flex: none; font-style: normal; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; color: var(--v04-muted); }
+.file button { flex: none; border: 0; background: transparent; color: var(--v04-muted); font-size: 15px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.file button:hover:not(:disabled) { color: #ff8f7d; }
+.file button:disabled { cursor: not-allowed; opacity: .5; }
+.dropzone {
+  display: flex; align-items: center; gap: 10px; border: 1px dashed var(--v04-line); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; color: var(--v04-muted); font-size: 11.5px;
+}
+.dropzone:hover { border-color: rgba(223, 255, 79, .4); background: rgba(223, 255, 79, .06); }
+.dropzone b { color: var(--v04-accent); font-size: 12px; }
+.uploadEmpty { margin: 0; color: var(--v04-muted); font-size: 11.5px; }
+.fieldError { margin: 4px 0 0; color: #ffb58c; font-size: 11px; }
+
+/* ============================ 来源信息（只读） ============================ */
+
+.trace { padding: 14px 20px; border-top: 1px solid rgba(255, 255, 255, .07); }
+.trace h4 { margin: 0 0 9px; color: var(--v04-muted); font-size: 9.5px; letter-spacing: .14em; font-weight: 700; }
+.trace dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; margin: 0; }
+.trace dt { color: var(--v04-muted); font-size: 9.5px; letter-spacing: .08em; opacity: .8; }
+.trace dd { margin: 2px 0 0; font-size: 12px; }
+.trace p { margin: 11px 0 0; color: var(--v04-muted); font-size: 10.5px; }
+
+/* ============================ 第三部分占位（deck 接入前） ============================ */
+
+.deckFallback { padding: 40px 24px; text-align: center; color: var(--v04-muted); }
+.deckFallbackTitle { margin: 0 0 8px; color: var(--v04-ink); font-size: 14px; font-weight: 700; }
+.deckFallbackHint { margin: 0 auto; max-width: 60ch; font-size: 12px; line-height: 1.8; }
+.deckFallbackGrid { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; }
+.deckFallbackThumb { position: relative; width: 84px; }
+.deckFallbackThumb img { display: block; width: 100%; border: 1px solid var(--v04-line); border-radius: 4px; background: #000; }
+.deckFallbackThumb span {
+  display: flex; align-items: center; justify-content: center; aspect-ratio: 3 / 4;
+  border: 1px solid var(--v04-line); border-radius: 4px; background: #000; font-size: 9px; color: var(--v04-muted);
+}
+.deckFallbackThumb b { display: block; margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9px; color: var(--v04-muted); font-weight: 500; }
+.deckFallbackMore {
+  display: flex; align-items: center; justify-content: center; width: 84px; aspect-ratio: 3 / 4;
+  border: 1px dashed var(--v04-line); border-radius: 4px; color: var(--v04-muted); font-size: 11px;
+}
+
+/* ============================ 保存状态提示 ============================ */
+
+.saveBanner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 16px;
+  border: 1px solid rgba(255, 174, 120, .4); border-radius: 12px; background: #201912; padding: 12px 16px;
+}
+.saveBanner p { margin: 0; color: #ffcfad; font-size: 12px; line-height: 1.6; }
+.saveBanner ul { margin: 4px 0 0; padding-left: 18px; color: #ffcfad; font-size: 11.5px; line-height: 1.7; }
+.saveBanner button {
+  flex: none; border: 1px solid rgba(255, 174, 120, .5); border-radius: 999px; background: transparent;
+  color: #ffcfad; padding: 7px 13px; font-size: 11.5px; cursor: pointer;
+}
+.saveBanner button:hover { background: rgba(255, 174, 120, .12); }
+
+/* ============================ 状态页（排队中/生成中/失败） ============================ */
+
+.statusEyebrow { margin: 0 0 8px; color: var(--v04-subject); font-size: 10px; font-weight: 900; letter-spacing: .14em; }
+.statusProgress { width: min(360px, 100%); height: 6px; margin: 18px auto 0; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.statusProgressFill { height: 100%; background: var(--v04-accent); transition: width .3s ease; }
+
+@media (max-width: 720px) {
+  .form2 { grid-template-columns: 1fr; }
+  .form2 > .item:nth-child(even) { border-left: 0; }
+  .modHeader { position: static; }
+}

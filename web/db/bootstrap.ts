@@ -4,6 +4,7 @@ import { V04_SCHEMA_STATEMENTS } from "./v04-schema";
 import { V04_WORKFLOW_SCHEMA_STATEMENTS } from "./v04-workflow-schema";
 import { V19_VERSION_CHAIN_SCHEMA_STATEMENTS } from "./v19-version-chain-schema";
 import { CASE_ENGAGEMENT_SCHEMA_STATEMENTS } from "./case-engagement-schema";
+import { REPORT_SCHEMA_STATEMENTS } from "./report-schema";
 
 export const BOOTSTRAP_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS app_admins (
@@ -556,6 +557,7 @@ export const BOOTSTRAP_STATEMENTS = [
   ...V04_WORKFLOW_SCHEMA_STATEMENTS,
   ...V19_VERSION_CHAIN_SCHEMA_STATEMENTS,
   ...CASE_ENGAGEMENT_SCHEMA_STATEMENTS,
+  ...REPORT_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only
   // happens server-side through the BYPASSRLS pooler role, so RLS with no
   // policies closes the anon/authenticated path without affecting any query.

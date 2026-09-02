@@ -23,6 +23,9 @@ import {
 } from "@/lib/case-engagement";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
+import ReportLibrary from "@/components/report/library/ReportLibrary";
+import ReportUploadDialog from "@/components/report/library/ReportUploadDialog";
+import type { ReportReplaceTarget } from "@/lib/report-library-view";
 import styles from "./V04Surface.module.css";
 
 /** 卡片上的时间只需要「哪天几点」，精确到秒反而挤占版面。 */
@@ -160,10 +163,12 @@ function CaseRating({ engagement }: { engagement: CaseEngagement }) {
   );
 }
 
-export default function V04LibraryClient({ viewerName, formal = false, user }: {
+export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false }: {
   viewerName: string;
   formal?: boolean;
   user?: UserMenuUser;
+  /** 报告库的总开关（REPORT_LIBRARY_UI_ENABLED）。关闭时 REPORT 页签保持占位空态，一个像素都不该变。 */
+  reportLibraryEnabled?: boolean;
 }) {
   const tabToken = useRef(`v04-library-${crypto.randomUUID()}`);
   const [cases, setCases] = useState<V04LibraryCase[]>([]);
@@ -174,7 +179,11 @@ export default function V04LibraryClient({ viewerName, formal = false, user }: {
   const [composing, setComposing] = useState(false);
   const [committedQuery, setCommittedQuery] = useState("");
   const [showUpload, setShowUpload] = useState(false);
-  const [library, setLibrary] = useState<LibraryTab>("VIDEO");
+  const [libraryState, setLibraryState] = useState<LibraryTab>("VIDEO");
+  const library = libraryState;
+  // null = 对话框关着；非 null 时打开，replacing 非空代表这是从一份失败报告发起的「改传 PDF」。
+  const [reportUploadRequest, setReportUploadRequest] = useState<{ replacing: ReportReplaceTarget | null } | null>(null);
+  const [reportRefreshToken, setReportRefreshToken] = useState(0);
   const [weeklyView, setWeeklyView] = useState(false);
   const [favoritePendingId, setFavoritePendingId] = useState("");
   const [favoriteError, setFavoriteError] = useState("");
@@ -210,8 +219,27 @@ export default function V04LibraryClient({ viewerName, formal = false, user }: {
     snapshotWeeklyOrder(rankedGroups, (entry) => entry.item.id),
   );
 
+  // 切页签时把 ?library=REPORT 写回地址栏（不刷新页面），工作台的「返回报告库」链接会带这个参数回来。
+  const setLibrary = useCallback((next: LibraryTab) => {
+    setLibraryState(next);
+    const url = new URL(window.location.href);
+    if (next === "REPORT") url.searchParams.set("library", "REPORT");
+    else url.searchParams.delete("library");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  // 初始页签跟着 URL 走：SSR 阶段读不到 window，只能先按 VIDEO 渲染（避免直接在 useState
+  // 初始化里读 window 造成水合不一致），挂载后再读一次 URL 纠正。之后页签切换全部由
+  // setLibrary 自己维护 URL，这里只在挂载时跑一次，是本页仅有的一次同步 setState。
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("library") === "REPORT") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 从 URL 读初始页签，SSR 期间不存在更早的时机
+      setLibraryState("REPORT");
+    }
   }, []);
 
   useEffect(() => {
@@ -344,13 +372,20 @@ export default function V04LibraryClient({ viewerName, formal = false, user }: {
         {formal ? null : <span>UI PROTOTYPE</span>}
       </nav>
       {/* 上传按钮跟着当前库走：站里现在有两种可反写的东西，「上传作品」说不清是哪一种。
-          报告那条线还没开工，所以按钮在，但按不动——它说明的是形状，不是承诺。 */}
+          报告库开关关着的时候按钮在，但按不动——它说明的是形状，不是承诺。 */}
       <div className={styles.siteUtilities}>{formal ? (library === "VIDEO"
         ? <button type="button" onClick={() => setShowUpload(true)}>上传视频</button>
-        : <button type="button" disabled title="报告逆向工程建设中，暂不能上传报告">上传报告</button>
+        : reportLibraryEnabled
+          ? <button type="button" onClick={() => setReportUploadRequest({ replacing: null })}>上传报告</button>
+          : <button type="button" disabled title="报告逆向工程建设中，暂不能上传报告">上传报告</button>
       ) : null}{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
     </header>
-    {library === "REPORT" ? <>
+    {library === "REPORT" ? (reportLibraryEnabled ? (
+      <ReportLibrary
+        refreshToken={reportRefreshToken}
+        onRequestUpload={(replacing) => setReportUploadRequest({ replacing: replacing ?? null })}
+      />
+    ) : <>
       <section className={styles.libraryHero}><p>REPORT REVERSE-ENGINEERING LIBRARY</p><h1>把一份报告，<br />拆回它的判断。</h1></section>
       <section className={styles.emptyState}>
         <span>◫</span>
@@ -358,7 +393,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user }: {
         <p>报告库和视频库并列，用同一套逆向工程方法拆解报告。等报告的字段与流程定下来，这里会列出可反写的报告。</p>
         <button type="button" onClick={() => setLibrary("VIDEO")}>先去视频库</button>
       </section>
-    </> : <>
+    </>) : <>
       <section className={styles.libraryHero}><p>CREATIVE REVERSE-ENGINEERING LIBRARY</p><h1>从好作品里，<br />练出看见创意的能力。</h1></section>
       <section className={styles.libraryToolbar}>
         <div><p>VIDEO LIBRARY</p><h2>视频库</h2></div>
@@ -409,6 +444,18 @@ export default function V04LibraryClient({ viewerName, formal = false, user }: {
         : <section className={styles.caseGrid} aria-label="案例列表">{visible.map(renderCase)}</section>}
     </>}
     {showUpload ? <UploadDialog onClose={() => setShowUpload(false)} onUploaded={async (videoId) => { setShowUpload(false); window.location.href = detailHref(videoId); }} /> : null}
+    {reportUploadRequest ? (
+      <ReportUploadDialog
+        replacing={reportUploadRequest.replacing ?? undefined}
+        onClose={() => setReportUploadRequest(null)}
+        onUploaded={() => {
+          setReportUploadRequest(null);
+          // 新报告已经建好并进入转换队列（改传 PDF 的话，旧的失败记录也已经删掉）；重新拉一次
+          // 列表就能看到它以「排队中」出现在最前面。
+          setReportRefreshToken((token) => token + 1);
+        }}
+      />
+    ) : null}
   </main>;
 }
 
