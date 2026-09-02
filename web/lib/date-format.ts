@@ -1,4 +1,10 @@
-function parseDatabaseDate(value: string) {
+/**
+ * PostgreSQL 常把时间戳写成 `YYYY-MM-DD HH:mm:ss[.ffffff][+TZ]` 而不是 ISO 8601
+ * （空格代替 `T`，时区可能只有两位小时）；`new Date()` 直接吃这种格式会得到
+ * Invalid Date。导出给需要把数据库时间戳转成 ISO 字符串的调用方复用
+ * （例如 `lib/case-review-server.ts` 序列化 `updated_at`），不要各自复制一份。
+ */
+export function parseDatabaseDate(value: string) {
   let normalized = value.trim().replace(" ", "T");
   if (!/[zZ]$|[+-]\d{2}(?::?\d{2})?$/.test(normalized)) {
     normalized = `${normalized}Z`;

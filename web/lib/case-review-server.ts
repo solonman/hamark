@@ -9,6 +9,26 @@ import {
   type CaseReviewComment,
   type CaseReviewModel,
 } from "@/lib/case-review";
+import { parseDatabaseDate } from "@/lib/date-format";
+
+/**
+ * `analysis_version_comments.updated_at` 是 `timestamptz`；pg 驱动把它解析成
+ * JS `Date`，不是字符串。`String(date)` 会得到
+ * `Date.prototype.toString()`（"Tue Sep 01 2026 14:31:39 GMT+0800 ..."），
+ * 前端 `lib/date-format.ts` 的 `parseDatabaseDate` 认不出这种格式，
+ * 于是评论气泡里的时间全显示「未知时间」。统一转成 ISO 字符串：
+ * 是 `Date` 直接 `toISOString()`；是字符串（某些查询路径／测试桩会给字符串）
+ * 交给 `parseDatabaseDate` 兜底 PostgreSQL 常见的 `YYYY-MM-DD HH:mm:ss+TZ`
+ * 写法再转 ISO；两者都不行就原样返回，不该因为一个解析不出的时间戳
+ * 打挂整个评审读取。
+ */
+export function toIsoTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") {
+    return parseDatabaseDate(value)?.toISOString() ?? value;
+  }
+  return String(value);
+}
 
 export type CaseReviewViewer = { userId: string; displayName: string };
 
@@ -118,7 +138,7 @@ export async function loadCaseReview(
       targetLabel: row.target_label,
       body: row.body,
       authorName: row.author_name,
-      updatedAt: String(row.updated_at),
+      updatedAt: toIsoTimestamp(row.updated_at),
       versionId: row.version_id,
       // `analysis_versions` 里找不到（联查落空）的评论写在最终版上。
       versionLabel: row.version_number != null ? `v${row.version_number}` : "最终版",
@@ -197,7 +217,7 @@ export async function saveCaseReviewComment(
       targetLabel: saved.target_label,
       body: saved.body,
       authorName: saved.author_name,
-      updatedAt: String(saved.updated_at),
+      updatedAt: toIsoTimestamp(saved.updated_at),
       versionId: version.id,
       versionLabel: version.label,
     } : null,

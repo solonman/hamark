@@ -11,6 +11,7 @@ import {
   normalizeReviewComment,
   normalizeReviewStars,
 } from "../lib/case-review.ts";
+import { toIsoTimestamp } from "../lib/case-review-server.ts";
 
 const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -114,6 +115,23 @@ test("loadCaseReview fetches every version's comments for the case, and only a r
   assert.match(server, /row\.version_number != null \? `v\$\{row\.version_number\}` : "最终版"/);
   // 星级仍只锚定 `?version=` 指定的那一版；version 不在 analysis_versions 里（最终版）时不能评分。
   assert.match(server, /const canRate = ratableVersionId != null;/);
+});
+
+test("toIsoTimestamp serializes whatever pg hands back for a timestamptz column into ISO", () => {
+  // pg 把 `timestamptz` 解析成 JS Date，不是字符串；String(date) 得到的是
+  // Date.prototype.toString()（"Tue Sep 01 2026 14:31:39 GMT+0800 ..."），
+  // 不是 ISO——这正是评论气泡里时间全显示「未知时间」的成因。
+  const date = new Date("2026-09-01T06:31:39.000Z");
+  assert.equal(toIsoTimestamp(date), "2026-09-01T06:31:39.000Z");
+  assert.doesNotMatch(String(date), /^\d{4}-\d{2}-\d{2}T/, "sanity: Date#toString() is not ISO to begin with");
+
+  // 某些查询路径／测试桩会给字符串：PostgreSQL 常见的 "YYYY-MM-DD HH:mm:ss+TZ"
+  // 写法也要能转成 ISO，而不是直接原样透出一个非 ISO 字符串。
+  assert.equal(toIsoTimestamp("2026-09-01 14:31:39.000000+08"), "2026-09-01T06:31:39.000Z");
+  assert.equal(toIsoTimestamp("2026-09-01T06:31:39.000Z"), "2026-09-01T06:31:39.000Z");
+
+  // 两者都解析不出来就原样返回，不该把一个解析不出的时间戳变成抛错或空字符串。
+  assert.equal(toIsoTimestamp("not-a-timestamp"), "not-a-timestamp");
 });
 
 test("comment buttons sit on open-ended items only, and on bridges and shots in module two", async () => {
