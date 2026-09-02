@@ -44,7 +44,7 @@ type SavedCommentRow = QueryResultRow & {
 };
 type CommentRow = SavedCommentRow & {
   version_id: string;
-  /** `LEFT JOIN analysis_versions` 联查所得；为 null 的评论写在最终版上。 */
+  /** `LEFT JOIN analysis_versions` 联查所得；为 null 的评论写在集成版上。 */
   version_number: number | null;
 };
 
@@ -63,9 +63,9 @@ async function requireVersionOfVideo(db: DbClient, videoId: string, versionId: s
 }
 
 /**
- * 评论现在可能锚定在最终版上，最终版的 id 不在 `analysis_versions` 里，
- * 所以校验分两步：先当普通版本查，查不到再当最终版查。两处都查不到才拒绝——
- * 这样一个能读 A 案例的人依旧不能拿 B 案例的版本号／最终版 id 往这里写评语。
+ * 评论现在可能锚定在集成版上，集成版的 id 不在 `analysis_versions` 里，
+ * 所以校验分两步：先当普通版本查，查不到再当集成版查。两处都查不到才拒绝——
+ * 这样一个能读 A 案例的人依旧不能拿 B 案例的版本号／集成版 id 往这里写评语。
  *
  * `analysis_final_versions` 由同一批改动新增（见 `docs/20_..._V0.1.md` 二），
  * 本机若还没跑过那张表的 migration，这条 SELECT 落空是正常的失败，不是 bug。
@@ -85,7 +85,7 @@ async function requireCommentVersionOfVideo(
   const final = await db.prepare(
     "SELECT id FROM analysis_final_versions WHERE id = ? AND video_id = ?",
   ).bind(trimmed, videoId).first<VersionRow>();
-  if (final) return { id: final.id, label: "最终版" };
+  if (final) return { id: final.id, label: "集成版" };
   throw new Error("指定的版本不存在。");
 }
 
@@ -103,7 +103,7 @@ export async function loadCaseReview(
   const versionId = input.versionId?.trim() || "";
 
   // 星级仍只锚定 `?version=` 指定的那一版；只有普通版本能评分——
-  // 找不到（含最终版，其 id 不在 `analysis_versions` 里）就是不能评分。
+  // 找不到（含集成版，其 id 不在 `analysis_versions` 里）就是不能评分。
   let ratableVersionId: string | null = null;
   if (versionId) {
     const version = await db.prepare(
@@ -140,8 +140,8 @@ export async function loadCaseReview(
       authorName: row.author_name,
       updatedAt: toIsoTimestamp(row.updated_at),
       versionId: row.version_id,
-      // `analysis_versions` 里找不到（联查落空）的评论写在最终版上。
-      versionLabel: row.version_number != null ? `v${row.version_number}` : "最终版",
+      // `analysis_versions` 里找不到（联查落空）的评论写在集成版上。
+      versionLabel: row.version_number != null ? `v${row.version_number}` : "集成版",
     } satisfies CaseReviewComment)),
   };
 }
@@ -187,7 +187,7 @@ export async function saveCaseReviewComment(
   const targetKey = input.targetKey.trim();
   if (!targetKey) throw new Error("评论缺少对应条目。");
   const body = normalizeReviewComment(input.body);
-  // 普通版本或最终版都行——写下去锚定的是当前正在看的那一版。
+  // 普通版本或集成版都行——写下去锚定的是当前正在看的那一版。
   const version = await requireCommentVersionOfVideo(db, input.videoId, input.versionId);
   if (!body) {
     await db.prepare(

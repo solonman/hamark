@@ -1,4 +1,4 @@
-// 最终版溯源视图的纯函数：从 `finalTrace`（`originPayload` + `intakes`）推出
+// 集成版溯源视图的纯函数：从 `finalTrace`（`originPayload` + `intakes`）推出
 // 一个字段的来源链、当前采用是哪一条、hover 提示用的最新来源，以及横幅下方
 // 待采纳的结构改动列表。见 docs/20_最终版与评论跨版本_实施规格_V0.1.md 五、18/19。
 //
@@ -222,14 +222,14 @@ function dedupeAdjacentV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19Fi
 }
 
 /**
- * `v2 老孙 09-02 11:00` / `v1 赵雅诗 原稿` / `最终版 老孙 直接修改 09-02 11:00` —
+ * `v2 老孙 09-02 11:00` / `v1 赵雅诗 原稿` / `集成版 老孙 直接修改 09-02 11:00` —
  * shared by the 当前采用 line (prefixed with `当前采用 · `, inside every
  * `deriveV19*Trace` function below) and each 旧写法摘要行's "版本、作者、时间"
  * column (used as-is by the renderer, exported so it doesn't get re-derived).
  */
 export function describeV19FinalTraceRowLabel(row: V19FinalTraceHistoryRow): string {
   if (row.isOrigin) return `v1 ${row.actorName} 原稿`;
-  if (row.source === "FINAL_DIRECT") return `最终版 ${row.actorName} 直接修改 ${formatShortDateTime(row.createdAt)}`;
+  if (row.source === "FINAL_DIRECT") return `集成版 ${row.actorName} 直接修改 ${formatShortDateTime(row.createdAt)}`;
   return `v${row.sourceVersionNumber ?? "?"} ${row.actorName} ${formatShortDateTime(row.createdAt)}`;
 }
 
@@ -258,7 +258,7 @@ function reduceV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19FinalField
  * Spec 19's default-view hover text for a field whose current row came from
  * `deriveV19PrimaryDetailTrace`/`deriveV19AuxiliaryPathTrace`/
  * `deriveV19ChoiceFieldTrace` — same `v2·李晓芸 08-24 11:05` /
- * `最终版·直接修改 08-24 11:05` shape as `describeV19FinalIntakeSource`
+ * `集成版·直接修改 08-24 11:05` shape as `describeV19FinalIntakeSource`
  * (which takes a raw `V19FinalIntake` the simple-field path already has;
  * this is the same format for a `V19FinalTraceHistoryRow` instead). `null`
  * when there's nothing to attribute, or the current row is 原稿 itself — an
@@ -266,7 +266,7 @@ function reduceV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19FinalField
  */
 export function describeV19FinalTraceHoverSource(row: V19FinalTraceHistoryRow | null): string | undefined {
   if (!row || row.isOrigin) return undefined;
-  const who = row.source === "FINAL_DIRECT" ? "最终版·直接修改" : `v${row.sourceVersionNumber ?? "?"}·${row.actorName}`;
+  const who = row.source === "FINAL_DIRECT" ? "集成版·直接修改" : `v${row.sourceVersionNumber ?? "?"}·${row.actorName}`;
   return `${who} ${formatShortDateTime(row.createdAt)}`;
 }
 
@@ -478,10 +478,10 @@ export function latestAppliedV19FinalIntake(
   return latest;
 }
 
-/** Spec 19: `v2·李晓芸 08-24 11:05` / `最终版·直接修改 08-24 11:05` — the hover-title source hint. */
+/** Spec 19: `v2·李晓芸 08-24 11:05` / `集成版·直接修改 08-24 11:05` — the hover-title source hint. */
 export function describeV19FinalIntakeSource(intake: V19FinalIntake): string {
   const who = intake.source === "FINAL_DIRECT"
-    ? "最终版·直接修改"
+    ? "集成版·直接修改"
     : `v${intake.sourceVersionNumber ?? "?"}·${intake.actorName}`;
   return `${who} ${formatShortDateTime(intake.createdAt)}`;
 }
@@ -529,7 +529,7 @@ function describeV19StructuralVerb(intake: V19FinalIntake, currentPayload: V04Dr
  */
 export function describeV19StructuralIntake(intake: V19FinalIntake, currentPayload: V04DraftPayloadV1): string {
   const actor = intake.source === "FINAL_DIRECT"
-    ? `最终版·直接修改 ${intake.actorName}`
+    ? `集成版·直接修改 ${intake.actorName}`
     : `v${intake.sourceVersionNumber ?? "?"} ${intake.actorName}`;
   return `${actor} ${describeV19StructuralVerb(intake, currentPayload)}`;
 }

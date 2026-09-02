@@ -135,8 +135,8 @@ export function countV19CascadedShots(before: V04UiDraft, after: V04UiDraft): nu
 /**
  * Spec 五、17: after a normal (non-final) version save that actually wrote
  * something, decide whether to toast about `finalIntake` and what to say —
- * "已同步进入最终版" when it merged, an amber "未纳入" warning when it didn't
- * (最终版已定稿). `previousSignature` is the `signature` this returned last
+ * "已同步进入集成版" when it merged, an amber "未纳入" warning when it didn't
+ * (集成版已定稿). `previousSignature` is the `signature` this returned last
  * time (or null on the first call / after switching versions); a repeat of
  * the exact same `merged`/`pending` outcome returns null so an unbroken run
  * of ordinary autosaves — each individually a real change — does not spam a
@@ -152,8 +152,8 @@ export function describeV19FinalIntakeToast(
   if (signature === previousSignature) return null;
   const label = changes.length === 1 ? changes[0].targetLabel : `本次的 ${changes.length} 处修改`;
   const text = finalIntake.merged
-    ? `「${label}」的修改已同步进入最终版`
-    : `最终版已定稿，「${label}」的修改未纳入最终版，等老孙取消定稿后采纳`;
+    ? `「${label}」的修改已同步进入集成版`
+    : `集成版已定稿，「${label}」的修改未纳入集成版，等老孙取消定稿后采纳`;
   return { text, signature };
 }
 
@@ -194,12 +194,12 @@ function formatV19Clock(iso: string): string {
 
 /**
  * 本机走查修饰: every place that used to build a short version label as
- * `v${number}` must say "最终版" instead when `current` is the final version
+ * `v${number}` must say "集成版" instead when `current` is the final version
  * — its `number` is a fixed `0` placeholder (spec 四、4.1), never a real
  * version number to display. Exported so it's directly unit-testable.
  */
 export function formatV19CurrentVersionShortLabel(current: { isFinal: boolean; number: number }): string {
-  return current.isFinal ? "最终版" : `v${current.number}`;
+  return current.isFinal ? "集成版" : `v${current.number}`;
 }
 
 function emptyV19ChoiceValue(): V04ChoiceValue {
@@ -297,7 +297,7 @@ export default function V04StudioClient({
   // 评审（评分与逐条目评论）跟着「当前正在看的版本」走，与作业内容分开读写：
   // 读不到评审不影响写作业，写评审也不进版本链的变更集。
   const [review, setReview] = useState<CaseReviewModel>(() => emptyCaseReview());
-  // 最终版「默认｜溯源」分段开关：状态存组件内，顺带记到 localStorage 里，
+  // 集成版「默认｜溯源」分段开关：状态存组件内，顺带记到 localStorage 里，
   // 换个案例、刷新页面都保留上一次的选择（spec 五、14）。
   const [finalTraceMode, setFinalTraceModeState] = useState(false);
   const [finalActionBusy, setFinalActionBusy] = useState(false);
@@ -386,7 +386,7 @@ export default function V04StudioClient({
     const decision = resolveV19EditGuard(current.current, current.myVersionId, current.viewerCapabilities.canEdit);
     if (decision.action === "PROCEED") return false;
     if (decision.action === "BLOCKED_FINAL") {
-      pushToast("最终版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入最终版");
+      pushToast("集成版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入集成版");
       return true;
     }
     void switchToVersion(decision.versionId, { announce: true });
@@ -424,7 +424,7 @@ export default function V04StudioClient({
   // version (本机走查 bug fix): the save response itself carries the new
   // payload but not an updated `finalTrace` — without this, the field he
   // just edited still shows only its `v1 原稿` row as 当前采用 in 溯源视图,
-  // and its default-view hover source never picks up the 最终版·直接修改
+  // and its default-view hover source never picks up the 集成版·直接修改
   // entry. Re-fetches `?version=final` and merges only `final` /
   // `finalTrace` — never `current` or the local draft, so it cannot clobber
   // whatever the person is mid-typing (same discipline as `refreshVersionList`).
@@ -473,9 +473,9 @@ export default function V04StudioClient({
       });
       const latest = modelRef.current ?? currentModel;
       const createdVersion = response.createdVersion;
-      // 保存成功后不能把 current 切成别的版本（spec 五、16）：最终版视角下
-      // 保留 isFinal / isMine:false / ownerName「最终版」/ baseNumber:null，
-      // 只更新这次写回的 id（虚拟最终版首次落库会拿到一个真实 id）、
+      // 保存成功后不能把 current 切成别的版本（spec 五、16）：集成版视角下
+      // 保留 isFinal / isMine:false / ownerName「集成版」/ baseNumber:null，
+      // 只更新这次写回的 id（虚拟集成版首次落库会拿到一个真实 id）、
       // number（后端固定回 0）、payload 与保存元数据。
       const nextCurrent: V19CurrentVersion = isFinalSave
         ? {
@@ -490,7 +490,7 @@ export default function V04StudioClient({
           isMine: false,
           isVirtual: false,
           ownerUserId: "",
-          ownerName: "最终版",
+          ownerName: "集成版",
           baseNumber: null,
           basePayload: null,
         }
@@ -548,7 +548,7 @@ export default function V04StudioClient({
         }
       } else {
         // 本机走查 bug fix: refresh finalTrace so the field 老孙 just edited
-        // shows its new 最终版·直接修改 row as 当前采用 (溯源视图) and the
+        // shows its new 集成版·直接修改 row as 当前采用 (溯源视图) and the
         // right hover source (默认视图), instead of staying stuck on
         // whatever was loaded when the page opened.
         void refreshFinalTrace();
@@ -862,19 +862,19 @@ export default function V04StudioClient({
       const fresh = await v19Api.load(videoId, "final");
       applyLoadedModel(fresh);
       if (body.action === "DONE") {
-        pushToast("最终版已定稿：此后其他版本的修改不再进入最终版，只记录为「未纳入」");
+        pushToast("集成版已定稿：此后其他版本的修改不再进入集成版，只记录为「未纳入」");
       } else if (body.action === "OPEN") {
         const pending = response.final.pendingCount;
-        pushToast(`最终版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；定稿期间的 ${pending} 处修改仍待逐条采纳` : ""}`);
+        pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；定稿期间的 ${pending} 处修改仍待逐条采纳` : ""}`);
       } else {
         pushToast(`已采纳 ${response.adopted ?? 0} 处未纳入的修改`);
       }
     } catch (reason) {
       // 本机走查 bug fix: 定稿／取消定稿／采纳失败时（例如后端 404）之前
       // 什么反馈都没有——状态胶囊纹丝不动，人不知道点了有没有用。始终报一次
-      // 服务端的错误文案，拿不到就用这条最终版专属的兜底，跟其他操作共用的
+      // 服务端的错误文案，拿不到就用这条集成版专属的兜底，跟其他操作共用的
       // 「操作失败，请重试」区分开，一眼看出是定稿/采纳这条链路出的问题。
-      pushToast(reason instanceof V04UiApiError ? reason.message : "最终版操作失败，请重试。");
+      pushToast(reason instanceof V04UiApiError ? reason.message : "集成版操作失败，请重试。");
     } finally {
       setFinalActionBusy(false);
     }
@@ -1082,7 +1082,7 @@ export default function V04StudioClient({
   }, [postReview]);
 
   const reviewComments = useMemo(() => commentsByTarget(review.comments), [review.comments]);
-  // 最终版页面不渲染评分组件（规格一之 A 第 5 条）。
+  // 集成版页面不渲染评分组件（规格一之 A 第 5 条）。
   const isFinalVersionView = Boolean(model?.current.isFinal);
 
   const versionRows = useMemo(() => (model ? buildV19VersionTree(model.versions) : []), [model]);
@@ -1116,9 +1116,9 @@ export default function V04StudioClient({
 
   const readOnly = !model.viewerCapabilities.canEdit;
   const myVersionNumber = model.myVersionId ? model.versions.find((version) => version.id === model.myVersionId)?.number : undefined;
-  // 最终版 + 非老孙：GET 已经把这个视角下的 canEdit 算成 isCaseReviewer
+  // 集成版 + 非老孙：GET 已经把这个视角下的 canEdit 算成 isCaseReviewer
   // （spec 四、4.1），所以 `readOnly` 在这个视角只可能因为「不是老孙」而成立——
-  // 锁定态就是「最终版视角下的只读」，据此区分「压根不是可编辑区」的普通只读。
+  // 锁定态就是「集成版视角下的只读」，据此区分「压根不是可编辑区」的普通只读。
   const finalLocked = isFinalVersionView && readOnly;
   const canAdoptFinal = isFinalVersionView && !readOnly;
   // `finalContext` (and so `locked`) must not depend on `model.finalTrace`
@@ -1185,7 +1185,7 @@ export default function V04StudioClient({
               aria-haspopup="true"
               aria-expanded={versionPanelOpen}
               aria-label={isFinalVersionView
-                ? `当前版本 最终版（${model.final?.status === "DONE" ? "已定稿" : "未定稿"}），点击切换版本`
+                ? `当前版本 集成版（${model.final?.status === "DONE" ? "已定稿" : "未定稿"}），点击切换版本`
                 : `当前版本 ${formatV19VersionLabel({
                   number: model.current.number,
                   baseNumber: model.current.baseNumber,
@@ -1197,7 +1197,7 @@ export default function V04StudioClient({
             >
               {isFinalVersionView ? (
                 <>
-                  <span className={`${styles.versionNum} ${styles.finalVersionNum}`}>最终版</span>
+                  <span className={`${styles.versionNum} ${styles.finalVersionNum}`}>集成版</span>
                   {model.final && (
                     <span className={`${styles.finalStatusPill} ${model.final.status === "DONE" ? styles.finalStatusDone : styles.finalStatusOpen}`}>
                       <span className={styles.finalStatusDot} aria-hidden="true" />
@@ -1213,7 +1213,7 @@ export default function V04StudioClient({
                   <span className={styles.versionOwner}>{model.current.ownerName}</span>
                   {(model.current.baseNumber !== null || model.current.baseIsFinal) && (
                     <span className={styles.versionBase}>
-                      {model.current.baseIsFinal ? "基于最终版" : `基于 v${model.current.baseNumber}`}
+                      {model.current.baseIsFinal ? "基于集成版" : `基于 v${model.current.baseNumber}`}
                     </span>
                   )}
                 </>
@@ -1222,7 +1222,7 @@ export default function V04StudioClient({
             </button>
             {versionPanelOpen && (
               <div className={styles.versionPanel} role="dialog" aria-label="版本链">
-                <h4>版本链：最终版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖</h4>
+                <h4>版本链：集成版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖</h4>
                 {model.final && (
                   <div
                     className={`${styles.versionRow} ${styles.versionRowFinal} ${isFinalVersionView ? styles.versionRowCurrent : ""}`.trim()}
@@ -1231,7 +1231,7 @@ export default function V04StudioClient({
                     onClick={() => viewVersion("final")}
                     onKeyDown={(event) => { if (event.key === "Enter") viewVersion("final"); }}
                   >
-                    <span className={styles.versionNumber}>最终版</span>
+                    <span className={styles.versionNumber}>集成版</span>
                     <span className={`${styles.finalStatusPill} ${model.final.status === "DONE" ? styles.finalStatusDone : styles.finalStatusOpen}`}>
                       <span className={styles.finalStatusDot} aria-hidden="true" />
                       {model.final.status === "DONE" ? `已定稿 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""}`.trim() : "未定稿"}
@@ -1241,7 +1241,7 @@ export default function V04StudioClient({
                     )}
                     <span className={styles.versionTime}>{formatV19Clock(model.final.updatedAt)}</span>
                     <span className={styles.versionDesc}>
-                      集大成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。
+                      集成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。
                     </span>
                   </div>
                 )}
@@ -1257,7 +1257,7 @@ export default function V04StudioClient({
                   >
                     <span className={styles.versionNumber}>v{version.number}</span>
                     <span className={styles.versionMeta}>
-                      {version.baseIsFinal ? "基于最终版" : version.baseNumber === null ? "初始版本" : `基于 v${version.baseNumber}`}，{version.ownerName}
+                      {version.baseIsFinal ? "基于集成版" : version.baseNumber === null ? "初始版本" : `基于 v${version.baseNumber}`}，{version.ownerName}
                     </span>
                     {version.isMine && <span className={styles.versionMine}>我的</span>}
                     {latestVersion?.id === version.id && <span className={styles.versionLatest}>最新修改</span>}
@@ -1275,7 +1275,7 @@ export default function V04StudioClient({
                   <div className={styles.versionCreate}>
                     <span>你还没有版本，可手动新建：基于</span>
                     <select value={effectiveCreateBaseId} onChange={(event) => setCreateBaseId(event.target.value)}>
-                      {model.final && <option value="final">最终版（当前汇聚结果）</option>}
+                      {model.final && <option value="final">集成版（当前汇聚结果）</option>}
                       {createBaseOptions.map((option) => (
                         <option key={option.id} value={option.id}>
                           {formatV19VersionLabel({ number: option.number, baseNumber: option.baseNumber, ownerName: option.ownerName, ownerIsUploader: false, baseIsFinal: option.baseIsFinal })}
@@ -1285,7 +1285,7 @@ export default function V04StudioClient({
                     <button type="button" onClick={() => void createOwnVersion()}>创建我的版本</button>
                   </div>
                 ))}
-                <p className={styles.versionNote}>进入页面默认展示最终版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。</p>
+                <p className={styles.versionNote}>进入页面默认展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。</p>
               </div>
             )}
           </div>
@@ -1329,11 +1329,11 @@ export default function V04StudioClient({
             </>
           )}
           </div>
-          {/* 最终版专属：默认／溯源分段开关 + 老孙的定稿／取消定稿（spec 五、14）。
+          {/* 集成版专属：默认／溯源分段开关 + 老孙的定稿／取消定稿（spec 五、14）。
               比较基版属于「普通版本」这一段（上面已经因 baseNumber 恒为 null 自动
-              隐藏），这两个是最终版独有的一段，只在最终版视角出现。 */}
+              隐藏），这两个是集成版独有的一段，只在集成版视角出现。 */}
           {isFinalVersionView && (
-            <div className={styles.finalViewSwitch} role="group" aria-label="最终版视图">
+            <div className={styles.finalViewSwitch} role="group" aria-label="集成版视图">
               <button type="button" className={finalTraceMode ? undefined : styles.on}
                 title="只显示各处当前采用的内容" onClick={() => setFinalTraceMode(false)}>默认</button>
               <button type="button" className={finalTraceMode ? styles.on : undefined}
@@ -1345,7 +1345,7 @@ export default function V04StudioClient({
               type="button"
               className={`${styles.finalActionButton} ${model.final.status === "DONE" ? styles.finalActionButtonUndo : ""}`.trim()}
               disabled={finalActionBusy}
-              title={model.final.status === "OPEN" ? "定稿后其他版本的修改不再进入最终版" : "回到进行态，其他版本的修改重新自动汇入"}
+              title={model.final.status === "OPEN" ? "定稿后其他版本的修改不再进入集成版" : "回到进行态，其他版本的修改重新自动汇入"}
               onClick={toggleFinalStatus}
             >
               {model.final.status === "OPEN"
@@ -1438,7 +1438,7 @@ export default function V04StudioClient({
           {readOnly && !isFinalVersionView && (
             <p style={{ color: "var(--v04-muted)", fontSize: 12, margin: "0 0 16px" }}>当前身份无法编辑此工作台，仅可查看内容与历史版本。</p>
           )}
-          {/* 视频下方横幅（spec 五、15）：只在最终版视角出现，说明当前是未定稿
+          {/* 视频下方横幅（spec 五、15）：只在集成版视角出现，说明当前是未定稿
               还是已定稿、有没有未纳入的修改，以及怎么处理它们。 */}
           {isFinalVersionView && model.final && (
             <div className={styles.finalBanner}>
@@ -1449,7 +1449,7 @@ export default function V04StudioClient({
               <span>
                 {model.final.status === "OPEN"
                   ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的"
-                  : `老孙于 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""} 定稿，此后其他版本的修改不再进入最终版`}
+                  : `老孙于 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""} 定稿，此后其他版本的修改不再进入集成版`}
                 {model.final.pendingCount > 0 && (
                   <span className={styles.finalPendingText}>；定稿期间有 {model.final.pendingCount} 处修改未纳入</span>
                 )}
@@ -1465,7 +1465,7 @@ export default function V04StudioClient({
           )}
           {/* 结构改动未纳入（spec 五、18）：INSERT/REMOVE 这类没有单个字段可挂的
               汇入记录，单独列在横幅下方，只在溯源视图出现。位置按 currentPayload
-              （最终版已保存的内容，不是本地草稿）里找不找得到 afterId/parentGroupId
+              （集成版已保存的内容，不是本地草稿）里找不找得到 afterId/parentGroupId
               判定退化，见 lib/v19-final-trace.ts。 */}
           {isFinalVersionView && finalTraceMode && pendingStructuralIntakes.length > 0 && (
             <div className={styles.finalStructuralPending}>
@@ -1510,8 +1510,8 @@ export default function V04StudioClient({
             }}
             final={finalContext}
           />
-          {/* 打分放在正文末尾：读完整份作业才谈得上给分。最终版不评分——
-              星级只锚定个人版本，`review.canRate` 与最终版视角都会关掉它。 */}
+          {/* 打分放在正文末尾：读完整份作业才谈得上给分。集成版不评分——
+              星级只锚定个人版本，`review.canRate` 与集成版视角都会关掉它。 */}
           {!isFinalVersionView && review.canRate && (
             <V19AssignmentRating
               stars={review.stars}

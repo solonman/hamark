@@ -36,7 +36,7 @@ export type V19CurrentVersion = V19VersionSummary & {
   isFinal: boolean;
 };
 
-// 最终版摘要，与 GET 响应顶层的 `final` 字段同形（spec 4.1）。案例还没有任何真实版本时为 null。
+// 集成版摘要，与 GET 响应顶层的 `final` 字段同形（spec 4.1）。案例还没有任何真实版本时为 null。
 export type V19FinalSummary = {
   id: string | null;
   status: "OPEN" | "DONE";
@@ -120,7 +120,7 @@ export function formatV19VersionLabel(input: {
   baseIsFinal?: boolean;
 }): string {
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
-  const basis = input.baseIsFinal ? "基于最终版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
+  const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
   return `v${input.number}（${basis}，${ownerLabel}）`;
 }
 

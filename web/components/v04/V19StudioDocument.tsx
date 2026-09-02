@@ -44,7 +44,7 @@ export type V19StudioReview = {
   canReview: boolean;
   /** 一个条目现在可能挂着好几个版本各写的一条评论，按写入时间升序。 */
   comments: ReadonlyMap<string, CaseReviewComment[]>;
-  /** 当前正在看的版本 id（含最终版）；用来判定哪一条评论是「本版」。 */
+  /** 当前正在看的版本 id（含集成版）；用来判定哪一条评论是「本版」。 */
   currentVersionId: string | null;
   /** 版本尚未落库时无处可锚定，按钮仍在但说明原因。 */
   disabled: boolean;
@@ -54,8 +54,8 @@ export type V19StudioReview = {
 const NO_COMMENTS: readonly CaseReviewComment[] = [];
 
 /**
- * 最终版视角下每个可编辑字段需要的额外上下文（spec 五、16/18/19）。缺省
- * （`undefined`）时正文渲染与普通版本完全一样——最终版专属的锁定样式、
+ * 集成版视角下每个可编辑字段需要的额外上下文（spec 五、16/18/19）。缺省
+ * （`undefined`）时正文渲染与普通版本完全一样——集成版专属的锁定样式、
  * hover 来源、溯源来源链都只在这个视角下出现。
  */
 export type V19StudioFinalContext = {
@@ -105,7 +105,7 @@ export type V19StudioDocumentProps = {
   onBeforeEdit?: () => boolean;
   /** 缺省即不渲染任何评论入口（只读页与测试用例据此保持原样）。 */
   review?: V19StudioReview;
-  /** 缺省即不渲染任何最终版专属的锁定／来源展示（只读页与测试用例据此保持原样）。 */
+  /** 缺省即不渲染任何集成版专属的锁定／来源展示（只读页与测试用例据此保持原样）。 */
   final?: V19StudioFinalContext;
 };
 
@@ -298,7 +298,7 @@ function V19FinalTraceRows({
       {overridden.map((row) => <V19FinalTraceSummaryRow key={row.key} row={row} />)}
       {pending.map((row) => {
         // 未纳入照旧：版本/谁写的/时间/全文/采纳按钮，跟简化前完全一样的拼法。
-        const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "最终版" : `v${row.sourceVersionNumber ?? "?"}`;
+        const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "集成版" : `v${row.sourceVersionNumber ?? "?"}`;
         const who = row.isOrigin ? (row.actorName || "原稿") : row.source === "FINAL_DIRECT" ? `${row.actorName}·直接修改` : row.actorName;
         return (
           <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowPending}`}>
@@ -494,7 +494,7 @@ export default function V19StudioDocument({
   }
 
   /**
-   * 最终版专属的 `V19EditableValue` 附加 props（spec 五、16/18/19）。没接
+   * 集成版专属的 `V19EditableValue` 附加 props（spec 五、16/18/19）。没接
    * `final` 时返回 `{}`，正文行为与普通版本完全一样。锁定态（非老孙）两种
    * 视图都要传，让字段始终看得出「这里能点，但点了会被拦下」。
    */

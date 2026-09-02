@@ -21,7 +21,7 @@ export type V19ReviewCommentProps = {
   targetLabel: string;
   /** 该条目在所有版本上的评论，按写入时间升序。 */
   comments: readonly CaseReviewComment[];
-  /** 当前正在看的版本 id（含最终版）；决定哪一条是「本版」。 */
+  /** 当前正在看的版本 id（含集成版）；决定哪一条是「本版」。 */
   currentVersionId: string | null;
   canReview: boolean;
   /** 版本还没落库时无处可锚定。 */

@@ -82,7 +82,7 @@ export function formatV19VersionLabel(input: {
   baseIsFinal?: boolean;
 }): string {
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
-  const basis = input.baseIsFinal ? "基于最终版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
+  const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
   return `v${input.number}（${basis}，${ownerLabel}）`;
 }
 
@@ -317,7 +317,7 @@ function finalToCurrentVersion(final: LoadedFinalVersion): V19CurrentVersion {
     id: final.id,
     number: 0,
     ownerUserId: "",
-    ownerName: "最终版",
+    ownerName: "集成版",
     baseNumber: null,
     createdAt: final.createdAt,
     updatedAt: final.updatedAt,
@@ -489,7 +489,7 @@ export async function insertVersionFromBase(
 }
 
 /**
- * "基于最终版" 手动创建（spec 五、13）：以最终版当前 payload 为快照。最终版的 id
+ * "基于集成版" 手动创建（spec 五、13）：以集成版当前 payload 为快照。集成版的 id
  * 不在 analysis_versions 里（不能满足 base_version_id 的外键），所以
  * base_version_id / base_version_number 记 null，改用 base_is_final 标记来源。
  */
@@ -732,7 +732,7 @@ export async function saveV19VersionChanges(
       contentHash: nextHash,
     });
 
-    // spec 三、3.4: 汇入最终版必须发生在修订事件写完之后、同一事务内；任何最终版侧
+    // spec 三、3.4: 汇入集成版必须发生在修订事件写完之后、同一事务内；任何集成版侧
     // 失败都不能让这次保存本身失败——intakeIntoFinal 内部把落不下去的记录标记为
     // NOOP，从不向外抛出跟内容有关的错误。
     const finalIntake = await intakeIntoFinal(tx, workspace, {

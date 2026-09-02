@@ -1,4 +1,4 @@
-// 纯函数单测：最终版溯源视图的推导逻辑。见 lib/v19-final-trace.ts 与
+// 纯函数单测：集成版溯源视图的推导逻辑。见 lib/v19-final-trace.ts 与
 // docs/20_最终版与评论跨版本_实施规格_V0.1.md 五、18/19。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -194,7 +194,7 @@ test("deriveV19FinalFieldTrace: a pending row identical to its immediately prece
 
 // ---------------------------------------------------------------------------
 // 简化规则 2: 当前采用来源行文案 — 「当前采用 · v2 老孙 09-02 11:00」/
-// 「当前采用 · v1 赵雅诗 原稿」/「当前采用 · 最终版 老孙 直接修改 09-02 11:00」。
+// 「当前采用 · v1 赵雅诗 原稿」/「当前采用 · 集成版 老孙 直接修改 09-02 11:00」。
 // ---------------------------------------------------------------------------
 
 test("deriveV19FinalFieldTrace: currentSourceLabel names the origin's owner and says 原稿 when nothing has overridden it yet but something else has changed", () => {
@@ -212,13 +212,13 @@ test("deriveV19FinalFieldTrace: currentSourceLabel names the version, actor, and
   assert.equal(trace.currentSourceLabel, `当前采用 · v2 老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
 });
 
-test("deriveV19FinalFieldTrace: currentSourceLabel says 最终版 ... 直接修改 for a FINAL_DIRECT current row", () => {
+test("deriveV19FinalFieldTrace: currentSourceLabel says 集成版 ... 直接修改 for a FINAL_DIRECT current row", () => {
   const intakes = [intake({
     id: "i1", seq: 1, value: "老孙直接改的", applied: true, source: "FINAL_DIRECT", sourceVersionNumber: null,
     actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
   })];
   const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent");
-  assert.equal(trace.currentSourceLabel, `当前采用 · 最终版 老孙 直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+  assert.equal(trace.currentSourceLabel, `当前采用 · 集成版 老孙 直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
 });
 
 test("deriveV19FinalFieldTrace: currentSourceLabel is null when there is no applied row at all (e.g. a freshly inserted shot's field with only a pending edit)", () => {
@@ -371,7 +371,7 @@ test("describeV19FinalTraceRowLabel formats each source kind", () => {
       key: "i1", intakeId: "i1", isOrigin: false, value: "x", source: "FINAL_DIRECT",
       sourceVersionNumber: null, actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
     }),
-    `最终版 老孙 直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`,
+    `集成版 老孙 直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`,
   );
 });
 
@@ -424,7 +424,7 @@ test("describeV19FinalIntakeSource labels a FINAL_DIRECT intake without a versio
   const text = describeV19FinalIntakeSource(intake({
     id: "i1", seq: 1, source: "FINAL_DIRECT", sourceVersionNumber: null, actorName: "老孙", createdAt: "2026-08-24T03:05:00.000Z",
   }));
-  assert.match(text, /^最终版·直接修改 08-24 /);
+  assert.match(text, /^集成版·直接修改 08-24 /);
 });
 
 // ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ test("describeV19StructuralIntake labels a FINAL_DIRECT insert-group at the fron
     }),
     current,
   );
-  assert.equal(text, "最终版·直接修改 老孙 插入桥段（列表最前）");
+  assert.equal(text, "集成版·直接修改 老孙 插入桥段（列表最前）");
 });
 
 test("describeV19StructuralIntake names a removed group by its targetLabel", () => {
@@ -711,13 +711,13 @@ test("describeV19FinalTraceHoverSource: a VERSION-sourced current row formats as
   assert.equal(describeV19FinalTraceHoverSource(trace.current), `v2·老孙 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
 });
 
-test("describeV19FinalTraceHoverSource: a FINAL_DIRECT current row formats as 最终版·直接修改 <time>", () => {
+test("describeV19FinalTraceHoverSource: a FINAL_DIRECT current row formats as 集成版·直接修改 <time>", () => {
   const intakes = [intake({
     id: "i1", seq: 1, value: "老孙直接改的", applied: true, source: "FINAL_DIRECT", sourceVersionNumber: null,
     actorName: "老孙", createdAt: "2026-09-02T03:00:00.000Z",
   })];
   const trace = deriveV19FinalFieldTrace(factsOrigin("原稿"), intakes, "facts.commercialIntent");
-  assert.equal(describeV19FinalTraceHoverSource(trace.current), `最终版·直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
+  assert.equal(describeV19FinalTraceHoverSource(trace.current), `集成版·直接修改 ${formatShortDateTime("2026-09-02T03:00:00.000Z")}`);
 });
 
 test("describeV19FinalTraceHoverSource: also works for a primary-detail trace's current row (same shared V19FinalFieldTrace shape)", () => {

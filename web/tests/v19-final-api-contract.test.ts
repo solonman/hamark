@@ -76,10 +76,10 @@ test("V1.9 PUT dispatches to saveFinalVersionDirect only when basedOnVersionId i
 // 本机走查 bug fix: `loadV19VersionChain` defaults `current` to the final
 // version whenever no specific real version was requested (versionId is
 // undefined) — not only for the explicit `?version=final` — per spec 二、11
-// ("进入页面默认展示最终版"). `includeFinalTrace` must follow that same
+// ("进入页面默认展示集成版"). `includeFinalTrace` must follow that same
 // condition, or a colleague opening `/videos/<id>` with no `?version` gets
 // `current.isFinal === true` but no `finalTrace`: no locked styling, no
-// 最终版只有老孙可以编辑 toast, no source chain in 溯源视图.
+// 集成版只有老孙可以编辑 toast, no source chain in 溯源视图.
 // ---------------------------------------------------------------------------
 
 test("V1.9 GET requests finalTrace whenever versionId is undefined, not only for the literal \"final\"", async () => {

@@ -35,9 +35,9 @@ export type CaseReviewComment = {
   body: string;
   authorName: string;
   updatedAt: string;
-  /** 这条评论锚定在哪一版上——普通版本或最终版。 */
+  /** 这条评论锚定在哪一版上——普通版本或集成版。 */
   versionId: string;
-  /** 给人看的版本标签：`v2` 或 `最终版`。 */
+  /** 给人看的版本标签：`v2` 或 `集成版`。 */
   versionLabel: string;
 };
 
@@ -46,7 +46,7 @@ export type CaseReviewModel = {
   canReview: boolean;
   versionId: string | null;
   stars: number | null;
-  /** 当前 `versionId` 能不能评分——最终版不评分，星级只锚定个人版本。 */
+  /** 当前 `versionId` 能不能评分——集成版不评分，星级只锚定个人版本。 */
   canRate: boolean;
   /** 该条目在所有版本上的评论，按写入时间升序。 */
   comments: CaseReviewComment[];

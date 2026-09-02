@@ -156,7 +156,7 @@ export default function V19EditableValue({
     // Asked before the editor opens, not after typing: a surface that may need
     // to redirect this edit elsewhere has to say so while the field is still
     // empty of the person's words, rather than discard them afterwards. For a
-    // `locked` field this is also the only place the "最终版只有老孙可以编辑"
+    // `locked` field this is also the only place the "集成版只有老孙可以编辑"
     // toast gets a chance to fire.
     if (onBeforeEdit && !onBeforeEdit()) return;
     if (readOnly) return; // locked: never actually opens the editor, even if onBeforeEdit somehow allowed it
@@ -214,7 +214,7 @@ export default function V19EditableValue({
     // spec 五、19: `点击编辑 · 来自 v2·李晓芸 08-24 11:05`；locked (final
     // version, viewer isn't 老孙) swaps the verb for the reason it's locked,
     // same suffix format either way.
-    const baseTitle = hasWarning ? warning : locked ? "最终版只有老孙可以编辑" : "点击编辑";
+    const baseTitle = hasWarning ? warning : locked ? "集成版只有老孙可以编辑" : "点击编辑";
     const title = sourceHint ? `${baseTitle} · 来自 ${sourceHint}` : baseTitle;
 
     return (

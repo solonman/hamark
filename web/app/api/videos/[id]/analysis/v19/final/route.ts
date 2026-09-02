@@ -25,6 +25,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       });
       return Response.json({ final, adopted } satisfies V19FinalActionResponseBody);
     }
-    throw new V04ServiceError("INVALID_PAYLOAD_SCHEMA", "未知的最终版操作。");
+    throw new V04ServiceError("INVALID_PAYLOAD_SCHEMA", "未知的集成版操作。");
   });
 }

@@ -127,7 +127,7 @@ test("locked (readOnly + locked) still renders the clickable reading affordance,
   }));
   assert.match(html, /role="button"/);
   assert.match(html, /tabindex="0"/);
-  assert.match(html, /title="最终版只有老孙可以编辑"/);
+  assert.match(html, /title="集成版只有老孙可以编辑"/);
 });
 
 test("locked never opens the editor even if onBeforeEdit returns true — it only gets a chance to veto/toast", () => {
@@ -158,7 +158,7 @@ test("locked field's hover title appends the source hint after the locked reason
     sourceHint: "v2·李晓芸 08-24 11:05",
     onCommit: () => { throw new Error("must not be reachable"); },
   }));
-  assert.match(html, /title="最终版只有老孙可以编辑 · 来自 v2·李晓芸 08-24 11:05"/);
+  assert.match(html, /title="集成版只有老孙可以编辑 · 来自 v2·李晓芸 08-24 11:05"/);
 });
 
 test("source: startEditing never enters edit mode for a locked field, even if onBeforeEdit somehow returned true", async () => {

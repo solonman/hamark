@@ -49,10 +49,10 @@ test("source: the save request body carries no lease and no expectedRevision", (
 });
 
 // ---------------------------------------------------------------------------
-// 1b. 最终版视角（spec 五、14/16）：老孙直接改最终版时保存请求带字面量
-//     "final"，不是最终版那一行的 id；比较基版在最终版视角不出现（它已经靠
+// 1b. 集成版视角（spec 五、14/16）：老孙直接改集成版时保存请求带字面量
+//     "final"，不是集成版那一行的 id；比较基版在集成版视角不出现（它已经靠
 //     baseNumber 恒为 null 天然隐藏，这里额外确认没有另起一段绕过这条规则）；
-//     定稿／取消定稿按钮只在最终版视角出现。
+//     定稿／取消定稿按钮只在集成版视角出现。
 // ---------------------------------------------------------------------------
 
 test("source: a final-version save sends the literal string \"final\", not the row's own id", () => {
@@ -72,8 +72,8 @@ test("source: 定稿／取消定稿 only renders for the final version view", ()
 
 // ---------------------------------------------------------------------------
 // 用户看了线上效果的两处小改:
-// 1. 版本菜单最终版行的说明不再提「只有老孙能直接编辑」，以「定稿后停止。」收尾
-//    （这条能力本身没变——老孙照样是唯一能编辑最终版的人——只是不在这句说明里
+// 1. 版本菜单集成版行的说明不再提「只有老孙能直接编辑」，以「定稿后停止。」收尾
+//    （这条能力本身没变——老孙照样是唯一能编辑集成版的人——只是不在这句说明里
 //    重复一遍）。
 // 2. OPEN 状态的胶囊文字统一为「未定稿」，不再用「进行中」；圆点保留但不再闪烁
 //    （CSS 里那条 v04SavePulse 动画只对 OPEN 态生效的部分整条删掉）。「进行态
@@ -81,8 +81,19 @@ test("source: 定稿／取消定稿 only renders for the final version view", ()
 // ---------------------------------------------------------------------------
 
 test("source: the final row's description ends at 定稿后停止, and no longer claims only 老孙 can edit it directly", () => {
-  assert.match(source, /集大成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。/);
+  assert.match(source, /集成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。/);
   assert.doesNotMatch(source, /只有老孙能直接编辑/);
+});
+
+// 用户反馈：说明文字（.versionDesc）向右缩进了一段，跟同一行「集成版」文字
+// 的左边缘对不齐，还因此多占了一行——两者都只该吃 .versionRow 自己的 8px
+// padding，desc 不能再叠一段左内边距/外边距。
+test("style: .versionDesc carries no extra left padding/margin — its left edge lines up with 集成版's, sitting flush inside .versionRow's own padding", () => {
+  const versionDescRule = cssSource.match(/\.versionDesc \{([^}]*)\}/);
+  assert.ok(versionDescRule, "expected to find the .versionDesc rule");
+  const declarations = versionDescRule![1];
+  assert.doesNotMatch(declarations, /padding-left/, "no extra left padding beyond .versionRow's own 8px");
+  assert.doesNotMatch(declarations, /margin-left/, "no extra left margin either");
 });
 
 test("source: no OPEN-status pill/toast/aria-label says 进行中 — they all say 未定稿, while 进行态 explainer text is untouched", () => {
@@ -133,7 +144,7 @@ test("source: interceptForeignEdit toasts the exact spec 五、16 message for a 
   );
   assert.ok(guardMatch, "expected to find interceptForeignEdit");
   const body = guardMatch[1];
-  assert.match(body, /"最终版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入最终版"/);
+  assert.match(body, /"集成版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入集成版"/);
   const blockedBranch = body.match(/if \(decision\.action === "BLOCKED_FINAL"\) \{([\s\S]*?)\n {4}\}/);
   assert.ok(blockedBranch, "expected a dedicated BLOCKED_FINAL branch");
   assert.doesNotMatch(blockedBranch[1], /switchToVersion/, "a blocked final edit must never redirect to another version");
@@ -144,13 +155,13 @@ test("source: a normal version save's finalIntake toast is dedupe-gated through 
 });
 
 // ---------------------------------------------------------------------------
-// 走查 3: every short version label built as `v${number}` must say "最终版"
+// 走查 3: every short version label built as `v${number}` must say "集成版"
 // instead when `current` is the final version — its `number` is a fixed `0`
 // placeholder (spec 四、4.1), never a real version number to show.
 // ---------------------------------------------------------------------------
 
-test("formatV19CurrentVersionShortLabel says 最终版 for the final version, not v0", () => {
-  assert.equal(formatV19CurrentVersionShortLabel({ isFinal: true, number: 0 }), "最终版");
+test("formatV19CurrentVersionShortLabel says 集成版 for the final version, not v0", () => {
+  assert.equal(formatV19CurrentVersionShortLabel({ isFinal: true, number: 0 }), "集成版");
 });
 
 test("formatV19CurrentVersionShortLabel renders vN for an ordinary version", () => {
@@ -168,7 +179,7 @@ test("source: the save-status chip and the assignment-rating版本标签 both go
 // 走查 4: a direct final-version save must refresh finalTrace afterward
 // (without touching current/draft), or the field 老孙 just edited keeps
 // showing only its v1 原稿 row as 当前采用 in 溯源视图, and the default
-// view's hover source never picks up the new 最终版·直接修改 entry.
+// view's hover source never picks up the new 集成版·直接修改 entry.
 // ---------------------------------------------------------------------------
 
 test("source: refreshFinalTrace only merges final/finalTrace into the model, never current or the draft", () => {
@@ -196,14 +207,14 @@ test("source: commitSaveAttempt calls refreshFinalTrace after a successful direc
 // unchanged with no indication anything went wrong.
 // ---------------------------------------------------------------------------
 
-test("source: runFinalAction's catch always toasts — the server's error message, or a dedicated 最终版 fallback", () => {
+test("source: runFinalAction's catch always toasts — the server's error message, or a dedicated 集成版 fallback", () => {
   const functionMatch = source.match(
     /const runFinalAction = useCallback\(async \(body: V19FinalActionRequestBody\) => \{([\s\S]*?)\n {2}\}, \[videoId, finalActionBusy, applyLoadedModel, pushToast\]\);/,
   );
   assert.ok(functionMatch, "expected to find runFinalAction");
   const catchMatch = functionMatch[1].match(/\} catch \(reason\) \{([\s\S]*?)\n {4}\} finally \{/);
   assert.ok(catchMatch, "expected to find runFinalAction's catch block");
-  assert.match(catchMatch[1], /pushToast\(reason instanceof V04UiApiError \? reason\.message : "最终版操作失败，请重试。"\);/);
+  assert.match(catchMatch[1], /pushToast\(reason instanceof V04UiApiError \? reason\.message : "集成版操作失败，请重试。"\);/);
 });
 
 // ---------------------------------------------------------------------------
@@ -387,7 +398,7 @@ test("buildV19VersionTree roots versions with baseNumber === null and nests the 
 });
 
 // ---------------------------------------------------------------------------
-// describeV19FinalIntakeToast (spec 五、17): merged → 同步进入最终版;
+// describeV19FinalIntakeToast (spec 五、17): merged → 同步进入集成版;
 // not merged → 未纳入警示; identical merged/pending outcome as last time →
 // no toast (the autosave-spam guard).
 // ---------------------------------------------------------------------------
@@ -400,7 +411,7 @@ test("describeV19FinalIntakeToast announces a merge for a single-field change, n
   const result = describeV19FinalIntakeToast(
     [{ targetLabel: "商业意图" }], { merged: true, pending: 0 }, null,
   );
-  assert.deepEqual(result, { text: "「商业意图」的修改已同步进入最终版", signature: "true:0" });
+  assert.deepEqual(result, { text: "「商业意图」的修改已同步进入集成版", signature: "true:0" });
 });
 
 test("describeV19FinalIntakeToast warns when the final version is done and the change did not merge", () => {
@@ -408,7 +419,7 @@ test("describeV19FinalIntakeToast warns when the final version is done and the c
     [{ targetLabel: "张力按钮" }], { merged: false, pending: 3 }, null,
   );
   assert.deepEqual(result, {
-    text: "最终版已定稿，「张力按钮」的修改未纳入最终版，等老孙取消定稿后采纳",
+    text: "集成版已定稿，「张力按钮」的修改未纳入集成版，等老孙取消定稿后采纳",
     signature: "false:3",
   });
 });
@@ -417,7 +428,7 @@ test("describeV19FinalIntakeToast names the count, not a field, for a multi-fiel
   const result = describeV19FinalIntakeToast(
     [{ targetLabel: "商业意图" }, { targetLabel: "故事梗概" }], { merged: true, pending: 0 }, null,
   );
-  assert.equal(result?.text, "「本次的 2 处修改」的修改已同步进入最终版");
+  assert.equal(result?.text, "「本次的 2 处修改」的修改已同步进入集成版");
 });
 
 test("describeV19FinalIntakeToast suppresses a repeat of the same merged/pending outcome, so an unbroken run of autosaves does not spam a toast", () => {

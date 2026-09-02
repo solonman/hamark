@@ -33,7 +33,7 @@ test("V1.9 PUT contract drops the retired lease / expectedRevision conflict prot
   assert.doesNotMatch(route, /expectedRevision/i);
   assert.doesNotMatch(route, /\blease\s*[:,]/i, "no lease proof may be forwarded to the service");
   assert.doesNotMatch(route, /acquireV04Lease|requireValidLease|heartbeatV04Lease/);
-  // Since spec 20 (最终版), canEdit is no longer a single unconditional
+  // Since spec 20 (集成版), canEdit is no longer a single unconditional
   // assignment: the final version overrides it to "only 老孙" (spec 四、4.1),
   // so the guard checks both halves rather than one literal expression.
   assert.match(route, /workspace\.viewerCapabilities\.canRead/,

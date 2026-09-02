@@ -53,7 +53,7 @@ export default function V04ChoiceField({
     onChange({ ...value, selectedOptionIds: selected });
   };
   const triggerTitle = (() => {
-    const base = locked ? "最终版只有老孙可以编辑" : "点击选择";
+    const base = locked ? "集成版只有老孙可以编辑" : "点击选择";
     return sourceHint ? `${base} · 来自 ${sourceHint}` : base;
   })();
   return (

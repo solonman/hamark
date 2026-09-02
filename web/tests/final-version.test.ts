@@ -1,4 +1,4 @@
-// 纯函数单测：最终版的汇入算法。见 lib/final-version.ts 与
+// 纯函数单测：集成版的汇入算法。见 lib/final-version.ts 与
 // docs/20_最终版与评论跨版本_实施规格_V0.1.md 三（汇入算法）/ 六（验收清单）。
 // 不接触数据库——db 函数（ensureFinalVersion 等）走本机 Postgres 的走查，
 // 不在这份单测覆盖范围内。
@@ -273,7 +273,7 @@ test("采纳按 seq 升序应用：后一条覆盖前一条，与输入顺序无
 });
 
 // ---------------------------------------------------------------------------
-// 3.3 computeFinalFromHistory — 两个版本对同一处先后修改，最终版取后者。
+// 3.3 computeFinalFromHistory — 两个版本对同一处先后修改，集成版取后者。
 // ---------------------------------------------------------------------------
 
 function historyEvent(overrides: Partial<FinalHistoryEvent>): FinalHistoryEvent {

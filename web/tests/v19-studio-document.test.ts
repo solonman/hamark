@@ -478,7 +478,7 @@ test("溯源视图：固定选项字段（故事参照类型）也渲染了「�
 test("溯源视图：固定选项字段变更后，「当前采用」跟着换成新记录的来源，正文也变成新选项的中文标签", () => {
   const draft = fixtureDraft();
   const originPayload = v04UiDraftToPayload(draft); // unchanged origin — draft.storyReference is what v1 wrote
-  draft.storyReference = { ...draft.storyReference, selectedOptionIds: ["FAMILY_AFFECTION"] }; // 最终版这边已经改了
+  draft.storyReference = { ...draft.storyReference, selectedOptionIds: ["FAMILY_AFFECTION"] }; // 集成版这边已经改了
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
     draft,
     final: finalContextFor({

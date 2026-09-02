@@ -316,7 +316,7 @@
 .choiceTrigger { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--v04-line); border-radius: 9px; background: #11120f; color: var(--v04-ink); padding: 8px 10px; text-align: left; }
 .choiceTrigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .choiceTrigger b { color: var(--v04-accent); font-size: 10px; }
-/* 最终版锁定态：跟 V19EditableValue 的 .editableLocked 同一套语言——
+/* 集成版锁定态：跟 V19EditableValue 的 .editableLocked 同一套语言——
    看起来还能点，但悬停转琥珀色提示点了也没用。 */
 .choiceTriggerLocked { cursor: not-allowed; }
 .choiceTriggerLocked:hover { border-color: rgba(255, 174, 120, .55); }
@@ -494,7 +494,7 @@
 .editableBlock { display: block; white-space: pre-wrap; }
 .editableEmpty { color: var(--v04-muted); }
 .editableWarn { border-bottom: 1px dashed rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); color: rgba(255, 174, 120, .95); }
-/* 最终版锁定态：看起来仍是可编辑区（不像纯只读那样退成普通正文），
+/* 集成版锁定态：看起来仍是可编辑区（不像纯只读那样退成普通正文），
    但点不进去——禁止光标 + 悬停转琥珀色，跟警告色系共用同一组变量。 */
 .editableLocked { cursor: not-allowed; }
 .editableLocked:hover { border-bottom-color: rgba(255, 174, 120, .55); background: rgba(255, 174, 120, .08); }
@@ -855,7 +855,7 @@ input.editableTimecode { padding: 5px 8px; }
 .ratingStrip button:disabled { cursor: not-allowed; }
 .ratingStarOn { color: var(--v04-subject) !important; }
 
-/* ---------- 最终版（docs/20_..._V0.1.md 五、13-19；配色对齐 demo 的 --warn 系金色 #ffd166） ---------- */
+/* ---------- 集成版（docs/20_..._V0.1.md 五、13-19；配色对齐 demo 的 --warn 系金色 #ffd166） ---------- */
 .finalVersionNum { color: #ffd166; }
 .finalStatusPill {
   display: inline-flex; flex: none; align-items: center; gap: 5px; border-radius: 999px;
@@ -879,11 +879,14 @@ input.editableTimecode { padding: 5px 8px; }
 .finalActionButtonUndo { color: var(--v04-muted); font-weight: 500; }
 .finalActionButtonUndo:hover:not(:disabled) { color: var(--v04-ink); background: transparent; border-color: rgba(223, 255, 79, .5); }
 
-/* 版本面板置顶的最终版行：金色描边区分于普通版本行，说明性文字换行到下一行铺满。 */
+/* 版本面板置顶的集成版行：金色描边区分于普通版本行，说明性文字换行到下一行铺满。
+   说明文字（.versionDesc）左边缘要跟同一行「集成版」文字的左边缘对齐——两者
+   都只吃 .versionRow 自己的 8px padding，desc 不能再叠一段左内边距，不然会
+   比「集成版」缩进一截，还可能因此多占一行。 */
 .versionRowFinal { flex-wrap: wrap; margin-bottom: 8px; border: 1px solid rgba(255, 209, 102, .35); background: rgba(255, 209, 102, .05); }
 .versionRowFinal .versionNumber { color: #ffd166; }
 .finalPendingBadge { flex: none; color: #ffae78; border: 1px solid rgba(255, 174, 120, .55); border-radius: 999px; padding: 1px 7px; font-size: 9px; font-weight: 800; white-space: nowrap; }
-.versionDesc { flex-basis: 100%; padding-left: 23px; color: var(--v04-muted); font-size: 10px; line-height: 1.6; }
+.versionDesc { flex-basis: 100%; color: var(--v04-muted); font-size: 10px; line-height: 1.6; }
 
 /* 视频下方横幅：未定稿／已定稿说明，未纳入计数与「全部采纳」「到溯源视图逐条看」。 */
 .finalBanner {
@@ -973,7 +976,6 @@ input.editableTimecode { padding: 5px 8px; }
 
 @media (max-width: 620px) {
   .finalBanner, .finalStructuralPending { padding: 11px 13px; }
-  .versionDesc { padding-left: 0; }
 }
 
 @media (max-width: 620px) {

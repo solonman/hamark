@@ -1,4 +1,4 @@
-// 「最终版」：每个案例一份，内容按处取各版本里最新的一次修改。
+// 「集成版」：每个案例一份，内容按处取各版本里最新的一次修改。
 // 见 docs/20_最终版与评论跨版本_实施规格_V0.1.md 二（数据）/ 三（汇入算法）/ 四、4.1-4.3。
 //
 // 与 lib/v19-version-chain.ts 互相引用（该文件的写路径在写完修订事件后调用本文件的
@@ -216,7 +216,7 @@ function finalizeApply(next: V04DraftPayloadV1, original: V04DraftPayloadV1): { 
   try {
     assertV04PayloadContract(next);
   } catch {
-    // 落库前契约不通过 → NOOP。绝不能让别人的保存因为最终版失败（spec 3.2）。
+    // 落库前契约不通过 → NOOP。绝不能让别人的保存因为集成版失败（spec 3.2）。
     return { payload: original, effect: "NOOP" };
   }
   return { payload: next, effect: "APPLIED" };
@@ -574,7 +574,7 @@ export async function ensureFinalVersion(
   const v1 = await db.prepare(
     `SELECT id, payload_json FROM analysis_versions WHERE workspace_id = ? AND version_number = 1`,
   ).bind(workspace.id).first<{ id: string; payload_json: V04DraftPayloadV1 | string } & QueryResultRow>();
-  if (!v1) throw new V04ServiceError("VERSION_NOT_FOUND", "案例还没有任何版本，无法生成最终版。");
+  if (!v1) throw new V04ServiceError("VERSION_NOT_FOUND", "案例还没有任何版本，无法生成集成版。");
 
   const events = await loadWorkspaceHistoryEvents(db, workspace.id);
   // 原稿是 v1 修改前的样子，不是 v1 现在的样子——先把 v1 自己的修订事件倒着撤销掉。
@@ -600,7 +600,7 @@ export async function ensureFinalVersion(
     // Someone else materialized it first — use their row, discard our replay.
     const winner = await db.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ?`)
       .bind(workspace.id).first<FinalVersionRow>();
-    if (!winner) throw new V04ServiceError("VERSION_NOT_FOUND", "最终版创建未完成，请重试。");
+    if (!winner) throw new V04ServiceError("VERSION_NOT_FOUND", "集成版创建未完成，请重试。");
     return winner;
   }
 
@@ -690,7 +690,7 @@ export async function intakeIntoFinal(
 }
 
 // ---------------------------------------------------------------------------
-// 3.5 — 老孙直接编辑最终版.
+// 3.5 — 老孙直接编辑集成版.
 // ---------------------------------------------------------------------------
 
 export type V19FinalSaveResult = {
@@ -710,7 +710,7 @@ export async function saveFinalVersionDirect(
   input: { videoId: string; changeSetId: string; changes: V04Change[]; now?: Date },
 ): Promise<V19FinalSaveResult> {
   if (!isCaseReviewer(actor.displayName)) {
-    throw new V04ServiceError("FORBIDDEN", "最终版只有老孙可以编辑。");
+    throw new V04ServiceError("FORBIDDEN", "集成版只有老孙可以编辑。");
   }
   const now = input.now ?? new Date();
   if (!input.changeSetId?.trim()) {
@@ -733,7 +733,7 @@ export async function saveFinalVersionDirect(
     await ensureFinalVersion(tx, workspace, now);
     const current = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE`)
       .bind(workspace.id).first<FinalVersionRow>();
-    if (!current) throw new V04ServiceError("VERSION_NOT_FOUND", "最终版不存在。");
+    if (!current) throw new V04ServiceError("VERSION_NOT_FOUND", "集成版不存在。");
 
     const dup = await tx.prepare(
       `SELECT 1 FROM analysis_final_intakes
@@ -758,8 +758,8 @@ export async function saveFinalVersionDirect(
         throw new V04ServiceError(
           error.message,
           violations.length
-            ? `最终版不符合冻结规则：${violations.map((item) => `${item.targetLabel}（${item.message}）`).join("；")}`
-            : "最终版不符合冻结规则。",
+            ? `集成版不符合冻结规则：${violations.map((item) => `${item.targetLabel}（${item.message}）`).join("；")}`
+            : "集成版不符合冻结规则。",
           { violations },
         );
       }
@@ -784,7 +784,7 @@ export async function saveFinalVersionDirect(
     ).bind(JSON.stringify(after), nextHash, nextRevision, savedAt, current.id).run();
 
     // 按 3.1 拆解写汇入记录：这里不是「靠汇入应用变更」，变更已经直接生效——
-    // 记录只是为了让溯源视图能显示「最终版·直接修改」。
+    // 记录只是为了让溯源视图能显示「集成版·直接修改」。
     const drafts = decomposeV19ChangesForFinal(appliedChanges);
     for (const draft of drafts) {
       await insertIntakeRow(tx, current.id, workspace, draft, {
@@ -866,7 +866,7 @@ export async function setFinalVersionStatus(
     await ensureFinalVersion(tx, workspace, now);
     const finalRow = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE`)
       .bind(workspace.id).first<FinalVersionRow>();
-    if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "最终版尚不存在，无法定稿。");
+    if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "集成版尚不存在，无法定稿。");
 
     const savedAt = iso(now);
     if (input.status === "DONE") {
@@ -905,7 +905,7 @@ export async function adoptFinalIntakes(
     await ensureFinalVersion(tx, workspace, now);
     const finalRow = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE`)
       .bind(workspace.id).first<FinalVersionRow>();
-    if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "最终版尚不存在。");
+    if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "集成版尚不存在。");
 
     let targets: FinalIntakeRow[];
     if (input.all) {
