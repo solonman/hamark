@@ -595,12 +595,88 @@ test("溯源视图：创意承重载体变更后，「当前采用」换成新�
 // 收起时的字号，防止样式再次反过来。
 // ---------------------------------------------------------------------------
 
-test("样式：当前采用的字号严格大于旧写法摘要行，保证锚点视觉上最清楚", async () => {
-  const css = await readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8");
-  const currentFontSize = Number(css.match(/\.finalTraceCurrent\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);
-  const summaryFontSize = Number(css.match(/\.finalTraceSummaryRow\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);
-  assert.ok(Number.isFinite(currentFontSize) && Number.isFinite(summaryFontSize),
-    "expected to find numeric font-size declarations for both .finalTraceCurrent and .finalTraceSummaryRow");
-  assert.ok(currentFontSize > summaryFontSize,
-    `expected .finalTraceCurrent (${currentFontSize}px) to be strictly larger than .finalTraceSummaryRow (${summaryFontSize}px)`);
+// 上一轮的版本只比较了两条规则各自写的数字（.finalTraceCurrent 的
+// font-size 字面量 vs .finalTraceSummaryRow 的字面量），根本没算实际的级联
+// 结果——真实浏览器里 `.surface button, .surface input, .surface textarea
+// { font: inherit; }`（0,1,1）排在 `.finalTraceSummaryRow`（当时是 0,1,0）
+// 后面却照样赢，把 font-size 重置成继承 .surface 的 14px，这个纯数字比较
+// 的测试完全测不出来。这里换成一个真的算 CSS 优先级（specificity）+ 源码
+// 顺序的最小实现，对每个已知会渲染成 <button> 的 className，确认它自己写
+// font-size 的那条规则的优先级真的能赢过顶部的按钮重置规则——赢不了就说明
+// 浏览器里这条 font-size 会被吃掉，回到 14px。
+type CssSpecificity = readonly [id: number, classOrAttrOrPseudoClass: number, typeOrPseudoElement: number];
+
+function compareCssSpecificity(a: CssSpecificity, b: CssSpecificity): number {
+  for (let index = 0; index < 3; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return 0;
+}
+
+/** Specificity of one compound-selector chain (e.g. ".surface .finalTraceSummaryRow" or "button.finalTraceSummaryRow:hover"). Good enough for this file's selectors — no :not()-argument counting, no shadow-DOM combinators. */
+function cssSpecificity(selector: string): CssSpecificity {
+  const ids = selector.match(/#[\w-]+/g) ?? [];
+  const pseudoElements = selector.match(/::[\w-]+/g) ?? [];
+  const withoutPseudoElements = selector.replace(/::[\w-]+/g, " ");
+  const classes = withoutPseudoElements.match(/\.[\w-]+/g) ?? [];
+  const attrs = withoutPseudoElements.match(/\[[^\]]*\]/g) ?? [];
+  const pseudoClasses = withoutPseudoElements.match(/:(?!:)[\w-]+(\([^)]*\))?/g) ?? [];
+  const stripped = withoutPseudoElements
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/:(?!:)[\w-]+(\([^)]*\))?/g, " ")
+    .replace(/\.[\w-]+/g, " ")
+    .replace(/#[\w-]+/g, " ");
+  const types = stripped.match(/[a-zA-Z][\w-]*/g) ?? [];
+  return [ids.length, classes.length + attrs.length + pseudoClasses.length, types.length + pseudoElements.length];
+}
+
+// Every top-level `selector-list { declarations }` rule in `css`, as one entry per comma-separated selector, in source order (source order is what a tie needs). Comments are stripped first — a CSS comment sitting right before a rule is otherwise swallowed into "the selector" by the naive brace-matching regex below, since a comment is just more text between the previous closing brace and the next opening one; unstripped, an explanatory comment's own words and stray dot/hash characters silently inflate that "selector"'s computed specificity into something meaningless.
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, " ");
+}
+
+function parseCssRules(css: string): Array<{ selector: string; declarations: string; sourceIndex: number }> {
+  const withoutComments = stripCssComments(css);
+  const rules: Array<{ selector: string; declarations: string; sourceIndex: number }> = [];
+  const ruleRegex = /([^{}]+)\{([^{}]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = ruleRegex.exec(withoutComments))) {
+    const [, selectorList, declarations] = match;
+    for (const selector of selectorList.split(",")) {
+      const trimmed = selector.trim();
+      if (trimmed) rules.push({ selector: trimmed, declarations, sourceIndex: match.index });
+    }
+  }
+  return rules;
+}
+
+test("样式：旧写法摘要行与「采纳这一版」按钮各自的 font-size 规则，优先级真的高过 .surface 顶部的按钮字体重置规则", async () => {
+  const [css, component] = await Promise.all([
+    readFile(new URL("../components/v04/V04Surface.module.css", import.meta.url), "utf8"),
+    readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8"),
+  ]);
+  const rules = parseCssRules(css);
+
+  // 找到真正会命中 <button> 的那条重置规则的具体分支（选择器列表里以
+  // "button" 收尾、且规则体里有 "font: inherit" 的那一支），而不是硬编码
+  // ".surface button" 这串文字——这样如果将来这条重置规则本身被改写，测试
+  // 还是量的是真实规则，不是复述一遍我们期望它长什么样。
+  const resetRule = rules.find((rule) => /(^|\s)button$/.test(rule.selector) && /font:\s*inherit/.test(rule.declarations));
+  assert.ok(resetRule, "expected to find the .surface button { font: inherit; } reset rule this whole bug is about");
+  const resetSpecificity = cssSpecificity(resetRule!.selector);
+
+  for (const className of ["finalTraceSummaryRow", "finalTraceAdopt"]) {
+    assert.match(component, new RegExp(`<button[\\s\\S]{0,80}?className=\\{styles\\.${className}\\}`),
+      `expected .${className} to still be applied directly to a <button> element — if this ever changes to a non-button element, the reset rule this test guards against no longer applies and this test's premise needs revisiting`);
+
+    // 这个 class 自己声明 font-size 的规则（跳过 :hover 等不设 font-size 的
+    // 变体——它们不参与这场优先级之战）。
+    const ownFontSizeRule = rules.find((rule) => new RegExp(`\\.${className}(?![\\w-])`).test(rule.selector) && /font-size\s*:/.test(rule.declarations)
+      && new RegExp(`^\\.${className}([:[].*)?$`).test(rule.selector.replace(/\s+/g, " ").split(" ").pop() ?? ""));
+    assert.ok(ownFontSizeRule, `expected to find a rule that sets .${className}'s own font-size`);
+    const ownSpecificity = cssSpecificity(ownFontSizeRule!.selector);
+
+    assert.ok(compareCssSpecificity(ownSpecificity, resetSpecificity) > 0,
+      `.${className}'s font-size rule (selector "${ownFontSizeRule!.selector}", specificity ${JSON.stringify(ownSpecificity)}) must outrank the reset rule (selector "${resetRule!.selector}", specificity ${JSON.stringify(resetSpecificity)}) — otherwise the browser recomputes this button's font-size as "inherit" and it silently becomes .surface's 14px regardless of what this file says here`);
+  }
 });
