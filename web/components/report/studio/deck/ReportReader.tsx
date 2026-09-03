@@ -26,16 +26,13 @@ import type { ReportReaderButtonProps } from "./deck-types";
  */
 
 /**
- * 每页的大图——生产每张约 1600 宽，50 页全部立即加载会在打开的头几秒糊一屏
- * 黑块，所以用 `loading="lazy"`，滚到哪加载到哪。这条在 `ReportDeck.tsx` 的
- * `thumbImg` 踩过一次坑：没有高度的图，浏览器永远判不出"进了视口"，
- * `loading="lazy"` 会直接卡死不加载。这里不会重蹈覆辙——量得出真实像素尺寸
- * 时标上 `width`/`height` 属性，浏览器照属性自己算 `aspect-ratio`；量不出
- * 尺寸的退回 CSS 占位比例（`.readerPage img:not([width]):not([data-loaded])`），
- * `onLoad` 后打 `data-loaded` 摘掉。两种情况加载前都有非零高度，`lazy` 对
- * 两者都安全，不用再按 `known` 分流。缩略图（`ReportDeck.tsx` 的 `thumbImg`）
- * 不动：那边张数少（一份报告的页数）、图也小，全量立即加载本来就是有意的
- * 选择，不跟着这里改。
+ * 每页的大图——全部立即加载，不用 `loading="lazy"`：实测在这个 portal 到 body
+ * 的固定定位弹层里，懒加载的图片根本不会开始请求（等了 8 秒 50 张一张都没
+ * 发出去），打开后只剩黑块；而立即加载在本机 6 秒内 50 张全到，生产走 CDN 更快。
+ * 加载前的高度仍然要预留：量得出真实像素尺寸时标上 `width`/`height` 属性，
+ * 浏览器照属性自己算 `aspect-ratio`；量不出尺寸的退回 CSS 占位比例
+ * （`.readerPage img:not([width]):not([data-loaded])`），`onLoad` 后打
+ * `data-loaded` 摘掉，这样加载中的页不会坍缩、滚动位置也不会跳。
  */
 function readerPageImg(p: ReportPageView) {
   const known = p.width > 0 && p.height > 0;
@@ -47,7 +44,7 @@ function readerPageImg(p: ReportPageView) {
       draggable={false}
       width={known ? p.width : undefined}
       height={known ? p.height : undefined}
-      loading="lazy"
+     
       onLoad={(event) => { event.currentTarget.dataset.loaded = "1"; }}
     />
   );
