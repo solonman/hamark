@@ -5,13 +5,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReportAnnotation, ReportDeckKey } from "@/lib/report-structure";
 import type { ReportDetail } from "@/lib/report-model";
 import type { ReportCurrentVersion, ReportVersionChain, ReportVersionRecord } from "@/lib/report-version-chain";
+import type { ReportFinalSummary } from "@/lib/report-final-version";
+import { deriveReportFinalTraceModel, type ReportFinalTraceModel } from "@/lib/report-final-trace";
 import { commentsByTarget, emptyCaseReview, type CaseReviewModel } from "@/lib/case-review";
+import { formatShortDateTime } from "@/lib/date-format";
 import {
+  describeReportFinalIntakeToast,
   describeReportSaveFailure,
   isReportDraftDirty,
   pushReportHistory,
   redoReportHistory,
   resetReportHistory,
+  resolveReportEditReadOnly,
   shouldWarnBeforeUnload,
   undoReportHistory,
   validateReportDraftLocally,
@@ -21,6 +26,7 @@ import {
 } from "@/lib/report-studio-state";
 import V19AssignmentRating from "@/components/v04/V19AssignmentRating";
 import {
+  adoptReportFinalIntakes,
   commentOnVersion,
   createFileUpload,
   createVersionFrom,
@@ -31,12 +37,14 @@ import {
   putFileContent,
   rateVersion,
   saveAnnotation,
+  setReportFinalStatus,
   trashReport,
   ReportStudioApiError,
 } from "./report-studio-api";
 import ReportPartOne from "./ReportPartOne";
 import ReportPartTwo from "./ReportPartTwo";
 import ReportVersionBar from "./ReportVersionBar";
+import { buildReportFinalFieldExtras } from "./ReportFinalTrace";
 // 第三部分：deck 已交付并通过验收，直接接真组件。
 import ReportDeck from "./deck/ReportDeck";
 import { ReportMindMapButton } from "./deck/ReportMindMap";
@@ -71,6 +79,22 @@ function storeGuideOff(off: boolean) {
   } catch { /* ignore */ }
 }
 
+/** 集成版「默认｜溯源」分段开关存本地（规格五、14），跟视频侧 `V19_FINAL_TRACE_MODE_KEY` 同一个道理。 */
+const TRACE_MODE_STORAGE_KEY = "report-final:trace-mode";
+
+function readStoredTraceMode(): boolean {
+  try {
+    return window.localStorage.getItem(TRACE_MODE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function storeTraceMode(on: boolean) {
+  try {
+    window.localStorage.setItem(TRACE_MODE_STORAGE_KEY, on ? "1" : "0");
+  } catch { /* ignore */ }
+}
+
 /** 第三部分标题栏右侧的统计 chip 文案，逐字照 demo `module3()`（约 773 行）。 */
 function formatDeckSummary(annotation: ReportAnnotation): string {
   const s = deckSummary(annotation);
@@ -98,6 +122,19 @@ function applySavedVersion(
   prev: ReportVersionChain,
   saved: ReportCurrentVersion,
 ): ReportVersionChain {
+  if (saved.isFinal) {
+    // 老孙直接编辑集成版（四、3.5）：`saved` 不是某个编辑者的版本，不进
+    // `prev.versions`；只把 `current` 换成刚保存的这份，`final` 的
+    // updatedAt 跟着它一起走（status/pendingCount 这些不受直接编辑影响，
+    // 沿用已知值）。溯源视图要看到这次修改的来源链需要一次完整刷新
+    // （`finalTrace` 不在这条保存响应里），留给下次切版本/重新载入，
+    // 默认视图不受影响——它直接读 `current.payload`，已经是最新的。
+    return {
+      ...prev,
+      current: saved,
+      final: prev.final ? { ...prev.final, updatedAt: saved.updatedAt, isVirtual: false } : prev.final,
+    };
+  }
   const summary: ReportVersionRecord = {
     id: saved.id,
     number: saved.number,
@@ -108,6 +145,7 @@ function applySavedVersion(
     updatedAt: saved.updatedAt,
     isMine: true,
     isVirtual: false,
+    baseIsFinal: saved.baseIsFinal,
   };
   const hasEntry = prev.versions.some((version) => version.id === saved.id);
   const versions = hasEntry
@@ -118,6 +156,10 @@ function applySavedVersion(
     current: saved,
     latestId: prev.latestId ?? saved.id,
     mineId: saved.id,
+    // 集成版摘要（含未纳入计数）不在这里投机更新——沿用上一次已知的值，
+    // 与 latestId/mineId 一样，下次切版本/重新载入会自然刷新。这次改动只是
+    // 类型层面补齐 lib/report-version-chain.ts 新增的 final 字段，不改行为。
+    final: prev.final,
   };
 }
 
@@ -162,6 +204,30 @@ export default function ReportStudioClient({
   // 纯会话内状态（demo 里也是内存变量，刷新即丢）。
   const [focusKey, setFocusKey] = useState<ReportDeckKey | null>(null);
 
+  // 集成版「默认｜溯源」分段开关（规格五、14）：存本地，换报告/刷新页面都记得。
+  const [traceMode, setTraceModeState] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 同 guideOff，SSR 期间读不到 localStorage
+    setTraceModeState(readStoredTraceMode());
+  }, []);
+  const setTraceMode = useCallback((next: boolean) => {
+    setTraceModeState(next);
+    storeTraceMode(next);
+  }, []);
+  const [finalActionBusy, setFinalActionBusy] = useState(false);
+  // demo 风格的浮出提示条（`docs/demos` 的 `#toast`），报告侧之前没有——
+  // 集成版的保存/定稿/采纳都需要一次性反馈，照抄视频侧 `V04StudioClient.tsx`
+  // 的做法（组件内 state + 固定定位容器，不额外起一个共享组件）。
+  const [toasts, setToasts] = useState<{ id: string; text: string }[]>([]);
+  const pushToast = useCallback((text: string) => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((current) => [...current, { id, text }]);
+    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 3600);
+  }, []);
+  // 普通版本保存后的 finalIntake toast 去重签名（规格五、17）：只在
+  // merged/pending 这次的结果跟上次不一样时才提示，见 describeReportFinalIntakeToast。
+  const finalIntakeSignatureRef = useRef<string | null>(null);
+
   // 给事件处理器／定时器用的"最新值"镜像：只在 effect 里写，渲染期间绝不写 ref
   // （React 编译器的 lint 规则不允许渲染期间改 ref），读的都是回调触发那一刻的最新值。
   const chainRef = useRef(chain);
@@ -170,6 +236,9 @@ export default function ReportStudioClient({
   useEffect(() => { chainRef.current = chain; }, [chain]);
   useEffect(() => { historyRef.current = history; }, [history]);
   useEffect(() => { saveStatusRef.current = saveStatus; }, [saveStatus]);
+
+  // 集成版视角只有老孙能编辑；普通版本视角照旧看是不是自己的版本（规格五、16）。
+  const canEditNow = useCallback((c: ReportVersionChain | null): boolean => !!c && !resolveReportEditReadOnly(c, viewerName), [viewerName]);
 
   const baselineRef = useRef<{ payload: ReportAnnotation; revision: number } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -194,6 +263,8 @@ export default function ReportStudioClient({
       baselineRef.current = { payload: nextChain.current.payload, revision: nextChain.current.revision };
       setSaveStatus({ kind: "IDLE" });
       setLoadError("");
+      // 换了一份底稿：上一份的 finalIntake toast 去重签名不再有意义。
+      finalIntakeSignatureRef.current = null;
       const nextReview = await loadReview(reportId, nextChain.current.id).catch(() => emptyCaseReview());
       setReview(nextReview);
     } catch (reason) {
@@ -217,7 +288,7 @@ export default function ReportStudioClient({
     const currentHistory = historyRef.current;
     const baseline = baselineRef.current;
     if (!currentChain || !currentHistory || !baseline) return;
-    if (!currentChain.current.isMine) return; // 只读版本没什么好保存的
+    if (!canEditNow(currentChain)) return; // 只读版本／非老孙看集成版，没什么好保存的
     if (!isReportDraftDirty(baseline.payload, currentHistory.present)) return;
 
     const errors = validateReportDraftLocally(currentHistory.present, pageNumbers);
@@ -226,10 +297,14 @@ export default function ReportStudioClient({
       return;
     }
 
+    const isFinalEdit = currentChain.current.isFinal;
     setSaveStatus({ kind: "SAVING" });
     try {
       const result = await saveAnnotation(reportId, {
-        versionId: currentChain.current.id,
+        // 老孙直接编辑集成版：body.versionId 传字面量 "final"（规格四、4.2），
+        // 不是集成版自己的数据库 id——PUT 路由按这个哨兵值分流到
+        // saveReportFinalVersionDirect，不看 id 是不是真的对得上。
+        versionId: isFinalEdit ? "final" : currentChain.current.id,
         baseVersionId: null,
         revision: baseline.revision,
         payload: currentHistory.present,
@@ -241,6 +316,32 @@ export default function ReportStudioClient({
           ? { kind: "SAVED", at: new Date().toISOString() }
           : { kind: "UNCHANGED", at: new Date().toISOString() },
       );
+      // 规格五、17（用户决定②：toast 不点名具体条目）：只有保存普通版本、
+      // 且这次真的写了东西才提示"进没进集成版"——老孙直接编辑集成版时，
+      // 这次编辑本身就是集成版，没有"汇不汇入"这个问题。用签名去重，
+      // 一串连续自动保存如果汇入结果没变就不用每次都弹一条。
+      if (result.changed && !isFinalEdit) {
+        const signature = `${result.finalIntake.merged}:${result.finalIntake.pending}`;
+        if (signature !== finalIntakeSignatureRef.current) {
+          finalIntakeSignatureRef.current = signature;
+          pushToast(describeReportFinalIntakeToast(result.finalIntake));
+        }
+      }
+      // 老孙直接编辑集成版：防抖保存真正落地那一刻（不是每次击键）重新拉一次
+      // finalTrace，让溯源视图能看到这次直接修改（走查发现的 bug：不刷新的话，
+      // 一个此前从没被写过的字段保存成功后，溯源视图里看不出"当前采用 · 集成版·
+      // 直接修改…"，像是没保存上）。只补丁 `finalTrace` 这一个字段，`current`/
+      // `final` 保持刚才 `applySavedVersion` 已经写好的本地补丁不变，不整链
+      // 刷新——默认视图不会因为这次刷新而闪动，历史栈（撤销/重做）也不受影响。
+      if (result.changed && isFinalEdit) {
+        try {
+          const fresh = await loadAnnotationChain(reportId, "final");
+          setChain((prev) => (prev ? { ...prev, finalTrace: fresh.finalTrace } : prev));
+        } catch {
+          // 静默失败：这次保存本身已经成功，溯源视图刷新不到就等下次切版本/
+          // 再保存一次自然补上，不该把已经成功的 saveStatus 打成 ERROR。
+        }
+      }
     } catch (reason) {
       if (reason instanceof ReportStudioApiError) {
         setSaveStatus(describeReportSaveFailure({
@@ -253,7 +354,7 @@ export default function ReportStudioClient({
         setSaveStatus({ kind: "ERROR", message: "保存未完成，请稍后重试。" });
       }
     }
-  }, [reportId, pageNumbers]);
+  }, [reportId, pageNumbers, canEditNow, pushToast]);
 
   const scheduleSave = useCallback(() => {
     clearSaveTimer();
@@ -261,30 +362,30 @@ export default function ReportStudioClient({
   }, [flushSave]);
 
   const applyChange = useCallback((next: ReportAnnotation) => {
-    if (!chainRef.current?.current.isMine) return;
+    if (!canEditNow(chainRef.current)) return;
     setHistory((current) => (current ? pushReportHistory(current, next) : current));
     scheduleSave();
-  }, [scheduleSave]);
+  }, [scheduleSave, canEditNow]);
 
   const undo = useCallback(() => {
-    if (!chainRef.current?.current.isMine) return;
+    if (!canEditNow(chainRef.current)) return;
     const current = historyRef.current;
     if (!current) return;
     const next = undoReportHistory(current);
     if (next === current) return;
     setHistory(next);
     scheduleSave();
-  }, [scheduleSave]);
+  }, [scheduleSave, canEditNow]);
 
   const redo = useCallback(() => {
-    if (!chainRef.current?.current.isMine) return;
+    if (!canEditNow(chainRef.current)) return;
     const current = historyRef.current;
     if (!current) return;
     const next = redoReportHistory(current);
     if (next === current) return;
     setHistory(next);
     scheduleSave();
-  }, [scheduleSave]);
+  }, [scheduleSave, canEditNow]);
 
   // Cmd/Ctrl+Z 撤销、Shift+Cmd/Ctrl+Z 重做；焦点在输入框里时让浏览器自己的文本撤销接管。
   useEffect(() => {
@@ -315,7 +416,10 @@ export default function ReportStudioClient({
   }, [saveStatus]);
 
   const selectVersion = useCallback(async (versionId: string) => {
-    if (chainRef.current?.current.id === versionId) return;
+    const already = versionId === "final"
+      ? chainRef.current?.current.isFinal
+      : chainRef.current?.current.id === versionId;
+    if (already) return;
     setSwitching(true);
     try {
       await flushSave();
@@ -327,10 +431,14 @@ export default function ReportStudioClient({
 
   const createFromCurrent = useCallback(async () => {
     const current = chainRef.current;
-    if (!current || !current.current.id) return;
+    if (!current) return;
+    // 集成版没有自己的 id 可用（虚拟时甚至是 null）——"基于此版创建我的版本"
+    // 传字面量 "final"（规格五、13），不是集成版自己的数据库 id。
+    const fromVersionId = current.current.isFinal ? "final" : current.current.id;
+    if (!fromVersionId) return;
     setSwitching(true);
     try {
-      const result = await createVersionFrom(reportId, { fromVersionId: current.current.id });
+      const result = await createVersionFrom(reportId, { fromVersionId });
       await loadChain(result.version.id ?? undefined);
     } catch (reason) {
       setLoadError(reason instanceof ReportStudioApiError ? reason.message : "创建版本失败，请稍后重试。");
@@ -369,6 +477,52 @@ export default function ReportStudioClient({
     (targetKey: string, targetLabel: string, body: string) => comment({ targetKey, targetLabel, body }),
     [comment],
   );
+
+  // 定稿／取消定稿／采纳（规格五、14/18，接口四、4.3）：三个动作都只有老孙能碰到
+  // 触发它们的入口（渲染时已经拿 !readOnly 挡过，服务端也重新校验）。响应带回
+  // 最新的 final 摘要；随后重新读一次 ?version=final，让 finalTrace（每处的
+  // 来源链、待采纳记录）跟着刷新——同视频侧 `runFinalAction` 的做法（`final`
+  // 接口本身不返回 trace）。
+  const runFinalAction = useCallback(async (
+    invoke: () => Promise<{ final: ReportFinalSummary; adopted?: number }>,
+    kind: "DONE" | "OPEN" | "ADOPT",
+  ) => {
+    if (finalActionBusy) return;
+    setFinalActionBusy(true);
+    try {
+      const response = await invoke();
+      await loadChain("final");
+      if (kind === "DONE") {
+        pushToast("集成版已定稿：此后其他版本的修改不再进入集成版，只记录为「未纳入」");
+      } else if (kind === "OPEN") {
+        const pending = response.final.pendingCount;
+        pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；定稿期间的 ${pending} 处修改仍待逐条采纳` : ""}`);
+      } else {
+        pushToast(`已采纳 ${response.adopted ?? 0} 处未纳入的修改`);
+      }
+    } catch (reason) {
+      // 定稿／取消定稿／采纳失败时（例如后端 404）如果什么反馈都没有，状态
+      // 胶囊纹丝不动，人不知道点了有没有用——始终报一次服务端的错误文案，
+      // 拿不到就用这条集成版专属的兜底，跟其他操作共用的提示区分开。
+      pushToast(reason instanceof ReportStudioApiError ? reason.message : "集成版操作失败，请重试。");
+    } finally {
+      setFinalActionBusy(false);
+    }
+  }, [finalActionBusy, loadChain, pushToast]);
+
+  const toggleFinalStatus = useCallback(() => {
+    const status = chainRef.current?.final?.status === "OPEN" ? "DONE" : "OPEN";
+    void runFinalAction(() => setReportFinalStatus(reportId, status), status);
+  }, [reportId, runFinalAction]);
+
+  /** deck 的 `onAdopt`（一次传一个）与本壳自己「采纳这一版」按钮共用；banner「全部采纳」走 `adoptAllIntakes`。 */
+  const adoptIntakes = useCallback(async (intakeIds: string[]) => {
+    await runFinalAction(() => adoptReportFinalIntakes(reportId, { intakeIds }), "ADOPT");
+  }, [reportId, runFinalAction]);
+
+  const adoptAllIntakes = useCallback(() => {
+    void runFinalAction(() => adoptReportFinalIntakes(reportId, { all: true }), "ADOPT");
+  }, [reportId, runFinalAction]);
 
   const uploadFiles = useCallback(async (fileList: FileList) => {
     setFilesBusy(true);
@@ -431,8 +585,18 @@ export default function ReportStudioClient({
     );
   }
 
-  const readOnly = !chain.current.isMine;
+  const readOnly = resolveReportEditReadOnly(chain, viewerName);
   const reviewDisabled = !chain.current.id;
+  // 集成版·溯源数据：只在集成版视角、且 GET 带回了 finalTrace 时才有得算
+  // （非集成版视角、或响应还没来得及带 finalTrace 时为 null——`chain`/`history`
+  // 这里已经过了上面的空值判断，不需要再挂 useMemo，交给 React Compiler
+  // 自动处理这层派生的记忆化，跟本文件其它"guard 之后的普通 const 派生量"
+  // 是同一个写法（不手写 useMemo 是因为它内部访问的是 `chain.current.payload`
+  // 这种嵌套路径，手写依赖数组 `[chain]` 会跟编译器自己推导出的细粒度依赖
+  // 对不上，触发"Compilation Skipped"）。
+  const finalTraceModel: ReportFinalTraceModel | null = chain.current.isFinal && chain.finalTrace
+    ? deriveReportFinalTraceModel(chain.finalTrace.originPayload, chain.finalTrace.intakes, chain.current.payload)
+    : null;
   // 评论现在按条目汇总这份报告所有版本上写的那些（对齐视频侧 loadCaseReview，
   // 见 lib/report-review-server.ts 顶部注释），第一、二部分原样把整份列表往下传,
   // 由 V19ReviewComment 自己按 currentVersionId 挑出哪一条是「本版」。
@@ -442,6 +606,23 @@ export default function ReportStudioClient({
   // `reviewComments`（Map）转成 deck 要的 Record，不用再单独挑出当前版本那条。
   const deckComments = Object.fromEntries(reviewComments);
   const annotation = history.present;
+
+  // 集成版专属：只有老孙、且不是只读，才看得到「采纳这一版」（规格五、18）。
+  const canAdoptFinal = chain.current.isFinal && !readOnly;
+  // 非老孙看集成版时，第一/第二部分的字段要显出"看得见、点了也没用"的锁定态
+  // （规格五、16），跟"只是在看别人的普通版本"的纯只读区分开。
+  const finalLocked = chain.current.isFinal && readOnly;
+  // 第一、二部分每个字段的集成版附加 props（locked／默认视图 hover
+  // sourceHint／溯源视图 after 来源链）——targetKey 对应 `report-final-trace.ts`
+  // 的 `fields` 索引（`background.*`／`strategy.*`）。普通版本视角
+  // （`finalTraceModel` 为 null）什么都不返回，字段行为跟以前完全一样。
+  const finalFieldExtras = (targetKey: string) => buildReportFinalFieldExtras({
+    trace: finalTraceModel?.fields[targetKey],
+    locked: finalLocked,
+    traceMode,
+    canAdopt: canAdoptFinal,
+    onAdopt: (intakeId) => { void adoptIntakes([intakeId]); },
+  });
 
   return (
     <main className={`${v04styles.surface} ${styles.studio}`} data-v04-page="report-studio">
@@ -475,6 +656,29 @@ export default function ReportStudioClient({
               onSwitchToMine={(versionId) => void selectVersion(versionId)}
             />
           </div>
+          {/* 集成版专属：默认／溯源分段开关 + 老孙的定稿／取消定稿（规格五、14），
+              紧邻版本条，只在集成版视角出现。 */}
+          {chain.current.isFinal ? (
+            <div className={v04styles.finalViewSwitch} role="group" aria-label="集成版视图">
+              <button type="button" className={traceMode ? undefined : v04styles.on}
+                title="只显示各处当前采用的内容" onClick={() => setTraceMode(false)}>默认</button>
+              <button type="button" className={traceMode ? v04styles.on : undefined}
+                title="每一处都按更新顺序列出所有版本的写法" onClick={() => setTraceMode(true)}>溯源</button>
+            </div>
+          ) : null}
+          {chain.current.isFinal && !readOnly && chain.final ? (
+            <button
+              type="button"
+              className={`${v04styles.finalActionButton} ${chain.final.status === "DONE" ? v04styles.finalActionButtonUndo : ""}`.trim()}
+              disabled={finalActionBusy}
+              title={chain.final.status === "OPEN" ? "定稿后其他版本的修改不再进入集成版" : "回到进行态，其他版本的修改重新自动汇入"}
+              onClick={toggleFinalStatus}
+            >
+              {chain.final.status === "OPEN"
+                ? "✓ 定稿"
+                : `取消定稿${chain.final.pendingCount > 0 ? `（${chain.final.pendingCount} 处待采纳）` : ""}`}
+            </button>
+          ) : null}
           {/* 与视频工作台的撤销/重做完全一样（`V04StudioClient.tsx` 约 1356～1374
               行）：同一个 `v04styles.historyControl`/`historyDivider`、同一套 svg 图标、
               文案、title、快捷键提示、disabled 逻辑，逐字复制而不是抽共享组件——
@@ -517,7 +721,8 @@ export default function ReportStudioClient({
           >
             <span className={v04styles.saveDot} />
             <span>
-              {readOnly && "只读，看的是别人的版本"}
+              {readOnly && chain.current.isFinal && "集成版只有老孙可以编辑"}
+              {readOnly && !chain.current.isFinal && "只读，看的是别人的版本"}
               {!readOnly && saveStatus.kind === "IDLE" && `已保存 ${formatClock(chain.current.updatedAt)}`}
               {!readOnly && saveStatus.kind === "SAVING" && "保存中…"}
               {!readOnly && saveStatus.kind === "SAVED" && `已保存 ${formatClock(saveStatus.at)}`}
@@ -584,6 +789,49 @@ export default function ReportStudioClient({
         </div>
       ) : null}
 
+      {/* 集成版横幅（规格五、15）：说明当前进行中还是已定稿、有没有未纳入的
+          修改，以及怎么处理它们。文案逐字照搬视频侧，只把"最终版"换成"集成版"。 */}
+      {chain.current.isFinal && chain.final ? (
+        <div className={v04styles.finalBanner}>
+          <span className={`${v04styles.finalStatusPill} ${chain.final.status === "DONE" ? v04styles.finalStatusDone : v04styles.finalStatusOpen}`}>
+            <span className={v04styles.finalStatusDot} aria-hidden="true" />
+            {chain.final.status === "OPEN" ? "未定稿" : "已定稿"}
+          </span>
+          <span>
+            {chain.final.status === "OPEN"
+              ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的"
+              : `老孙于 ${chain.final.doneAt ? formatShortDateTime(chain.final.doneAt) : ""} 定稿，此后其他版本的修改不再进入集成版`}
+            {chain.final.pendingCount > 0 ? (
+              <span className={v04styles.finalPendingText}>；定稿期间有 {chain.final.pendingCount} 处修改未纳入</span>
+            ) : null}
+          </span>
+          <span className={v04styles.finalBannerSpacer} />
+          {chain.final.pendingCount > 0 && !readOnly ? (
+            <button type="button" disabled={finalActionBusy} onClick={adoptAllIntakes}>全部采纳</button>
+          ) : null}
+          {chain.final.pendingCount > 0 && !traceMode ? (
+            <button type="button" onClick={() => setTraceMode(true)}>到溯源视图逐条看</button>
+          ) : null}
+        </div>
+      ) : null}
+      {/* 结构改动未纳入（规格五、18）：INSERT/REMOVE/SPAN 这类没有单个字段可挂的
+          汇入记录，单独列在横幅下方，只在溯源视图出现。 */}
+      {chain.current.isFinal && traceMode && finalTraceModel && finalTraceModel.structurePending.length > 0 ? (
+        <div className={v04styles.finalStructuralPending}>
+          <b>结构改动未纳入</b>
+          {finalTraceModel.structurePending.map((row, index) => (
+            <div key={row.intakeId ?? index} className={v04styles.finalStructuralRow}>
+              <span>{row.value}</span>
+              {canAdoptFinal && row.intakeId ? (
+                <button type="button" disabled={finalActionBusy} onClick={() => void adoptIntakes([row.intakeId as string])}>
+                  采纳这一版
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className={styles.main}>
         <section className={styles.mod}>
           <header className={styles.modHeader}>
@@ -620,6 +868,7 @@ export default function ReportStudioClient({
                 onUpload: (fileList) => void uploadFiles(fileList),
                 onDelete: (fileId) => void removeFile(fileId),
               }}
+              finalExtras={finalFieldExtras}
             />
           ) : null}
         </section>
@@ -650,6 +899,10 @@ export default function ReportStudioClient({
                 currentVersionId: chain.current.id,
                 onSave: comment,
               }}
+              finalExtras={finalFieldExtras}
+              modelFinalTrace={finalTraceModel?.fields["strategy.model"]}
+              canAdoptFinal={canAdoptFinal}
+              onAdoptFinal={(intakeId) => void adoptIntakes([intakeId])}
             />
           ) : null}
         </section>
@@ -705,6 +958,9 @@ export default function ReportStudioClient({
               onGuideOffChange={updateGuideOff}
               focusKey={focusKey}
               onFocusKeyChange={setFocusKey}
+              traceMode={chain.current.isFinal && traceMode}
+              finalTrace={finalTraceModel}
+              onAdopt={adoptIntakes}
               review={{
                 canReview: review.canReview,
                 currentVersionId: chain.current.id ?? "",
@@ -715,8 +971,9 @@ export default function ReportStudioClient({
           ) : null}
         </section>
 
-        {/* 报告没有集成版，`canRate` 在这里基本等价于"当前版本已经落库"，
-            但仍然照抄视频侧口径由 `review.canRate` 把关（见
+        {/* 集成版不渲染评分（规格五、21）：集成版 id 不在 report_versions 里，
+            `review.canRate` 的评分行查询天然落空、恒为 false，不需要额外加
+            `chain.current.isFinal` 判断——跟视频侧同一条口径（见
             lib/report-review-server.ts 顶部注释），不是自己另起一套判断。 */}
         {review.canRate && (
           <V19AssignmentRating
@@ -727,6 +984,23 @@ export default function ReportStudioClient({
             onRate={rate}
           />
         )}
+      </div>
+      {/* 集成版操作（保存汇入、定稿／取消定稿、采纳）的一次性反馈，照抄视频侧
+          `V04StudioClient.tsx` 的做法：组件内 state + 固定定位容器，demo 风格
+          的浮出提示条，不额外起一个共享 toast 组件。 */}
+      <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 99, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            style={{
+              background: "rgba(31,25,20,.97)", color: "var(--v04-ink)", border: "1px solid var(--v04-line)",
+              borderRadius: 12, padding: "10px 16px", fontSize: 12, boxShadow: "0 16px 42px rgba(0,0,0,.38)",
+              maxWidth: "80vw", lineHeight: 1.55,
+            }}
+          >
+            {toast.text}
+          </div>
+        ))}
       </div>
     </main>
   );

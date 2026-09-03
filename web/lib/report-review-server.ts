@@ -31,14 +31,15 @@ type SavedCommentRow = QueryResultRow & {
 };
 type CommentRow = SavedCommentRow & {
   version_id: string;
-  version_number: number;
+  /** `LEFT JOIN report_versions` 联查所得；为 null 的评论写在集成版上。 */
+  version_number: number | null;
 };
 
 /**
  * 版本必须真属于这份报告才继续。否则一个能读 A 报告的人，
  * 就能拿 B 报告的版本号往这里写评语。带上 version_number 是因为
- * `saveReportReviewComment` 要用它拼评论的 `versionLabel`（`v${number}`）——
- * 报告没有集成版，不需要再像视频侧那样分两步各查一遍。
+ * `saveReportReviewComment` 要用它拼评论的 `versionLabel`（`v${number}`）。
+ * 只用于评分（星级只锚定普通版本，集成版不评分，见 loadReportReview）。
  */
 async function requireVersionOfReport(db: DbClient, reportId: string, versionId: string) {
   const row = await db
@@ -49,6 +50,34 @@ async function requireVersionOfReport(db: DbClient, reportId: string, versionId:
     throw new Error("指定的版本不存在。");
   }
   return row;
+}
+
+/**
+ * 评论现在可能锚定在集成版上，集成版的 id 不在 `report_versions` 里，
+ * 所以校验分两步：先当普通版本查，查不到再当集成版查。两处都查不到才拒绝——
+ * 这样一个能读 A 报告的人依旧不能拿 B 报告的版本号／集成版 id 往这里写评语。
+ * 照抄视频侧 `lib/case-review-server.ts` 的 `requireCommentVersionOfVideo` 写法
+ * （见 docs/21_报告集成版_实施规格_V0.1.md 四、4.4）。
+ */
+async function requireCommentVersionOfReport(
+  db: DbClient,
+  reportId: string,
+  versionId: string,
+): Promise<{ id: string; label: string }> {
+  const trimmed = versionId.trim();
+  const version = await db
+    .prepare("SELECT id, report_id, version_number FROM report_versions WHERE id = ?")
+    .bind(trimmed)
+    .first<VersionWithNumberRow>();
+  if (version && version.report_id === reportId) {
+    return { id: version.id, label: `v${version.version_number}` };
+  }
+  const final = await db
+    .prepare("SELECT id FROM report_final_versions WHERE id = ? AND report_id = ?")
+    .bind(trimmed, reportId)
+    .first<VersionRow>();
+  if (final) return { id: final.id, label: "集成版" };
+  throw new Error("指定的版本不存在。");
 }
 
 function requireReviewer(viewer: ReportReviewViewer) {
@@ -88,7 +117,7 @@ export async function loadReportReview(
       `SELECT c.target_key, c.target_label, c.body, c.author_name, c.updated_at,
         c.version_id, v.version_number
       FROM report_version_comments c
-      JOIN report_versions v ON v.id = c.version_id
+      LEFT JOIN report_versions v ON v.id = c.version_id
       WHERE c.report_id = ?
       ORDER BY c.updated_at ASC`,
     ).bind(input.reportId).all<CommentRow>(),
@@ -106,7 +135,8 @@ export async function loadReportReview(
         authorName: row.author_name,
         updatedAt: toIsoTimestamp(row.updated_at),
         versionId: row.version_id,
-        versionLabel: `v${row.version_number}`,
+        // `report_versions` 里找不到（联查落空）的评论写在集成版上。
+        versionLabel: row.version_number != null ? `v${row.version_number}` : "集成版",
       }),
     ),
   };
@@ -155,7 +185,8 @@ export async function saveReportReviewComment(
   const targetKey = input.targetKey.trim();
   if (!targetKey) throw new Error("评论缺少对应条目。");
   const body = normalizeReviewComment(input.body);
-  const version = await requireVersionOfReport(db, input.reportId, input.versionId);
+  // 普通版本或集成版都行——写下去锚定的是当前正在看的那一版。
+  const version = await requireCommentVersionOfReport(db, input.reportId, input.versionId);
   if (!body) {
     await db
       .prepare("DELETE FROM report_version_comments WHERE version_id = ? AND target_key = ?")
@@ -187,9 +218,9 @@ export async function saveReportReviewComment(
           body: saved.body,
           authorName: saved.author_name,
           updatedAt: toIsoTimestamp(saved.updated_at),
-          // 版本号从 requireVersionOfReport 已经查出来的那一行取，不用再联查一次。
+          // 版本标签从 requireCommentVersionOfReport 已经查出来的那一行取，不用再联查一次。
           versionId: version.id,
-          versionLabel: `v${version.version_number}`,
+          versionLabel: version.label,
         }
       : null,
   };

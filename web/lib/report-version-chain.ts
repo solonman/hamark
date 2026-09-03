@@ -25,6 +25,18 @@ import {
   validateReportAnnotation,
   type ReportAnnotation,
 } from "@/lib/report-structure";
+// 集成版：见 lib/report-final-version.ts 顶部注释——这里与它互相 import，
+// 引用只发生在函数体内部，同视频侧 lib/final-version.ts ↔ lib/v19-version-chain.ts
+// 的双向引用一样安全。
+import {
+  intakeReportVersionIntoFinal,
+  loadReportFinalTrace,
+  loadReportFinalVersion,
+  type LoadedReportFinalVersion,
+  type ReportFinalIntakeResult,
+  type ReportFinalSummary,
+  type ReportFinalTraceIntake,
+} from "@/lib/report-final-version";
 
 export const REPORT_ANNOTATION_PAYLOAD_SCHEMA_VERSION = "report-annotation/1";
 
@@ -79,7 +91,10 @@ export type ReportVersionErrorCode =
   | "REVISION_CONFLICT"
   | "VALIDATION_FAILED"
   | "ALREADY_HAS_VERSION"
-  | "INVALID_INPUT";
+  | "INVALID_INPUT"
+  // 集成版专属：只有老孙能直接编辑集成版、能定稿/取消定稿/采纳（见
+  // lib/report-final-version.ts spec 3.5/3.6）。
+  | "FORBIDDEN";
 
 const STATUS_BY_CODE: Record<ReportVersionErrorCode, number> = {
   REPORT_NOT_FOUND: 404,
@@ -89,6 +104,7 @@ const STATUS_BY_CODE: Record<ReportVersionErrorCode, number> = {
   VALIDATION_FAILED: 422,
   ALREADY_HAS_VERSION: 409,
   INVALID_INPUT: 400,
+  FORBIDDEN: 403,
 };
 
 export class ReportVersionError extends Error {
@@ -128,6 +144,8 @@ export function reportVersionErrorResponse(error: unknown): Response {
 export type ReportVersionActor = {
   userId: string;
   displayName: string;
+  /** Optional — only used for audit-log attribution on 集成版 writes (spec 3.5/3.6). */
+  email?: string | null;
 };
 
 export type ReportVersionRecord = {
@@ -140,6 +158,8 @@ export type ReportVersionRecord = {
   updatedAt: string;
   isMine: boolean;
   isVirtual: boolean;
+  /** true when this version was manually created from 集成版's payload rather than another editor's (spec 五、13). */
+  baseIsFinal: boolean;
 };
 
 export type ReportCurrentVersion = ReportVersionRecord & {
@@ -147,6 +167,8 @@ export type ReportCurrentVersion = ReportVersionRecord & {
   basePayload: ReportAnnotation | null;
   revision: number;
   contentHash: string;
+  /** true when `current` is 集成版 itself rather than a per-editor version (spec 四、4.1). */
+  isFinal: boolean;
 };
 
 export type ReportVersionChain = {
@@ -154,6 +176,10 @@ export type ReportVersionChain = {
   current: ReportCurrentVersion;
   latestId: string | null;
   mineId: string | null;
+  /** null only when the report has no real version yet at all (spec 二、11). */
+  final: ReportFinalSummary | null;
+  /** Only populated on request (`?version=` unset or `=final`) — spec 四、4.1. */
+  finalTrace?: { originPayload: ReportAnnotation; intakes: ReportFinalTraceIntake[] };
 };
 
 export type ReportSaveInput = {
@@ -170,6 +196,7 @@ export type ReportSaveResult = {
   version: ReportCurrentVersion;
   revision: number;
   changed: boolean;
+  finalIntake: ReportFinalIntakeResult;
 };
 
 export type ReportCreateFromInput = {
@@ -201,13 +228,14 @@ type ReportVersionRow = QueryResultRow & {
   content_hash: string;
   revision: number;
   payload_schema_version: string;
+  base_is_final: boolean;
   created_at: string;
   updated_at: string;
 };
 
 const VERSION_COLUMNS = `id, report_id, version_number, owner_user_id, owner_name_snapshot,
   base_version_id, base_version_number, base_payload_json, base_captured_at,
-  payload_json, content_hash, revision, payload_schema_version, created_at, updated_at`;
+  payload_json, content_hash, revision, payload_schema_version, base_is_final, created_at, updated_at`;
 
 const genId = (prefix: string) => `${prefix}_${randomUUID()}`;
 const iso = (value: Date) => value.toISOString();
@@ -217,7 +245,7 @@ function parseJsonPayload(value: ReportAnnotation | string): ReportAnnotation {
 }
 
 /** Loads the report row and rejects anything that cannot be annotated right now. */
-async function requireReadyReport(db: DbClient, reportId: string, lock = false): Promise<ReportRow> {
+export async function requireReadyReport(db: DbClient, reportId: string, lock = false): Promise<ReportRow> {
   const row = await db
     .prepare(`SELECT id, status, deleted_at FROM reports WHERE id = ? ${lock ? "FOR UPDATE" : ""}`)
     .bind(reportId)
@@ -231,7 +259,7 @@ async function requireReadyReport(db: DbClient, reportId: string, lock = false):
   return row;
 }
 
-async function loadPageNumbers(db: DbClient, reportId: string): Promise<number[]> {
+export async function loadPageNumbers(db: DbClient, reportId: string): Promise<number[]> {
   const { results } = await db
     .prepare(`SELECT page_no FROM report_pages WHERE report_id = ? ORDER BY page_no ASC`)
     .bind(reportId)
@@ -276,6 +304,7 @@ function toSummary(row: ReportVersionRow, actorUserId: string): ReportVersionRec
     updatedAt: row.updated_at,
     isMine: row.owner_user_id === actorUserId,
     isVirtual: false,
+    baseIsFinal: Boolean(row.base_is_final),
   };
 }
 
@@ -286,6 +315,28 @@ function toCurrentVersion(row: ReportVersionRow, actorUserId: string): ReportCur
     basePayload: row.base_payload_json == null ? null : parseJsonPayload(row.base_payload_json),
     revision: Number(row.revision),
     contentHash: row.content_hash,
+    isFinal: false,
+  };
+}
+
+/** `current` when the viewer is looking at 集成版 instead of a per-editor version (spec 4.1). */
+function finalToCurrentVersion(final: LoadedReportFinalVersion): ReportCurrentVersion {
+  return {
+    id: final.id,
+    number: 0,
+    ownerUserId: "",
+    ownerName: "集成版",
+    baseNumber: null,
+    createdAt: final.createdAt,
+    updatedAt: final.updatedAt,
+    isMine: false,
+    isVirtual: final.isVirtual,
+    baseIsFinal: false,
+    isFinal: true,
+    payload: final.payload,
+    basePayload: null,
+    revision: final.revision,
+    contentHash: final.contentHash,
   };
 }
 
@@ -313,6 +364,7 @@ export function virtualReportVersion(
     updatedAt,
     isMine: ownerUserId === actorUserId,
     isVirtual: true,
+    baseIsFinal: false,
   };
 }
 
@@ -324,39 +376,61 @@ export async function loadReportVersionChain(
   db: DbClient,
   reportId: string,
   actor: ReportVersionActor,
-  options: { versionId?: string } = {},
+  options: { versionId?: string; includeFinalTrace?: boolean } = {},
 ): Promise<ReportVersionChain> {
   await requireReadyReport(db, reportId);
   const rows = await listVersionRows(db, reportId);
 
   if (rows.length === 0) {
+    // spec 二、11: 集成版只在报告有至少一个真实版本时才有意义——一份还没被
+    // 任何人保存过的报告，final 保持 null，行为完全同改动前。
     const pageNumbers = await loadPageNumbers(db, reportId);
     const payload = emptyReportAnnotation(pageNumbers);
     const nowIso = new Date().toISOString();
     const virtual = virtualReportVersion(actor.userId, actor.displayName, actor.userId, nowIso);
     return {
       versions: [virtual],
-      current: { ...virtual, payload, basePayload: null, revision: 1, contentHash: hashReportPayload(payload) },
+      current: { ...virtual, payload, basePayload: null, revision: 1, contentHash: hashReportPayload(payload), isFinal: false },
       latestId: null,
       mineId: null,
+      final: null,
     };
   }
 
   const summaries = rows.map((row) => toSummary(row, actor.userId));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  if (options.versionId && !byId.has(options.versionId)) {
+  if (options.versionId && options.versionId !== "final" && !byId.has(options.versionId)) {
     throw new ReportVersionError("VERSION_NOT_FOUND", "指定的版本不存在。");
   }
   const defaultSummary = resolveReportDefaultVersion(summaries);
-  const chosenRow = options.versionId ? byId.get(options.versionId)! : byId.get(defaultSummary.id as string)!;
   const mineSummary = pickReportActorVersion(summaries, actor.userId);
   const mineId = mineSummary ? (mineSummary.id as string) : null;
 
+  // spec 二、11: 报告已有真实版本时，集成版有意义（含虚拟），未显式指定某个
+  // 具体真实版本时默认展示它，而不是"最近更新的那一版"（改动前的默认规则）。
+  const finalLoaded = await loadReportFinalVersion(db, reportId);
+  const final: ReportFinalSummary = {
+    id: finalLoaded.id,
+    status: finalLoaded.status,
+    doneAt: finalLoaded.doneAt,
+    doneByName: finalLoaded.doneByName,
+    updatedAt: finalLoaded.updatedAt,
+    pendingCount: finalLoaded.pendingCount,
+    isVirtual: finalLoaded.isVirtual,
+  };
+
+  const requestedRow = options.versionId && options.versionId !== "final" ? byId.get(options.versionId) : undefined;
+  const current = requestedRow ? toCurrentVersion(requestedRow, actor.userId) : finalToCurrentVersion(finalLoaded);
+
+  const finalTrace = options.includeFinalTrace ? await loadReportFinalTrace(db, reportId) : undefined;
+
   return {
     versions: summaries,
-    current: toCurrentVersion(chosenRow, actor.userId),
+    current,
     latestId: defaultSummary.id,
     mineId,
+    final,
+    ...(finalTrace ? { finalTrace } : {}),
   };
 }
 
@@ -400,11 +474,24 @@ export async function saveReportVersion(
         });
       }
       const nextHash = hashReportPayload(validated.value);
+      // 汇入的 before 是这一版*自己*上一次保存的内容（不是 origin，不是
+      // base）——天然精确，不受 3.3 版级回填粒度局限影响（spec 3.4）。
+      const beforePayload = parseJsonPayload(mine.payload_json);
       if (nextHash === mine.content_hash) {
+        const finalIntake = await intakeReportVersionIntoFinal(tx, reportId, {
+          before: beforePayload,
+          after: beforePayload,
+          sourceVersionId: mine.id,
+          sourceVersionNumber: Number(mine.version_number),
+          actorUserId: actor.userId,
+          actorName: actor.displayName,
+          now,
+        });
         return {
           version: toCurrentVersion(mine, actor.userId),
           revision: Number(mine.revision),
           changed: false,
+          finalIntake,
         };
       }
       const nextRevision = Number(mine.revision) + 1;
@@ -424,10 +511,20 @@ export async function saveReportVersion(
         revision: nextRevision,
         updated_at: savedAt,
       };
+      const finalIntake = await intakeReportVersionIntoFinal(tx, reportId, {
+        before: beforePayload,
+        after: validated.value,
+        sourceVersionId: mine.id,
+        sourceVersionNumber: Number(mine.version_number),
+        actorUserId: actor.userId,
+        actorName: actor.displayName,
+        now,
+      });
       return {
         version: toCurrentVersion(updated, actor.userId),
         revision: nextRevision,
         changed: true,
+        finalIntake,
       };
     }
 
@@ -499,10 +596,23 @@ export async function saveReportVersion(
     if (!created) {
       throw new ReportVersionError("REVISION_CONFLICT", "保存时发生并发冲突，请重试。");
     }
+    // 首次创建版本：before = 基版内容（没有基版时是空白初始标注），这个定义
+    // 与这一版自己的 base_payload_json 完全一致——3.3 回填时直接复用
+    // base_payload_json 做 before 正是因为这里就是这样定义的（spec 3.4）。
+    const finalIntake = await intakeReportVersionIntoFinal(tx, reportId, {
+      before: basePayload ?? emptyReportAnnotation(pageNumbers),
+      after: validated.value,
+      sourceVersionId: created.id,
+      sourceVersionNumber: Number(created.version_number),
+      actorUserId: actor.userId,
+      actorName: actor.displayName,
+      now,
+    });
     return {
       version: toCurrentVersion(created, actor.userId),
       revision: Number(created.revision),
       changed: true,
+      finalIntake,
     };
   });
 }
@@ -531,22 +641,45 @@ export async function createReportVersionFrom(
     if (mine) throw alreadyOwnsVersion();
 
     const allRows = await listVersionRows(tx, reportId);
-    const baseRow = allRows.find((row) => row.id === input.fromVersionId);
-    if (!baseRow) {
-      throw new ReportVersionError("VERSION_NOT_FOUND", "指定的来源版本不存在。");
-    }
     const versionNumber = nextReportVersionNumber(allRows.map((row) => Number(row.version_number)));
-    const basePayload = parseJsonPayload(baseRow.payload_json);
     const newId = genId("report_version");
     const savedAt = iso(now);
+
+    // "基于集成版创建我的版本"（spec 五、13）：集成版的 id 不在 report_versions
+    // 里，base_version_id/number 记 null，靠 base_is_final 标记来源——同视频侧
+    // insertVersionFromFinal 的处理方式。报告没有单独的下拉选基版 UI，这条路径
+    // 只由 POST .../versions 以 fromVersionId === "final" 触发（见五、13）。
+    let basePayload: ReportAnnotation;
+    let baseContentHash: string;
+    let baseVersionId: string | null;
+    let baseVersionNumber: number | null;
+    let baseIsFinal: boolean;
+    if (input.fromVersionId === "final") {
+      const finalLoaded = await loadReportFinalVersion(tx, reportId);
+      basePayload = finalLoaded.payload;
+      baseContentHash = finalLoaded.contentHash;
+      baseVersionId = null;
+      baseVersionNumber = null;
+      baseIsFinal = true;
+    } else {
+      const baseRow = allRows.find((row) => row.id === input.fromVersionId);
+      if (!baseRow) {
+        throw new ReportVersionError("VERSION_NOT_FOUND", "指定的来源版本不存在。");
+      }
+      basePayload = parseJsonPayload(baseRow.payload_json);
+      baseContentHash = baseRow.content_hash;
+      baseVersionId = baseRow.id;
+      baseVersionNumber = Number(baseRow.version_number);
+      baseIsFinal = false;
+    }
 
     const inserted = await tx
       .prepare(
         `INSERT INTO report_versions (
           id, report_id, version_number, owner_user_id, owner_name_snapshot,
           base_version_id, base_version_number, base_payload_json, base_captured_at,
-          payload_json, content_hash, revision, payload_schema_version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz, ?::jsonb, ?, 1, ?, ?::timestamptz, ?::timestamptz)
+          payload_json, content_hash, revision, payload_schema_version, base_is_final, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz, ?::jsonb, ?, 1, ?, ?, ?::timestamptz, ?::timestamptz)
         ON CONFLICT DO NOTHING
         RETURNING id`,
       )
@@ -556,13 +689,14 @@ export async function createReportVersionFrom(
         versionNumber,
         actor.userId,
         actor.displayName,
-        baseRow.id,
-        Number(baseRow.version_number),
+        baseVersionId,
+        baseVersionNumber,
         JSON.stringify(basePayload),
         savedAt,
         JSON.stringify(basePayload),
-        baseRow.content_hash,
+        baseContentHash,
         REPORT_ANNOTATION_PAYLOAD_SCHEMA_VERSION,
+        baseIsFinal,
         savedAt,
         savedAt,
       )
@@ -575,10 +709,23 @@ export async function createReportVersionFrom(
     }
     const created = await findVersionById(tx, inserted.id);
     if (!created) throw new ReportVersionError("VERSION_NOT_FOUND", "新建版本写入后读取失败。");
+    // 这一版此刻的内容与基版（普通版本或集成版）完全相同，diff 出的记录数
+    // 天然是 0——调这一下只是为了在集成版还从没被物化过时把它物化好，并让
+    // 响应里的 pending 计数准确，不会产生任何新的汇入记录。
+    const finalIntake = await intakeReportVersionIntoFinal(tx, reportId, {
+      before: basePayload,
+      after: basePayload,
+      sourceVersionId: created.id,
+      sourceVersionNumber: Number(created.version_number),
+      actorUserId: actor.userId,
+      actorName: actor.displayName,
+      now,
+    });
     return {
       version: toCurrentVersion(created, actor.userId),
       revision: 1,
       changed: true,
+      finalIntake,
     };
   });
 }

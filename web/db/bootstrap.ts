@@ -6,6 +6,7 @@ import { V19_VERSION_CHAIN_SCHEMA_STATEMENTS } from "./v19-version-chain-schema"
 import { CASE_ENGAGEMENT_SCHEMA_STATEMENTS } from "./case-engagement-schema";
 import { REPORT_SCHEMA_STATEMENTS } from "./report-schema";
 import { FINAL_VERSION_SCHEMA_STATEMENTS } from "./final-version-schema";
+import { REPORT_FINAL_SCHEMA_STATEMENTS } from "./report-final-schema";
 
 export const BOOTSTRAP_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS app_admins (
@@ -559,6 +560,7 @@ export const BOOTSTRAP_STATEMENTS = [
   ...V19_VERSION_CHAIN_SCHEMA_STATEMENTS,
   ...CASE_ENGAGEMENT_SCHEMA_STATEMENTS,
   ...REPORT_SCHEMA_STATEMENTS,
+  ...REPORT_FINAL_SCHEMA_STATEMENTS,
   ...FINAL_VERSION_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only
   // happens server-side through the BYPASSRLS pooler role, so RLS with no

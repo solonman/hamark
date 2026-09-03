@@ -28,6 +28,8 @@ import {
   type ReportDeckKey,
   type ReportPage,
 } from "@/lib/report-structure";
+import { formatShortDateTime } from "@/lib/date-format";
+import type { ReportFinalFieldTrace, ReportFinalTraceRow } from "@/lib/report-final-trace";
 
 /* ============================ Rectangles / marquee ============================ */
 
@@ -530,4 +532,82 @@ export function deckSummary(a: ReportAnnotation): DeckSummary {
     donePages,
     inProgressPages,
   };
+}
+
+
+/* ============================ 集成版·溯源脚注（docs/21 一之 D、五、18/19） ============================ */
+/*
+ * `lib/report-final-trace.ts` 的 `deriveReportFinalTraceModel` 已经把"哪条是
+ * 当前采用、哪些是被盖掉的旧写法、哪些还没被采纳"都算好了（相邻同值合并、
+ * 空白不算一次写法，同视频侧 `lib/v19-final-trace.ts` 的简化规则）——这里
+ * 只管把已经分好组的 `ReportFinalTraceRow` 格式化成脚注要显示的文案，纯
+ * 字符串拼接，不重新做归并/分流。跟视频侧 `describeV19FinalTraceRowLabel`/
+ * `describeV19FinalTraceHoverSource`/`firstLineV19TraceValue` 是同一层级的
+ * 纯函数，只是换成报告这边更简单的行形状（`versionLabel`/`actorName`/`at`
+ * 都已经是拼好的字符串，不用再从 `sourceVersionNumber`/`source` 反推）。
+ */
+
+/** 以 targetKey 查一处字段/一个容器的划分溯源——`.fields`/`.spans` 值同形状，共用一个查法。 */
+export function reportFinalTraceFor(
+  record: Record<string, ReportFinalFieldTrace> | null | undefined,
+  key: string,
+): ReportFinalFieldTrace | null {
+  return record?.[key] ?? null;
+}
+
+/**
+ * 收纳框的 deck key（`mod:<id>`／`unit:<id>`）→ 集成版划分记录（SPAN intake）
+ * 的 targetKey（`module:<id>`／`unit:<id>`，与评论的 targetKey 同一套前缀）。
+ * 两边只差模块这一个前缀，但差了就查不到——真实工作台里模块框的"这段划分
+ * 来自"就是因为拿 `mod:` 去查 `module:` 键而整片空白。
+ */
+export function reportFinalSpanTraceKey(key: ReportDeckKey): string {
+  return key.startsWith("mod:") ? `module:${key.slice("mod:".length)}` : key;
+}
+
+/**
+ * "v2 老孙 09-02 11:00" 风格的一行来源标签——"当前采用 · "脚注与每条旧写法
+ * 摘要行自己的标签共用同一个格式。`actorName`/`at` 缺失时优雅降级（报告的
+ * "原稿"没有自然人可归属，`lib/report-final-trace.ts` 里 `actorName` 留空、
+ * `at` 留空串，见 docs/21 七、2）。
+ */
+export function reportFinalTraceRowLabel(row: ReportFinalTraceRow): string {
+  const who = [row.versionLabel, row.actorName].filter(Boolean).join(" ");
+  return row.at ? `${who} ${formatShortDateTime(row.at)}` : who;
+}
+
+/**
+ * "v2·李晓芸 08-24 11:05" 风格——默认视图 hover 提示专用格式（规格五、19），
+ * 版本号和作者之间是紧凑的间隔号，不是空格，跟 `reportFinalTraceRowLabel`
+ * 是两种场合各自的写法，不能共用一个实现。
+ */
+export function reportFinalTraceHoverSuffix(row: ReportFinalTraceRow): string {
+  const who = row.actorName ? `${row.versionLabel}·${row.actorName}` : row.versionLabel;
+  return row.at ? `${who} ${formatShortDateTime(row.at)}` : who;
+}
+
+/** hover title 追加文案："来自 v2·李晓芸 08-24 11:05"；没有当前采用行就不追加（`undefined`）。 */
+export function reportFinalHoverTitle(trace: ReportFinalFieldTrace | null | undefined): string | undefined {
+  return trace?.current ? `来自 ${reportFinalTraceHoverSuffix(trace.current)}` : undefined;
+}
+
+/**
+ * 正文正下方的"当前采用 · …"脚注，或收纳框标题栏下的"这段划分来自 …"——
+ * 前缀由调用方决定，行本身的格式化逻辑共用。没有当前采用行时返回 `null`
+ * （字段从没被任何一版写过，或容器还没有过 SPAN 记录）。
+ */
+export function reportFinalCurrentLabel(trace: ReportFinalFieldTrace | null | undefined, prefix: string): string | null {
+  return trace?.current ? `${prefix}${reportFinalTraceRowLabel(trace.current)}` : null;
+}
+
+/** 旧写法摘要行收起时的预览：第一行，去空白后为空显示"—"（同 `firstLineV19TraceValue`）。 */
+export function reportFinalTraceFirstLine(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "—";
+  return trimmed.split("\n")[0];
+}
+
+/** 摘要行展开后的整段正文，或未纳入记录的正文——为空显示"—"（同 `formatV19TraceValue`）。 */
+export function reportFinalTraceFullValue(value: string): string {
+  return value.trim() === "" ? "—" : value;
 }

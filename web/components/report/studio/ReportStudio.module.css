@@ -148,6 +148,12 @@ span.studioSaveChip {
   background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px;
 }
 .dd:disabled, .combo:disabled { cursor: not-allowed; opacity: .55; }
+/* 集成版锁定态（规格五、16）：同 V19EditableValue 的 .editableLocked／
+   V04ChoiceField 的 .choiceTriggerLocked 一套语言——看起来还在，但描边转
+   琥珀色，说明"点了也没用，不是坏了"。盖在 :disabled 的暗淡样式之上，
+   opacity 不再压得那么低，免得两种视觉叠在一起分不清。 */
+.ddLocked:disabled { opacity: .85; }
+.ddLocked:hover { border-color: rgba(255, 174, 120, .55); }
 
 .cb { position: relative; display: inline-flex; align-items: center; }
 .combo { min-width: 132px; max-width: 220px; padding-right: 28px; }

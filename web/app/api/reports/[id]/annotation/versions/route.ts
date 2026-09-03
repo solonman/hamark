@@ -48,7 +48,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const result = await createReportVersionFrom(
       getDbClient(),
       reportId,
-      { userId: user.id, displayName: user.displayName },
+      { userId: user.id, displayName: user.displayName, email: user.email },
       { fromVersionId },
     );
     return Response.json(result, { status: 201 });

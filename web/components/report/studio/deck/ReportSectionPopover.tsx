@@ -11,7 +11,7 @@ import {
   type ReportAnnotation,
   type ReportDeckKey,
 } from "@/lib/report-structure";
-import { placeAnchoredPanel } from "./deck-view";
+import { placeAnchoredPanel, reportFinalTraceFor } from "./deck-view";
 import { ReportCombobox, ReportSelect } from "@/components/report/studio/ReportSelect";
 import { DeckCommentEntry, DeckEditableValue, DeckItem, DeckStaticValue } from "./DeckField";
 import styles from "./ReportDeck.module.css";
@@ -33,6 +33,10 @@ export type ReportSectionPopoverProps = {
   onChange: (next: ReportAnnotation) => void;
   onClose: () => void;
   review: ReportDeckProps["review"];
+  /** 集成版·溯源视图，三者不传时渲染与改动前完全一致（docs/21 一之 D）。 */
+  traceMode?: ReportDeckProps["traceMode"];
+  finalTrace?: ReportDeckProps["finalTrace"];
+  onAdopt?: ReportDeckProps["onAdopt"];
 };
 
 const UNIT_DEPTH_TITLES = ["讲述单元", "子单元", "孙单元", "曾孙单元"];
@@ -48,7 +52,7 @@ function unitDepth(a: ReportAnnotation, uid: string): number {
 }
 
 export default function ReportSectionPopover({
-  annotation, targetKey, anchorRect, readOnly, onChange, onClose, review,
+  annotation, targetKey, anchorRect, readOnly, onChange, onClose, review, traceMode, finalTrace, onAdopt,
 }: ReportSectionPopoverProps) {
   // 先按锚点下方给个粗略位置渲染一次（这时还量不到真实高度），useLayoutEffect
   // 拿到真实尺寸后在绘制前改成准确位置（贴近锚点，视口装不下就翻到锚点上方）
@@ -100,6 +104,9 @@ export default function ReportSectionPopover({
     await review.onComment(input.targetKey, input.targetLabel, input.body);
   };
 
+  /** 一处字段的溯源链——`fields`/`finalTrace` 缺一个都当没有数据。 */
+  const fieldTrace = (key: string) => reportFinalTraceFor(finalTrace?.fields, key);
+
   let title = "";
   let body: React.ReactNode = null;
 
@@ -114,6 +121,7 @@ export default function ReportSectionPopover({
       <>
         <DeckItem
           label="策略模块名称" wide
+          trace={fieldTrace(nameKey)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
           commentSlot={(
             <DeckCommentEntry
               targetKey={nameKey} targetLabel={`${title}·名称`}
@@ -132,7 +140,7 @@ export default function ReportSectionPopover({
             }))}
           />
         </DeckItem>
-        <DeckItem label="模块间组织关系">
+        <DeckItem label="模块间组织关系" trace={fieldTrace(`module:${id}:rel`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
           <ReportSelect
             value={mod.rel}
             options={REPORT_RELATIONS}
@@ -144,6 +152,7 @@ export default function ReportSectionPopover({
         </DeckItem>
         <DeckItem
           label="策略作用" wide
+          trace={fieldTrace(roleKey)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
           commentSlot={(
             <DeckCommentEntry
               targetKey={roleKey} targetLabel={`${title}·策略作用`}
@@ -188,6 +197,7 @@ export default function ReportSectionPopover({
       <>
         <DeckItem
           label="单元名称" wide
+          trace={fieldTrace(nameKey)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
           commentSlot={(
             <DeckCommentEntry
               targetKey={nameKey} targetLabel={`${title}·单元名称`}
@@ -204,7 +214,7 @@ export default function ReportSectionPopover({
             }))}
           />
         </DeckItem>
-        <DeckItem label="单元间组织关系">
+        <DeckItem label="单元间组织关系" trace={fieldTrace(`unit:${id}:rel`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
           <ReportSelect
             value={unit.rel}
             options={REPORT_RELATIONS}
@@ -224,6 +234,7 @@ export default function ReportSectionPopover({
               key={field.key}
               label={field.label}
               wide={field.multi}
+              trace={fieldTrace(key)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
               commentSlot={(
                 <DeckCommentEntry
                   targetKey={key} targetLabel={`${title}·${field.label}`}

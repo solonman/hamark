@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import V19EditableValue, { type V19EditableKind } from "@/components/v04/V19EditableValue";
 import V19ReviewComment from "@/components/v04/V19ReviewComment";
 import type { CaseReviewComment } from "@/lib/case-review";
@@ -34,7 +35,20 @@ export type ReportFieldItemProps = {
   readOnly: boolean;
   onCommit: (next: string) => void;
   review?: ReportFieldItemReview;
+  /**
+   * 集成版专属，直接透传给 `V19EditableValue`（规格五、16/18/19，见
+   * `docs/21_报告集成版_实施规格_V0.1.md`）：`locked` 是"看得见、点了也不会
+   * 进编辑态"的锁定视觉（非老孙看集成版）；`sourceHint` 是默认视图 hover
+   * 标题追加的"来自 vN·谁 时间"；`after` 是溯源视图挂在正文下方的来源链。
+   * 不传时字段行为与之前完全一样（普通版本，没有集成版这回事）。
+   */
+  locked?: boolean;
+  sourceHint?: string;
+  after?: ReactNode;
 };
+
+/** `locked`/`sourceHint`/`after` bundled together — what `ReportStudioClient`'s per-field lookup returns and `ReportPartOne`/`ReportPartTwo` spread straight into each `ReportFieldItem`. */
+export type ReportFinalFieldExtras = { locked?: boolean; sourceHint?: string; after?: ReactNode };
 
 export default function ReportFieldItem({
   label,
@@ -45,6 +59,9 @@ export default function ReportFieldItem({
   readOnly,
   onCommit,
   review,
+  locked,
+  sourceHint,
+  after,
 }: ReportFieldItemProps) {
   return (
     <div className={[styles.item, wide ? styles.wide : ""].filter(Boolean).join(" ")}>
@@ -68,6 +85,9 @@ export default function ReportFieldItem({
         block={kind === "textarea"}
         placeholder={placeholder}
         readOnly={readOnly}
+        locked={locked}
+        sourceHint={sourceHint}
+        after={after}
         ariaLabel={label}
         onCommit={onCommit}
       />

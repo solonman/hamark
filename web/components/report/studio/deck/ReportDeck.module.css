@@ -153,6 +153,9 @@
 .root .boxAct:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
 .root .boxActOn { border-color: var(--rd-acc-dim); color: var(--rd-acc); background: rgba(223, 255, 79, 0.1); }
 .root .boxActDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
+/* 收纳框标题栏下一行的划分来源（仅 traceMode，docs/21 一之 D）——跟标题栏
+   本身的左右内边距对齐（12px），顶部留一点点空隙、底部接到 .tray 之前。 */
+.boxSpanTrace { padding: 2px 12px 9px; }
 .unitbox { margin: 8px 10px 10px; background: #171910; }
 .unitbox .unitbox { background: #191b12; }
 
@@ -338,6 +341,48 @@
 .nodeRg { display: block; margin-top: 2px; font-family: var(--rd-mono); font-size: 10px; color: var(--rd-ink3); }
 .nodeKey { margin: 6px 0 0; padding-top: 6px; border-top: 1px dashed var(--rd-line2); color: var(--rd-answer); font-size: 11.5px; line-height: 1.6; }
 .nodeKeyEmpty { color: var(--rd-ink3); font-style: italic; }
+
+/* ---------------- 集成版·溯源脚注（docs/21 一之 D、五、18/19） ---------------- */
+/* 视觉照抄视频侧 V04Surface.module.css 第 919～976 行（`.finalTrace*`）：
+   当前采用是紧跟正文的一行灰字脚注（10.5px、400 字重、无分隔线，`margin-top`
+   收到 4px）；旧写法摘要行同样是灰字（11px），收起只留一行预览，展开换成
+   整段正文；未纳入照旧完整展示，琥珀色强调，带「采纳这一版」。字段脚注
+   （`.item` 里）与收纳框的划分来源（`.boxSpanTrace` 里）共用这一套类。
+   `.finalTraceSummaryRow`/`.finalTraceAdopt` 都是 <button>，同视频侧那边
+   实测过的坑一样——`.root` 前缀让它们稳定落在 (0,2,x)，压过顶部
+   `:where(.root) :global(button){font:inherit}` 那条重置（本文件第 32 行）。 */
+.finalTrace { display: grid; gap: 4px; margin-top: 4px; }
+.finalTraceCurrent { color: var(--rd-ink3); font-size: 10.5px; font-weight: 400; line-height: 1.4; }
+.root .finalTraceSummaryRow {
+  display: block; width: 100%; border: 0; border-left: 2px solid var(--rd-line); border-radius: 8px;
+  background: transparent; padding: 4px 9px; text-align: left; font: inherit; color: var(--rd-ink3);
+  font-size: 11px; line-height: 1.3; cursor: pointer;
+}
+.finalTraceSummaryRow:hover { border-left-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.05); }
+.finalTraceSummaryLabel { color: var(--rd-ink3); font-family: var(--rd-mono); font-weight: 400; margin-right: 8px; }
+.finalTraceSummaryPreview { color: var(--rd-ink3); opacity: 0.72; }
+.finalTraceSummaryRow[aria-expanded="false"] .finalTraceSummaryPreview {
+  display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+}
+.finalTraceSummaryRow[aria-expanded="true"] .finalTraceSummaryPreview {
+  display: block; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5;
+}
+.finalTraceRow {
+  display: grid; grid-template-columns: auto auto auto 1fr; gap: 4px 10px; align-items: baseline;
+  padding: 5px 9px; border-left: 2px solid var(--rd-line); border-radius: 8px; color: var(--rd-ink3); font-size: 11px;
+}
+.finalTraceVersion { color: var(--rd-ink); font-family: var(--rd-mono); font-weight: 700; }
+.finalTraceWho { font-size: 10.5px; }
+.finalTraceTime { font-family: var(--rd-mono); font-size: 9.5px; }
+.finalTraceValue { grid-column: 1 / -1; color: var(--rd-ink3); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.finalTraceTag { justify-self: start; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; font-size: 9px; font-weight: 800; }
+.finalTraceRowPending { border-left-color: rgba(255, 174, 120, 0.55); background: rgba(255, 174, 120, 0.08); }
+.finalTraceRowPending .finalTraceTag { color: var(--rd-warn); }
+.root .finalTraceAdopt {
+  grid-column: 1 / -1; justify-self: start; border: 1px solid rgba(255, 174, 120, 0.55); border-radius: 999px;
+  background: transparent; color: var(--rd-warn); padding: 2px 10px; font: inherit; font-size: 10px; cursor: pointer;
+}
+.finalTraceAdopt:hover { background: rgba(255, 174, 120, 0.15); }
 
 /* ---------------- 内部 toast ---------------- */
 .toastHost { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 99; display: grid; gap: 8px; justify-items: center; pointer-events: none; }

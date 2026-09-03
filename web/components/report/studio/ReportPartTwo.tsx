@@ -2,8 +2,10 @@
 
 import { REPORT_MODELS, type ReportAnnotation } from "@/lib/report-structure";
 import type { CaseReviewComment } from "@/lib/case-review";
-import ReportFieldItem from "./ReportFieldItem";
+import ReportFieldItem, { type ReportFinalFieldExtras } from "./ReportFieldItem";
 import { ReportSelect } from "./ReportSelect";
+import { ReportFinalTraceFootnote } from "./ReportFinalTrace";
+import type { ReportFinalFieldTrace } from "@/lib/report-final-trace";
 import styles from "./ReportStudio.module.css";
 
 /**
@@ -26,9 +28,23 @@ export type ReportPartTwoProps = {
   readOnly: boolean;
   onChange: (next: ReportAnnotation) => void;
   review: ReportPartTwoReview;
+  /** 集成版专属，见 `ReportPartOne` 同名 prop 的注释。 */
+  finalExtras?: (targetKey: string) => ReportFinalFieldExtras;
+  /**
+   * "报告模型"是固定候选下拉（`ReportSelect`），没有 `after` 插槽可以直接挂
+   * 溯源来源链，所以额外单独要一份原始 trace 数据，自己在下拉旁边渲染
+   * `ReportFinalTraceFootnote`；`canAdoptFinal`/`onAdoptFinal` 是它渲染
+   * "未纳入·采纳这一版"要用的权限与回调。三者都不传时（普通版本、没有集成版
+   * 这回事）什么额外的东西都不渲染，行为跟以前一样。
+   */
+  modelFinalTrace?: ReportFinalFieldTrace;
+  canAdoptFinal?: boolean;
+  onAdoptFinal?: (intakeId: string) => void;
 };
 
-export default function ReportPartTwo({ annotation, readOnly, onChange, review }: ReportPartTwoProps) {
+export default function ReportPartTwo({
+  annotation, readOnly, onChange, review, finalExtras, modelFinalTrace, canAdoptFinal = false, onAdoptFinal,
+}: ReportPartTwoProps) {
   const patchStrategy = (patch: Partial<ReportAnnotation["strategy"]>) => {
     onChange({ ...annotation, strategy: { ...annotation.strategy, ...patch } });
   };
@@ -52,17 +68,32 @@ export default function ReportPartTwo({ annotation, readOnly, onChange, review }
           disabled: review.disabled,
           onSave: review.onSave,
         }}
+        {...(finalExtras?.("strategy.narrative") ?? {})}
       />
-      <div className={styles.item}>
-        <small>报告模型</small>
-        <ReportSelect
-          value={annotation.strategy.model}
-          onChange={(next) => patchStrategy({ model: next })}
-          options={REPORT_MODELS}
-          disabled={readOnly}
-          ariaLabel="报告模型"
-        />
-      </div>
+      {(() => {
+        const modelExtras = finalExtras?.("strategy.model") ?? {};
+        return (
+          <div className={styles.item}>
+            <small>报告模型</small>
+            <ReportSelect
+              value={annotation.strategy.model}
+              onChange={(next) => patchStrategy({ model: next })}
+              options={REPORT_MODELS}
+              disabled={readOnly}
+              locked={modelExtras.locked}
+              title={modelExtras.sourceHint ? `${modelExtras.locked ? "集成版只有老孙可以编辑" : "点击编辑"} · 来自 ${modelExtras.sourceHint}` : undefined}
+              ariaLabel="报告模型"
+            />
+            {modelFinalTrace ? (
+              <ReportFinalTraceFootnote
+                trace={modelFinalTrace}
+                canAdopt={canAdoptFinal}
+                onAdopt={(intakeId) => onAdoptFinal?.(intakeId)}
+              />
+            ) : null}
+          </div>
+        );
+      })()}
     </div>
   );
 }

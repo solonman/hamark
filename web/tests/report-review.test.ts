@@ -28,13 +28,14 @@ test("loadReportReview fetches every version's comments for the report, and only
   const server = await source("../lib/report-review-server.ts");
   // 评论按整份报告取，不再按单一版本——不管正看着哪一版都要看得见别的版本写了什么
   // （对齐视频侧 loadCaseReview 的 `WHERE c.video_id = ?`，见 case-review-server.ts）。
+  // docs/21 四、4.4：集成版的评论会 LEFT JOIN 落空（集成版 id 不在
+  // report_versions 里），不能再用 INNER JOIN。
   assert.match(
     server,
-    /FROM report_version_comments c[\s\S]*JOIN report_versions v ON v\.id = c\.version_id[\s\S]*WHERE c\.report_id = \?/,
+    /FROM report_version_comments c[\s\S]*LEFT JOIN report_versions v ON v\.id = c\.version_id[\s\S]*WHERE c\.report_id = \?/,
   );
-  // 报告没有集成版，version_number 一定能联查到——不像视频侧要处理"联查落空"的
-  // 情况，所以这里直接拼 `v${number}`，不需要三元表达式。
-  assert.match(server, /versionLabel: `v\$\{row\.version_number\}`/);
+  // 联查落空（写在集成版上的评论）时退化成"集成版"，同视频侧 loadCaseReview。
+  assert.match(server, /versionLabel: row\.version_number != null \? `v\$\{row\.version_number\}` : "集成版"/);
   // 星级仍只锚定 `?version=` 指定的那一版；版本不存在或不属于这份报告都不能评分。
   assert.match(server, /const canRate = ratableVersionId != null;/);
   assert.match(server, /canRate,\s*\n\s*comments: comments\.results\.map/);
@@ -42,8 +43,11 @@ test("loadReportReview fetches every version's comments for the report, and only
 
 test("a saved comment carries the version it was written on, resolved from the same lookup that guarded the write", async () => {
   const server = await source("../lib/report-review-server.ts");
-  assert.match(server, /export async function saveReportReviewComment[\s\S]*requireVersionOfReport\(db, input\.reportId, input\.versionId\)/);
-  assert.match(server, /versionId: version\.id,\s*\n\s*versionLabel: `v\$\{version\.version_number\}`/);
+  // 评论现在可能锚定在集成版上，写入前的校验改走 requireCommentVersionOfReport
+  // （普通版本或集成版都行），不再是只认 report_versions 的 requireVersionOfReport
+  // （那个函数继续存在，只用于评分——见上一个测试）。
+  assert.match(server, /export async function saveReportReviewComment[\s\S]*requireCommentVersionOfReport\(db, input\.reportId, input\.versionId\)/);
+  assert.match(server, /versionId: version\.id,\s*\n\s*versionLabel: version\.label,/);
 });
 
 test("a comment's updatedAt is serialized through toIsoTimestamp, not String(), so the bubble can parse it", async () => {

@@ -16,11 +16,15 @@ import {
   isDrawnBlockTooSmall,
   navStripCell,
   pointToStagePercent,
+  reportFinalHoverTitle,
+  reportFinalTraceFor,
   sortBlocksByPosition,
   type StageRect,
 } from "./deck-view";
 import { ReportCombobox, ReportSelect } from "@/components/report/studio/ReportSelect";
-import { DeckChipToggle, DeckChipsMulti, DeckCommentEntry, DeckEditableValue, DeckItem, DeckStaticValue } from "./DeckField";
+import {
+  DeckChipToggle, DeckChipsMulti, DeckCommentEntry, DeckEditableValue, DeckFinalTrace, DeckItem, DeckStaticValue,
+} from "./DeckField";
 import styles from "./ReportDeck.module.css";
 import type { ReportDeckProps } from "./deck-types";
 
@@ -53,6 +57,10 @@ export type ReportPageModalProps = {
   /** 复用 `ReportDeck` 自己的 toast host——demo 的 `#toast` 是全页面单例，框太小、进入框选态都从这里冒泡出来。 */
   pushToast: (text: string) => void;
   review: ReportDeckProps["review"];
+  /** 集成版·溯源视图，三者不传时渲染与改动前完全一致（docs/21 一之 D）。 */
+  traceMode?: ReportDeckProps["traceMode"];
+  finalTrace?: ReportDeckProps["finalTrace"];
+  onAdopt?: ReportDeckProps["onAdopt"];
 };
 
 function newBlockId(): string {
@@ -79,7 +87,7 @@ function updateBlock(a: ReportAnnotation, pageNo: number, blockId: string, fn: (
 }
 
 export default function ReportPageModal({
-  annotation, pages, pageNo, readOnly, onChange, onNavigate, onClose, pushToast, review,
+  annotation, pages, pageNo, readOnly, onChange, onNavigate, onClose, pushToast, review, traceMode, finalTrace, onAdopt,
 }: ReportPageModalProps) {
   const [selBlock, setSelBlock] = useState<string | null>(null);
   const [drawMode, setDrawMode] = useState(false);
@@ -130,6 +138,9 @@ export default function ReportPageModal({
   const saveComment = async (input: { targetKey: string; targetLabel: string; body: string }) => {
     await review.onComment(input.targetKey, input.targetLabel, input.body);
   };
+
+  /** 一处字段的溯源链——`fields`/`finalTrace` 缺一个都当没有数据。 */
+  const fieldTrace = (key: string) => reportFinalTraceFor(finalTrace?.fields, key);
 
   const setPageField = (fn: (p: ReportAnnotation["pages"][number]) => ReportAnnotation["pages"][number]) => {
     if (readOnly) return;
@@ -240,7 +251,7 @@ export default function ReportPageModal({
             <div className={styles.ovsec}>
               <h4>这一页</h4>
               <div className={styles.ovgrid}>
-                <DeckItem label="结构页性质">
+                <DeckItem label="结构页性质" trace={fieldTrace(`page:${pageNo}:transition`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
                   <DeckChipToggle
                     active={page.transition} label="过渡页" disabled={readOnly}
                     onToggle={() => setPageField((p) => ({ ...p, transition: !p.transition }))}
@@ -251,6 +262,7 @@ export default function ReportPageModal({
                 </DeckItem>
                 <DeckItem
                   label="页面作用" wide
+                  trace={fieldTrace(`page:${pageNo}:func`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
                   commentSlot={(
                     <DeckCommentEntry
                       targetKey={`page:${pageNo}:func`} targetLabel={`第 ${pageNo} 页·页面作用`}
@@ -267,6 +279,7 @@ export default function ReportPageModal({
                 </DeckItem>
                 <DeckItem
                   label="本页组织关系" wide
+                  trace={fieldTrace(`page:${pageNo}:org`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
                   commentSlot={(
                     <DeckCommentEntry
                       targetKey={`page:${pageNo}:org`} targetLabel={`第 ${pageNo} 页·本页组织关系`}
@@ -300,6 +313,7 @@ export default function ReportPageModal({
                 const narrKey = `block:${block.id}:narr`;
                 const markKey = `block:${block.id}:mark`;
                 const label = `第 ${pageNo} 页·组块 ${index + 1}`;
+                const nameTrace = fieldTrace(nameKey);
                 return (
                   <div
                     key={block.id}
@@ -307,7 +321,7 @@ export default function ReportPageModal({
                     className={block.id === selBlock ? `${styles.bk} ${styles.bkOn}` : styles.bk}
                     onClick={() => setSelBlock(block.id)}
                   >
-                    <div className={styles.bkL}>
+                    <div className={styles.bkL} title={reportFinalHoverTitle(nameTrace)}>
                       <b>{index + 1}</b>
                       <DeckEditableValue
                         value={block.name} disabled={readOnly}
@@ -332,26 +346,32 @@ export default function ReportPageModal({
                         </button>
                       ) : null}
                     </div>
+                    {/* 组块名称没走 DeckItem（.bkL 是紧凑的单行：序号＋名称＋评论＋删除，
+                        不是"标签在上、控件在下"的字段布局），所以脚注单独补一行，
+                        跟 DeckItem 内部渲染 DeckFinalTrace 用的是同一个组件。 */}
+                    {traceMode && nameTrace ? (
+                      <DeckFinalTrace trace={nameTrace} currentPrefix="当前采用 · " canAdopt={review.canReview} onAdopt={onAdopt} />
+                    ) : null}
                     <div className={styles.bkG}>
-                      <DeckItem label="内容类型">
+                      <DeckItem label="内容类型" trace={fieldTrace(`block:${block.id}:type`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
                         <ReportCombobox
                           value={block.type} options={CONTENT_TYPES} disabled={readOnly}
                           onChange={(next) => setBlockField(block.id, (b) => ({ ...b, type: next }))}
                         />
                       </DeckItem>
-                      <DeckItem label="文风类型">
+                      <DeckItem label="文风类型" trace={fieldTrace(`block:${block.id}:style`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
                         <ReportSelect
                           value={block.style} options={WRITING_STYLES} disabled={readOnly}
                           onChange={(next) => setBlockField(block.id, (b) => ({ ...b, style: next }))}
                         />
                       </DeckItem>
-                      <DeckItem label="组块间组织关系">
+                      <DeckItem label="组块间组织关系" trace={fieldTrace(`block:${block.id}:rel`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
                         <ReportSelect
                           value={block.rel} options={REPORT_RELATIONS} disabled={readOnly}
                           onChange={(next) => setBlockField(block.id, (b) => ({ ...b, rel: next }))}
                         />
                       </DeckItem>
-                      <DeckItem label="组块作用（可多选）" wide>
+                      <DeckItem label="组块作用（可多选）" wide trace={fieldTrace(`block:${block.id}:roles`)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}>
                         <DeckChipsMulti
                           values={block.roles} options={BLOCK_ROLES} disabled={readOnly}
                           onToggle={(value) => setBlockField(block.id, (b) => ({
@@ -361,6 +381,7 @@ export default function ReportPageModal({
                       </DeckItem>
                       <DeckItem
                         label="叙述作用" wide
+                        trace={fieldTrace(narrKey)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
                         commentSlot={(
                           <DeckCommentEntry
                             targetKey={narrKey} targetLabel={`${label}·叙述作用`}
@@ -377,6 +398,7 @@ export default function ReportPageModal({
                       </DeckItem>
                       <DeckItem
                         label="关键标记" wide
+                        trace={fieldTrace(markKey)} traceMode={traceMode} canAdopt={review.canReview} onAdopt={onAdopt}
                         commentSlot={(
                           <DeckCommentEntry
                             targetKey={markKey} targetLabel={`${label}·关键标记`}

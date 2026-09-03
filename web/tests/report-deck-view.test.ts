@@ -23,6 +23,14 @@ import {
   pointToStagePercent,
   rangeLabelForPageNumbers,
   rectsIntersect,
+  reportFinalCurrentLabel,
+  reportFinalHoverTitle,
+  reportFinalTraceFirstLine,
+  reportFinalSpanTraceKey,
+  reportFinalTraceFor,
+  reportFinalTraceFullValue,
+  reportFinalTraceHoverSuffix,
+  reportFinalTraceRowLabel,
   resolveMarqueeSelection,
   resolveRangeSelection,
   resolveShiftExtend,
@@ -37,6 +45,8 @@ import {
   type ReportPage,
   type ReportUnit,
 } from "../lib/report-structure.ts";
+import { formatShortDateTime } from "../lib/date-format.ts";
+import type { ReportFinalFieldTrace, ReportFinalTraceRow } from "../lib/report-final-trace.ts";
 
 /* ============================ Fixture ============================ */
 // Small, hand-built annotation (not the full 50-page honggutan case) so each
@@ -551,4 +561,76 @@ test("deckSummary counts modules/units/blocks and splits pages into done/在标/
   assert.equal(summary.totalPages, 10);
   assert.equal(summary.donePages, 1);
   assert.equal(summary.inProgressPages, 1);
+});
+
+
+/* ============================ 集成版·溯源脚注（docs/21 一之 D、五、18/19） ============================ */
+
+function row(overrides: Partial<ReportFinalTraceRow> = {}): ReportFinalTraceRow {
+  return {
+    versionLabel: "v2", actorName: "李晓芸", at: "2026-08-24T03:05:00.000Z", value: "改过的正文",
+    state: "OVERRIDDEN", ...overrides,
+  };
+}
+
+test("reportFinalTraceFor looks up by targetKey, undefined map or missing key both read as no trace", () => {
+  const trace: ReportFinalFieldTrace = { current: row({ state: "CURRENT" }), history: [], pending: [] };
+  assert.equal(reportFinalTraceFor({ "module:M1:role": trace }, "module:M1:role"), trace);
+  assert.equal(reportFinalTraceFor({ "module:M1:role": trace }, "module:M1:name"), null);
+  assert.equal(reportFinalTraceFor(undefined, "module:M1:role"), null);
+  assert.equal(reportFinalTraceFor(null, "module:M1:role"), null);
+});
+
+test("reportFinalSpanTraceKey maps the deck's mod: key onto the SPAN intake's module: targetKey and leaves unit keys alone", () => {
+  assert.equal(reportFinalSpanTraceKey("mod:M4474cf16"), "module:M4474cf16");
+  assert.equal(reportFinalSpanTraceKey("unit:U1"), "unit:U1");
+  // 真实工作台的划分记录就是按 `module:<id>` 存的——用 deck key 直接查会整片空白。
+  const trace: ReportFinalFieldTrace = { current: row({ state: "CURRENT" }), history: [], pending: [] };
+  assert.equal(reportFinalTraceFor({ "module:M1": trace }, reportFinalSpanTraceKey("mod:M1")), trace);
+  assert.equal(reportFinalTraceFor({ "module:M1": trace }, "mod:M1"), null);
+});
+
+test("reportFinalTraceRowLabel joins version/actor/time with spaces, degrading when actor or time is missing", () => {
+  const withTime = formatShortDateTime("2026-08-24T03:05:00.000Z");
+  assert.equal(reportFinalTraceRowLabel(row()), `v2 李晓芸 ${withTime}`);
+  // 报告的"原稿"没有自然人可归属（docs/21 七、2）——actorName/at 都可能是空串。
+  assert.equal(reportFinalTraceRowLabel(row({ versionLabel: "原稿", actorName: "", at: "" })), "原稿");
+  assert.equal(reportFinalTraceRowLabel(row({ actorName: "", at: "" })), "v2");
+});
+
+test("reportFinalTraceHoverSuffix uses a tight dot between version and actor, unlike the row label", () => {
+  const withTime = formatShortDateTime("2026-08-24T03:05:00.000Z");
+  assert.equal(reportFinalTraceHoverSuffix(row()), `v2·李晓芸 ${withTime}`);
+  assert.equal(reportFinalTraceHoverSuffix(row({ actorName: "", at: "" })), "v2");
+});
+
+test("reportFinalHoverTitle prefixes '来自 ' onto the current row's hover suffix, undefined when there's no current row", () => {
+  const withTime = formatShortDateTime("2026-08-24T03:05:00.000Z");
+  const trace: ReportFinalFieldTrace = { current: row({ state: "CURRENT" }), history: [], pending: [] };
+  assert.equal(reportFinalHoverTitle(trace), `来自 v2·李晓芸 ${withTime}`);
+  assert.equal(reportFinalHoverTitle({ current: null, history: [], pending: [] }), undefined);
+  assert.equal(reportFinalHoverTitle(null), undefined);
+  assert.equal(reportFinalHoverTitle(undefined), undefined);
+});
+
+test("reportFinalCurrentLabel prefixes the caller's choice of text ('当前采用 · ' for fields, '这段划分来自 ' for a box's span)", () => {
+  const withTime = formatShortDateTime("2026-08-24T03:05:00.000Z");
+  const trace: ReportFinalFieldTrace = { current: row({ state: "CURRENT" }), history: [], pending: [] };
+  assert.equal(reportFinalCurrentLabel(trace, "当前采用 · "), `当前采用 · v2 李晓芸 ${withTime}`);
+  assert.equal(reportFinalCurrentLabel(trace, "这段划分来自 "), `这段划分来自 v2 李晓芸 ${withTime}`);
+  assert.equal(reportFinalCurrentLabel({ current: null, history: [], pending: [] }, "当前采用 · "), null);
+  assert.equal(reportFinalCurrentLabel(null, "当前采用 · "), null);
+});
+
+test("reportFinalTraceFirstLine takes the first line, trims, and shows '—' for blank values", () => {
+  assert.equal(reportFinalTraceFirstLine("第一行\n第二行"), "第一行");
+  assert.equal(reportFinalTraceFirstLine("  只有一行，带空白  "), "只有一行，带空白");
+  assert.equal(reportFinalTraceFirstLine(""), "—");
+  assert.equal(reportFinalTraceFirstLine("   "), "—");
+});
+
+test("reportFinalTraceFullValue passes the value through untouched, only blank values become '—'", () => {
+  assert.equal(reportFinalTraceFullValue("第一行\n第二行"), "第一行\n第二行");
+  assert.equal(reportFinalTraceFullValue(""), "—");
+  assert.equal(reportFinalTraceFullValue("   "), "—");
 });

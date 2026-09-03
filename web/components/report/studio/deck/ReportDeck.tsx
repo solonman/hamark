@@ -39,6 +39,8 @@ import {
   rangeLabelForPageNumbers,
   resolveMarqueeSelection,
   resolveShiftExtend,
+  reportFinalSpanTraceKey,
+  reportFinalTraceFor,
   toggleOrReplaceSingle,
   type PlanMoveDescription,
   type SelectionState,
@@ -46,7 +48,7 @@ import {
 import ReportGuide from "./ReportGuide";
 import ReportSectionPopover from "./ReportSectionPopover";
 import ReportPageModal from "./ReportPageModal";
-import { DeckEditableValue } from "./DeckField";
+import { DeckEditableValue, DeckFinalTrace } from "./DeckField";
 import styles from "./ReportDeck.module.css";
 import type { ReportDeckProps } from "./deck-types";
 import type { ReportPageView } from "@/lib/report-model";
@@ -96,7 +98,7 @@ function storeColumnWidth(px: number) {
 
 export default function ReportDeck({
   pages, annotation, readOnly, onChange, guideOff, onGuideOffChange,
-  focusKey: controlledFocusKey, onFocusKeyChange, review,
+  focusKey: controlledFocusKey, onFocusKeyChange, review, traceMode, finalTrace, onAdopt,
 }: ReportDeckProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<SelectionState>({ key: "free", ids: [] });
@@ -730,6 +732,24 @@ export default function ReportDeck({
     );
   }
 
+  /**
+   * 模块/单元标题栏下一行的划分来源（docs/21 一之 D、五、18）：仅 `traceMode`
+   * 打开时渲染，"这段划分来自 vN 谁 时间"，其下折叠旧划法（页范围文本），
+   * 未纳入的划分变更带「采纳」——跟字段脚注共用 `DeckFinalTrace`
+   * （`ReportFinalSpanTrace` 与 `ReportFinalFieldTrace` 是同一个形状），只是
+   * 前缀换成"这段划分来自 "而不是"当前采用 · "。
+   */
+  function boxSpanTrace(key: ReportDeckKey) {
+    if (!traceMode) return null;
+    const trace = reportFinalTraceFor(finalTrace?.spans, reportFinalSpanTraceKey(key));
+    if (!trace) return null;
+    return (
+      <div className={styles.boxSpanTrace}>
+        <DeckFinalTrace trace={trace} currentPrefix="这段划分来自 " canAdopt={!!review.canReview} onAdopt={onAdopt} />
+      </div>
+    );
+  }
+
   function renderUnitBox(u: ReportUnit) {
     const key: ReportDeckKey = `unit:${u.id}`;
     const color = unitColorFor(annotation, u.id);
@@ -741,6 +761,7 @@ export default function ReportDeck({
           data-box={key} data-drop={key} style={{ "--rd-k": color } as React.CSSProperties}
         >
           {boxHeader("unit", u.id, u.name, range)}
+          {boxSpanTrace(key)}
           {renderTray(key, "这个单元里还没有页")}
         </div>
         {sortedChildUnits(annotation, u.id).map((k) => renderUnitBox(k))}
@@ -760,6 +781,7 @@ export default function ReportDeck({
         data-box={key} data-drop={key} style={{ "--rd-k": color } as React.CSSProperties}
       >
         {boxHeader("mod", m.id, m.name, range)}
+        {boxSpanTrace(key)}
         {renderTray(key, "这个模块里还没有页")}
         {sortedRootUnits(annotation, m.id).map((u) => renderUnitBox(u))}
       </div>
@@ -888,6 +910,9 @@ export default function ReportDeck({
           onChange={commit}
           onClose={() => setPop(null)}
           review={review}
+          traceMode={traceMode}
+          finalTrace={finalTrace}
+          onAdopt={onAdopt}
         />
       ) : null}
 
@@ -906,6 +931,9 @@ export default function ReportDeck({
           onClose={() => setModalPage(null)}
           pushToast={pushToast}
           review={review}
+          traceMode={traceMode}
+          finalTrace={finalTrace}
+          onAdopt={onAdopt}
         />
       ) : null}
 

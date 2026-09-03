@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  describeReportFinalIntakeToast,
   describeReportSaveFailure,
   initReportHistory,
   isReportDraftDirty,
@@ -8,6 +9,7 @@ import {
   redoReportHistory,
   reportAnnotationsEqual,
   resetReportHistory,
+  resolveReportEditReadOnly,
   resolveReportVersionAction,
   shouldWarnBeforeUnload,
   undoReportHistory,
@@ -189,4 +191,26 @@ test("resolveReportVersionAction 已有自己的版本、正看别人的：按�
 test("resolveReportVersionAction 还没有自己的版本：按钮是基于当前版本创建", () => {
   const action = resolveReportVersionAction({ mineId: null, current: { id: "v2", isMine: false } });
   assert.deepEqual(action, { action: "CREATE_FROM_CURRENT" });
+});
+
+/* ============================ 集成版：编辑权限 / toast ============================ */
+
+test("resolveReportEditReadOnly 集成版视角：只有老孙不是只读，其他人都是", () => {
+  assert.equal(resolveReportEditReadOnly({ current: { isFinal: true, isMine: false } }, "老孙"), false);
+  assert.equal(resolveReportEditReadOnly({ current: { isFinal: true, isMine: false } }, "李工"), true);
+  // isMine 在集成版视角不参与判断——集成版天然不属于任何人。
+  assert.equal(resolveReportEditReadOnly({ current: { isFinal: true, isMine: true } }, "李工"), true);
+});
+
+test("resolveReportEditReadOnly 普通版本视角：照旧看是不是自己的版本，跟身份是不是老孙无关", () => {
+  assert.equal(resolveReportEditReadOnly({ current: { isFinal: false, isMine: true } }, "李工"), false);
+  assert.equal(resolveReportEditReadOnly({ current: { isFinal: false, isMine: false } }, "老孙"), true);
+});
+
+test("describeReportFinalIntakeToast 汇入成功：不点名具体条目（用户决定②）", () => {
+  assert.equal(describeReportFinalIntakeToast({ merged: true, pending: 0 }), "这次的修改已同步进入集成版");
+});
+
+test("describeReportFinalIntakeToast 集成版已定稿：修改记为未纳入", () => {
+  assert.equal(describeReportFinalIntakeToast({ merged: false, pending: 1 }), "集成版已定稿，这次的修改记为未纳入");
 });

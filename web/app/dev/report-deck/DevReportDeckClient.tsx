@@ -7,6 +7,8 @@ import { ReportReaderButton } from "@/components/report/studio/deck/ReportReader
 import { deckSummary } from "@/components/report/studio/deck/deck-view";
 import { emptyReportAnnotation, type ReportAnnotation, type ReportDeckKey } from "@/lib/report-structure";
 import { isCaseReviewer, type CaseReviewComment } from "@/lib/case-review";
+import { deriveReportFinalTraceModel, type ReportFinalTraceModel } from "@/lib/report-final-trace";
+import type { ReportFinalTraceIntake } from "@/lib/report-final-version";
 import type { ReportPageView } from "@/lib/report-model";
 import v04styles from "@/components/v04/V04Surface.module.css";
 
@@ -56,6 +58,57 @@ function seedAnnotation(pageNumbers: number[]): ReportAnnotation {
 const DEV_VERSION_ID = "dev-preview";
 const DEV_VERSION_LABEL = "预览版";
 
+/**
+ * 溯源自测：一批假的"写法记录"，喂给真实的 `deriveReportFinalTraceModel`
+ * 推出模型——不是手搭 `ReportFinalTraceModel` 的既定形状，走跟生产一样的
+ * 归并/分流路径，更接近真实自测。覆盖模块 1 的"策略作用"（一条已采用历史 +
+ * 一条未纳入）、讲述单元 1-1 的划分来源（同样一条历史 + 一条未纳入）、外加
+ * 一条"新增单元"未纳入结构变更（横幅那一类，deck 自己不渲染横幅，但
+ * `structurePending` 字段要有数据才测得出 `finalTrace` 整体没漏东西）。
+ * 值特意跟 `seedAnnotation` 现在的实际内容对上（M1 的 role、U1 的页范围），
+ * 这样"当前采用"那行不会看着像瞎编的。
+ */
+function seedFinalIntakes(): ReportFinalTraceIntake[] {
+  const day = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString();
+  return [
+    {
+      id: "fake-role-1", seq: 1, kind: "FIELD", targetKey: "module:M1:role", targetLabel: "模块 1·策略作用",
+      value: "早期草稿：先讲区位优势。", source: "VERSION", sourceVersionNumber: 1, actorName: "赵雅诗",
+      applied: true, createdAt: day(6),
+    },
+    {
+      id: "fake-role-2", seq: 2, kind: "FIELD", targetKey: "module:M1:role", targetLabel: "模块 1·策略作用",
+      value: "示例模块：用于测试拖动改边界与浮层。", source: "VERSION", sourceVersionNumber: 2, actorName: "老王",
+      applied: true, createdAt: day(3),
+    },
+    {
+      id: "fake-role-3", seq: 3, kind: "FIELD", targetKey: "module:M1:role", targetLabel: "模块 1·策略作用",
+      value: "改成强调稀缺性的说法。", source: "VERSION", sourceVersionNumber: 3, actorName: "老李",
+      applied: false, createdAt: day(1),
+    },
+    {
+      id: "fake-span-1", seq: 4, kind: "SPAN", targetKey: "unit:U1", targetLabel: "讲述单元 1-1",
+      value: { pageNumbers: [1, 2, 3, 4] }, source: "VERSION", sourceVersionNumber: 1, actorName: "赵雅诗",
+      applied: true, createdAt: day(6),
+    },
+    {
+      id: "fake-span-2", seq: 5, kind: "SPAN", targetKey: "unit:U1", targetLabel: "讲述单元 1-1",
+      value: { pageNumbers: [1, 2, 3, 4, 5] }, source: "VERSION", sourceVersionNumber: 2, actorName: "老王",
+      applied: true, createdAt: day(3),
+    },
+    {
+      id: "fake-span-3", seq: 6, kind: "SPAN", targetKey: "unit:U1", targetLabel: "讲述单元 1-1",
+      value: { pageNumbers: [1, 2, 3, 4, 5, 6] }, source: "VERSION", sourceVersionNumber: 3, actorName: "老李",
+      applied: false, createdAt: day(1),
+    },
+    {
+      id: "fake-insert-1", seq: 7, kind: "INSERT_UNIT", targetKey: "unit:fake-new", targetLabel: "新增单元「候选新单元」",
+      value: {}, source: "VERSION", sourceVersionNumber: 3, actorName: "老李",
+      applied: false, createdAt: day(1),
+    },
+  ];
+}
+
 export default function DevReportDeckClient({
   pages, reportTitle, viewerName,
 }: { pages: ReportPageView[]; reportTitle: string; viewerName: string }) {
@@ -69,6 +122,22 @@ export default function DevReportDeckClient({
   const [focusKey, setFocusKey] = useState<ReportDeckKey | null>(null);
   const canReview = isCaseReviewer(viewerName);
   const summary = deckSummary(annotation);
+
+  // 溯源开关＋假数据自测（docs/21 一之 D、五、18/19）。`finalIntakes` 放
+  // state 而不是每次渲染现算——「采纳这一版」要能把某条从未纳入挪进历史，
+  // 这个开关本身也得测得出效果，不能是一份写死拿不动的样例。
+  const [traceMode, setTraceMode] = useState(false);
+  const [finalIntakes, setFinalIntakes] = useState<ReportFinalTraceIntake[]>(seedFinalIntakes);
+  const finalTraceOrigin = useMemo(() => emptyReportAnnotation(pages.map((p) => p.pageNo)), [pages]);
+  const finalTrace: ReportFinalTraceModel = useMemo(
+    () => deriveReportFinalTraceModel(finalTraceOrigin, finalIntakes, annotation),
+    [finalTraceOrigin, finalIntakes, annotation],
+  );
+  const handleAdopt = async (intakeIds: string[]) => {
+    setFinalIntakes((current) => current.map((intake) => (
+      intakeIds.includes(intake.id) ? { ...intake, applied: true } : intake
+    )));
+  };
 
   return (
     <div className={v04styles.surface} style={{ padding: "18px 20px 60px" }}>
@@ -95,6 +164,20 @@ export default function DevReportDeckClient({
             引导
           </button>
         ) : null}
+        {/* 真实工作台是顶栏"默认 | 溯源"分段开关（规格五、14，外壳负责画），
+            这里只是自测用的一个开关按钮，够切换 traceMode 就行，不用照抄
+            分段开关的视觉。 */}
+        <button
+          type="button"
+          onClick={() => setTraceMode((current) => !current)}
+          style={{
+            border: `1px solid ${traceMode ? "#dfff4f" : "#2a2c26"}`, borderRadius: 999, padding: "4px 11px",
+            fontSize: 10.5, color: traceMode ? "#dfff4f" : "#92958b",
+            background: traceMode ? "rgba(223,255,79,.1)" : "transparent", cursor: "pointer",
+          }}
+        >
+          溯源：{traceMode ? "开" : "关"}
+        </button>
         {/* 真实工作台的顺序是"查看报告 → 查看脑图 → 统计 → 收起"（外壳把这
             两个按钮摆进 PART 03 标题栏最前面）；"统计"/"收起"在这个预览页里
             分别是上面那条统计条 span 和 `guideOff` 重开按钮，位置摆在这两个
@@ -128,6 +211,9 @@ export default function DevReportDeckClient({
         onGuideOffChange={setGuideOff}
         focusKey={focusKey}
         onFocusKeyChange={setFocusKey}
+        traceMode={traceMode}
+        finalTrace={finalTrace}
+        onAdopt={handleAdopt}
         review={{
           canReview,
           currentVersionId: DEV_VERSION_ID,

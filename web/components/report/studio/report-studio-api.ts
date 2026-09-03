@@ -22,6 +22,7 @@ import type {
 } from "@/lib/report-version-chain";
 import type { ReportDetail } from "@/lib/report-model";
 import type { CaseReviewModel } from "@/lib/case-review";
+import type { ReportFinalSummary } from "@/lib/report-final-version";
 
 export class ReportStudioApiError extends Error {
   readonly status: number;
@@ -106,6 +107,28 @@ export function createVersionFrom(
   return request(reportPath(reportId, "/annotation/versions"), {
     method: "POST",
     body: JSON.stringify({ fromVersionId: input.fromVersionId }),
+  });
+}
+
+/** 定稿／取消定稿（`docs/21_报告集成版_实施规格_V0.1.md` 四、4.3）；只有老孙能调，非老孙 403。 */
+export function setReportFinalStatus(
+  reportId: string,
+  status: "OPEN" | "DONE",
+): Promise<{ final: ReportFinalSummary }> {
+  return request(reportPath(reportId, "/annotation/final"), {
+    method: "POST",
+    body: JSON.stringify({ action: "SET_STATUS", status }),
+  });
+}
+
+/** 采纳未纳入的修改，`all: true` 或 `intakeIds` 二选一（同上，四、4.3）。 */
+export function adoptReportFinalIntakes(
+  reportId: string,
+  input: { intakeIds?: string[]; all?: boolean },
+): Promise<{ final: ReportFinalSummary; adopted: number }> {
+  return request(reportPath(reportId, "/annotation/final"), {
+    method: "POST",
+    body: JSON.stringify({ action: "ADOPT", ...input }),
   });
 }
 

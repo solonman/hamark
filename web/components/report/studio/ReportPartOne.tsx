@@ -6,7 +6,7 @@ import type { ReportDetail, ReportFileView } from "@/lib/report-model";
 import { V19SystemValue } from "@/components/v04/V19EditableValue";
 import V19ReviewComment from "@/components/v04/V19ReviewComment";
 import type { CaseReviewComment } from "@/lib/case-review";
-import ReportFieldItem from "./ReportFieldItem";
+import ReportFieldItem, { type ReportFinalFieldExtras } from "./ReportFieldItem";
 import styles from "./ReportStudio.module.css";
 
 /**
@@ -72,6 +72,12 @@ export type ReportPartOneProps = {
   onChange: (next: ReportAnnotation) => void;
   review: ReportPartOneReview;
   files: ReportPartOneFiles;
+  /**
+   * 集成版专属（可选，不传时字段行为跟以前完全一样）：按 targetKey 查这个
+   * 字段的锁定态／默认视图 hover 来源／溯源视图来源链，见 `ReportFieldItem`
+   * 顶部注释与 `ReportStudioClient.tsx` 里 `finalFieldExtras` 的实现。
+   */
+  finalExtras?: (targetKey: string) => ReportFinalFieldExtras;
 };
 
 export default function ReportPartOne({
@@ -81,6 +87,7 @@ export default function ReportPartOne({
   onChange,
   review,
   files,
+  finalExtras,
 }: ReportPartOneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -98,6 +105,7 @@ export default function ReportPartOne({
     disabled: review.disabled,
     onSave: review.onSave,
   });
+  const extrasFor = (targetKey: string): ReportFinalFieldExtras => finalExtras?.(targetKey) ?? {};
 
   return (
     <>
@@ -108,6 +116,7 @@ export default function ReportPartOne({
           readOnly={readOnly}
           onCommit={(next) => patchBackground({ city: next })}
           review={fieldReview("background.city", "城市")}
+          {...extrasFor("background.city")}
         />
         <ReportFieldItem
           label="开发商"
@@ -115,6 +124,7 @@ export default function ReportPartOne({
           readOnly={readOnly}
           onCommit={(next) => patchBackground({ developer: next })}
           review={fieldReview("background.developer", "开发商")}
+          {...extrasFor("background.developer")}
         />
         <ReportFieldItem
           label="项目背景"
@@ -124,6 +134,7 @@ export default function ReportPartOne({
           readOnly={readOnly}
           onCommit={(next) => patchBackground({ projectBackground: next })}
           review={fieldReview("background.projectBackground", "项目背景")}
+          {...extrasFor("background.projectBackground")}
         />
         <ReportFieldItem
           label="业务背景"
@@ -133,6 +144,7 @@ export default function ReportPartOne({
           readOnly={readOnly}
           onCommit={(next) => patchBackground({ businessBackground: next })}
           review={fieldReview("background.businessBackground", "业务背景")}
+          {...extrasFor("background.businessBackground")}
         />
 
         <div className={`${styles.item} ${styles.wide}`}>

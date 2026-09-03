@@ -289,27 +289,48 @@ export function planMove(
 }
 
 /**
- * Actually performs a move already approved by `planMove`: reassigns the
- * pages, then repeatedly drops any unit or module left with no pages (a
- * unit also needs no remaining children to qualify — otherwise an empty
- * parent with real grandchildren would vanish). Dropping a unit can make
- * its now-childless parent empty too, hence the repeat; a module that ends
- * up with zero pages takes every one of its units with it (impossible for
- * any of them to still hold a page once the module holds none).
+ * Repeatedly drops any unit or module left with no pages (a unit also needs
+ * no remaining children to qualify — otherwise an empty parent with real
+ * grandchildren would vanish). Dropping a unit can make its now-childless
+ * parent empty too, hence the repeat; a module that ends up with zero pages
+ * takes every one of its units with it (impossible for any of them to still
+ * hold a page once the module holds none).
+ *
+ * `options.protect*Ids` exempts specific ids from the "0 pages ⇒ dead" check
+ * (they can still be dropped by the ordinary cascade if something ELSE later
+ * empties them) — `applyMove`'s own single-editor call site never needs this
+ * (a module/unit there is never already page-less before a move, since
+ * `assignToNewModule`/`assignToNewUnit` always create one already holding
+ * pages) and omits it, so its behavior is exactly unchanged by this option
+ * existing. The report-final-version merge algorithm's SPAN handling
+ * (docs/21 §3.2 step 2c) does need it: `INSERT_MODULE`/`INSERT_UNIT` push a
+ * deliberately still-page-less container, pending its own companion SPAN
+ * record landing right after (3.1) — without protection, an unrelated
+ * container's SPAN elsewhere in the same batch could run this same cleanup
+ * first and sweep the fresh one away before its own SPAN ever gets to
+ * populate it (module/unit ids are random suffixes, so which one sorts
+ * first is arbitrary — this is not a rare ordering fluke).
+ *
+ * Extracted out of `applyMove` (see below) so both call sites reuse the
+ * exact same "drop what's now empty" cleanup instead of a second
+ * hand-copied implementation drifting out of sync with this one.
+ * `applyMove`'s own behavior is unchanged by this split — it is now just
+ * `reassignPages` followed by this function.
  */
-export function applyMove(
+export function pruneEmptyStructure(
   a: ReportAnnotation,
-  ids: readonly number[],
-  toKey: ReportDeckKey,
+  options: { protectModuleIds?: ReadonlySet<string>; protectUnitIds?: ReadonlySet<string> } = {},
 ): { next: ReportAnnotation; removedSegments: number } {
-  let next = reassignPages(a, ids, toKey);
+  const protectModuleIds = options.protectModuleIds ?? new Set<string>();
+  const protectUnitIds = options.protectUnitIds ?? new Set<string>();
+  let next = a;
   let removedSegments = 0;
 
   let again = true;
   while (again) {
     again = false;
     const deadUnits = next.units.filter(
-      (u) => !unitPages(next, u.id).length && !next.units.some((k) => k.pid === u.id),
+      (u) => !protectUnitIds.has(u.id) && !unitPages(next, u.id).length && !next.units.some((k) => k.pid === u.id),
     );
     if (deadUnits.length) {
       const deadIds = new Set(deadUnits.map((u) => u.id));
@@ -319,7 +340,7 @@ export function applyMove(
     }
   }
 
-  const deadModules = next.modules.filter((m) => !modulePages(next, m.id).length);
+  const deadModules = next.modules.filter((m) => !protectModuleIds.has(m.id) && !modulePages(next, m.id).length);
   if (deadModules.length) {
     const deadModIds = new Set(deadModules.map((m) => m.id));
     next = {
@@ -331,6 +352,19 @@ export function applyMove(
   }
 
   return { next, removedSegments };
+}
+
+/**
+ * Actually performs a move already approved by `planMove`: reassigns the
+ * pages, then prunes anything left empty. See `pruneEmptyStructure` above
+ * for what the cleanup pass itself does.
+ */
+export function applyMove(
+  a: ReportAnnotation,
+  ids: readonly number[],
+  toKey: ReportDeckKey,
+): { next: ReportAnnotation; removedSegments: number } {
+  return pruneEmptyStructure(reassignPages(a, ids, toKey));
 }
 
 /* ============================ Creating / removing boxes ============================ */

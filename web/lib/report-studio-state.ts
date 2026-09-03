@@ -15,6 +15,7 @@ import {
   type ReportAnnotation,
 } from "@/lib/report-structure";
 import type { ReportVersionErrorCode } from "@/lib/report-version-chain";
+import { isCaseReviewer } from "@/lib/case-review";
 
 /* ============================ 撤销 / 重做 ============================ */
 
@@ -178,4 +179,29 @@ export function resolveReportVersionAction(chain: {
   if (chain.current.isMine) return { action: "NONE" };
   if (chain.mineId) return { action: "SWITCH_TO_MINE", versionId: chain.mineId };
   return { action: "CREATE_FROM_CURRENT" };
+}
+
+/* ============================ 集成版 ============================ */
+
+/**
+ * 集成版视角下，只有老孙能编辑（`docs/21_报告集成版_实施规格_V0.1.md` 五、16）；
+ * 普通版本视角照旧看是不是自己的版本。`resolveReportVersionAction` 不参与这个
+ * 判断——它只管"要不要弹创建/切版本的提示"，能不能编辑是另一件事。
+ */
+export function resolveReportEditReadOnly(
+  chain: { current: { isFinal: boolean; isMine: boolean } },
+  viewerName: string,
+): boolean {
+  return chain.current.isFinal ? !isCaseReviewer(viewerName) : !chain.current.isMine;
+}
+
+/**
+ * 普通版本保存成功后的 toast（五、17，用户决定②：不点名具体是哪个条目，
+ * 统一说"这次的修改"）。`finalIntake.merged` 为 false 是因为集成版已定稿，
+ * 这次的写法记成了"未纳入"，等老孙取消定稿后逐条采纳。
+ */
+export function describeReportFinalIntakeToast(finalIntake: { merged: boolean; pending: number }): string {
+  return finalIntake.merged
+    ? "这次的修改已同步进入集成版"
+    : "集成版已定稿，这次的修改记为未纳入";
 }

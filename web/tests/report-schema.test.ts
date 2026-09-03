@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { REPORT_SCHEMA_STATEMENTS, REPORT_SCHEMA_TABLES } from "../db/report-schema.ts";
+import { REPORT_FINAL_SCHEMA_STATEMENTS, REPORT_FINAL_SCHEMA_TABLES } from "../db/report-final-schema.ts";
 
 const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -123,4 +124,96 @@ test("the report-ci migration file adds the same four columns and can be re-run 
   assert.match(migration, /COMMIT;/);
   assert.match(migration, /Supabase SQL 编辑器/);
   assert.match(migration, /不要用 `npm run db:migrate`/);
+});
+
+// ---------------------------------------------------------------------------
+// 报告集成版 — db/report-final-schema.ts / db/migrations/2026-09-03-report-final.sql
+// 见 docs/21_报告集成版_实施规格_V0.1.md 二（数据）。
+// ---------------------------------------------------------------------------
+
+test("the final-version schema module declares a CREATE TABLE and an RLS lock for every table it lists", () => {
+  const schema = REPORT_FINAL_SCHEMA_STATEMENTS.join("\n");
+  for (const table of REPORT_FINAL_SCHEMA_TABLES) {
+    assert.match(
+      schema,
+      new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`),
+      `missing CREATE TABLE for ${table}`,
+    );
+    assert.match(
+      schema,
+      new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),
+      `missing RLS lock for ${table}`,
+    );
+  }
+});
+
+test("report_final_versions is one per report and report_final_intakes carries the eight report-side intake kinds", () => {
+  const schema = REPORT_FINAL_SCHEMA_STATEMENTS.join("\n");
+  assert.match(
+    schema,
+    /CREATE TABLE IF NOT EXISTS report_final_versions[\s\S]*report_id TEXT NOT NULL UNIQUE REFERENCES reports\(id\)/,
+  );
+  assert.match(schema, /status TEXT NOT NULL DEFAULT 'OPEN' CHECK \(status IN \('OPEN', 'DONE'\)\)/);
+  for (const kind of [
+    "FIELD", "INSERT_MODULE", "INSERT_UNIT", "INSERT_BLOCK",
+    "REMOVE_MODULE", "REMOVE_UNIT", "REMOVE_BLOCK", "SPAN",
+  ]) {
+    assert.match(schema, new RegExp(`'${kind}'`), `report_final_intakes.kind is missing ${kind}`);
+  }
+  // 没有 change_set_id 列——报告没有客户端变更集，幂等靠整份 payload 的 revision 乐观锁。
+  assert.doesNotMatch(schema, /change_set_id/);
+});
+
+test("report_versions gets base_is_final and report_version_comments loses its version_id foreign key", () => {
+  const schema = REPORT_FINAL_SCHEMA_STATEMENTS.join("\n");
+  assert.match(
+    schema,
+    /ALTER TABLE report_versions ADD COLUMN IF NOT EXISTS base_is_final BOOLEAN NOT NULL DEFAULT false/,
+  );
+  assert.match(
+    schema,
+    /ALTER TABLE report_version_comments DROP CONSTRAINT IF EXISTS report_version_comments_version_id_fkey/,
+  );
+});
+
+test("the final-version revoke guard covers every table the schema module declares", () => {
+  const schema = REPORT_FINAL_SCHEMA_STATEMENTS.join("\n");
+  for (const table of REPORT_FINAL_SCHEMA_TABLES) {
+    assert.match(schema, new RegExp(`REVOKE ALL ON TABLE[^']*\\b${table}\\b`));
+  }
+});
+
+test("the report-final migration file mirrors the schema module so production can apply it by hand", async () => {
+  const migration = await source("../db/migrations/2026-09-03-report-final.sql");
+  for (const table of REPORT_FINAL_SCHEMA_TABLES) {
+    assert.match(
+      migration,
+      new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`),
+      `migration is missing CREATE TABLE for ${table}`,
+    );
+    assert.match(
+      migration,
+      new RegExp(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`),
+      `migration is missing RLS lock for ${table}`,
+    );
+  }
+  assert.match(migration, /ALTER TABLE report_versions\s+ADD COLUMN IF NOT EXISTS base_is_final/);
+  assert.match(
+    migration,
+    /ALTER TABLE report_version_comments\s+DROP CONSTRAINT IF EXISTS report_version_comments_version_id_fkey/,
+  );
+  assert.match(migration, /BEGIN;/);
+  assert.match(migration, /COMMIT;/);
+  assert.match(migration, /Supabase SQL 编辑器/);
+  assert.match(migration, /不要用 `npm run db:migrate`/);
+});
+
+test("bootstrap wires the report-final schema statements in after the report schema", async () => {
+  const bootstrap = await source("../db/bootstrap.ts");
+  assert.match(bootstrap, /import \{ REPORT_FINAL_SCHEMA_STATEMENTS \} from "\.\/report-final-schema";/);
+  const reportIdx = bootstrap.indexOf("...REPORT_SCHEMA_STATEMENTS,");
+  const finalIdx = bootstrap.indexOf("...REPORT_FINAL_SCHEMA_STATEMENTS,");
+  assert.ok(reportIdx !== -1 && finalIdx !== -1 && reportIdx < finalIdx,
+    "REPORT_FINAL_SCHEMA_STATEMENTS must be spread in after REPORT_SCHEMA_STATEMENTS " +
+    "(report_final_versions references reports(id) and report_versions(id))");
 });

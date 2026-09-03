@@ -26,6 +26,15 @@ export type ReportSelectProps = {
   placeholder?: string;
   disabled?: boolean;
   ariaLabel?: string;
+  /**
+   * 集成版专属（规格五、16）：非老孙看集成版时为 true——原生 `disabled` 已经
+   * 物理上挡住了交互，这个只是叠一层视觉／提示，让人看得出"为什么锁着"，跟
+   * "只是因为在看别人的普通版本"区分开（同 `V19EditableValue` 的 `locked`、
+   * `V04ChoiceField` 的 `.choiceTriggerLocked` 一套语言）。可选，不传时行为
+   * 与之前完全一样。
+   */
+  locked?: boolean;
+  title?: string;
 };
 
 export function ReportSelect({
@@ -35,12 +44,15 @@ export function ReportSelect({
   placeholder = "请选择",
   disabled = false,
   ariaLabel,
+  locked = false,
+  title,
 }: ReportSelectProps) {
   return (
     <select
-      className={styles.dd}
+      className={[styles.dd, locked ? styles.ddLocked : ""].filter(Boolean).join(" ")}
       value={value}
       disabled={disabled}
+      title={title}
       aria-label={ariaLabel}
       onChange={(event) => onChange(event.target.value)}
     >

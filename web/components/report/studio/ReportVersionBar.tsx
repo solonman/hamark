@@ -57,6 +57,8 @@ export default function ReportVersionBar({
 
   const action = resolveReportVersionAction(chain);
   const versions = [...chain.versions].sort((a, b) => a.number - b.number);
+  const final = chain.final;
+  const isFinalView = chain.current.isFinal;
 
   return (
     <div ref={anchorRef} className={v04styles.versionSplitAnchor}>
@@ -65,23 +67,83 @@ export default function ReportVersionBar({
         className={v04styles.versionSegment}
         aria-haspopup="true"
         aria-expanded={open}
-        aria-label={`当前版本 v${chain.current.number}（${chain.current.ownerName}），点击切换版本`}
+        aria-label={
+          isFinalView
+            ? `当前版本 集成版（${final?.status === "DONE" ? "已定稿" : "未定稿"}），点击切换版本`
+            : `当前版本 v${chain.current.number}（${chain.current.ownerName}），点击切换版本`
+        }
         onClick={() => setOpen((current) => !current)}
       >
-        <span className={v04styles.versionNum}>v{chain.current.number}</span>
-        <span className={v04styles.versionOwner}>{chain.current.ownerName}</span>
-        {chain.current.baseNumber !== null ? (
-          <span className={v04styles.versionBase}>基于 v{chain.current.baseNumber}</span>
-        ) : null}
+        {isFinalView ? (
+          <>
+            <span className={`${v04styles.versionNum} ${v04styles.finalVersionNum}`}>集成版</span>
+            {final ? (
+              <span className={`${v04styles.finalStatusPill} ${final.status === "DONE" ? v04styles.finalStatusDone : v04styles.finalStatusOpen}`}>
+                <span className={v04styles.finalStatusDot} aria-hidden="true" />
+                {final.status === "DONE" ? "已定稿" : "未定稿"}
+              </span>
+            ) : null}
+          </>
+        ) : (
+          // 姓名紧跟版本号，因为它归属的是这个版本；派生关系排在最后并弱化。
+          <>
+            <span className={v04styles.versionNum}>v{chain.current.number}</span>
+            <span className={v04styles.versionOwner}>{chain.current.ownerName}</span>
+            {chain.current.baseNumber !== null || chain.current.baseIsFinal ? (
+              <span className={v04styles.versionBase}>
+                {chain.current.baseIsFinal ? "基于集成版" : `基于 v${chain.current.baseNumber}`}
+              </span>
+            ) : null}
+          </>
+        )}
         <span className={v04styles.versionCaret} aria-hidden="true">▾</span>
       </button>
       {open ? (
         <div className={v04styles.versionPanel} role="dialog" aria-label="版本链">
-          <h4>版本链（每位编辑者一个版本，创建即固定基于当时快照）</h4>
+          <h4>
+            {final
+              ? "版本链：集成版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖"
+              : "版本链（每位编辑者一个版本，创建即固定基于当时快照）"}
+          </h4>
+          {final ? (
+            <div
+              className={`${v04styles.versionRow} ${v04styles.versionRowFinal} ${isFinalView ? v04styles.versionRowCurrent : ""}`.trim()}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                onSelect("final");
+                setOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  onSelect("final");
+                  setOpen(false);
+                }
+              }}
+            >
+              <span className={v04styles.versionNumber}>集成版</span>
+              {/* 报告已有真实版本时 GET 默认就是集成版（规格四、4.1 第 11 条）——
+                  "默认展示"这个标注属于置顶的集成版行，不再是下面某个普通版本行；
+                  报告还没有任何真实版本时 `final` 为 null，这一行整体不渲染，
+                  默认展示标注保留在下面 `chain.latestId` 对应的那一行（原规则）。 */}
+              <span className={v04styles.versionLatest}>默认展示</span>
+              <span className={`${v04styles.finalStatusPill} ${final.status === "DONE" ? v04styles.finalStatusDone : v04styles.finalStatusOpen}`}>
+                <span className={v04styles.finalStatusDot} aria-hidden="true" />
+                {final.status === "DONE" ? "已定稿" : "未定稿"}
+              </span>
+              {final.pendingCount > 0 ? (
+                <span className={v04styles.finalPendingBadge}>{final.pendingCount} 处未纳入</span>
+              ) : null}
+              <span className={v04styles.versionTime}>{formatClock(final.updatedAt)}</span>
+              <span className={v04styles.versionDesc}>
+                集成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止；只有老孙能直接编辑。
+              </span>
+            </div>
+          ) : null}
           {versions.map((version) => (
             <div
               key={version.id ?? "virtual"}
-              className={`${v04styles.versionRow} ${chain.current.id === version.id ? v04styles.versionRowCurrent : ""}`.trim()}
+              className={`${v04styles.versionRow} ${!isFinalView && chain.current.id === version.id ? v04styles.versionRowCurrent : ""}`.trim()}
               role="button"
               tabIndex={0}
               onClick={() => {
@@ -98,10 +160,12 @@ export default function ReportVersionBar({
             >
               <span className={v04styles.versionNumber}>v{version.number}</span>
               <span className={v04styles.versionMeta}>
-                {version.baseNumber === null ? "初始版本" : `基于 v${version.baseNumber}`}，{version.ownerName}
+                {version.baseIsFinal ? "基于集成版" : version.baseNumber === null ? "初始版本" : `基于 v${version.baseNumber}`}，{version.ownerName}
               </span>
               {version.isMine ? <span className={v04styles.versionMine}>我的</span> : null}
-              {chain.latestId === version.id ? <span className={v04styles.versionLatest}>最新·默认展示</span> : null}
+              {chain.latestId === version.id ? (
+                <span className={v04styles.versionLatest}>{final ? "最新" : "最新·默认展示"}</span>
+              ) : null}
               <span className={v04styles.versionTime}>{formatClock(version.updatedAt)}</span>
             </div>
           ))}
@@ -135,7 +199,9 @@ export default function ReportVersionBar({
             </div>
           ) : null}
           <p className={v04styles.versionNote}>
-            进入页面默认展示最近更新的版本，可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。
+            {final
+              ? "进入页面默认展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。"
+              : "进入页面默认展示最近更新的版本，可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。"}
           </p>
         </div>
       ) : null}

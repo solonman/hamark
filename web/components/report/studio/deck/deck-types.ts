@@ -4,6 +4,9 @@
 import type { CaseReviewComment } from "@/lib/case-review";
 import type { ReportPageView } from "@/lib/report-model";
 import type { ReportAnnotation, ReportDeckKey } from "@/lib/report-structure";
+import type { ReportFinalTraceModel } from "@/lib/report-final-trace";
+
+export type { ReportFinalFieldTrace, ReportFinalSpanTrace, ReportFinalTraceModel, ReportFinalTraceRow } from "@/lib/report-final-trace";
 
 export type ReportDeckProps = {
   pages: ReportPageView[];
@@ -46,6 +49,27 @@ export type ReportDeckProps = {
     /** body 空串 = 删除写在当前版本上的那一条。 */
     onComment: (targetKey: string, targetLabel: string, body: string) => Promise<void>;
   };
+  /**
+   * 集成版·溯源视图开关（docs/21_报告集成版_实施规格_V0.1.md 一之 D、五、18/19）。
+   * 不传或为 `false` 时 deck 的渲染与现在完全一致——`finalTrace`/`onAdopt`
+   * 也就不会被读取，界面零变化（同一份验收清单第 3 条）。
+   */
+  traceMode?: boolean;
+  /**
+   * 每处内容与每个模块/单元划分的来源链——`null` 表示外壳还没算出来（或
+   * 报告尚无集成版），deck 一律当没有溯源数据处理，不因为 `traceMode` 开着
+   * 就报错。`fields`/`spans` 分别以评论用的 `targetKey`（`module:<id>:<field>`
+   * / `unit:<id>:<field>` / `page:<n>:<field>` / `block:<id>:<field>`）与
+   * 容器 key（`module:<id>` / `unit:<id>`）索引。
+   */
+  finalTrace?: ReportFinalTraceModel | null;
+  /**
+   * 老孙在溯源视图里点某个未纳入记录的「采纳这一版」——传入单元素数组
+   * （`[intakeId]`），签名留数组是为了跟外壳日后可能加的"横幅全部采纳"共用
+   * 同一个函数（那边会传多个 id），deck 自己只会一次传一个。不传时
+   * （`traceMode` 开着但外壳还没接好）「采纳这一版」按钮不出现。
+   */
+  onAdopt?: (intakeIds: string[]) => Promise<void>;
 };
 
 export type ReportMindMapButtonProps = {
