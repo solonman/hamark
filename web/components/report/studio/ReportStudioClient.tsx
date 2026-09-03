@@ -41,6 +41,7 @@ import {
   trashReport,
   ReportStudioApiError,
 } from "./report-studio-api";
+import ReportDeleteDialog from "../ReportDeleteDialog";
 import ReportPartOne from "./ReportPartOne";
 import ReportPartTwo from "./ReportPartTwo";
 import ReportVersionBar from "./ReportVersionBar";
@@ -739,38 +740,31 @@ export default function ReportStudioClient({
         </div>
       </header>
 
-      {confirmingTrash ? (
-        <section className={v04styles.recoveryBanner} role="alertdialog" aria-label="删除报告">
-          <div>
-            <b>把《{report.title}》移入回收站？</b>
-            <span>报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。</span>
-            <span>已有的拆解版本、评分和评论都会一并保留，不会被删除。</span>
-            {trashError ? <p role="alert">{trashError}</p> : null}
-          </div>
-          <div>
-            <button
-              type="button"
-              disabled={trashing}
-              onClick={() => {
-                void (async () => {
-                  setTrashing(true);
-                  setTrashError("");
-                  try {
-                    await trashReport(reportId);
-                    window.location.assign(navigation.libraryHref);
-                  } catch (reason) {
-                    setTrashError(reason instanceof ReportStudioApiError ? reason.message : "删除未完成，报告未发生变化，可重试。");
-                    setTrashing(false);
-                  }
-                })();
-              }}
-            >
-              {trashing ? "正在移入回收站…" : "确认移入回收站"}
-            </button>
-            <button type="button" disabled={trashing} onClick={() => setConfirmingTrash(false)}>取消</button>
-          </div>
-        </section>
-      ) : null}
+      {/* 弹出式确认对话框（../ReportDeleteDialog.tsx），跟报告库卡片同一个组件，不是页内确认条。 */}
+      <ReportDeleteDialog
+        open={confirmingTrash}
+        title={report.title}
+        lines={[
+          "报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。",
+          "已有的拆解版本、评分和评论都会一并保留，不会被删除。",
+        ]}
+        error={trashError}
+        pending={trashing}
+        onConfirm={() => {
+          void (async () => {
+            setTrashing(true);
+            setTrashError("");
+            try {
+              await trashReport(reportId);
+              window.location.assign(navigation.libraryHref);
+            } catch (reason) {
+              setTrashError(reason instanceof ReportStudioApiError ? reason.message : "删除未完成，报告未发生变化，可重试。");
+              setTrashing(false);
+            }
+          })();
+        }}
+        onCancel={() => setConfirmingTrash(false)}
+      />
 
       {saveStatus.kind === "INVALID" ? (
         <div className={styles.saveBanner} role="alert">

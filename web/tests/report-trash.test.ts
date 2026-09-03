@@ -149,13 +149,19 @@ test("saveChip is pinned to its content width (flex: none) so it can never be sh
   assert.match(css, /span\.studioSaveChip \{\s*flex: none;\s*\}/);
 });
 
-test("the trash confirmation banner matches the video side's structure and copy verbatim, with only the noun swapped", async () => {
+test("the trash confirmation is the shared ReportDeleteDialog popup, wired with the studio's own copy and trash flow", async () => {
   const studio = await source("../components/report/studio/ReportStudioClient.tsx");
-  assert.match(studio, /role="alertdialog" aria-label="删除报告"/);
-  assert.match(studio, /把《\{report\.title\}》移入回收站？/);
+  // 删除报告不再是页内的 recoveryBanner，是跟报告库卡片共用的弹出式对话框组件。
+  assert.match(studio, /import ReportDeleteDialog from "\.\.\/ReportDeleteDialog";/);
+  assert.doesNotMatch(studio, /v04styles\.recoveryBanner/);
+  assert.match(studio, /<ReportDeleteDialog\s*\n\s*open=\{confirmingTrash\}/);
+  assert.match(studio, /title=\{report\.title\}/);
+  // 工作台的说明是两行（多一句「已有的拆解版本…」），报告库卡片只有一行——文案原样保留。
   assert.match(studio, /报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。/);
   assert.match(studio, /已有的拆解版本、评分和评论都会一并保留，不会被删除。/);
-  assert.match(studio, /\{trashing \? "正在移入回收站…" : "确认移入回收站"\}/);
+  assert.match(studio, /error=\{trashError\}/);
+  assert.match(studio, /pending=\{trashing\}/);
+  assert.match(studio, /onCancel=\{\(\) => setConfirmingTrash\(false\)\}/);
   assert.match(studio, /删除未完成，报告未发生变化，可重试。/);
   // 成功后回报告库，跳的是外壳传入的 navigation.libraryHref（等于 "\/\?library=REPORT"）。
   assert.match(studio, /await trashReport\(reportId\);\s*\n\s*window\.location\.assign\(navigation\.libraryHref\);/);

@@ -300,8 +300,8 @@ export default function ReportLibrary({
       </section>
       {favoriteError ? <p className={v04.libraryNotice} role="alert">{favoriteError}</p> : null}
       {retryError ? <p className={v04.libraryNotice} role="alert">{retryError}</p> : null}
-      {/* 删除失败的原因现在显示在触发删除的那张卡片自己的确认条里（ReportCard 的
-          recoveryBanner，跟工作台删除同一套呈现），这里不用再重复挂一条全局提示。 */}
+      {/* 删除失败的原因现在显示在触发删除的那张卡片自己弹出的确认对话框里（ReportCard 用的
+          ReportDeleteDialog，跟工作台删除同一个组件），这里不用再重复挂一条全局提示。 */}
       {loading ? (
         <section className={v04.emptyState}><h2>正在读取报告库…</h2></section>
       ) : loadError ? (
