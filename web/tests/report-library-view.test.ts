@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { emptyCaseEngagement, type CaseEngagement } from "../lib/case-engagement.ts";
 import type { ReportListItem } from "../lib/report-model.ts";
@@ -76,7 +77,7 @@ test("status and enter-button copy never leak the English state codes", () => {
     QUEUED: "排队中",
     PROCESSING: "转换中",
     FAILED: "转换失败",
-    UPLOADING: "上传中",
+    UPLOADING: "上传未完成",
   });
   for (const label of Object.values(labels)) {
     assert.doesNotMatch(label, /READY|QUEUED|PROCESSING|FAILED|UPLOADING/);
@@ -86,6 +87,8 @@ test("status and enter-button copy never leak the English state codes", () => {
   assert.equal(reportEnterLabel("PROCESSING"), "生成页图中");
   assert.equal(reportEnterLabel("QUEUED"), "等待转换");
   assert.equal(reportEnterLabel("FAILED"), "转换失败");
+  // UPLOADING 是「文件没传完」，不是「排完队等转换」，按钮文案不能跟 QUEUED 混用。
+  assert.equal(reportEnterLabel("UPLOADING"), "上传未完成");
 });
 
 test("processing percent is clamped between 3 and 100, and never divides by zero", () => {
@@ -152,7 +155,8 @@ test("version summary label falls back to conversion status while a report isn't
   // 放的是转换状态说明，不是版本计数——就算 versionSummary.count 恰好是 0。
   const empty = { count: 0, latestOwnerName: null, latestUpdatedAt: null };
   assert.equal(reportVersionSummaryLabel("QUEUED", empty), "等待转换");
-  assert.equal(reportVersionSummaryLabel("UPLOADING", empty), "等待转换");
+  // UPLOADING 单独一档：文件还没传完，跟 QUEUED（已经传完、排队等转换）不是一回事。
+  assert.equal(reportVersionSummaryLabel("UPLOADING", empty), "上传未完成");
   assert.equal(reportVersionSummaryLabel("PROCESSING", empty), "页图生成中");
   assert.equal(reportVersionSummaryLabel("FAILED", empty), "转换失败");
   assert.equal(reportVersionSummaryLabel("READY", empty), "尚未开始拆解");
@@ -217,4 +221,16 @@ test("grouping and freezing carry extra fields (like canManage) through instead 
     { id: "a", canManage: true },
     { id: "b", canManage: false },
   ]);
+});
+
+test("library card's delete confirm matches the studio trash banner's recoverable framing, not an irreversible-delete warning", async () => {
+  // 后端 trashReport 一直是软删（deleted_at，可 restore），工作台确认条也一直说"移入回收站…
+  // 可由上传者或系统管理员恢复"（components/report/studio/ReportStudioClient.tsx）。库首页卡片
+  // 之前另写了一句"确认删除《…》？删除后不可恢复。"，两句字面矛盾——这里钉住失败卡片、
+  // 非就绪卡片（排队中/转换中/上传未完成）共用的两处 window.confirm，都换成同一套「可恢复」措辞。
+  const card = await readFile(new URL("../components/report/library/ReportCard.tsx", import.meta.url), "utf8");
+  const confirmCopy = /把《\$\{report\.title\}》移入回收站？报告会从报告库中移除，可由上传者或系统管理员恢复。/g;
+  const matches = card.match(confirmCopy) ?? [];
+  assert.equal(matches.length, 2, "失败卡片和非就绪卡片都应该用这句确认文案");
+  assert.doesNotMatch(card, /确认删除《.*》？删除后不可恢复。/);
 });

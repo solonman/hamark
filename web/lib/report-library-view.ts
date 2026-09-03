@@ -47,8 +47,12 @@ export function filterReports<T extends Pick<ReportListItem, "title" | "taskType
 
 /**
  * 卡片和 aria 文案要用的中文状态名——开发用的英文状态码（QUEUED/PROCESSING/…）
- * 不能漏到界面上。UPLOADING 理论上不会出现在列表接口（原件还没传完不会建条目之外
- * 的状态跳转），但防御性地给一个文案，免得万一出现时界面裂开。
+ * 不能漏到界面上。UPLOADING 会真的出现在列表接口：浏览器直传中途失败、
+ * complete 从未被调用时，报告就卡在这一态，`GET /api/reports`
+ * （lib/report-server.ts 的 listReports）不按状态过滤，照样把它列出来
+ * ——与视频库 `GET /api/videos` 同一口径，不单独藏起来。原来的
+ * 「上传中」在这一态会跟封面上「上传完成，等待转换」的说明自相矛盾（人已经在等
+ * 上传完成，其实文件根本没传完），统一改成「上传未完成」。
  */
 export function reportStatusLabel(status: ReportStatus): string {
   switch (status) {
@@ -62,7 +66,7 @@ export function reportStatusLabel(status: ReportStatus): string {
       return "转换失败";
     case "UPLOADING":
     default:
-      return "上传中";
+      return "上传未完成";
   }
 }
 
@@ -77,7 +81,11 @@ export function reportFormatBadgeLabel(sourceFormat: string): string {
   return sourceFormat === "PPT" ? "PPT 97-2003" : sourceFormat;
 }
 
-/** 卡片主按钮上的文案：就绪是唯一能点进工作台的状态，其余都是说明当前卡在哪一步。 */
+/**
+ * 卡片主按钮上的文案：就绪是唯一能点进工作台的状态，其余都是说明当前卡在哪一步。
+ * UPLOADING 单独给「上传未完成」，不能跟着 QUEUED 说「等待转换」——文件都没传完，
+ * 压根还没到能排队等转换的地步；删除后重新上传才是唯一出路。
+ */
 export function reportEnterLabel(status: ReportStatus): string {
   switch (status) {
     case "READY":
@@ -86,8 +94,9 @@ export function reportEnterLabel(status: ReportStatus): string {
       return "生成页图中";
     case "FAILED":
       return "转换失败";
-    case "QUEUED":
     case "UPLOADING":
+      return "上传未完成";
+    case "QUEUED":
     default:
       return "等待转换";
   }
@@ -115,13 +124,15 @@ export function formatReportCardTime(iso: string): string {
 /**
  * 卡片信息带里的「版本摘要」文案：未就绪的报告谈不上版本，那一格改用状态说明卡在哪一步
  * （demo 的 mock 数据：QUEUED→等待转换／PROCESSING→页图生成中／FAILED→转换失败）；只有
- * READY 才回到版本数 + 最近更新人时间，没有版本记录时是「尚未开始拆解」。
+ * READY 才回到版本数 + 最近更新人时间，没有版本记录时是「尚未开始拆解」。UPLOADING 单独
+ * 给「上传未完成」，跟 reportEnterLabel 同一口径，不跟 QUEUED 混着说「等待转换」。
  */
 export function reportVersionSummaryLabel(
   status: ReportStatus,
   versionSummary: Pick<ReportVersionSummary, "count" | "latestOwnerName" | "latestUpdatedAt">,
 ): string {
-  if (status === "QUEUED" || status === "UPLOADING") return "等待转换";
+  if (status === "UPLOADING") return "上传未完成";
+  if (status === "QUEUED") return "等待转换";
   if (status === "PROCESSING") return "页图生成中";
   if (status === "FAILED") return "转换失败";
   if (versionSummary.count > 0) {

@@ -8,6 +8,15 @@
  * demo 的字面量，不另外造变量。
  */
 
+/*
+ * 外壳根类：贴在 `ReportStudioClient` 最外层的 `<main>` 上，纯粹用来把下面
+ * 一批给 button/input/select/textarea 设字号的规则从 (0,1,0) 提到 (0,2,0)——
+ * 见 94 行往下 `.dd`/`.combo`/`.cbtn`/`.cbmenu button` 那组规则前的注释。
+ * 自己不带任何视觉属性。
+ */
+.studio {
+}
+
 .main { max-width: 1720px; margin: 0 auto; padding: 20px clamp(14px, 2vw, 28px) 90px; }
 
 /* demo 没有顶栏之下、PART 01 之上的独立标题区——报告标题与来源已经在顶栏里
@@ -33,7 +42,7 @@
 .modTitle { margin: 2px 0 0; color: var(--v04-subject); font-size: 16px; letter-spacing: -.02em; }
 .modActions { display: flex; align-items: center; gap: 8px; }
 
-.sm {
+.studio .sm {
   border: 1px solid var(--v04-line); border-radius: 999px; padding: 4px 11px;
   color: var(--v04-muted); font-size: 10.5px; background: transparent;
 }
@@ -44,7 +53,7 @@
    999px 圆角、透明底、10px 字号），但页头是 flex 行、空间比案例分析工具条紧，
    所以额外锁 flex:none + white-space:nowrap，防止被版本 pill 挤断成两行；
    margin-right 单独留出跟版本 pill 之间的间距，不依赖 siteUtilities 的 gap。 */
-.trashButton {
+.studio .trashButton {
   flex: none; white-space: nowrap; margin-right: 4px;
   border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
   color: var(--v04-ink); padding: 8px 11px; font-size: 10px;
@@ -93,11 +102,20 @@ span.studioSaveChip {
 
 /* ============================ 下拉与组合框（ReportSelect / ReportCombobox） ============================ */
 
-.dd, .combo {
+/*
+ * .studio 前缀（(0,2,0)）：V04Surface.module.css 第 17 行
+ * `.surface button, .surface input, .surface textarea { font: inherit }`
+ * 是 (0,1,1)，比这里原来单类名的 (0,1,0) 高，会把这些控件的 font-size 压成
+ * 继承自 .surface 的 14px（demo 这些控件全部是 11.5px/10.5px 等更小的字号）。
+ * 用外壳根类 .studio 再叠一层类选择器，把特异性提到 (0,2,0)，不改
+ * V04Surface.module.css。deck 那边（ReportDeck.module.css 的 .root）是同一个
+ * 问题、同一个解法。
+ */
+.studio .dd, .studio .combo {
   height: 27px; border: 1px solid var(--v04-line); border-radius: 999px;
   background-color: #0f100e; color: var(--v04-ink); padding: 0 28px 0 12px; font-size: 11.5px;
 }
-.dd {
+.studio .dd {
   appearance: none; -webkit-appearance: none;
   background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px;
@@ -107,10 +125,11 @@ span.studioSaveChip {
 .cb { position: relative; display: inline-flex; align-items: center; }
 .combo { min-width: 132px; max-width: 220px; padding-right: 28px; }
 .combo:focus { border-color: rgba(223, 255, 79, .4); outline: none; }
-.cbtn {
+.studio .cbtn {
   position: absolute; right: 0; top: 0; width: 28px; height: 27px; border: 0; border-radius: 999px;
   background-color: transparent; background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: center; background-size: 10px 6px; opacity: .85; cursor: pointer;
+  font-size: 0;
 }
 .cbtn:hover:not(:disabled) { opacity: 1; filter: brightness(1.6); }
 .cbtn:disabled { cursor: not-allowed; opacity: .4; }
@@ -120,7 +139,7 @@ span.studioSaveChip {
   border: 1px solid var(--v04-line); border-radius: 10px; background: var(--v04-panel);
   box-shadow: 0 16px 40px rgba(0, 0, 0, .6); padding: 5px;
 }
-.cbmenu button { text-align: left; border: 0; background: transparent; border-radius: 7px; padding: 6px 10px; color: var(--v04-ink); font-size: 11.5px; }
+.studio .cbmenu button { text-align: left; border: 0; background: transparent; border-radius: 7px; padding: 6px 10px; color: var(--v04-ink); font-size: 11.5px; }
 .cbmenu button:hover { background: rgba(223, 255, 79, .1); color: var(--v04-accent); }
 .cbmenuOn { color: var(--v04-accent); font-weight: 700; }
 
@@ -139,7 +158,7 @@ span.studioSaveChip {
 .file a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d4d6cd; text-decoration: none; }
 .file a:hover { text-decoration: underline; }
 .file em { flex: none; font-style: normal; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; color: var(--v04-muted); }
-.file button { flex: none; border: 0; background: transparent; color: var(--v04-muted); font-size: 15px; line-height: 1; padding: 0 4px; cursor: pointer; }
+.studio .file button { flex: none; border: 0; background: transparent; color: var(--v04-muted); font-size: 15px; line-height: 1; padding: 0 4px; cursor: pointer; }
 .file button:hover:not(:disabled) { color: #ff8f7d; }
 .file button:disabled { cursor: not-allowed; opacity: .5; }
 .dropzone {
@@ -186,7 +205,7 @@ span.studioSaveChip {
 }
 .saveBanner p { margin: 0; color: #ffcfad; font-size: 12px; line-height: 1.6; }
 .saveBanner ul { margin: 4px 0 0; padding-left: 18px; color: #ffcfad; font-size: 11.5px; line-height: 1.7; }
-.saveBanner button {
+.studio .saveBanner button {
   flex: none; border: 1px solid rgba(255, 174, 120, .5); border-radius: 999px; background: transparent;
   color: #ffcfad; padding: 7px 13px; font-size: 11.5px; cursor: pointer;
 }

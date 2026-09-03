@@ -414,7 +414,7 @@ export default function ReportStudioClient({
 
   if (loadError) {
     return (
-      <main className={v04styles.surface} data-v04-page="report-studio">
+      <main className={`${v04styles.surface} ${styles.studio}`} data-v04-page="report-studio">
         <section className={v04styles.emptyState}>
           <h2>工作台读取失败</h2>
           <p>{loadError}</p>
@@ -425,7 +425,7 @@ export default function ReportStudioClient({
   }
   if (!chain || !history) {
     return (
-      <main className={v04styles.surface} data-v04-page="report-studio">
+      <main className={`${v04styles.surface} ${styles.studio}`} data-v04-page="report-studio">
         <section className={v04styles.emptyState}><h2>正在读取工作台…</h2></section>
       </main>
     );
@@ -448,7 +448,7 @@ export default function ReportStudioClient({
   const annotation = history.present;
 
   return (
-    <main className={v04styles.surface} data-v04-page="report-studio">
+    <main className={`${v04styles.surface} ${styles.studio}`} data-v04-page="report-studio">
       <header className={v04styles.siteHeader} data-v04-fixed-header>
         <div className={v04styles.studioIdentity}>
           <Link href={navigation.libraryHref} className={v04styles.brandWordmark}>

@@ -29,9 +29,9 @@
   font-size: 14px;
   line-height: 1.7;
 }
-.root :global(button) { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.root :global(input), .root :global(textarea), .root :global(select) { font: inherit; color: inherit; }
-.root :global(select) { appearance: none; -webkit-appearance: none; }
+:where(.root) :global(button) { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+:where(.root) :global(input), :where(.root) :global(textarea), :where(.root) :global(select) { font: inherit; color: inherit; }
+:where(.root) :global(select) { appearance: none; -webkit-appearance: none; }
 .root :global(img) { -webkit-user-drag: none; user-drag: none; }
 .root *:focus-visible { outline: 2px solid var(--rd-acc); outline-offset: 2px; }
 
@@ -40,8 +40,8 @@
    demo 的 PART 03 标题栏（modHead 的 extra 位，约 777 行），不在这个组件的
    画布里——那两样都由外壳渲染，外壳直接 import `deckSummary`
    （见 `./deck-view.ts`）自己拼文案，这里不重复画一份。 */
-.smBtn { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 11px; font-size: 10.5px; color: var(--rd-ink2); }
-.smBtn:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
+.root .smBtn { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 11px; font-size: 10.5px; color: var(--rd-ink2); }
+.root .smBtn:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
 
 /* ---------------- 左页序 ／ 右收纳框：两列骨架 ---------------- */
 .deck { display: grid; grid-template-columns: var(--rd-colw, 214px) 7px minmax(0, 1fr); align-items: start; gap: 0; min-height: 420px; position: relative; }
@@ -76,8 +76,12 @@
 .ghead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .ghead small { color: var(--rd-subject); font-size: 9.5px; letter-spacing: 0.14em; font-weight: 900; }
 .ghead h3 { font-size: 15px; letter-spacing: -0.01em; margin: 0; font-weight: 800; }
-.gx { margin-left: auto; color: var(--rd-ink3); font-size: 17px; line-height: 1; }
-.gx:hover { color: var(--rd-acc); }
+.root .gx { margin-left: auto; color: var(--rd-ink3); font-size: 17px; line-height: 1; }
+.root .gx:hover { color: var(--rd-acc); }
+/* 一条式引导条（guideOff 之前的收缩态）里同一个关闭按钮换了尺寸——demo
+   `.guide.bar .x` 跟 `.guide .ghead .x` 不是同一条规则：条状态字号小一号、
+   靠 flex:none 让位给前面的进度条／文案，而不是 margin-left:auto。 */
+.root .guideBar .gx { flex: none; margin-left: 0; font-size: 16px; padding: 0 4px; }
 .gsteps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .gstep { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }
 .gstep > b { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 99px; border: 1px solid var(--rd-line); color: var(--rd-ink3); font-family: var(--rd-mono); font-size: 12px; font-weight: 400; }
@@ -118,21 +122,25 @@
 .boxRg { flex: none; font-family: var(--rd-mono); font-size: 10px; color: var(--rd-ink2); }
 /* 模块名称候选 chevron——demo 的 `.cbtn.inline`：跟 `.cbtn` 共用箭头图案，
    但脱离绝对定位、直接排在名称右边。 */
-.boxNameChevron {
+.root .boxNameChevron {
   flex: none; width: 27px; height: 27px; border: 1px solid var(--rd-line); border-radius: 999px;
   background-color: var(--rd-field); background-image: var(--rd-chev); background-repeat: no-repeat;
-  background-position: center; background-size: 10px 6px; opacity: 1;
+  background-position: center; background-size: 10px 6px; opacity: 1; font-size: 0;
 }
-.boxNameChevron:hover { border-color: var(--rd-acc-dim); background-color: rgba(223, 255, 79, 0.12); }
+.root .boxNameChevron:hover { border-color: var(--rd-acc-dim); background-color: rgba(223, 255, 79, 0.12); }
 /* 候选菜单——demo 的 `#cbmenu`。 */
 .cbMenu { position: fixed; z-index: 97; display: grid; gap: 2px; min-width: 130px; border: 1px solid var(--rd-line); border-radius: 10px; background: var(--rd-panel); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); padding: 5px; }
-.cbMenu button { text-align: left; padding: 6px 10px; border-radius: 7px; font-size: 11.5px; white-space: nowrap; color: var(--rd-ink); }
-.cbMenu button:hover { background: rgba(223, 255, 79, 0.1); color: var(--rd-acc); }
-.cbMenuOn { color: var(--rd-acc); font-weight: 700; }
-.boxAct { flex: none; border: 1px solid var(--rd-line); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-ink2); }
-.boxAct:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
-.boxActOn { border-color: var(--rd-acc-dim); color: var(--rd-acc); background: rgba(223, 255, 79, 0.1); }
-.boxActDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
+.root .cbMenu button { text-align: left; padding: 6px 10px; border-radius: 7px; font-size: 11.5px; white-space: nowrap; color: var(--rd-ink); }
+.root .cbMenu button:hover { background: rgba(223, 255, 79, 0.1); color: var(--rd-acc); }
+/* demo #cbmenu button.on 是复合选择器（约 233 行），不是单独的 .on——同名 .cbMenuOn
+   若单写会天生比 `.cbMenu button` 低一档特异度，选中态的 color 永远赢不了基础态；
+   这里照抄成复合选择器，顺带把它也提到能压过 V04Surface `.surface button{font:inherit}`
+   的档位。 */
+.root .cbMenu button.cbMenuOn { color: var(--rd-acc); font-weight: 700; }
+.root .boxAct { flex: none; border: 1px solid var(--rd-line); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-ink2); }
+.root .boxAct:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
+.root .boxActOn { border-color: var(--rd-acc-dim); color: var(--rd-acc); background: rgba(223, 255, 79, 0.1); }
+.root .boxActDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
 .unitbox { margin: 8px 10px 10px; background: #171910; }
 .unitbox .unitbox { background: #191b12; }
 
@@ -153,7 +161,7 @@
    键盘 focus 才现身，选中态直接不露（选中已经是主要操作，两个入口叠一起
    会乱）。CSS 驱动而不是内联 JS 切 opacity，才接得上 :focus-visible 和
    .sel 这两条规则。 */
-.openHint { position: absolute; top: 4px; right: 4px; z-index: 3; opacity: 0; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(16, 17, 15, 0.92); color: var(--rd-acc); font-size: 9px; padding: 1px 7px; transition: opacity 0.12s; }
+.root .openHint { position: absolute; top: 4px; right: 4px; z-index: 3; opacity: 0; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(16, 17, 15, 0.92); color: var(--rd-acc); font-size: 9px; padding: 1px 7px; transition: opacity 0.12s; }
 .pc:hover .openHint, .tk:hover .openHint, .openHint:focus-visible { opacity: 1; }
 .pcSel .openHint, .tkSel .openHint { display: none; }
 .insbar { width: 3px; align-self: stretch; min-height: 52px; margin: 3px 1px; border-radius: 2px; background: var(--rd-acc); box-shadow: 0 0 10px rgba(223, 255, 79, 0.7); flex: none; }
@@ -168,10 +176,10 @@
 
 .fab { position: fixed; z-index: 70; display: flex; gap: 7px; align-items: center; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(23, 24, 21, 0.98); box-shadow: 0 14px 38px rgba(0, 0, 0, 0.55); padding: 6px 8px 6px 13px; font-size: 11.5px; color: var(--rd-ink); }
 .fab b { color: var(--rd-acc); font-family: var(--rd-mono); }
-.fabAct { border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--rd-acc); font-weight: 700; background: rgba(223, 255, 79, 0.1); }
-.fabAct:hover { background: rgba(223, 255, 79, 0.2); }
-.fabAct:disabled { opacity: 0.4; cursor: not-allowed; }
-.fabX { border: 0; color: var(--rd-ink3); padding: 5px 7px; font-weight: 400; }
+.root .fabAct { border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--rd-acc); font-weight: 700; background: rgba(223, 255, 79, 0.1); }
+.root .fabAct:hover { background: rgba(223, 255, 79, 0.2); }
+.root .fabAct:disabled { opacity: 0.4; cursor: not-allowed; }
+.root .fabX { border: 0; color: var(--rd-ink3); padding: 5px 7px; font-weight: 400; }
 .fabReason { color: var(--rd-ink3); font-size: 10.5px; }
 
 /* ---------------- 标注浮层（模块／单元） ---------------- */
@@ -180,8 +188,8 @@
 .popHead:active { cursor: grabbing; }
 .popHead small { color: var(--rd-subject); font-size: 9px; letter-spacing: 0.12em; }
 .popHead b { font-weight: 800; }
-.popX { margin-left: auto; font-size: 17px; color: var(--rd-ink2); }
-.popX:hover { color: var(--rd-acc); }
+.root .popX { margin-left: auto; font-size: 17px; color: var(--rd-ink2); }
+.root .popX:hover { color: var(--rd-acc); }
 .popBody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; padding: 13px 14px 15px; max-height: 64vh; overflow: auto; }
 .popBody .wide { grid-column: 1 / -1; }
 .popReadOnlyNote { grid-column: 1 / -1; margin: 0; color: var(--rd-ink3); font-size: 11px; }
@@ -199,12 +207,12 @@
 .val:hover { border-bottom-color: var(--rd-line); background: rgba(255, 255, 255, 0.03); }
 .valBlank { color: var(--rd-ink3); }
 .valBlock { display: block; min-height: 22px; }
-.editing { width: 100%; border: 1px solid var(--rd-acc-dim); border-radius: 6px; background: var(--rd-field); padding: 6px 8px; line-height: 1.6; resize: vertical; font-size: 12.5px; }
+.root .editing { width: 100%; border: 1px solid var(--rd-acc-dim); border-radius: 6px; background: var(--rd-field); padding: 6px 8px; line-height: 1.6; resize: vertical; font-size: 12.5px; }
 .sysval { display: inline-flex; align-items: center; gap: 5px; color: var(--rd-ink2); font-family: var(--rd-mono); font-size: 12px; }
 .sysval::before { content: "⌾"; color: var(--rd-ink3); font-size: 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chips button { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 10px; font-size: 11px; color: var(--rd-ink2); }
-.chips button.chipOn { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.13); color: var(--rd-acc); font-weight: 700; }
+.root .chips button { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 10px; font-size: 11px; color: var(--rd-ink2); }
+.root .chips button.chipOn { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.13); color: var(--rd-acc); font-weight: 700; }
 
 /* 下拉／候选组合的样式不再由这个模块提供——deck 里所有 ReportSelect/
    ReportCombobox 用外壳交付的 components/report/studio/ReportSelect.tsx，
@@ -230,23 +238,23 @@
 .ovside { border-left: 1px solid var(--rd-line); overflow: auto; }
 .ovsec { padding: 12px 15px; border-bottom: 1px solid var(--rd-line2); }
 .ovsec h4 { color: var(--rd-subject); font-size: 9.5px; letter-spacing: 0.12em; margin: 0 0 9px; display: flex; align-items: center; gap: 8px; font-weight: 800; }
-.ovsecAdd { margin-left: auto; border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-acc); letter-spacing: 0; }
+.root .ovsecAdd { margin-left: auto; border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-acc); letter-spacing: 0; }
 .ovgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
 .ovgrid .wide { grid-column: 1 / -1; }
 .bk { border: 1px solid var(--rd-line2); border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; }
 .bkOn { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.06); }
 .bkL { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .bkL b { font-family: var(--rd-mono); color: var(--rd-acc); font-size: 11px; }
-.bkDel { margin-left: auto; border: 1px solid var(--rd-line); border-radius: 999px; padding: 1px 8px; font-size: 9px; color: var(--rd-ink3); }
-.bkDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
+.root .bkDel { margin-left: auto; border: 1px solid var(--rd-line); border-radius: 999px; padding: 1px 8px; font-size: 9px; color: var(--rd-ink3); }
+.root .bkDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
 .bkG { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 7px; }
 .bkG .wide { grid-column: 1 / -1; }
 .bkEmpty { color: var(--rd-ink3); font-size: 11.5px; margin: 0; }
 .ovfoot { display: flex; align-items: center; gap: 10px; padding: 9px 15px; border-top: 1px solid var(--rd-line); font-size: 11px; color: var(--rd-ink3); flex-wrap: wrap; }
 .ovfootNav { display: flex; align-items: center; gap: 6px; }
-.ovfootNav button { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 11px; font-size: 11px; color: var(--rd-ink2); }
-.ovfootNav button:hover:not(:disabled) { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
-.ovfootNav button:disabled { opacity: 0.35; cursor: not-allowed; }
+.root .ovfootNav button { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 11px; font-size: 11px; color: var(--rd-ink2); }
+.root .ovfootNav button:hover:not(:disabled) { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
+.root .ovfootNav button:disabled { opacity: 0.35; cursor: not-allowed; }
 .ovfootCnt { font-family: var(--rd-mono); color: var(--rd-ink2); }
 .ovfootStrip { display: flex; gap: 2px; flex: 1; min-width: 120px; overflow: hidden; }
 .stripCell { flex: 1; height: 19px; border-radius: 2px; background: #2a2c26; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 900; line-height: 1; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.85); position: relative; }

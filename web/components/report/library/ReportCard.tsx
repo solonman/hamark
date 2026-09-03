@@ -85,7 +85,7 @@ function ReportRating({ engagement }: { engagement: CaseEngagement }) {
 /** demo 里点击未就绪的东西弹的那句提示（demo 第 251 行 data-enter 的委托处理）。 */
 const NOT_READY_TOAST = "页图还没生成好，先等一下。";
 
-/** 封面：READY 是缩略图 + 页数角标；其余三态是占位图 + 状态条（进度／排队／失败原因）。 */
+/** 封面：READY 是缩略图 + 页数角标；其余四态是占位图 + 状态条（进度／排队／上传未完成／失败原因）。 */
 function ReportCover({ report, notify }: { report: ReportListItemView; notify: (message: string) => void }) {
   const ready = report.status === "READY";
   const picture = report.coverUrl
@@ -102,12 +102,22 @@ function ReportCover({ report, notify }: { report: ReportListItemView; notify: (
         <div className={styles.coverBar}><i className={styles.coverBarFill} style={{ width: `${percent}%` }} /></div>
       </div>
     );
-  } else if (report.status === "QUEUED" || report.status === "UPLOADING") {
+  } else if (report.status === "QUEUED") {
     state = (
       <div className={styles.coverState}>
         <b>{reportStatusLabel(report.status)}</b>
         <small>上传完成，等待转换</small>
         <div className={styles.coverBar}><i className={styles.coverBarFill} style={{ width: "3%" }} /></div>
+      </div>
+    );
+  } else if (report.status === "UPLOADING") {
+    // 浏览器直传中途失败、complete 从未被调用时会卡在这一态：文件根本没传完，
+    // 压根没进排队/转换的队列，不该再配一条暗示「正在推进」的进度条——删除后
+    // 重新上传是唯一出路，跟 QUEUED（已经传完、只是在等转换）分开呈现。
+    state = (
+      <div className={styles.coverState}>
+        <b>{reportStatusLabel(report.status)}</b>
+        <small>文件没有传完，删除后重新上传即可</small>
       </div>
     );
   } else if (report.status === "FAILED") {
@@ -215,23 +225,40 @@ export default function ReportCard({
                 className={`${styles.retryButton} ${styles.retryButtonDanger}`.trim()}
                 disabled={retryPending || deletePending}
                 onClick={() => {
-                  if (window.confirm(`确认删除《${report.title}》？删除后不可恢复。`)) onDelete(report.id);
+                  if (window.confirm(`把《${report.title}》移入回收站？报告会从报告库中移除，可由上传者或系统管理员恢复。`)) onDelete(report.id);
                 }}
               >
                 {deletePending ? "删除中…" : "删除"}
               </button>
             </span>
           ) : (
+            // 排队中／转换中／上传未完成（以及不是自己上传、点不动重试的失败报告）走这一支。
             // demo：<a class="enter" aria-disabled="true"> + pointer-events:none，鼠标点不动，
             // 键盘 Tab+Enter 还能触发（demo 第 118、189、251 行）；这里用真 <button> 复刻同样的手感。
-            <button
-              type="button"
-              className={styles.enterPillDisabled}
-              aria-disabled="true"
-              onClick={() => notify(NOT_READY_TOAST)}
-            >
-              {reportEnterLabel(report.status)}
-            </button>
+            // 就绪之前工作台进不去，删除入口只能开在库首页——canManage 的人这几态都能删，
+            // 不必等到转换失败才有退路；就绪之后不再显示（就绪报告改在工作台里删）。
+            <span className={styles.retryGroup}>
+              <button
+                type="button"
+                className={styles.enterPillDisabled}
+                aria-disabled="true"
+                onClick={() => notify(NOT_READY_TOAST)}
+              >
+                {reportEnterLabel(report.status)}
+              </button>
+              {report.canManage ? (
+                <button
+                  type="button"
+                  className={`${styles.retryButton} ${styles.retryButtonDanger}`.trim()}
+                  disabled={deletePending}
+                  onClick={() => {
+                    if (window.confirm(`把《${report.title}》移入回收站？报告会从报告库中移除，可由上传者或系统管理员恢复。`)) onDelete(report.id);
+                  }}
+                >
+                  {deletePending ? "删除中…" : "删除"}
+                </button>
+              ) : null}
+            </span>
           )}
           <div className={v04.caseCardMetrics}>
             <button

@@ -398,26 +398,24 @@ export default function ReportDeck({
 
   /* ---------------- 结构操作 ---------------- */
 
-  // 新建模块／单元还没有标题栏按钮可以量位置——用视口上方居中当"锚点"，
-  // 跟 openAnno 走同一套翻转/收边逻辑。只在这两个回调里算（只会在浏览器里
-  // 响应点击时调用），不要提到组件顶层算，那样 SSR 首帧会因为没有 window 炸掉。
-  const syntheticAnnoAnchor = () => ({ top: 122, bottom: 140, left: Math.max(10, window.innerWidth / 2 - 260) });
+  // demo 的 `makeModule`/`makeUnit`（约 1061、1071 行）建完框只发一条 toast，
+  // 从不自动弹标注浮层——浮层只能靠标题栏「标注」按钮手动打开。之前一版在
+  // 这里顺手 `setPop(...)`，是 demo 没有的"加戏"：新建模块/单元不会自动打断
+  // 用户，继续框选下一段才是 demo 的节奏。
 
   const makeModule = useCallback((ids: number[]) => {
     if (readOnly) return;
-    const { next, moduleId } = assignToNewModule(annotation, ids);
+    const { next } = assignToNewModule(annotation, ids);
     onChange(next);
     clearSelection();
-    setPop({ key: `mod:${moduleId}`, anchorRect: syntheticAnnoAnchor() });
     pushToast("已建模块，左边这些页变灰＝已归入。标题栏「标注」可以就地填这一段的条目。");
   }, [annotation, onChange, readOnly, clearSelection, pushToast]);
 
   const makeUnit = useCallback((containerKey: ReportDeckKey, ids: number[]) => {
     if (readOnly) return;
-    const { next, unitId } = assignToNewUnit(annotation, containerKey, ids);
+    const { next } = assignToNewUnit(annotation, containerKey, ids);
     onChange(next);
     clearSelection();
-    setPop({ key: `unit:${unitId}`, anchorRect: syntheticAnnoAnchor() });
   }, [annotation, onChange, readOnly, clearSelection]);
 
   const handleFabAction = useCallback(() => {

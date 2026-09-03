@@ -70,8 +70,11 @@
   opacity: .45; cursor: not-allowed; pointer-events: none;
 }
 
-/* ---------- 重试／改传 PDF／删除（仅上传者本人或管理员，仅 FAILED，见 demo 第 119-122 行） ---------- */
-/* demo 里这一组按钮明显比 .enter 轻：细边、无底色、不加粗，跟主按钮拉开一档视觉权重。 */
+/* ---------- 重试／改传 PDF／删除（仅上传者本人或管理员，见 demo 第 119-122 行） ---------- */
+/* 重试／改传 PDF 只在 FAILED 才有意义；删除不然——排队中／转换中／上传未完成的报告
+   进不了工作台，删除入口只能开在这里，canManage 的人这几态也能删（非 demo 原状态机，
+   是线上「等待转换报告删不掉」的补丁）。demo 里这一组按钮明显比 .enter 轻：细边、无底色、
+   不加粗，跟主按钮拉开一档视觉权重。 */
 .retryGroup { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .retryButton {
   border: 1px solid var(--v04-line); border-radius: 999px;
