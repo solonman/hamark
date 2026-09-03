@@ -660,18 +660,11 @@ export default function ReportStudioClient({
                 <small className={styles.modEyebrow}>PART 03</small>
                 <h2 className={styles.modTitle}>第三部分｜报告详细拆解</h2>
               </div>
-              {/* 「查看脑图」紧跟标题，同一行——demo `modHead(3,...,mindBtn)` 把它当 leftExtra，
-                  不是标题栏右侧那一组（跟统计 chip／收起分属两侧）。 */}
-              {!collapsed.has(3) ? (
-                <ReportMindMapButton
-                  annotation={annotation}
-                  pages={report.pages}
-                  reportTitle={report.title}
-                  onGoTo={(key) => setFocusKey(key as ReportDeckKey)}
-                />
-              ) : null}
             </div>
             <div className={styles.modActions}>
+              {/* 用户定案：脑图按钮挪到标题栏右侧这一组的最前面，顺序
+                  [引导（仅引导关闭时）] [◎ 查看脑图] [统计 chip] [收起]；
+                  样式与"有模块时才显示"的条件都不变，只是从贴着标题挪过来。 */}
               {!collapsed.has(3) ? (
                 <>
                   {guideOff ? (
@@ -684,6 +677,12 @@ export default function ReportStudioClient({
                       引导
                     </button>
                   ) : null}
+                  <ReportMindMapButton
+                    annotation={annotation}
+                    pages={report.pages}
+                    reportTitle={report.title}
+                    onGoTo={(key) => setFocusKey(key as ReportDeckKey)}
+                  />
                   <span className={styles.chip}>{formatDeckSummary(annotation)}</span>
                 </>
               ) : null}

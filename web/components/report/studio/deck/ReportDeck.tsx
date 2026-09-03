@@ -49,6 +49,7 @@ import ReportPageModal from "./ReportPageModal";
 import { DeckEditableValue } from "./DeckField";
 import styles from "./ReportDeck.module.css";
 import type { ReportDeckProps } from "./deck-types";
+import type { ReportPageView } from "@/lib/report-model";
 
 /**
  * 报告拆解工作台第三部分：左列未归入页 ＋ 右列模块/单元收纳框，外加框选、
@@ -485,12 +486,41 @@ export default function ReportDeck({
 
   /* ---------------- 渲染：一页卡片 ---------------- */
 
+  /**
+   * 缩略图 `<img>`：不能再用 `loading="lazy"`——去掉写死的 `aspect-ratio`
+   * 之后未加载的图没有高度，浏览器判断"要不要现在就加载"这个懒加载图片是否
+   * 进了视口，量的正是它自己的布局盒；高度趋近 0 就永远判不出"进了视口"，
+   * 于是永远不触发加载，一整列缩略图卡死成一排细线（demo 用内联 base64，
+   * 不存在"要不要加载"这一步，没这个死锁）。50 张缩略图体积都很小，全量
+   * 立即加载可以接受，demo 也是一次性把 50 张全画出来。
+   * `ReportPageView.width/height` 有值时直接标进 `width`/`height` 属性——
+   * 现代浏览器的 UA 样式表会照这两个属性算出默认 `aspect-ratio`，加载前就把
+   * 高度占住，跟真实图片比例一致。数据万象某些老转换路径量不出真实像素尺寸
+   * 时这两个字段是 0，退回 CSS 占位比例（`.pc img:not([width]):not([data-loaded])`，
+   * 生产报告几乎全是 16:9），`onLoad` 时把 `data-loaded` 标上，那条占位规则
+   * 就不再命中，图直接改吃自己解出来的真实比例。
+   */
+  function thumbImg(view: ReportPageView) {
+    const known = view.width > 0 && view.height > 0;
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- 本地对象存储签名 URL，不适用 next/image 远程域名白名单
+      <img
+        src={view.thumbUrl ?? undefined}
+        alt=""
+        draggable={false}
+        data-thumb="1"
+        width={known ? view.width : undefined}
+        height={known ? view.height : undefined}
+        onLoad={(event) => { event.currentTarget.dataset.loaded = "1"; }}
+      />
+    );
+  }
+
   function pageThumb(n: number) {
     const view = pageByNo(n);
     const failed = !view || view.renderStatus !== "OK" || !view.thumbUrl;
     if (failed) return <div className={styles.pcFail} data-thumb="1">该页渲染失败</div>;
-    // eslint-disable-next-line @next/next/no-img-element -- 本地对象存储签名 URL，不适用 next/image 远程域名白名单
-    return <img src={view!.thumbUrl ?? undefined} alt="" loading="lazy" draggable={false} data-thumb="1" />;
+    return thumbImg(view!);
   }
 
   /**
@@ -617,9 +647,7 @@ export default function ReportDeck({
               <div key={p.n}>
                 {showInsertBefore === p.n ? <span className={styles.insbar} /> : null}
                 <div className={cls} data-pick={key} data-n={p.n} title={view?.textExcerpt || undefined} onDoubleClick={() => setModalPage(p.n)}>
-                  {failed ? <div className={styles.tkFail} data-thumb="1">渲染失败</div>
-                    // eslint-disable-next-line @next/next/no-img-element
-                    : <img src={view!.thumbUrl ?? undefined} alt="" loading="lazy" draggable={false} data-thumb="1" />}
+                  {failed ? <div className={styles.tkFail} data-thumb="1">渲染失败</div> : thumbImg(view!)}
                   {pageMarkBadge(p)}
                   {openHintButton(p.n)}
                   <b className={styles.tkCaption}>p{String(p.n).padStart(2, "0")}</b>

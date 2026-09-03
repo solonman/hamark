@@ -56,7 +56,13 @@
 .pagelist { display: grid; gap: 5px; position: relative; touch-action: none; }
 
 .pc { position: relative; display: grid; grid-template-columns: 26px 1fr; gap: 7px; align-items: center; border: 1px solid transparent; border-radius: 8px; padding: 4px; cursor: pointer; }
-.pc img { width: 100%; grid-column: 2; border: 1px solid var(--rd-line); background: #000; display: block; aspect-ratio: 4 / 3; object-fit: cover; }
+.pc img { width: 100%; grid-column: 2; border: 1px solid var(--rd-line); background: #000; display: block; }
+/* 量不出真实像素尺寸（ReportPageView.width/height 为 0，TSX 就不会标 width/
+   height 属性）时的占位比例——生产报告几乎全是 16:9。有 width 属性的图不用
+   这条：浏览器自己会用属性算出正确的默认 aspect-ratio，这条占位规则反而会
+   把它错误地压成 16:9。图 onLoad 后 TSX 会打上 data-loaded，那之后也不用
+   占位了，交给图片自己的原始比例。 */
+.pc img:not([width]):not([data-loaded]) { aspect-ratio: 16 / 9; }
 .pcN { grid-column: 1; font-family: var(--rd-mono); font-size: 9.5px; color: var(--rd-ink2); text-align: right; }
 .pc:hover { border-color: var(--rd-line); background: rgba(255, 255, 255, 0.03); }
 .pcSel { border-color: var(--rd-acc) !important; background: rgba(223, 255, 79, 0.12) !important; }
@@ -64,7 +70,7 @@
 .pcTaken:hover { border-color: transparent; background: none; }
 .pcLit { border-color: var(--rd-lit, var(--rd-acc)); background: color-mix(in srgb, var(--rd-lit, var(--rd-acc)) 14%, transparent); opacity: 1; }
 .pcLit .pcN { color: var(--rd-lit, var(--rd-acc)); }
-.pcFail { display: flex; align-items: center; justify-content: center; width: 100%; grid-column: 2; aspect-ratio: 4 / 3; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 9.5px; text-align: center; padding: 4px; }
+.pcFail { display: flex; align-items: center; justify-content: center; width: 100%; grid-column: 2; aspect-ratio: 16 / 9; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 9.5px; text-align: center; padding: 4px; }
 
 .marquee { position: fixed; border: 1px solid var(--rd-acc); background: rgba(223, 255, 79, 0.14); border-radius: 3px; pointer-events: none; z-index: 75; }
 
@@ -147,12 +153,13 @@
 .tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 11px; min-height: 44px; user-select: none; position: relative; touch-action: none; }
 .trayEmpty { align-items: center; color: var(--rd-ink3); font-size: 11px; padding: 11px; }
 .tk { position: relative; width: 84px; border: 1px solid transparent; border-radius: 7px; padding: 3px; cursor: pointer; }
-.tk img { display: block; width: 100%; border: 1px solid var(--rd-line); background: #000; aspect-ratio: 4 / 3; object-fit: cover; }
+.tk img { display: block; width: 100%; border: 1px solid var(--rd-line); background: #000; }
+.tk img:not([width]):not([data-loaded]) { aspect-ratio: 16 / 9; }
 .tkCaption { display: block; margin-top: 3px; font-family: var(--rd-mono); font-size: 9px; color: var(--rd-ink2); font-weight: 500; text-align: center; }
 .tk:hover { border-color: var(--rd-line); background: rgba(255, 255, 255, 0.04); }
 .tkSel { border-color: var(--rd-acc) !important; background: rgba(223, 255, 79, 0.14) !important; }
 .tkTaken { opacity: 0.32; }
-.tkFail { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 4 / 3; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 8px; text-align: center; padding: 2px; }
+.tkFail { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 8px; text-align: center; padding: 2px; }
 .dot { position: absolute; top: 4px; left: 4px; z-index: 2; display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 99px; background: var(--rd-acc); color: #111; font-size: 9px; font-weight: 900; line-height: 1; }
 .dotHalf { background: transparent; border: 1px solid rgba(223, 255, 79, 0.55); color: rgba(223, 255, 79, 0.75); font-weight: 600; }
 .pcDot { left: auto; right: 4px; top: 4px; }
