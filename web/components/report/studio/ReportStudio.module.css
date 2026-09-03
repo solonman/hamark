@@ -72,6 +72,20 @@
   min-width: 0;
 }
 
+/* 撤销/重做换回视频侧那版（带图标＋"撤销"/"重做"文字）后 historyControl
+   从约 60px 撑到约 134px，光给 <nav> 补 min-width:0 不够顶——v04 侧 `.siteHeader`
+   的三栏 grid（见 V04Surface.module.css）是 `minmax(190px,1fr) auto minmax(190px,1fr)`：
+   左右两栏各占 1fr，宽度不够时是左右两栏先被压扁到 190px 地板，而不是本该收缩的
+   中间标题栏让路，页头右侧一堆内容（版本 pill／撤销重做／保存 chip／用户名／删除
+   报告）就会在 190px 里挤到溢出或换行。用 `[data-v04-fixed-header]` 属性选择器
+   （已经打在 `<header>` 上）+ `.studio` 把特异性提到 (0,2,0)，压过 v04 侧
+   `.siteHeader` 的 (0,1,0)，只在报告工作台里把左右两栏改成按内容宽度的 `auto`，
+   中间标题栏换成真正能收缩到 0 的 `minmax(0,1fr)`——不改 V04Surface.module.css，
+   视频工作台自己的三栏比例不受影响。 */
+.studio [data-v04-fixed-header] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
 /* 页头右侧（版本 pill／撤销重做／保存 chip／用户名／删除报告按钮）：宁可中间列的
    标题让步，也不能有任何一项被裁切或断成两行。flex:none 在当前 grid 语境下对这个
    网格项没有实际效力（父级不是 flex 容器），仍然按要求写上，留作将来外壳换成 flex

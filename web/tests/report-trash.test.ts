@@ -111,20 +111,30 @@ test("1280 宽下页头右侧不再被中间列（标题＋来源 chip）挤：<
   assert.match(css, /\.studioUtilities \{\s*flex: none;\s*white-space: nowrap;\s*\}/);
 });
 
-test("undo/redo are icon-only pill buttons (like the demo's ↩/↪, no visible \"撤销\"/\"重做\" text) so historyControl stops eating header width", async () => {
-  const studio = await source("../components/report/studio/ReportStudioClient.tsx");
-  // 按钮内容只剩箭头字符，文字挪进 aria-label（title 本来就有）——不再有可见的
-  // "撤销"/"重做" 文本把 historyControl 撑宽。
-  assert.match(
-    studio,
-    /title="撤销上一步（⌘\/Ctrl\+Z）"\s*\n\s*aria-label="撤销"\s*\n\s*>\s*\n\s*↩\s*\n\s*<\/button>/,
-  );
-  assert.match(
-    studio,
-    /title="重做（⇧⌘\/Ctrl\+Z）"\s*\n\s*aria-label="重做"\s*\n\s*>\s*\n\s*↪\s*\n\s*<\/button>/,
-  );
-  assert.doesNotMatch(studio, /↩ 撤销/);
-  assert.doesNotMatch(studio, /↪ 重做/);
+test("undo/redo match the video workbench exactly: same v04styles.historyControl/historyDivider, same svg icons, same visible \"撤销\"/\"重做\" text", async () => {
+  // 外壳已经把报告工作台的撤销/重做改回和 V04StudioClient.tsx 完全一致的写法
+  // （svg 图标 + 文字，而不是纯箭头字符），这条测试断言的是"两边一致"，不是
+  // "图标独占、不露文字"。
+  const [studio, video] = await Promise.all([
+    source("../components/report/studio/ReportStudioClient.tsx"),
+    source("../components/v04/V04StudioClient.tsx"),
+  ]);
+  assert.match(studio, /<div className=\{v04styles\.historyControl\} role="group" aria-label="撤销与重做">/);
+  assert.match(video, /<div className=\{styles\.historyControl\} role="group" aria-label="撤销与重做">/);
+  // 撤销按钮：同一个 title/aria-label、同一套 svg 路径、按钮里露出 <span>撤销</span>。
+  for (const source_ of [studio, video]) {
+    assert.match(
+      source_,
+      /title="撤销上一步（⌘\/Ctrl\+Z）" aria-label="撤销上一步">\s*\n\s*<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">\s*\n\s*<path d="M3\.2 6\.6h6\.3a3\.3 3\.3 0 0 1 0 6\.6H6\.1" \/><path d="M5\.8 3\.6 3 6\.6l2\.8 3" \/>\s*\n\s*<\/svg>\s*\n\s*<span>撤销<\/span>/,
+    );
+  }
+  // 重做按钮同理（视频侧的重做快捷键提示是 ⌘/Ctrl+Shift+Z，报告侧照抄，逐字不改）。
+  for (const source_ of [studio, video]) {
+    assert.match(
+      source_,
+      /title="重做（⌘\/Ctrl\+Shift\+Z）" aria-label="重做">\s*\n\s*<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">\s*\n\s*<path d="M12\.8 6\.6H6\.5a3\.3 3\.3 0 0 0 0 6\.6h3\.4" \/><path d="M10\.2 3\.6 13 6\.6l-2\.8 3" \/>\s*\n\s*<\/svg>\s*\n\s*<span>重做<\/span>/,
+    );
+  }
 });
 
 test("saveChip is pinned to its content width (flex: none) so it can never be shrunk into truncating \"已保存 23:53\" down to \"已保存 23\"", async () => {

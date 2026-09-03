@@ -479,33 +479,32 @@ export default function ReportStudioClient({
               onSwitchToMine={(versionId) => void selectVersion(versionId)}
             />
           </div>
-          {!readOnly ? (
+          {/* 与视频工作台的撤销/重做完全一样（`V04StudioClient.tsx` 约 1356～1374
+              行）：同一个 `v04styles.historyControl`/`historyDivider`、同一套 svg 图标、
+              文案、title、快捷键提示、disabled 逻辑，逐字复制而不是抽共享组件——
+              `V04StudioClient` 那段 JSX 直接耦合它自己的 `historyDepth`/`undoEdit`/
+              `redoEdit`，抽出来牵动视频侧渲染与其测试的风险，跟"两边体验一致"这个
+              目标比不成正比；这里只把变量换成报告侧自己的 `history`/`undo`/`redo`，
+              类名、结构、文案一律不动。 */}
+          {!readOnly && (history.past.length > 0 || history.future.length > 0) && (
             <div className={v04styles.historyControl} role="group" aria-label="撤销与重做">
-              {/* 照 demo 页头做法（docs/demos/2026-09-01-报告拆解工作台demo-V2.html 第 672 行：
-                  `<button data-undo title="撤销">↩</button>`）：只留箭头字符，文字挪进
-                  aria-label／title，不再在按钮里显示"撤销"/"重做"——1280 宽下这两个字直接把
-                  historyControl 从约 60px 撑到 134px，是页头右侧放不下的主因之一。 */}
-              <button
-                type="button"
-                onClick={undo}
-                disabled={history.past.length === 0}
-                title="撤销上一步（⌘/Ctrl+Z）"
-                aria-label="撤销"
-              >
-                ↩
+              <button type="button" onClick={undo} disabled={history.past.length === 0}
+                title="撤销上一步（⌘/Ctrl+Z）" aria-label="撤销上一步">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3.2 6.6h6.3a3.3 3.3 0 0 1 0 6.6H6.1" /><path d="M5.8 3.6 3 6.6l2.8 3" />
+                </svg>
+                <span>撤销</span>
               </button>
               <i className={v04styles.historyDivider} />
-              <button
-                type="button"
-                onClick={redo}
-                disabled={history.future.length === 0}
-                title="重做（⇧⌘/Ctrl+Z）"
-                aria-label="重做"
-              >
-                ↪
+              <button type="button" onClick={redo} disabled={history.future.length === 0}
+                title="重做（⌘/Ctrl+Shift+Z）" aria-label="重做">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12.8 6.6H6.5a3.3 3.3 0 0 0 0 6.6h3.4" /><path d="M10.2 3.6 13 6.6l-2.8 3" />
+                </svg>
+                <span>重做</span>
               </button>
             </div>
-          ) : null}
+          )}
           <span
             className={[
               v04styles.saveChip,

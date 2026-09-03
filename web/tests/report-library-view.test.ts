@@ -223,14 +223,30 @@ test("grouping and freezing carry extra fields (like canManage) through instead 
   ]);
 });
 
-test("library card's delete confirm matches the studio trash banner's recoverable framing, not an irreversible-delete warning", async () => {
-  // 后端 trashReport 一直是软删（deleted_at，可 restore），工作台确认条也一直说"移入回收站…
-  // 可由上传者或系统管理员恢复"（components/report/studio/ReportStudioClient.tsx）。库首页卡片
-  // 之前另写了一句"确认删除《…》？删除后不可恢复。"，两句字面矛盾——这里钉住失败卡片、
-  // 非就绪卡片（排队中/转换中/上传未完成）共用的两处 window.confirm，都换成同一套「可恢复」措辞。
+test("library card's delete confirm is an inline recoverable banner, not the browser's native confirm() nor an irreversible-delete warning", async () => {
+  // 后端 trashReport 一直是软删（deleted_at，可 restore）。库首页卡片原来用 window.confirm()
+  // 弹一句"确认删除《…》？删除后不可恢复。"——既挡不住脚本化点击、样式不可控，字面上还跟
+  // "可恢复"的事实矛盾。改成跟工作台删除报告（ReportStudioClient.tsx）、只读成果页删案例
+  // （V04DetailClient.tsx 第 104-116 行）同一套页内确认条：复用 V04Surface.module.css 的
+  // recoveryBanner，只在点了「删除」的这张卡片内展开。失败卡片、非就绪卡片（排队中/转换中/
+  // 上传未完成）两处触发按钮共用同一条 confirmingDelete 状态和同一个 banner。
   const card = await readFile(new URL("../components/report/library/ReportCard.tsx", import.meta.url), "utf8");
-  const confirmCopy = /把《\$\{report\.title\}》移入回收站？报告会从报告库中移除，可由上传者或系统管理员恢复。/g;
-  const matches = card.match(confirmCopy) ?? [];
-  assert.equal(matches.length, 2, "失败卡片和非就绪卡片都应该用这句确认文案");
+
+  // 浏览器原生确认框、旧的"不可恢复"措辞都不该再出现。
+  assert.doesNotMatch(card, /window\.confirm/);
   assert.doesNotMatch(card, /确认删除《.*》？删除后不可恢复。/);
+
+  // 两处触发删除的按钮只负责打开确认条，真正发请求的是确认条自己的按钮。
+  const triggerOpens = card.match(/onClick=\{\(\) => setConfirmingDelete\(true\)\}/g) ?? [];
+  assert.equal(triggerOpens.length, 2, "失败卡片、非就绪卡片各一处触发按钮，都应该只是打开确认条");
+
+  // 确认条本体：v04 共享的 recoveryBanner，role/aria-label 与工作台、只读成果页那两处一致。
+  assert.match(card, /\{confirmingDelete \? \(/);
+  assert.match(card, /<section className=\{v04\.recoveryBanner\} role="alertdialog" aria-label="删除报告">/);
+  assert.match(card, /<b>把《\{report\.title\}》移入回收站？<\/b>/);
+  assert.match(card, /<span>报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。<\/span>/);
+  assert.match(card, /\{deleteError \? <p role="alert">\{deleteError\}<\/p> : null\}/);
+  assert.match(card, /onClick=\{\(\) => onDelete\(report\.id\)\}/);
+  assert.match(card, /\{deletePending \? "正在移入回收站…" : "确认移入回收站"\}/);
+  assert.match(card, /onClick=\{\(\) => setConfirmingDelete\(false\)\}>取消<\/button>/);
 });

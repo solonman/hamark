@@ -213,11 +213,13 @@ export default function ReportLibrary({
         cache: "no-store",
       });
       const result = await readJsonResponse<{ error?: string }>(response, "删除");
-      if (!response.ok) throw new Error(result.error || "删除失败，请稍后重试。");
+      // 兜底文案跟工作台删除报告（ReportStudioClient.tsx）、只读成果页删案例
+      // （V04DetailClient.tsx）同一句——报告没删掉、状态没变，不是「删除失败」那种模糊说法。
+      if (!response.ok) throw new Error(result.error || "删除未完成，报告未发生变化，可重试。");
       // 软删除成功，卡片直接从列表里摘掉，不用等下一次轮询/刷新。
       setReports((current) => current.filter((item) => item.id !== reportId));
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "删除失败，请稍后重试。");
+      setDeleteError(error instanceof Error ? error.message : "删除未完成，报告未发生变化，可重试。");
     } finally {
       setDeletePendingId("");
     }
@@ -234,6 +236,7 @@ export default function ReportLibrary({
       retryPending={retryPendingId === report.id}
       onRetry={retryReport}
       deletePending={deletePendingId === report.id}
+      deleteError={deleteError}
       onDelete={deleteReport}
       onReplaceWithPdf={(target) => onRequestUpload(target)}
       notify={notify}
@@ -297,7 +300,8 @@ export default function ReportLibrary({
       </section>
       {favoriteError ? <p className={v04.libraryNotice} role="alert">{favoriteError}</p> : null}
       {retryError ? <p className={v04.libraryNotice} role="alert">{retryError}</p> : null}
-      {deleteError ? <p className={v04.libraryNotice} role="alert">{deleteError}</p> : null}
+      {/* 删除失败的原因现在显示在触发删除的那张卡片自己的确认条里（ReportCard 的
+          recoveryBanner，跟工作台删除同一套呈现），这里不用再重复挂一条全局提示。 */}
       {loading ? (
         <section className={v04.emptyState}><h2>正在读取报告库…</h2></section>
       ) : loadError ? (

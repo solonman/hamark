@@ -169,6 +169,7 @@ export default function ReportCard({
   retryPending,
   onRetry,
   deletePending,
+  deleteError,
   onDelete,
   onReplaceWithPdf,
   notify,
@@ -181,6 +182,9 @@ export default function ReportCard({
   retryPending: boolean;
   onRetry: (reportId: string) => void;
   deletePending: boolean;
+  /** 最近一次删除失败的原因（ReportLibrary 统一管的一个字符串，同一时间只有一个删除请求在途，
+      所以哪张卡片的确认条开着，这条错误就该算它的）；没出错时是空字符串。 */
+  deleteError: string;
   onDelete: (reportId: string) => void;
   onReplaceWithPdf: (target: { reportId: string; title: string; taskType: string; tags: string[] }) => void;
   /** 点击未就绪的封面/主按钮时弹的提示，状态由 ReportLibrary 的 useReportToast 统一管理。 */
@@ -188,6 +192,10 @@ export default function ReportCard({
 }) {
   const ready = report.status === "READY";
   const versionText = reportVersionSummaryLabel(report.status, report.versionSummary);
+  // 删除是不可逆的破坏性操作，不能用浏览器原生 confirm()（挡不住、样式不可控、不适合无头/自动化
+  // 测试）——改成跟工作台删除同一套页内确认条（components/report/studio/ReportStudioClient.tsx、
+  // components/v04/V04DetailClient.tsx 第 104-116 行同一模式），只在点了「删除」的这张卡片内展开。
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     <article className={v04.caseCard} data-report-id={report.id} data-report-status={report.status}>
@@ -224,9 +232,7 @@ export default function ReportCard({
                 type="button"
                 className={`${styles.retryButton} ${styles.retryButtonDanger}`.trim()}
                 disabled={retryPending || deletePending}
-                onClick={() => {
-                  if (window.confirm(`把《${report.title}》移入回收站？报告会从报告库中移除，可由上传者或系统管理员恢复。`)) onDelete(report.id);
-                }}
+                onClick={() => setConfirmingDelete(true)}
               >
                 {deletePending ? "删除中…" : "删除"}
               </button>
@@ -251,9 +257,7 @@ export default function ReportCard({
                   type="button"
                   className={`${styles.retryButton} ${styles.retryButtonDanger}`.trim()}
                   disabled={deletePending}
-                  onClick={() => {
-                    if (window.confirm(`把《${report.title}》移入回收站？报告会从报告库中移除，可由上传者或系统管理员恢复。`)) onDelete(report.id);
-                  }}
+                  onClick={() => setConfirmingDelete(true)}
                 >
                   {deletePending ? "删除中…" : "删除"}
                 </button>
@@ -289,6 +293,24 @@ export default function ReportCard({
             {ready ? <ReportRating engagement={engagement} /> : null}
           </div>
         </div>
+        {confirmingDelete ? (
+          // 复用 V04Surface.module.css 的 recoveryBanner——跟工作台删除报告（ReportStudioClient.tsx）、
+          // 只读成果页删案例（V04DetailClient.tsx 第 104-116 行）同一套页内确认条，不是浏览器原生
+          // confirm()。只在点了「删除」的这张卡片内展开，不影响列表里其它卡片。
+          <section className={v04.recoveryBanner} role="alertdialog" aria-label="删除报告">
+            <div>
+              <b>把《{report.title}》移入回收站？</b>
+              <span>报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。</span>
+              {deleteError ? <p role="alert">{deleteError}</p> : null}
+            </div>
+            <div>
+              <button type="button" disabled={deletePending} onClick={() => onDelete(report.id)}>
+                {deletePending ? "正在移入回收站…" : "确认移入回收站"}
+              </button>
+              <button type="button" disabled={deletePending} onClick={() => setConfirmingDelete(false)}>取消</button>
+            </div>
+          </section>
+        ) : null}
         <p className={v04.caseNumber}>CASE {String(caseNumber).padStart(2, "0")}</p>
         <div className={v04.caseTitleStatus}>
           <h2><small>{report.originalName}</small><span>{report.title}</span></h2>
