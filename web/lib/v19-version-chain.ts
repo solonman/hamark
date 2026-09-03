@@ -94,6 +94,44 @@ export function pickV19ActorVersion<T extends { ownerUserId: string }>(
   return versions.find((version) => version.ownerUserId === actorUserId) ?? null;
 }
 
+export type V19CurrentSelection =
+  | { kind: "VERSION"; id: string }
+  | { kind: "FINAL" };
+
+/**
+ * Decides what `current` should resolve to on a read — the one bit of
+ * decision logic behind "进入工作台默认展示哪个版本" (video and report sides
+ * share this, since the rule is the same). Pure and DB-free on purpose: the
+ * caller (`loadV19VersionChain` / `loadReportVersionChain`) hydrates whichever
+ * answer this gives into a payload-bearing object, but the branching itself
+ * is unit-testable without a live database.
+ *
+ * Rule (两侧一致):
+ * 1. No explicit `?version` and the viewer already owns a real version →
+ *    their own version.
+ * 2. No explicit `?version`, no version of their own, but a real version
+ *    exists elsewhere (so 集成版 is meaningful) → 集成版.
+ * 3. An explicit `?version=<real id>` that still resolves → that version,
+ *    regardless of ownership. `?version=final` (or a stale/invalid id) →
+ *    集成版.
+ * Case "nobody has any real version yet" never reaches this function — both
+ * callers return their virtual-v1 shortcut before computing `mine`/`final`.
+ */
+export function resolveV19CurrentSelection(input: {
+  requestedVersionId: string | undefined;
+  mineVersionId: string | null;
+  isRealVersionId: (id: string) => boolean;
+}): V19CurrentSelection {
+  const { requestedVersionId, mineVersionId, isRealVersionId } = input;
+  if (requestedVersionId === undefined) {
+    return mineVersionId ? { kind: "VERSION", id: mineVersionId } : { kind: "FINAL" };
+  }
+  if (requestedVersionId !== "final" && isRealVersionId(requestedVersionId)) {
+    return { kind: "VERSION", id: requestedVersionId };
+  }
+  return { kind: "FINAL" };
+}
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -360,7 +398,7 @@ export async function loadV19VersionChain(
   db: DbClient,
   videoId: string,
   actor: V04Actor,
-  options: { versionId?: string; includeFinalTrace?: boolean } = {},
+  options: { versionId?: string } = {},
 ): Promise<V19VersionChain> {
   const workspace = await workspaceForVideo(db, videoId);
   if (!workspace) {
@@ -396,9 +434,10 @@ export async function loadV19VersionChain(
   const byId = new Map(rows.map((row) => [row.id, row]));
   const mine = rows.find((row) => row.owner_user_id === actor.userId);
 
-  // spec 二、11: whenever the case has any real version, `final` is meaningful
-  // (materialized or virtual) and becomes the default `current` unless a
-  // specific real version was explicitly requested.
+  // spec 二、11: whenever the case has any real version, `final` is
+  // meaningful (materialized or virtual). Which one is `current` by default
+  // is `resolveV19CurrentSelection`'s call — 自己已有版本时默认展示自己的
+  // 版本，没有自己的版本时才默认展示集成版；显式 `?version=` 不受影响。
   const finalLoaded = await loadFinalVersion(db, workspace);
   const final: FinalSummary = {
     id: finalLoaded.id,
@@ -410,12 +449,19 @@ export async function loadV19VersionChain(
     isVirtual: finalLoaded.isVirtual,
   };
 
-  const requested = options.versionId && options.versionId !== "final"
-    ? byId.get(options.versionId)
-    : undefined;
-  const current = requested ? toCurrentVersion(requested, actor.userId) : finalToCurrentVersion(finalLoaded);
+  const selection = resolveV19CurrentSelection({
+    requestedVersionId: options.versionId,
+    mineVersionId: mine?.id ?? null,
+    isRealVersionId: (id) => byId.has(id),
+  });
+  const current = selection.kind === "VERSION"
+    ? toCurrentVersion(byId.get(selection.id)!, actor.userId)
+    : finalToCurrentVersion(finalLoaded);
 
-  const finalTrace = options.includeFinalTrace ? await loadFinalTrace(db, workspace) : undefined;
+  // 溯源数据只有集成版视角用得上——不再由调用方按查询参数猜，而是看解析出来的
+  // `current` 是不是集成版（本机走查曾因为按 `versionId === undefined` 猜，
+  // 在"默认展示自己的版本"这条新规则下会错误地多查一次）。
+  const finalTrace = current.isFinal ? await loadFinalTrace(db, workspace) : undefined;
 
   return {
     versions: summaries,

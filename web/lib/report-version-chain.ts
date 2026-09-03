@@ -3,10 +3,10 @@
 //
 // 报告是独立域，不挂视频侧的 collaboration_workspaces / 词表版本契约——那套是为镜头
 // 字段服务的公共工作区 + 租约模型，报告没有租约、没有时间线，用不上。这里只复用
-// V1.9 版本链已经验证过的三条规则（每人一版由 UNIQUE 兜底、新建版本固化基版快照、
-// 默认展示最近更新的版本），直接从 lib/v19-version-chain.ts import 对应的纯函数，
-// 不重新发明；表结构则是 db/report-schema.ts 里独立的 report_versions，不共用
-// analysis_versions。
+// V1.9 版本链已经验证过的规则（每人一版由 UNIQUE 兜底、新建版本固化基版快照、未指定
+// 基版时兜底取最近更新的那一版、进入工作台默认展示哪个版本），直接从
+// lib/v19-version-chain.ts import 对应的纯函数，不重新发明；表结构则是
+// db/report-schema.ts 里独立的 report_versions，不共用 analysis_versions。
 //
 // payload 在这里是整份 ReportAnnotation（第一部分/第二部分/模块/单元/页），不是像
 // V0.4 那样的字段级变更集：PUT 每次提交的都是客户端当前持有的完整标注快照，服务端
@@ -18,6 +18,7 @@ import type { DbClient, QueryResultRow } from "@/db";
 import {
   nextV19VersionNumber,
   pickV19ActorVersion,
+  resolveV19CurrentSelection,
   resolveV19DefaultVersion,
 } from "@/lib/v19-version-chain";
 import {
@@ -50,6 +51,7 @@ export const REPORT_ANNOTATION_PAYLOAD_SCHEMA_VERSION = "report-annotation/1";
 export const nextReportVersionNumber = nextV19VersionNumber;
 export const resolveReportDefaultVersion = resolveV19DefaultVersion;
 export const pickReportActorVersion = pickV19ActorVersion;
+export const resolveReportCurrentSelection = resolveV19CurrentSelection;
 
 /** Stable key order (objects sorted, arrays left as-is) so hashing ignores insertion order. */
 function stableValue(value: unknown): unknown {
@@ -376,7 +378,7 @@ export async function loadReportVersionChain(
   db: DbClient,
   reportId: string,
   actor: ReportVersionActor,
-  options: { versionId?: string; includeFinalTrace?: boolean } = {},
+  options: { versionId?: string } = {},
 ): Promise<ReportVersionChain> {
   await requireReadyReport(db, reportId);
   const rows = await listVersionRows(db, reportId);
@@ -406,8 +408,10 @@ export async function loadReportVersionChain(
   const mineSummary = pickReportActorVersion(summaries, actor.userId);
   const mineId = mineSummary ? (mineSummary.id as string) : null;
 
-  // spec 二、11: 报告已有真实版本时，集成版有意义（含虚拟），未显式指定某个
-  // 具体真实版本时默认展示它，而不是"最近更新的那一版"（改动前的默认规则）。
+  // spec 二、11: 报告已有真实版本时，集成版有意义（含虚拟）。哪个是默认
+  // `current` 由 `resolveReportCurrentSelection` 决定——浏览者自己已有版本时
+  // 默认展示自己的版本，没有自己的版本时才默认展示集成版（不再是"最近更新的
+  // 那一版"，也不再是"有真实版本就默认集成版"）；显式 `?version=` 不受影响。
   const finalLoaded = await loadReportFinalVersion(db, reportId);
   const final: ReportFinalSummary = {
     id: finalLoaded.id,
@@ -419,10 +423,21 @@ export async function loadReportVersionChain(
     isVirtual: finalLoaded.isVirtual,
   };
 
-  const requestedRow = options.versionId && options.versionId !== "final" ? byId.get(options.versionId) : undefined;
-  const current = requestedRow ? toCurrentVersion(requestedRow, actor.userId) : finalToCurrentVersion(finalLoaded);
+  const selection = resolveReportCurrentSelection({
+    requestedVersionId: options.versionId,
+    mineVersionId: mineId,
+    isRealVersionId: (id) => byId.has(id),
+  });
+  // `byId.get(...)!`：非法/陈旧的具体版本 id 已经在函数开头抛过
+  // VERSION_NOT_FOUND，能走到这里的 VERSION 选择结果必然在 byId 里。
+  const current = selection.kind === "VERSION"
+    ? toCurrentVersion(byId.get(selection.id)!, actor.userId)
+    : finalToCurrentVersion(finalLoaded);
 
-  const finalTrace = options.includeFinalTrace ? await loadReportFinalTrace(db, reportId) : undefined;
+  // 溯源数据只有集成版视角用得上——看解析出来的 `current` 是不是集成版，
+  // 不再靠"没带 ?version 就一定是集成版"这个已经不成立的假设去猜
+  // （同视频侧 app/api/videos/[id]/analysis/v19/route.ts 的处理）。
+  const finalTrace = current.isFinal ? await loadReportFinalTrace(db, reportId) : undefined;
 
   return {
     versions: summaries,

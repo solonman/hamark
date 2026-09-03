@@ -41,7 +41,7 @@ import {
   trashReport,
   ReportStudioApiError,
 } from "./report-studio-api";
-import ReportDeleteDialog from "../ReportDeleteDialog";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import ReportPartOne from "./ReportPartOne";
 import ReportPartTwo from "./ReportPartTwo";
 import ReportVersionBar from "./ReportVersionBar";
@@ -740,9 +740,11 @@ export default function ReportStudioClient({
         </div>
       </header>
 
-      {/* 弹出式确认对话框（../ReportDeleteDialog.tsx），跟报告库卡片同一个组件，不是页内确认条。 */}
-      <ReportDeleteDialog
+      {/* 弹出式确认对话框（@/components/shared/DeleteConfirmDialog.tsx），跟报告库卡片、
+          视频工作台「删除案例」同一个共享组件，不是页内确认条。 */}
+      <DeleteConfirmDialog
         open={confirmingTrash}
+        heading="删除报告"
         title={report.title}
         lines={[
           "报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。",

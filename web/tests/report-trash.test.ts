@@ -149,12 +149,12 @@ test("saveChip is pinned to its content width (flex: none) so it can never be sh
   assert.match(css, /span\.studioSaveChip \{\s*flex: none;\s*\}/);
 });
 
-test("the trash confirmation is the shared ReportDeleteDialog popup, wired with the studio's own copy and trash flow", async () => {
+test("the trash confirmation is the shared DeleteConfirmDialog popup, wired with the studio's own copy and trash flow", async () => {
   const studio = await source("../components/report/studio/ReportStudioClient.tsx");
-  // 删除报告不再是页内的 recoveryBanner，是跟报告库卡片共用的弹出式对话框组件。
-  assert.match(studio, /import ReportDeleteDialog from "\.\.\/ReportDeleteDialog";/);
+  // 删除报告不再是页内的 recoveryBanner，是跟报告库卡片、视频侧工作台共用的弹出式对话框组件。
+  assert.match(studio, /import DeleteConfirmDialog from "@\/components\/shared\/DeleteConfirmDialog";/);
   assert.doesNotMatch(studio, /v04styles\.recoveryBanner/);
-  assert.match(studio, /<ReportDeleteDialog\s*\n\s*open=\{confirmingTrash\}/);
+  assert.match(studio, /<DeleteConfirmDialog\s*\n\s*open=\{confirmingTrash\}\s*\n\s*heading="删除报告"/);
   assert.match(studio, /title=\{report\.title\}/);
   // 工作台的说明是两行（多一句「已有的拆解版本…」），报告库卡片只有一行——文案原样保留。
   assert.match(studio, /报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。/);

@@ -5,6 +5,7 @@ import {
   hashReportPayload,
   nextReportVersionNumber,
   pickReportActorVersion,
+  resolveReportCurrentSelection,
   resolveReportDefaultVersion,
   virtualReportVersion,
 } from "../lib/report-version-chain.ts";
@@ -109,4 +110,28 @@ test("virtualReportVersion marks isMine true only when the viewer is the attribu
 
   const someoneElses = virtualReportVersion("user_a", "张三", "user_b", "2026-09-02T00:00:00.000Z");
   assert.equal(someoneElses.isMine, false);
+});
+
+// ---------------------------------------------------------------------------
+// resolveReportCurrentSelection — 报告侧复用视频侧同一份判断逻辑（见
+// tests/v19-version-chain.test.ts 的 resolveV19CurrentSelection），这里只
+// 确认报告这个别名确实接到了同一份行为，不重复穷举每一种分支。
+// ---------------------------------------------------------------------------
+
+test("resolveReportCurrentSelection: no ?version, viewer owns a version -> their own version", () => {
+  const selection = resolveReportCurrentSelection({
+    requestedVersionId: undefined,
+    mineVersionId: "version_mine",
+    isRealVersionId: () => true,
+  });
+  assert.deepEqual(selection, { kind: "VERSION", id: "version_mine" });
+});
+
+test("resolveReportCurrentSelection: no ?version, viewer owns no version -> final", () => {
+  const selection = resolveReportCurrentSelection({
+    requestedVersionId: undefined,
+    mineVersionId: null,
+    isRealVersionId: () => true,
+  });
+  assert.deepEqual(selection, { kind: "FINAL" });
 });

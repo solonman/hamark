@@ -112,7 +112,11 @@ test("the V1.9 detail surface offers a reversible delete only to who may actuall
   const detail = await readFile(new URL("../components/v04/V04DetailClient.tsx", import.meta.url), "utf8");
   assert.match(detail, /model\.viewerCapabilities\.canTrash && <button[^>]*data-v04-trash-case/,
     "the control is gated on the server's own capability, not re-derived in the page");
-  assert.match(detail, /data-v04-trash-confirm/, "deleting takes a second, explicit confirmation");
+  // 确认条现在是共享的弹出式对话框（components/shared/DeleteConfirmDialog.tsx），不再是
+  // 页内内联的 recoveryBanner——同一份组件也被视频侧工作台的「删除案例」、报告侧两处入口共用。
+  assert.match(detail, /import DeleteConfirmDialog from "@\/components\/shared\/DeleteConfirmDialog";/);
+  assert.match(detail, /<DeleteConfirmDialog\s*\n\s*open=\{confirmingTrash\}\s*\n\s*heading="删除案例"/,
+    "deleting takes a second, explicit confirmation via the shared dialog");
   assert.match(detail, /保留 90 天/, "the confirmation states that the case is recoverable");
   assert.match(detail, /原始视频文件不会被清理/);
   assert.match(detail, /v04UiApi\.trash\(videoId, \{ reason: [^}]+\}, trashKey\.current\)/,

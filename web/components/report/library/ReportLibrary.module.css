@@ -151,19 +151,6 @@
 .uploadGo { border-color: rgba(223,255,79,.4) !important; color: var(--v04-accent) !important; background: rgba(223,255,79,.1) !important; }
 .uploadGo:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ---------------- 删除确认对话框：外观复用上面的上传对话框壳（uploadBackdrop/
-   uploadDialog/uploadHead/uploadBody/uploadFooter/uploadClose/formError），只加
-   这三个专属类——窄一点的盒子、说明行的字号颜色、确认按钮的强调色。
-   见 components/report/ReportDeleteDialog.tsx，两处入口（报告库卡片、拆解工作台
-   页头）共用同一个组件。 */
-.deleteDialog { width: min(460px, 100%); }
-.deleteDialogLine { margin: 0; color: var(--v04-muted); font-size: 11.5px; line-height: 1.6; }
-/* V04Surface.module.css 第 17 行 .surface button{font:inherit} 是 (0,1,1)，
-   单类选择器 .deleteDialogConfirm 单独出现会被它压过（见「报告线 CSS 优先级
-   教训」）；这里借 .uploadFooter 把特异性提到 (0,2,0)，不靠两个模块的加载顺序
-   也稳赢——跟 .recoveryBanner button:first-child 同一支强调色。 */
-.uploadFooter .deleteDialogConfirm { border-color: rgba(223,255,79,.55); color: var(--v04-accent); }
-
 /* ---------------- toast：点击未就绪卡片给个响应，demo 第 106-107 行 ---------------- */
 .toastStack {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 99;

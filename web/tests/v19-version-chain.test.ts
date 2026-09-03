@@ -4,6 +4,7 @@ import {
   formatV19VersionLabel,
   nextV19VersionNumber,
   pickV19ActorVersion,
+  resolveV19CurrentSelection,
   resolveV19DefaultVersion,
 } from "../lib/v19-version-chain.ts";
 
@@ -83,4 +84,56 @@ test("pickV19ActorVersion returns null when the actor owns no version", () => {
 
 test("pickV19ActorVersion returns null for an empty version list", () => {
   assert.equal(pickV19ActorVersion([], "user_a"), null);
+});
+
+// ---------------------------------------------------------------------------
+// resolveV19CurrentSelection — "进入工作台默认展示用户自己的版本": 浏览者
+// 自己已有版本时默认展示自己的版本；没有自己的版本、但已有真实版本（集成版
+// 因此有意义）时默认展示集成版；显式 ?version= 不受影响。两侧（视频/报告）
+// 共用同一份判断逻辑，见 lib/report-version-chain.ts 的 resolveReportCurrentSelection。
+// ---------------------------------------------------------------------------
+
+test("resolveV19CurrentSelection: no ?version, viewer owns a version -> their own version", () => {
+  const selection = resolveV19CurrentSelection({
+    requestedVersionId: undefined,
+    mineVersionId: "version_mine",
+    isRealVersionId: () => true,
+  });
+  assert.deepEqual(selection, { kind: "VERSION", id: "version_mine" });
+});
+
+test("resolveV19CurrentSelection: no ?version, viewer owns no version -> final", () => {
+  const selection = resolveV19CurrentSelection({
+    requestedVersionId: undefined,
+    mineVersionId: null,
+    isRealVersionId: () => true,
+  });
+  assert.deepEqual(selection, { kind: "FINAL" });
+});
+
+test("resolveV19CurrentSelection: explicit ?version=final wins even when the viewer owns a version", () => {
+  const selection = resolveV19CurrentSelection({
+    requestedVersionId: "final",
+    mineVersionId: "version_mine",
+    isRealVersionId: () => true,
+  });
+  assert.deepEqual(selection, { kind: "FINAL" });
+});
+
+test("resolveV19CurrentSelection: explicit ?version=<real id> wins even when it is not the viewer's own", () => {
+  const selection = resolveV19CurrentSelection({
+    requestedVersionId: "version_other",
+    mineVersionId: "version_mine",
+    isRealVersionId: (id) => id === "version_other",
+  });
+  assert.deepEqual(selection, { kind: "VERSION", id: "version_other" });
+});
+
+test("resolveV19CurrentSelection: explicit ?version=<stale/invalid id> falls back to final", () => {
+  const selection = resolveV19CurrentSelection({
+    requestedVersionId: "version_gone",
+    mineVersionId: "version_mine",
+    isRealVersionId: () => false,
+  });
+  assert.deepEqual(selection, { kind: "FINAL" });
 });

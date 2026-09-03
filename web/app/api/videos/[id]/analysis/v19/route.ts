@@ -20,19 +20,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
         actor,
         tabToken: request.headers.get("x-v04-tab-token"),
       }),
-      loadV19VersionChain(db, id, actor, {
-        ...(versionId ? { versionId } : {}),
-        // Whenever no specific real version is requested (versionId is
-        // undefined) `loadV19VersionChain` defaults `current` to the final
-        // version itself (spec 二、11) — not only for the explicit
-        // `?version=final`. Trace has to be fetched in both cases, or a
-        // colleague opening the case with no query string gets a final
-        // view with no `locked` styling and no source chain (bug found in
-        // 本机走查). Safe even for a brand-new case: `loadV19VersionChain`
-        // returns before ever consulting this flag when the workspace has
-        // no real version yet.
-        includeFinalTrace: versionId === undefined || versionId === "final",
-      }),
+      // No `?version`: `loadV19VersionChain` defaults `current` to the
+      // viewer's own version when they have one, else the final version
+      // (spec 二、11 + 进入工作台默认展示"用户自己的版本" 规则). It also
+      // decides for itself whether to load 溯源数据 — based on the `current`
+      // it resolved to being 集成版, not on the query string — so this call
+      // site does not need to guess that up front any more.
+      loadV19VersionChain(db, id, actor, versionId ? { versionId } : {}),
     ]);
     const { media, ...caseFields } = workspace.video;
     // The shared read model still derives canEdit from holding the edit lease,

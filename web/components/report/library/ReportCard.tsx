@@ -13,7 +13,7 @@ import {
   type ReportListItemView,
 } from "@/lib/report-library-view";
 import v04 from "../../v04/V04Surface.module.css";
-import ReportDeleteDialog from "../ReportDeleteDialog";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import styles from "./ReportLibrary.module.css";
 
 /** 老孙给作业版本的评级，卡片上只读；未就绪的报告谈不上评级，调用方不渲染这个组件。
@@ -194,7 +194,7 @@ export default function ReportCard({
   const ready = report.status === "READY";
   const versionText = reportVersionSummaryLabel(report.status, report.versionSummary);
   // 删除是不可逆的破坏性操作，不能用浏览器原生 confirm()（挡不住、样式不可控、不适合无头/自动化
-  // 测试）——改成跟工作台删除同一个弹出式确认对话框（components/report/ReportDeleteDialog.tsx，
+  // 测试）——改成跟工作台删除同一个弹出式确认对话框（components/shared/DeleteConfirmDialog.tsx，
   // components/report/studio/ReportStudioClient.tsx 同一组件），只在点了「删除」的这张卡片上打开。
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -294,11 +294,12 @@ export default function ReportCard({
             {ready ? <ReportRating engagement={engagement} /> : null}
           </div>
         </div>
-        {/* 弹出式确认对话框（ReportDeleteDialog.tsx），不是浏览器原生 confirm()，也不是页内
-            确认条——组件本身用 `open` 控制显隐、portal 到 document.body，只在点了「删除」的
-            这张卡片上打开，不影响列表里其它卡片。 */}
-        <ReportDeleteDialog
+        {/* 弹出式确认对话框（components/shared/DeleteConfirmDialog.tsx），不是浏览器原生
+            confirm()，也不是页内确认条——组件本身用 `open` 控制显隐、portal 到 document.body，
+            只在点了「删除」的这张卡片上打开，不影响列表里其它卡片。 */}
+        <DeleteConfirmDialog
           open={confirmingDelete}
+          heading="删除报告"
           title={report.title}
           lines={["报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。"]}
           error={deleteError}

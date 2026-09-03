@@ -1,5 +1,7 @@
-// 报告标注：当前版本链（GET，默认展示集成版——报告已有真实版本时，见
-// docs/21_报告集成版_实施规格_V0.1.md 四、4.1）与保存自己那一版／集成版（PUT）。
+// 报告标注：当前版本链（GET，浏览者自己已有版本时默认展示自己的版本，没有
+// 自己的版本但报告已有真实版本时默认展示集成版——docs/21_报告集成版_实施
+// 规格_V0.1.md 四、4.1 叠加"进入工作台默认展示用户自己的版本"规则）与保存
+// 自己那一版／集成版（PUT）。
 // 见 docs/19_报告逆向工程_实施规格_V0.1.md 五、接口。服务层在
 // lib/report-version-chain.ts / lib/report-final-version.ts；这里只做鉴权、
 // 功能开关、请求体解析与错误到状态码的映射，不拼评审数据（评论/评分由另一层
@@ -24,17 +26,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const versionId = new URL(request.url).searchParams.get("version")?.trim() || undefined;
 
   try {
+    // 不带 ?version 时，`loadReportVersionChain` 按新规则自行决定默认展示
+    // 谁的版本（自己的版本优先，其次集成版），并且只在解析出的 `current`
+    // 真的是集成版时才去查溯源数据——不再由这里按查询参数猜。
     const chain = await loadReportVersionChain(
       getDbClient(),
       reportId,
       { userId: user.id, displayName: user.displayName },
-      {
-        ...(versionId ? { versionId } : {}),
-        // 不带 ?version（默认展示集成版）或显式 ?version=final 时才需要溯源数据；
-        // 看某个具体真实版本时不需要，省一次查询。同视频侧
-        // app/api/videos/[id]/analysis/v19/route.ts 的 includeFinalTrace 判定。
-        includeFinalTrace: versionId === undefined || versionId === "final",
-      },
+      versionId ? { versionId } : {},
     );
     const response = Response.json(chain);
     response.headers.set("Cache-Control", "no-store");

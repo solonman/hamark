@@ -300,8 +300,15 @@ test("resolveV19EditGuard blocks a non-老孙 viewer on the final version even w
 // 4. No 保存 or 提交 button anywhere on the page.
 // ---------------------------------------------------------------------------
 
-test("source: 提交 never appears anywhere in the shell", () => {
-  assert.doesNotMatch(source, /提交/);
+test("source: 提交 never appears anywhere in the shell, except inside the shared delete-dialog's own copy (\"提交版本\" describes preserved data, not a submit feature)", () => {
+  // 删除案例弹窗第二行文案是照抄 V04DetailClient 的三行原样搬过来的
+  // （"已有的工作稿、修订历史和提交版本都会一并保留，不会被删除。"），这里的
+  // "提交" 说的是「已提交的版本」这份数据不会被删除，跟 V0.4 那套已经废弃的
+  // 提交/审核工作流毫无关系——把这一句从检查对象里挖掉之后，其余源码里仍然
+  // 不能出现"提交"，上面这条守卫的原始意图（不能重新长出提交按钮/流程）
+  // 才没有被这句文案悄悄绕过去。
+  const withoutDeleteDialogCopy = source.replace(/已有的工作稿、修订历史和提交版本都会一并保留，不会被删除。/g, "");
+  assert.doesNotMatch(withoutDeleteDialogCopy, /提交/);
 });
 
 test("source: no <button> is labelled 保存 (save-status text like 已自动保存/保存中… is not a button label)", () => {
@@ -444,4 +451,54 @@ test("describeV19FinalIntakeToast toasts again once the outcome actually shifts 
   const second = describeV19FinalIntakeToast([{ targetLabel: "故事梗概" }], { merged: false, pending: 1 }, first.signature);
   assert.ok(second);
   assert.match(second.text, /未纳入/);
+});
+
+// ---------------------------------------------------------------------------
+// 「删除案例」页头入口：跟报告工作台页头的「删除报告」同一个位置（页头右侧、
+// 集成版 pill 之前）、同一套共享弹窗（components/shared/DeleteConfirmDialog.tsx），
+// 门禁只看服务端算好的 viewerCapabilities.canTrash，不在页面里重新推导。
+// ---------------------------------------------------------------------------
+
+test("source: the trash button is gated on viewerCapabilities.canTrash and carries data-v04-trash-case", () => {
+  assert.match(
+    source,
+    /model\.viewerCapabilities\.canTrash \? \(\s*\n\s*<button\s*\n\s*type="button"\s*\n\s*className=\{styles\.trashButton\}\s*\n\s*data-v04-trash-case/,
+  );
+});
+
+test("source: the trash button sits inside siteUtilities, before versionSplit — same slot as the report studio header's 删除报告", () => {
+  const utilitiesBlock = source.slice(
+    source.indexOf("<div className={styles.siteUtilities}>"),
+    source.indexOf("<div className={styles.versionSplit}>"),
+  );
+  assert.match(utilitiesBlock, /data-v04-trash-case/, "the trash button must render before versionSplit inside siteUtilities");
+});
+
+test("source: the shared DeleteConfirmDialog is wired with heading=\"删除案例\", the same three-line copy as the read-only detail page, and the studio's own trash flow", () => {
+  assert.match(source, /import DeleteConfirmDialog from "@\/components\/shared\/DeleteConfirmDialog";/);
+  assert.match(source, /<DeleteConfirmDialog\s*\n\s*open=\{confirmingTrash\}\s*\n\s*heading="删除案例"/);
+  assert.match(source, /title=\{model\.case\.title\}/);
+  assert.match(source, /案例会从案例库中移除，保留 90 天，可由上传者或系统管理员恢复；原始视频文件不会被清理。/);
+  assert.match(source, /已有的工作稿、修订历史和提交版本都会一并保留，不会被删除。/);
+  assert.match(source, /error=\{trashError\}/);
+  assert.match(source, /pending=\{trashing\}/);
+  assert.match(source, /onCancel=\{\(\) => setConfirmingTrash\(false\)\}/);
+  assert.match(
+    source,
+    /v04UiApi\.trash\(videoId, \{ reason: "上传者在工作台移入回收站" \}, trashKeyRef\.current\)/,
+    "it goes through the same product trash route as the read-only detail page, with its own idempotency key",
+  );
+  assert.match(source, /window\.location\.assign\(links\.libraryHref\)/);
+  assert.match(source, /删除未完成，案例未发生变化，可重试。/);
+});
+
+test("style: .trashButton is scoped under .siteUtilities (specificity (0,2,0)) so it survives .surface button{font:inherit}", () => {
+  assert.match(cssSource, /\.siteUtilities \.trashButton \{[^}]*font-size: 10px;[^}]*\}/);
+});
+
+test("style: the studio header's grid yields its middle (title) column first, so the new trash button and the rest of the header controls never overflow at narrower widths", () => {
+  assert.match(
+    cssSource,
+    /\.surface\[data-v04-page="studio"\] \[data-v04-fixed-header\] \{\s*\n\s*grid-template-columns: auto minmax\(0, 1fr\) auto;\s*\n\s*\}/,
+  );
 });

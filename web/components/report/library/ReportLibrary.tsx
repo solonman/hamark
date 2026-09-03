@@ -301,7 +301,8 @@ export default function ReportLibrary({
       {favoriteError ? <p className={v04.libraryNotice} role="alert">{favoriteError}</p> : null}
       {retryError ? <p className={v04.libraryNotice} role="alert">{retryError}</p> : null}
       {/* 删除失败的原因现在显示在触发删除的那张卡片自己弹出的确认对话框里（ReportCard 用的
-          ReportDeleteDialog，跟工作台删除同一个组件），这里不用再重复挂一条全局提示。 */}
+          共享组件 components/shared/DeleteConfirmDialog.tsx，跟工作台删除同一个组件），
+          这里不用再重复挂一条全局提示。 */}
       {loading ? (
         <section className={v04.emptyState}><h2>正在读取报告库…</h2></section>
       ) : loadError ? (

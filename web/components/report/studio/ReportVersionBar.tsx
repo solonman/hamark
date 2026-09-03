@@ -122,11 +122,12 @@ export default function ReportVersionBar({
               }}
             >
               <span className={v04styles.versionNumber}>集成版</span>
-              {/* 报告已有真实版本时 GET 默认就是集成版（规格四、4.1 第 11 条）——
-                  "默认展示"这个标注属于置顶的集成版行，不再是下面某个普通版本行；
+              {/* "默认展示"现在跟着浏览者走：自己已有版本时默认展示自己的版本，
+                  这个标注就挂到下面普通版本行里 `chain.mineId` 那一条；只有没有
+                  自己的版本时，集成版才是默认展示的那一个，标注留在这一行。
                   报告还没有任何真实版本时 `final` 为 null，这一行整体不渲染，
-                  默认展示标注保留在下面 `chain.latestId` 对应的那一行（原规则）。 */}
-              <span className={v04styles.versionLatest}>默认展示</span>
+                  默认展示标注保留在下面 `chain.latestId` 对应的虚拟版本行（原规则）。 */}
+              {!chain.mineId ? <span className={v04styles.versionLatest}>默认展示</span> : null}
               <span className={`${v04styles.finalStatusPill} ${final.status === "DONE" ? v04styles.finalStatusDone : v04styles.finalStatusOpen}`}>
                 <span className={v04styles.finalStatusDot} aria-hidden="true" />
                 {final.status === "DONE" ? "已定稿" : "未定稿"}
@@ -163,7 +164,15 @@ export default function ReportVersionBar({
                 {version.baseIsFinal ? "基于集成版" : version.baseNumber === null ? "初始版本" : `基于 v${version.baseNumber}`}，{version.ownerName}
               </span>
               {version.isMine ? <span className={v04styles.versionMine}>我的</span> : null}
-              {chain.latestId === version.id ? (
+              {/* 自己已有版本时，默认展示的就是这一行（不管它是不是最近更新的
+                  那一版）；"最新"只是"最近更新"的信息标注，跟默认展示是两件事，
+                  两个标注可能同时出现在同一行。没有集成版（`final` 为 null，
+                  报告还没有任何真实版本）时沿用原规则的合并写法。 */}
+              {chain.mineId === version.id ? (
+                <span className={v04styles.versionLatest}>
+                  {chain.latestId === version.id ? "最新·默认展示" : "默认展示"}
+                </span>
+              ) : chain.latestId === version.id ? (
                 <span className={v04styles.versionLatest}>{final ? "最新" : "最新·默认展示"}</span>
               ) : null}
               <span className={v04styles.versionTime}>{formatClock(version.updatedAt)}</span>
@@ -200,7 +209,7 @@ export default function ReportVersionBar({
           ) : null}
           <p className={v04styles.versionNote}>
             {final
-              ? "进入页面默认展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。"
+              ? "进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。"
               : "进入页面默认展示最近更新的版本，可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。"}
           </p>
         </div>

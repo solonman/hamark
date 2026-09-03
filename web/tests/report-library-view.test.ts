@@ -223,13 +223,13 @@ test("grouping and freezing carry extra fields (like canManage) through instead 
   ]);
 });
 
-test("library card's delete confirm is a popup dialog (shared ReportDeleteDialog), not the browser's native confirm() nor an irreversible-delete warning", async () => {
+test("library card's delete confirm is a popup dialog (shared DeleteConfirmDialog), not the browser's native confirm() nor an irreversible-delete warning", async () => {
   // 后端 trashReport 一直是软删（deleted_at，可 restore）。库首页卡片原来用 window.confirm()
   // 弹一句"确认删除《…》？删除后不可恢复。"——既挡不住脚本化点击、样式不可控，字面上还跟
   // "可恢复"的事实矛盾；后来改成页内确认条（recoveryBanner），现在再改成弹出式确认对话框
-  // （components/report/ReportDeleteDialog.tsx，居中 modal + 遮罩），跟拆解工作台
-  // （ReportStudioClient.tsx）共用同一个组件。失败卡片、非就绪卡片（排队中/转换中/上传未
-  // 完成）两处触发按钮共用同一条 confirmingDelete 状态和同一个对话框实例。
+  // （components/shared/DeleteConfirmDialog.tsx，居中 modal + 遮罩），跟拆解工作台
+  // （ReportStudioClient.tsx）、视频侧工作台共用同一个组件。失败卡片、非就绪卡片（排队中/
+  // 转换中/上传未完成）两处触发按钮共用同一条 confirmingDelete 状态和同一个对话框实例。
   const card = await readFile(new URL("../components/report/library/ReportCard.tsx", import.meta.url), "utf8");
 
   // 浏览器原生确认框、旧的"不可恢复"措辞、旧的页内 recoveryBanner 都不该再出现。
@@ -241,9 +241,9 @@ test("library card's delete confirm is a popup dialog (shared ReportDeleteDialog
   const triggerOpens = card.match(/onClick=\{\(\) => setConfirmingDelete\(true\)\}/g) ?? [];
   assert.equal(triggerOpens.length, 2, "失败卡片、非就绪卡片各一处触发按钮，都应该只是打开确认对话框");
 
-  // 对话框本体：两处入口共用的 ReportDeleteDialog，文案与 props 原样保留。
-  assert.match(card, /import ReportDeleteDialog from "\.\.\/ReportDeleteDialog";/);
-  assert.match(card, /<ReportDeleteDialog\s*\n\s*open=\{confirmingDelete\}/);
+  // 对话框本体：跟报告工作台、视频侧共用的 DeleteConfirmDialog，文案与 props 原样保留。
+  assert.match(card, /import DeleteConfirmDialog from "@\/components\/shared\/DeleteConfirmDialog";/);
+  assert.match(card, /<DeleteConfirmDialog\s*\n\s*open=\{confirmingDelete\}\s*\n\s*heading="删除报告"/);
   assert.match(card, /title=\{report\.title\}/);
   assert.match(card, /lines=\{\["报告会从报告库中移除，保留 90 天，可由上传者或系统管理员恢复；原始报告文件不会被清理。"\]\}/);
   assert.match(card, /error=\{deleteError\}/);

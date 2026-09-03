@@ -73,19 +73,29 @@ test("V1.9 PUT dispatches to saveFinalVersionDirect only when basedOnVersionId i
 });
 
 // ---------------------------------------------------------------------------
-// 本机走查 bug fix: `loadV19VersionChain` defaults `current` to the final
-// version whenever no specific real version was requested (versionId is
-// undefined) — not only for the explicit `?version=final` — per spec 二、11
-// ("进入页面默认展示集成版"). `includeFinalTrace` must follow that same
-// condition, or a colleague opening `/videos/<id>` with no `?version` gets
-// `current.isFinal === true` but no `finalTrace`: no locked styling, no
-// 集成版只有老孙可以编辑 toast, no source chain in 溯源视图.
+// 本机走查 bug fix (superseded by "进入工作台默认展示用户自己的版本"): a
+// colleague opening `/videos/<id>` with no `?version` must never end up with
+// `current.isFinal === true` but no `finalTrace` — no locked styling, no
+// 集成版只有老孙可以编辑 toast, no source chain in 溯源视图. That used to be
+// guaranteed by the route pre-deciding `includeFinalTrace` from the query
+// string alone (`versionId === undefined || versionId === "final"`), which
+// broke once "no `?version`" stopped meaning "current is final" (it now means
+// "current is final only when the viewer has no version of their own" — spec
+// 二、11 + 该规则). The fix is to stop guessing in the route at all:
+// `loadV19VersionChain` now decides whether to load `finalTrace` itself,
+// after resolving what `current` actually is, so the route's job shrinks to
+// just forwarding `?version` (or nothing) — see lib/v19-version-chain.ts.
 // ---------------------------------------------------------------------------
 
-test("V1.9 GET requests finalTrace whenever versionId is undefined, not only for the literal \"final\"", async () => {
+test("V1.9 GET no longer pre-decides finalTrace from the query string — that guess broke once \"no ?version\" stopped always meaning \"current is final\"", async () => {
   const route = codeOnly(await source("../app/api/videos/[id]/analysis/v19/route.ts"));
   const getBody = route.slice(route.indexOf("export async function GET"), route.indexOf("export async function PUT"));
-  assert.match(getBody, /includeFinalTrace: versionId === undefined \|\| versionId === "final"/);
-  // The narrower, buggy condition must not reappear anywhere in GET.
-  assert.doesNotMatch(getBody, /includeFinalTrace: versionId === "final",?\s*\n\s*\}\),/);
+  assert.doesNotMatch(getBody, /includeFinalTrace/);
+  assert.match(getBody, /loadV19VersionChain\(db, id, actor, versionId \? \{ versionId \} : \{\}\)/);
+});
+
+test("V1.9 loadV19VersionChain loads finalTrace based on the resolved current version's isFinal, not on the caller's query string", async () => {
+  const lib = codeOnly(await source("../lib/v19-version-chain.ts"));
+  assert.match(lib, /const finalTrace = current\.isFinal \? await loadFinalTrace\(db, workspace\) : undefined;/);
+  assert.doesNotMatch(lib, /options\.includeFinalTrace/);
 });

@@ -625,6 +625,20 @@ input.editableTimecode { padding: 5px 8px; }
 .historyDivider { width: 1px; height: 16px; background: var(--v04-line); }
 @media (max-width: 620px) { .historyControl button span { display: none; } .historyControl button { padding: 0 9px; } }
 
+/* 页头「删除案例」入口：跟报告工作台页头的「删除报告」同一个位置（页头右侧，
+   集成版 pill 之前）、同一套药丸样式（1px 边框、999px 圆角、透明底、10px 字号）——
+   见 components/report/studio/ReportStudio.module.css 的 .trashButton。用
+   `.siteUtilities .trashButton` 两个类叠加把特异性提到 (0,2,0)，压过第 17 行
+   `.surface button{font:inherit}`（(0,1,1)）——单类选择器会被它压成继承自
+   `.surface` 的 14px（见「报告线 CSS 优先级教训」）。 */
+.siteUtilities .trashButton {
+  flex: none; white-space: nowrap; margin-right: 4px;
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
+  color: var(--v04-ink); padding: 8px 11px; font-size: 10px;
+}
+.siteUtilities .trashButton:hover:not(:disabled) { border-color: rgba(223, 255, 79, .4); color: var(--v04-accent); }
+.siteUtilities .trashButton:disabled { cursor: not-allowed; opacity: .5; }
+
 /* ---------- 二合一工作台顶栏：三段锚定（A 稿） ----------
    左段＝身份与目录，中段＝作品名（整条顶栏的锚点），右段＝操作与状态。
    挤压时由作品名先让步——它能优雅地省略，而控件与状态不能。 */
@@ -634,6 +648,21 @@ input.editableTimecode { padding: 5px 8px; }
 .siteNav .studioCaseTitle { max-width: min(40vw, 560px); overflow: hidden; color: var(--v04-ink);
   font-size: 17px; font-weight: 600; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 .siteUtilities > span:last-child { flex: none; }
+
+/* 页头 1280 宽下会被新增的「删除案例」按钮和其余页头控件一起挤：`.siteHeader`
+   默认的三栏 grid（`minmax(190px,1fr) auto minmax(190px,1fr)`）里，auto 轨道
+   的中间列（作品名）按内容自然宽度当地板，紧的时候挤占两侧 1fr 列的空间，两侧
+   列先被压扁到各自的 190px 地板，而不是本该收缩的标题让路，页头右侧一堆控件
+   （删除案例／版本 pill／撤销重做／保存 chip／用户名）就会挤到溢出或换行。
+   对齐 components/report/studio/ReportStudio.module.css 的同一处理：用
+   `.surface[data-v04-page="studio"]`（`<main>` 上已有的类+属性）+
+   `[data-v04-fixed-header]` 把特异性提到 (0,3,0)，压过 `.siteHeader` 自己的
+   (0,1,0)，只在二合一工作台里把左右两栏换成按内容宽度的 `auto`，中间标题栏
+   换成真正能收缩到 0 的 `minmax(0,1fr)`——只读成果页（data-v04-page="detail"）
+   共用同一个 `.siteHeader`/`[data-v04-fixed-header]`，不受这条规则影响。 */
+.surface[data-v04-page="studio"] [data-v04-fixed-header] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
 
 @media (max-width: 1200px) {
   .siteNav .studioCaseTitle { max-width: min(24vw, 260px); font-size: 15px; }

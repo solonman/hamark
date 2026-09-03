@@ -8,6 +8,7 @@ import { v04DetailToUiCase, v04PayloadToUiDraft, V04_UI_SHOT_FIELDS, V04_UI_STAT
 import { numberedV04Shots, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04_UI_BRIDGE_OPTIONS, V04_UI_MECHANISM_OPTIONS, V04_UI_PATHS, V04_UI_STORY_OPTIONS } from "@/lib/v04-ui-fixture";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V04HistoryDrawer from "./V04HistoryDrawer";
 import V04CommentDrawer from "./V04CommentDrawer";
@@ -102,17 +103,31 @@ export default function V04DetailClient({ videoId, viewerName, embedded = false,
     <section className={embedded ? styles.embeddedIntro : styles.detailHero}>{!embedded && <p className={styles.breadcrumb}><Link href={navigation.libraryHref}>案例库</Link><span>/</span><b>案例分析</b></p>}<p className={styles.detailEyebrow}>{item.brand || "未标注品牌"} · {duration}</p>{embedded ? <h2>当前 V0.4 成果</h2> : <h1>{item.title}</h1>}<p className={styles.detailSummary}>{item.description || "从提交成果中查看脚本结构、全片判断与感知路径。"}</p><div className={styles.detailTags}><span>{V04_UI_STATE_LABELS[item.workState]}</span>{item.expertGrade ? <b>◆ 专家优选 {item.expertGrade}</b> : null}{item.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>{!embedded && <div className={styles.detailCompatibility}><Link href={navigation.workspaceHref}>{draft ? "编辑公共工作稿" : "开始公共工作稿"}</Link>{navigation.compatibilityLinks?.map((link) => <Link href={link.href} key={link.href}>{link.label}</Link>)}</div>}</section>
     {showVideo ? <V04VideoPlayer caseId={item.id} title={item.title} surface="detail" media={item.media ?? null} onDuration={(seconds) => setDuration(formatDuration(seconds))} /> : null}
     <section className={styles.analysisToolbar}><div><p>CASE ANALYSIS</p><h2>案例分析</h2></div><div><button type="button" onClick={() => setHistory(true)}>版本历史</button><button type="button" onClick={() => setComments(true)}>批注任务</button>{model.viewerCapabilities.canTrash && <button type="button" data-v04-trash-case disabled={trashing} onClick={() => { setTrashError(""); setConfirmingTrash(true); }}>删除案例</button>}</div></section>
-    {confirmingTrash && <section className={styles.recoveryBanner} role="alertdialog" aria-label="删除案例" data-v04-trash-confirm><div><b>把《{item.title}》移入回收站？</b><span>案例会从案例库中移除，保留 90 天，可由上传者或系统管理员恢复；原始视频文件不会被清理。</span><span>已有的工作稿、修订历史和提交版本都会一并保留，不会被删除。</span>{trashError && <p role="alert">{trashError}</p>}</div><div><button type="button" disabled={trashing} onClick={() => { void (async () => {
-      setTrashing(true);
-      setTrashError("");
-      try {
-        await v04UiApi.trash(videoId, { reason: "上传者在只读成果页移入回收站" }, trashKey.current);
-        window.location.assign(navigation.libraryHref);
-      } catch (reason) {
-        setTrashError(reason instanceof V04UiApiError ? reason.message : "删除未完成，案例未发生变化，可重试。");
-        setTrashing(false);
-      }
-    })(); }}>{trashing ? "正在移入回收站…" : "确认移入回收站"}</button><button type="button" disabled={trashing} onClick={() => setConfirmingTrash(false)}>取消</button></div></section>}
+    <DeleteConfirmDialog
+      open={confirmingTrash}
+      heading="删除案例"
+      title={item.title}
+      lines={[
+        "案例会从案例库中移除，保留 90 天，可由上传者或系统管理员恢复；原始视频文件不会被清理。",
+        "已有的工作稿、修订历史和提交版本都会一并保留，不会被删除。",
+      ]}
+      error={trashError}
+      pending={trashing}
+      onConfirm={() => {
+        void (async () => {
+          setTrashing(true);
+          setTrashError("");
+          try {
+            await v04UiApi.trash(videoId, { reason: "上传者在只读成果页移入回收站" }, trashKey.current);
+            window.location.assign(navigation.libraryHref);
+          } catch (reason) {
+            setTrashError(reason instanceof V04UiApiError ? reason.message : "删除未完成，案例未发生变化，可重试。");
+            setTrashing(false);
+          }
+        })();
+      }}
+      onCancel={() => setConfirmingTrash(false)}
+    />
     {model.latestSubmission ? <section className={styles.versionContext}><div><small>当前阅读</small><strong>{selectedSubmission ? `提交版 V${selectedSubmission.submissionNumber}` : "—"}</strong><span>{selectedSubmission ? `${selectedSubmission.submittedByName} · ${selectedSubmission.submittedAt}` : ""}</span></div>{model.expertPreferredSubmission && <div className={styles.versionSwitch}><button onClick={() => setVersionView("LATEST")} disabled={versionView === "LATEST"}>最新提交 V{model.latestSubmission.submissionNumber}</button><button onClick={() => setVersionView("EXPERT")} disabled={versionView === "EXPERT"}>专家优选 V{model.expertPreferredSubmission.submissionNumber}</button></div>}</section> : null}
     {!draft ? <section className={styles.emptyState}><p>NO SUBMITTED ANALYSIS</p><h2>尚无已提交成果</h2><p>这个案例还没有公开提交版。可以进入公共工作稿，从脚本反写开始填写。</p><Link href={navigation.workspaceHref}>开始公共工作稿</Link></section> : <div className={styles.readingBody} data-v04-readonly-layout="3-2-1-2-2-2">
       <section className={styles.readingModule}><header><div><small>MODULE 01</small><h2>第一模块｜脚本反写</h2></div><button onClick={() => toggle(1)}>{collapsed.has(1) ? "展开" : "收起"}</button></header>{!collapsed.has(1) && <ReadonlyShots draft={draft} />}</section>

@@ -14,6 +14,7 @@ import {
 } from "@/lib/v04-ui-model";
 import { blankV04Shot, locateV04Target, mintV04LocalId, numberedV04Shots, V04_LOCATED_MARK_MS, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04LatestSaveCoordinator } from "@/lib/v04-save-coordinator";
+import { v04UiApi } from "@/lib/v04-ui-api-client";
 import {
   formatV19VersionLabel,
   v19Api,
@@ -36,6 +37,7 @@ import { deriveV19StartTimes, findV19NonCompliantStarts, nextV19StartTime } from
 import { formatShortDateTime } from "@/lib/date-format";
 import { describeV19StructuralIntake, pendingV19StructuralIntakes } from "@/lib/v19-final-trace";
 import type { V19StudioFinalContext } from "./V19StudioDocument";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V19StudioDocument from "./V19StudioDocument";
 import V19AssignmentRating from "./V19AssignmentRating";
@@ -304,6 +306,13 @@ export default function V04StudioClient({
   // 普通版本保存后的 finalIntake toast 去重签名（spec 五、17）：只在
   // merged/pending 这次的结果跟上次不一样时才提示，见 describeV19FinalIntakeToast。
   const finalIntakeSignatureRef = useRef<string | null>(null);
+  // 上传者/管理员删除入口：做法与只读成果页（`V04DetailClient`）逐字对应——先弹
+  // 确认弹窗，确认后调用同一套软删接口，成功跳回案例库；显示只看
+  // viewerCapabilities.canTrash，跟当前正看着哪个版本无关。
+  const [confirmingTrash, setConfirmingTrash] = useState(false);
+  const [trashing, setTrashing] = useState(false);
+  const [trashError, setTrashError] = useState("");
+  const trashKeyRef = useRef(`trash-${videoId}-${crypto.randomUUID()}`);
 
   const pushToast = useCallback((text: string) => {
     const id = crypto.randomUUID();
@@ -1174,6 +1183,21 @@ export default function V04StudioClient({
           )}
         </nav>
         <div className={styles.siteUtilities}>
+          {/* 删除案例入口：与只读成果页（`V04DetailClient`）同一份 viewerCapabilities.canTrash
+              门禁，跟当前正看着谁的版本无关；位置在页头右侧、集成版 pill（下面的 versionSplit）
+              之前，与报告工作台页头「删除报告」同一个位置、同一套样式（见 V04Surface.module.css
+              的 .trashButton）。 */}
+          {model.viewerCapabilities.canTrash ? (
+            <button
+              type="button"
+              className={styles.trashButton}
+              data-v04-trash-case
+              disabled={trashing}
+              onClick={() => { setTrashError(""); setConfirmingTrash(true); }}
+            >
+              删除案例
+            </button>
+          ) : null}
           {/* 比较基版属于「当前这个版本」，所以两者共用一个容器、中间一道分隔，
               让从属关系由结构说明，而不是靠摆放位置暗示。没有基版时右段整段
               不渲染，控件自身就说明了这个版本无可比较的基版。 */}
@@ -1232,6 +1256,10 @@ export default function V04StudioClient({
                     onKeyDown={(event) => { if (event.key === "Enter") viewVersion("final"); }}
                   >
                     <span className={styles.versionNumber}>集成版</span>
+                    {/* "默认展示"跟着浏览者走：自己已有版本时默认展示自己的版本，
+                        标注挂到下面 `model.myVersionId` 那一条普通版本行；没有
+                        自己的版本时，集成版才是默认展示的那一个。 */}
+                    {!model.myVersionId && <span className={styles.versionLatest}>默认展示</span>}
                     <span className={`${styles.finalStatusPill} ${model.final.status === "DONE" ? styles.finalStatusDone : styles.finalStatusOpen}`}>
                       <span className={styles.finalStatusDot} aria-hidden="true" />
                       {model.final.status === "DONE" ? `已定稿 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""}`.trim() : "未定稿"}
@@ -1260,7 +1288,18 @@ export default function V04StudioClient({
                       {version.baseIsFinal ? "基于集成版" : version.baseNumber === null ? "初始版本" : `基于 v${version.baseNumber}`}，{version.ownerName}
                     </span>
                     {version.isMine && <span className={styles.versionMine}>我的</span>}
-                    {latestVersion?.id === version.id && <span className={styles.versionLatest}>最新修改</span>}
+                    {/* 自己已有版本时，默认展示的就是这一行（不管它是不是最近
+                        修改过的那一版）；"最新修改"只是信息性标注，跟默认展示
+                        是两件事，可能同时出现在同一行。`model.final` 判空是
+                        因为大家都还没有真实版本时 `myVersionId`/`version.id`
+                        都是 null——那种情形维持原样，只显示"最新修改"。 */}
+                    {model.final && model.myVersionId === version.id ? (
+                      <span className={styles.versionLatest}>
+                        {latestVersion?.id === version.id ? "最新修改·默认展示" : "默认展示"}
+                      </span>
+                    ) : latestVersion?.id === version.id && (
+                      <span className={styles.versionLatest}>最新修改</span>
+                    )}
                     <span className={styles.versionTime}>{formatV19Clock(version.updatedAt)}</span>
                   </div>
                 ))}
@@ -1285,7 +1324,7 @@ export default function V04StudioClient({
                     <button type="button" onClick={() => void createOwnVersion()}>创建我的版本</button>
                   </div>
                 ))}
-                <p className={styles.versionNote}>进入页面默认展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。</p>
+                <p className={styles.versionNote}>进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。</p>
               </div>
             )}
           </div>
@@ -1385,6 +1424,34 @@ export default function V04StudioClient({
           <span>{viewerName}</span>
         </div>
       </header>
+
+      {/* 弹出式确认对话框（@/components/shared/DeleteConfirmDialog.tsx），跟报告库卡片、
+          报告工作台「删除报告」、只读成果页「删除案例」共用同一个组件，不是页内确认条。 */}
+      <DeleteConfirmDialog
+        open={confirmingTrash}
+        heading="删除案例"
+        title={model.case.title}
+        lines={[
+          "案例会从案例库中移除，保留 90 天，可由上传者或系统管理员恢复；原始视频文件不会被清理。",
+          "已有的工作稿、修订历史和提交版本都会一并保留，不会被删除。",
+        ]}
+        error={trashError}
+        pending={trashing}
+        onConfirm={() => {
+          void (async () => {
+            setTrashing(true);
+            setTrashError("");
+            try {
+              await v04UiApi.trash(videoId, { reason: "上传者在工作台移入回收站" }, trashKeyRef.current);
+              window.location.assign(links.libraryHref);
+            } catch (reason) {
+              setTrashError(reason instanceof V04UiApiError ? reason.message : "删除未完成，案例未发生变化，可重试。");
+              setTrashing(false);
+            }
+          })();
+        }}
+        onCancel={() => setConfirmingTrash(false)}
+      />
 
       <div className={`${styles.workspaceGrid} ${navCollapsed ? styles.navCollapsed : ""}`.trim()}>
         <nav className={styles.workspaceNav} aria-label="V1.9 工作台目录">
