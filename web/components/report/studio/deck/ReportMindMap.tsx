@@ -114,6 +114,17 @@ export function ReportMindMapButton({ annotation, pages, reportTitle = "", onGoT
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
+  // 打开时锁住 body 的滚动——`.ov` 铺满视口但本身不是滚动容器，鼠标划到脑图
+  // 树以外的地方（比如 header）时滚轮事件会一路冒泡到 body，把身后的工作台
+  // 也带着滚起来。`ReportReaderButton`（`./ReportReader`）同一套做法，两个
+  // 全屏浮层要一致。
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   // 空结构时脑图没有东西可画——跟 demo 一致，模块划出来之前不露这个按钮。
   if (!annotation.modules.length) return null;
 
@@ -153,14 +164,26 @@ export function ReportMindMapButton({ annotation, pages, reportTitle = "", onGoT
 
   return (
     <>
-      <button
-        type="button"
-        className={styles.smBtn}
-        title="模块 → 单元 → 子单元，连同各段的关键结论"
-        onClick={() => setOpen(true)}
-      >
-        ◎ 查看脑图
-      </button>
+      {/* 触发按钮由外壳摆进 PART 03 标题栏，不在 `ReportDeck` 自己的 `.root`
+          子树里——跟浮层同理，摸不到 `--rd-*` 那套变量（`.smBtn` 的边框/文字色
+          全部落空），所以单独包一层 `.root` 就地补上。 */}
+      <span className={styles.root}>
+        <button
+          type="button"
+          className={`${styles.smBtn} ${styles.smBtnIcon}`}
+          title="模块 → 单元 → 子单元，连同各段的关键结论"
+          onClick={() => setOpen(true)}
+        >
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="3" cy="8" r="1.6" />
+            <path d="M4.5 8 11 3M4.5 8h6.7M4.5 8 11 13" />
+            <circle cx="12" cy="3" r="1.3" />
+            <circle cx="12" cy="8" r="1.3" />
+            <circle cx="12" cy="13" r="1.3" />
+          </svg>
+          查看脑图
+        </button>
+      </span>
       {modal && mounted
         ? createPortal(<div className={styles.root}>{modal}</div>, document.body)
         : null}

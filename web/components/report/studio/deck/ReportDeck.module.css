@@ -42,6 +42,12 @@
    （见 `./deck-view.ts`）自己拼文案，这里不重复画一份。 */
 .root .smBtn { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 11px; font-size: 10.5px; color: var(--rd-ink2); }
 .root .smBtn:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
+/* 图标＋文字版的 .smBtn（"查看报告"／"查看脑图"）——demo 没有这个变体，
+   照抄视频侧撤销/重做按钮的图标排版（V04StudioClient.tsx 的 .historyControl
+   button，见 V04Surface.module.css 第 621 行）：inline-flex、5px 间距、
+   svg 不参与伸缩。 */
+.root .smBtnIcon { display: inline-flex; align-items: center; gap: 5px; }
+.root .smBtnIcon svg { flex: none; }
 
 /* ---------------- 左页序 ／ 右收纳框：两列骨架 ---------------- */
 .deck { display: grid; grid-template-columns: var(--rd-colw, 214px) 7px minmax(0, 1fr); align-items: start; gap: 0; min-height: 420px; position: relative; }
@@ -299,6 +305,22 @@
 .stripCellHalf { color: rgba(255, 255, 255, 0.66); }
 .stripCellMs { box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.85); }
 .stripCellCur { outline: 2px solid #fff; outline-offset: 1px; z-index: 2; }
+
+/* ---------------- 查看报告（整本只读预览） ---------------- */
+/* 复用页面 modal 的 .ov/.ovbox 遮罩与外框（同脑图一个做法）：.ovbox 已经是
+   flex-column，头部之下让内容区自己 flex:1+overflow:auto 就行，不用再起一个
+   新外框。 */
+.readerTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rd-ink2); font-size: 11.5px; }
+.readerBody { flex: 1; overflow: auto; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; background: #080907; }
+.readerPage { display: flex; flex-direction: column; align-items: center; gap: 6px; width: min(820px, 100%); flex: none; }
+.readerPage img { display: block; width: 100%; height: auto; border: 1px solid var(--rd-line); background: #000; }
+/* 同 .pc img/.tk img 那条：量得出尺寸的图标了 width/height 属性，交给浏览器
+   按属性自己算 aspect-ratio，才能安全用 loading="lazy"（不然未加载的图没有
+   高度，进不了视口判定，一整列大图会卡死不加载，参见那两条规则旁边的注释）；
+   量不出尺寸的没有这两个属性，退回这条占位比例，onLoad 后一样打 data-loaded
+   摘掉。 */
+.readerPage img:not([width]):not([data-loaded]) { aspect-ratio: 16 / 9; }
+.readerPageNo { font-family: var(--rd-mono); font-size: 11px; color: var(--rd-ink2); }
 
 /* ---------------- 脑图 ---------------- */
 .mindbox { width: min(1300px, calc(100vw - 36px)); height: min(820px, calc(100vh - 36px)); }

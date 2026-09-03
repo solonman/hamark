@@ -40,6 +40,7 @@ import ReportVersionBar from "./ReportVersionBar";
 // 第三部分：deck 已交付并通过验收，直接接真组件。
 import ReportDeck from "./deck/ReportDeck";
 import { ReportMindMapButton } from "./deck/ReportMindMap";
+import { ReportReaderButton } from "./deck/ReportReader";
 import { deckSummary } from "./deck/deck-view";
 import v04styles from "@/components/v04/V04Surface.module.css";
 import styles from "./ReportStudio.module.css";
@@ -665,6 +666,9 @@ export default function ReportStudioClient({
               {/* 用户定案：脑图按钮挪到标题栏右侧这一组的最前面，顺序
                   [引导（仅引导关闭时）] [◎ 查看脑图] [统计 chip] [收起]；
                   样式与"有模块时才显示"的条件都不变，只是从贴着标题挪过来。 */}
+              {/* "查看报告"（整本只读预览）不依赖是否有模块，折不折叠都能看——
+                  放在这组的最前面，其余三项仍然只在展开时露出。 */}
+              <ReportReaderButton pages={report.pages} reportTitle={report.title} />
               {!collapsed.has(3) ? (
                 <>
                   {guideOff ? (

@@ -67,3 +67,12 @@ export type ReportMindMapButtonProps = {
    */
   onGoTo?: (key: string) => void;
 };
+
+export type ReportReaderButtonProps = {
+  pages: ReportPageView[];
+  /** 预览 modal 头部标题要秀（"查看报告 · {reportTitle} · N 页"）——跟
+   * `ReportMindMapButtonProps.reportTitle` 一样，`ReportPageView` 不带这个
+   * 字段，报告标题只在外壳持有的 `Report` 对象上，这里必填（不像脑图那个
+   * 可选＋兜底空串，没有旧调用点需要迁移）。 */
+  reportTitle: string;
+};

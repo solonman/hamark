@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import ReportDeck from "@/components/report/studio/deck/ReportDeck";
 import { ReportMindMapButton } from "@/components/report/studio/deck/ReportMindMap";
+import { ReportReaderButton } from "@/components/report/studio/deck/ReportReader";
 import { deckSummary } from "@/components/report/studio/deck/deck-view";
 import { emptyReportAnnotation, type ReportAnnotation, type ReportDeckKey } from "@/lib/report-structure";
 import { isCaseReviewer, type CaseReviewComment } from "@/lib/case-review";
@@ -94,6 +95,11 @@ export default function DevReportDeckClient({
             引导
           </button>
         ) : null}
+        {/* 真实工作台的顺序是"查看报告 → 查看脑图 → 统计 → 收起"（外壳把这
+            两个按钮摆进 PART 03 标题栏最前面）；"统计"/"收起"在这个预览页里
+            分别是上面那条统计条 span 和 `guideOff` 重开按钮，位置摆在这两个
+            之前就够贴近真实顺序，不用为了严格对齐再重排整条标题行。 */}
+        <ReportReaderButton pages={pages} reportTitle={reportTitle} />
         <ReportMindMapButton
           annotation={annotation} pages={pages} reportTitle={reportTitle}
           onGoTo={(key) => setFocusKey(key as ReportDeckKey)}
