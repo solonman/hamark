@@ -1,10 +1,9 @@
 // 报告拆解工作台第三部分（ReportDeck）对外契约。字段名与外壳 agent 约定一致，
 // 改动需双方同步（见 docs/19_报告逆向工程_实施规格_V0.1.md §6.2）。
 
+import type { CaseReviewComment } from "@/lib/case-review";
 import type { ReportPageView } from "@/lib/report-model";
 import type { ReportAnnotation, ReportDeckKey } from "@/lib/report-structure";
-
-export type DeckReviewComment = { body: string; authorName: string; updatedAt: string };
 
 export type ReportDeckProps = {
   pages: ReportPageView[];
@@ -35,9 +34,16 @@ export type ReportDeckProps = {
   review: {
     /** 老孙为 true。 */
     canReview: boolean;
-    /** 以 targetKey 索引。 */
-    comments: Record<string, DeckReviewComment>;
-    /** body 空串 = 删除。 */
+    /**
+     * 当前正在看的版本 id（含集成版）；决定 `comments` 里哪一条是"本版"。
+     * 与 `ReportPartOne`/`V19StudioDocument` 同一套评论口径（视频那边"跨版本
+     * 汇总、标本版"，见 docs/20 一之 A）——评论不再是"一个条目一条、只留当前
+     * 版本那条"，而是这个条目在所有版本上写过的全部评论。
+     */
+    currentVersionId: string;
+    /** 以 targetKey 索引，值是这个条目在所有版本上的评论列表（按写入时间升序）。 */
+    comments: Record<string, CaseReviewComment[]>;
+    /** body 空串 = 删除写在当前版本上的那一条。 */
     onComment: (targetKey: string, targetLabel: string, body: string) => Promise<void>;
   };
 };

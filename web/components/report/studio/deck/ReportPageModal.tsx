@@ -254,7 +254,8 @@ export default function ReportPageModal({
                   commentSlot={(
                     <DeckCommentEntry
                       targetKey={`page:${pageNo}:func`} targetLabel={`第 ${pageNo} 页·页面作用`}
-                      comment={review.comments[`page:${pageNo}:func`]} canReview={review.canReview}
+                      comments={review.comments[`page:${pageNo}:func`] ?? []} canReview={review.canReview}
+                      currentVersionId={review.currentVersionId}
                       onSave={saveComment}
                     />
                   )}
@@ -269,7 +270,8 @@ export default function ReportPageModal({
                   commentSlot={(
                     <DeckCommentEntry
                       targetKey={`page:${pageNo}:org`} targetLabel={`第 ${pageNo} 页·本页组织关系`}
-                      comment={review.comments[`page:${pageNo}:org`]} canReview={review.canReview}
+                      comments={review.comments[`page:${pageNo}:org`] ?? []} canReview={review.canReview}
+                      currentVersionId={review.currentVersionId}
                       onSave={saveComment}
                     />
                   )}
@@ -313,7 +315,8 @@ export default function ReportPageModal({
                       />
                       <DeckCommentEntry
                         targetKey={nameKey} targetLabel={label}
-                        comment={review.comments[nameKey]} canReview={review.canReview}
+                        comments={review.comments[nameKey] ?? []} canReview={review.canReview}
+                        currentVersionId={review.currentVersionId}
                         onSave={saveComment}
                       />
                       {!readOnly ? (
@@ -361,7 +364,8 @@ export default function ReportPageModal({
                         commentSlot={(
                           <DeckCommentEntry
                             targetKey={narrKey} targetLabel={`${label}·叙述作用`}
-                            comment={review.comments[narrKey]} canReview={review.canReview}
+                            comments={review.comments[narrKey] ?? []} canReview={review.canReview}
+                            currentVersionId={review.currentVersionId}
                             onSave={saveComment}
                           />
                         )}
@@ -376,7 +380,8 @@ export default function ReportPageModal({
                         commentSlot={(
                           <DeckCommentEntry
                             targetKey={markKey} targetLabel={`${label}·关键标记`}
-                            comment={review.comments[markKey]} canReview={review.canReview}
+                            comments={review.comments[markKey] ?? []} canReview={review.canReview}
+                            currentVersionId={review.currentVersionId}
                             onSave={saveComment}
                           />
                         )}

@@ -117,7 +117,8 @@ export default function ReportSectionPopover({
           commentSlot={(
             <DeckCommentEntry
               targetKey={nameKey} targetLabel={`${title}·名称`}
-              comment={review.comments[nameKey]} canReview={review.canReview}
+              comments={review.comments[nameKey] ?? []} canReview={review.canReview}
+              currentVersionId={review.currentVersionId}
               onSave={saveComment}
             />
           )}
@@ -146,7 +147,8 @@ export default function ReportSectionPopover({
           commentSlot={(
             <DeckCommentEntry
               targetKey={roleKey} targetLabel={`${title}·策略作用`}
-              comment={review.comments[roleKey]} canReview={review.canReview}
+              comments={review.comments[roleKey] ?? []} canReview={review.canReview}
+              currentVersionId={review.currentVersionId}
               onSave={saveComment}
             />
           )}
@@ -189,7 +191,8 @@ export default function ReportSectionPopover({
           commentSlot={(
             <DeckCommentEntry
               targetKey={nameKey} targetLabel={`${title}·单元名称`}
-              comment={review.comments[nameKey]} canReview={review.canReview}
+              comments={review.comments[nameKey] ?? []} canReview={review.canReview}
+              currentVersionId={review.currentVersionId}
               onSave={saveComment}
             />
           )}
@@ -224,7 +227,8 @@ export default function ReportSectionPopover({
               commentSlot={(
                 <DeckCommentEntry
                   targetKey={key} targetLabel={`${title}·${field.label}`}
-                  comment={review.comments[key]} canReview={review.canReview}
+                  comments={review.comments[key] ?? []} canReview={review.canReview}
+                  currentVersionId={review.currentVersionId}
                   onSave={saveComment}
                 />
               )}

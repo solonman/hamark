@@ -5,8 +5,7 @@ import ReportDeck from "@/components/report/studio/deck/ReportDeck";
 import { ReportMindMapButton } from "@/components/report/studio/deck/ReportMindMap";
 import { deckSummary } from "@/components/report/studio/deck/deck-view";
 import { emptyReportAnnotation, type ReportAnnotation, type ReportDeckKey } from "@/lib/report-structure";
-import { isCaseReviewer } from "@/lib/case-review";
-import type { DeckReviewComment } from "@/components/report/studio/deck/deck-types";
+import { isCaseReviewer, type CaseReviewComment } from "@/lib/case-review";
 import type { ReportPageView } from "@/lib/report-model";
 import v04styles from "@/components/v04/V04Surface.module.css";
 
@@ -50,12 +49,18 @@ function seedAnnotation(pageNumbers: number[]): ReportAnnotation {
   return { ...base, modules, units, pages };
 }
 
+// 预览页没有真的版本链，用一个固定 id 充当"当前正在看的版本"——评论口径
+// 跟 ReportPartOne/V19StudioDocument 一致（按 targetKey 存这个条目在所有
+// 版本上的评论列表），这里就只会有这一个版本在写。
+const DEV_VERSION_ID = "dev-preview";
+const DEV_VERSION_LABEL = "预览版";
+
 export default function DevReportDeckClient({
   pages, reportTitle, viewerName,
 }: { pages: ReportPageView[]; reportTitle: string; viewerName: string }) {
   const initial = useMemo(() => seedAnnotation(pages.map((p) => p.pageNo)), [pages]);
   const [annotation, setAnnotation] = useState<ReportAnnotation>(initial);
-  const [comments, setComments] = useState<Record<string, DeckReviewComment>>({});
+  const [comments, setComments] = useState<Record<string, CaseReviewComment[]>>({});
   const [guideOff, setGuideOff] = useState(false);
   // 脑图节点点击要点亮左列（demo 第 1230～1234 行 `S.focus=key`），"定位"
   // state 受控化之后由持有它的人（这里是预览页自己，真实工作台是
@@ -119,15 +124,17 @@ export default function DevReportDeckClient({
         onFocusKeyChange={setFocusKey}
         review={{
           canReview,
+          currentVersionId: DEV_VERSION_ID,
           comments,
           onComment: async (targetKey, targetLabel, body) => {
             setComments((current) => {
-              if (!body.trim()) {
-                const next = { ...current };
-                delete next[targetKey];
-                return next;
-              }
-              return { ...current, [targetKey]: { body, authorName: viewerName, updatedAt: new Date().toISOString() } };
+              const rest = (current[targetKey] ?? []).filter((item) => item.versionId !== DEV_VERSION_ID);
+              if (!body.trim()) return { ...current, [targetKey]: rest };
+              const mine: CaseReviewComment = {
+                targetKey, targetLabel, body, authorName: viewerName,
+                updatedAt: new Date().toISOString(), versionId: DEV_VERSION_ID, versionLabel: DEV_VERSION_LABEL,
+              };
+              return { ...current, [targetKey]: [...rest, mine].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
             });
           },
         }}

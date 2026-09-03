@@ -41,7 +41,6 @@ import ReportVersionBar from "./ReportVersionBar";
 import ReportDeck from "./deck/ReportDeck";
 import { ReportMindMapButton } from "./deck/ReportMindMap";
 import { deckSummary } from "./deck/deck-view";
-import type { DeckReviewComment } from "./deck/deck-types";
 import v04styles from "@/components/v04/V04Surface.module.css";
 import styles from "./ReportStudio.module.css";
 
@@ -437,14 +436,10 @@ export default function ReportStudioClient({
   // 见 lib/report-review-server.ts 顶部注释），第一、二部分原样把整份列表往下传,
   // 由 V19ReviewComment 自己按 currentVersionId 挑出哪一条是「本版」。
   const reviewComments = commentsByTarget(review.comments);
-  // deck（第三部分）的评论契约由外壳 agent 交付，仍是「一个条目一条、锚定当前
-  // 版本」（见 deck/DeckField.tsx 顶部注释），所以这里从汇总列表里只挑出当前
-  // 版本写的那条，不整份传下去——deck 侧不做跨版本汇总展示。
-  const deckComments = review.comments.reduce<Record<string, DeckReviewComment>>((acc, item) => {
-    if (item.versionId !== chain.current.id) return acc;
-    acc[item.targetKey] = { body: item.body, authorName: item.authorName, updatedAt: item.updatedAt };
-    return acc;
-  }, {});
+  // deck（第三部分）现在也是「跨版本汇总、标本版」口径，跟第一、二部分同一套
+  // （见 docs/20 一之 A、deck-types.ts 的 review.comments 注释）——直接把
+  // `reviewComments`（Map）转成 deck 要的 Record，不用再单独挑出当前版本那条。
+  const deckComments = Object.fromEntries(reviewComments);
   const annotation = history.present;
 
   return (
@@ -709,6 +704,7 @@ export default function ReportStudioClient({
               onFocusKeyChange={setFocusKey}
               review={{
                 canReview: review.canReview,
+                currentVersionId: chain.current.id ?? "",
                 comments: deckComments,
                 onComment: onDeckComment,
               }}

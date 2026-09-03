@@ -46,6 +46,19 @@ test("a saved comment carries the version it was written on, resolved from the s
   assert.match(server, /versionId: version\.id,\s*\n\s*versionLabel: `v\$\{version\.version_number\}`/);
 });
 
+test("a comment's updatedAt is serialized through toIsoTimestamp, not String(), so the bubble can parse it", async () => {
+  // pg 把 timestamptz 解析成 JS Date；String(date) 得到的是
+  // Date.prototype.toString()，不是 ISO，V19ReviewComment 的 formatShortDateTime
+  // 认不出这种格式，评论气泡里的时间就会显示「未知时间」——照视频侧
+  // lib/case-review-server.ts 的做法，直接复用它导出的 toIsoTimestamp，
+  // 不在报告侧另抄一份等价实现。
+  const server = await source("../lib/report-review-server.ts");
+  assert.match(server, /import \{ toIsoTimestamp \} from "@\/lib\/case-review-server";/);
+  assert.match(server, /updatedAt: toIsoTimestamp\(row\.updated_at\)/);
+  assert.match(server, /updatedAt: toIsoTimestamp\(saved\.updated_at\)/);
+  assert.doesNotMatch(server, /updatedAt: String\(/);
+});
+
 test("report_version_comments keeps one row per version per item; the schema wasn't touched by this alignment", async () => {
   const [schema, migration] = await Promise.all([
     source("../db/report-schema.ts"),
@@ -97,13 +110,24 @@ test("saving a comment replaces only this version's row for the item, not every 
   );
 });
 
-test("deck keeps a single per-item comment anchored to the version being viewed, not a cross-version summary", async () => {
-  // deck（第三部分）的评论契约由外壳 agent 交付，见 deck-types.ts 顶部注释；
-  // 这次改动只让它继续满足 V19ReviewComment 的新形状，不跟着做跨版本汇总——
-  // ReportStudioClient 在传给 deck 之前，先把汇总列表过滤回"只有当前版本写的那条"。
-  const studio = await source("../components/report/studio/ReportStudioClient.tsx");
-  assert.match(studio, /if \(item\.versionId !== chain\.current\.id\) return acc;/);
+test("deck now shows the same cross-version comment summary as the first two parts, not just the current version's row", async () => {
+  // deck（第三部分）的评论契约由外壳 agent 交付（见 deck-types.ts 顶部注释），
+  // 现在已经改成与 ReportPartOne/ReportPartTwo/V19StudioDocument 同一套口径：
+  // 「一个条目在所有版本上各写的一条，汇总展示」，不再是「只留当前版本那条」。
+  const deckTypes = await source("../components/report/studio/deck/deck-types.ts");
+  assert.match(deckTypes, /comments: Record<string, CaseReviewComment\[\]>;/);
+  assert.match(deckTypes, /currentVersionId: string;/);
+
   const deckField = await source("../components/report/studio/deck/DeckField.tsx");
-  assert.match(deckField, /const DECK_CURRENT_VERSION_TAG = /);
-  assert.match(deckField, /currentVersionId=\{DECK_CURRENT_VERSION_TAG\}/);
+  assert.match(deckField, /comments: readonly CaseReviewComment\[\];/);
+  assert.match(deckField, /currentVersionId: string;/);
+  // 不再做"只留一条"的适配——直接把 comments/currentVersionId 透传给 V19ReviewComment。
+  assert.match(deckField, /comments=\{comments\}/);
+  assert.match(deckField, /currentVersionId=\{currentVersionId\}/);
+
+  const studio = await source("../components/report/studio/ReportStudioClient.tsx");
+  // `reviewComments`（Map<targetKey, CaseReviewComment[]>）直接转成 deck 要的
+  // Record，不再单独挑出"只有当前版本写的那条"。
+  assert.match(studio, /const deckComments = Object\.fromEntries\(reviewComments\);/);
+  assert.match(studio, /currentVersionId: chain\.current\.id \?\? "",\s*\n\s*comments: deckComments,/);
 });

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import V19ReviewComment from "@/components/v04/V19ReviewComment";
 import type { CaseReviewComment } from "@/lib/case-review";
 import styles from "./ReportDeck.module.css";
-import type { DeckReviewComment } from "./deck-types";
 
 /**
  * ReportSectionPopover 与 ReportPageModal 共用的一批小部件：条目外壳、
@@ -167,43 +166,25 @@ export function DeckChipsMulti({
 export type DeckCommentEntryProps = {
   targetKey: string;
   targetLabel: string;
-  comment?: DeckReviewComment;
+  /** 这个条目在所有版本上的评论，按写入时间升序——同 `ReportPartOne`/`V19StudioDocument` 的口径。 */
+  comments: readonly CaseReviewComment[];
+  /** 当前正在看的版本 id；决定 `comments` 里哪一条是"本版"。 */
+  currentVersionId: string;
   canReview: boolean;
   disabled?: boolean;
   onSave: (input: { targetKey: string; targetLabel: string; body: string }) => Promise<void>;
 };
 
-/**
- * `V19ReviewComment` 的新契约把评论从「一个条目一条」改成「按版本汇总的列表」
- * （`comments` + `currentVersionId`，见其自身顶部注释）。deck 这一层的评论契约
- * （`DeckReviewComment` / `ReportDeckProps.review.comments`，见 `deck-types.ts`
- * 顶部注释）由外壳 agent 独立交付，仍是「一个条目一条、锚定正在看的这一版」，
- * 不在这次改动范围内跟着做跨版本汇总——`ReportStudioClient` 已经把汇总回来的
- * 评论按「是不是当前版本写的」过滤过一遍才传下来，所以这里收到的 `comment`
- * 本来就只会是本版那一条。用一个固定哨兵值当 `currentVersionId`：反正只有
- * 0 或 1 条，让「本版」判定恒为真即可，不需要真的把版本 id 透传到这一层。
- */
-const DECK_CURRENT_VERSION_TAG = "deck-current-version";
-
-/** 套壳 `V19ReviewComment`：把 deck 的 `{body,authorName,updatedAt}` 拼回它要的 `CaseReviewComment`。 */
-export function DeckCommentEntry({ targetKey, targetLabel, comment, canReview, disabled, onSave }: DeckCommentEntryProps) {
-  const comments: CaseReviewComment[] = comment
-    ? [{
-        targetKey,
-        targetLabel,
-        body: comment.body,
-        authorName: comment.authorName,
-        updatedAt: comment.updatedAt,
-        versionId: DECK_CURRENT_VERSION_TAG,
-        versionLabel: "",
-      }]
-    : [];
+/** 套壳 `V19ReviewComment`：deck 这一层不再做"只留当前版本那条"的单条适配，
+ * 跨版本汇总、标"本版"直接透传给它，跟 `ReportPartOne`/`V19StudioDocument`
+ * 是同一套评论口径（`ReportDeckProps.review`，见 `deck-types.ts` 顶部注释）。 */
+export function DeckCommentEntry({ targetKey, targetLabel, comments, currentVersionId, canReview, disabled, onSave }: DeckCommentEntryProps) {
   return (
     <V19ReviewComment
       targetKey={targetKey}
       targetLabel={targetLabel}
       comments={comments}
-      currentVersionId={DECK_CURRENT_VERSION_TAG}
+      currentVersionId={currentVersionId}
       canReview={canReview}
       disabled={disabled}
       onSave={onSave}

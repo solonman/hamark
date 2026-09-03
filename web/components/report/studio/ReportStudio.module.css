@@ -110,6 +110,19 @@ span.studioSaveChip {
 
 .form2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .item { position: relative; min-width: 0; padding: 14px 20px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+/*
+ * `V19ReviewComment` 的评论入口（`.commentMarker`，定义在 V04Surface.module.css）
+ * 默认 `opacity:0; pointer-events:none`，只在视频侧自己的容器悬停/聚焦时才现身
+ * （`.readingCore > div:hover` 等，V04Surface.module.css 约 757～770 行）——报告
+ * 侧字段的容器是这里的 `.item`，不在那份选择器列表里，所以入口一直不可见也点不到。
+ * 用属性子串选择器匹配 V04Surface 那边的哈希类，不用改共享文件；"相关资料"那一行
+ * 也是 `.item`（见 ReportPartOne.tsx），同一条规则一起覆盖。
+ */
+.item:hover [class*="commentMarker"],
+.item:focus-within [class*="commentMarker"] {
+  opacity: 1;
+  pointer-events: auto;
+}
 .form2 > .item:nth-child(even):not(.wide) { border-left: 1px solid rgba(255, 255, 255, .07); }
 .item > small { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; color: var(--v04-subject); font-size: 10px; font-weight: 800; }
 .wide { grid-column: 1 / -1; }

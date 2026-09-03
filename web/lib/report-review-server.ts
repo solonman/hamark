@@ -11,6 +11,11 @@ import {
   type CaseReviewComment,
   type CaseReviewModel,
 } from "@/lib/case-review";
+// pg 把 `timestamptz` 解析成 JS Date，`String(date)` 得到的是
+// Date.prototype.toString()，不是 ISO——`V19ReviewComment` 的 formatShortDateTime
+// 认不出这种格式，评论气泡里的时间就会显示「未知时间」。这条转换是纯函数、
+// 不碰视频专属的表，直接复用视频侧同一个实现，不在报告侧另抄一份。
+import { toIsoTimestamp } from "@/lib/case-review-server";
 
 export type ReportReviewViewer = { userId: string; displayName: string };
 
@@ -99,7 +104,7 @@ export async function loadReportReview(
         targetLabel: row.target_label,
         body: row.body,
         authorName: row.author_name,
-        updatedAt: String(row.updated_at),
+        updatedAt: toIsoTimestamp(row.updated_at),
         versionId: row.version_id,
         versionLabel: `v${row.version_number}`,
       }),
@@ -181,7 +186,7 @@ export async function saveReportReviewComment(
           targetLabel: saved.target_label,
           body: saved.body,
           authorName: saved.author_name,
-          updatedAt: String(saved.updated_at),
+          updatedAt: toIsoTimestamp(saved.updated_at),
           // 版本号从 requireVersionOfReport 已经查出来的那一行取，不用再联查一次。
           versionId: version.id,
           versionLabel: `v${version.version_number}`,

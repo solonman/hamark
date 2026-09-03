@@ -183,14 +183,24 @@
 .fabReason { color: var(--rd-ink3); font-size: 10.5px; }
 
 /* ---------------- 标注浮层（模块／单元） ---------------- */
-.pop { position: fixed; z-index: 80; width: min(520px, calc(100vw - 28px)); border: 1px solid var(--rd-line); border-radius: 13px; background: var(--rd-panel); box-shadow: 0 20px 54px rgba(0, 0, 0, 0.6); overflow: hidden; }
+/* demo 的 `.pop`/`.popBody`（约 247、252 行）用 overflow:hidden/auto 圆角裁边
+   ＋滚动限高——demo 没有评论功能，那样写没问题。这里的字段行会挂
+   `V19ReviewComment` 的评论面板（`.commentPopover`，components/v04），它是
+   相对字段行 `position:absolute` 撑出来的，一旦比 `.popBody`/`.pop` 自己的
+   盒子还高，就会被这两层 overflow 硬裁掉，"发布"按钮点不到（实测：
+   `.popBody` rect 255px、`.pop` rect 309px，面板延伸 215px，均被裁）。改成
+   overflow:visible——`.popHead`/`.popBody` 没有自己的背景色，本来就是靠
+   `.pop` 的 `--rd-panel` 透出来，不裁边也不会露出方角色差；浮层本身的高度
+   交给 `ReportSectionPopover` 的 `placeAnchoredPanel`（量整个 `.pop` 的
+   `getBoundingClientRect()` 再收进视口）兜底，不需要在这两层另设 max-height。 */
+.pop { position: fixed; z-index: 80; width: min(520px, calc(100vw - 28px)); border: 1px solid var(--rd-line); border-radius: 13px; background: var(--rd-panel); box-shadow: 0 20px 54px rgba(0, 0, 0, 0.6); overflow: visible; }
 .popHead { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border-bottom: 1px solid var(--rd-line2); cursor: grab; user-select: none; touch-action: none; }
 .popHead:active { cursor: grabbing; }
 .popHead small { color: var(--rd-subject); font-size: 9px; letter-spacing: 0.12em; }
 .popHead b { font-weight: 800; }
 .root .popX { margin-left: auto; font-size: 17px; color: var(--rd-ink2); }
 .root .popX:hover { color: var(--rd-acc); }
-.popBody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; padding: 13px 14px 15px; max-height: 64vh; overflow: auto; }
+.popBody { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; padding: 13px 14px 15px; overflow: visible; }
 .popBody .wide { grid-column: 1 / -1; }
 .popReadOnlyNote { grid-column: 1 / -1; margin: 0; color: var(--rd-ink3); font-size: 11px; }
 
@@ -214,6 +224,23 @@
 .root .chips button { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 10px; font-size: 11px; color: var(--rd-ink2); }
 .root .chips button.chipOn { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.13); color: var(--rd-acc); font-weight: 700; }
 
+/* ---------------- 评论入口：容器 hover/focus-within 才显现 ---------------- */
+/* `DeckCommentEntry` 套的是 `V19ReviewComment`（components/v04），它的
+   `.commentMarker` 默认 `opacity:0; pointer-events:none`，只在视频侧自己的
+   容器类（`.readingCore`/`.readingGroup`/`.readingShot`，见
+   `V04Surface.module.css` 第 757～770 行）hover/focus-within 时才现身——
+   deck 的浮层字段行（`.item`，`ReportSectionPopover`／`ReportPageModal`
+   走 `DeckItem` 的字段都在这里）与组块条目的名称行（`.bkL`，`nameKey` 那条
+   评论没走 `DeckItem`）不在那份清单里，所以评论入口一直点不到。这里用属性
+   子串选择器匹配 `V04Surface.module.css` 编译出的哈希类（`[class*="commentMarker"]`
+   而不是 `.commentMarker`——两个文件是各自独立的 CSS Module，类名在这里
+   拿不到那边的本地符号），选择器前缀 `.root` 让它稳定落在 (0,2,x) 档，
+   不用跟别的规则抢。 */
+.root .item:hover [class*="commentMarker"],
+.root .item:focus-within [class*="commentMarker"],
+.root .bkL:hover [class*="commentMarker"],
+.root .bkL:focus-within [class*="commentMarker"] { opacity: 1; pointer-events: auto; }
+
 /* 下拉／候选组合的样式不再由这个模块提供——deck 里所有 ReportSelect/
    ReportCombobox 用外壳交付的 components/report/studio/ReportSelect.tsx，
    视觉来自它自己的 ReportStudio.module.css（同一套 --v04-* 变量、同一份
@@ -235,7 +262,11 @@
 .ovb { position: absolute; border: 1.5px solid rgba(223, 255, 79, 0.8); background: rgba(223, 255, 79, 0.1); cursor: pointer; }
 .ovbOn { border-color: #fff; background: rgba(255, 255, 255, 0.16); box-shadow: 0 0 0 1px var(--rd-acc-dim); }
 .ovbNum { position: absolute; top: -2px; left: -2px; background: var(--rd-acc); color: #111; font-family: var(--rd-mono); font-size: 10px; padding: 0 5px; }
-.ovside { border-left: 1px solid var(--rd-line); overflow: auto; }
+/* 这一栏要滚（组块可以有很多个，不能像 .pop 那样干脆不裁），所以评论面板
+   还是可能比这栏的可视高度更靠下——面板本身没被裁（overflow:auto 允许滚出
+   来），但滚到底时贴着容器最后一点内容，几乎没有余量。留一块顶评论面板
+   高度的底部内边距，面板打开在最后一个字段上也能整个滚进可视区。 */
+.ovside { border-left: 1px solid var(--rd-line); overflow: auto; padding-bottom: 320px; }
 .ovsec { padding: 12px 15px; border-bottom: 1px solid var(--rd-line2); }
 .ovsec h4 { color: var(--rd-subject); font-size: 9.5px; letter-spacing: 0.12em; margin: 0 0 9px; display: flex; align-items: center; gap: 8px; font-weight: 800; }
 .root .ovsecAdd { margin-left: auto; border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-acc); letter-spacing: 0; }
