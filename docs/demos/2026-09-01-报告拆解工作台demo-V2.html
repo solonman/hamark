@@ -264,9 +264,30 @@ main{max-width:1720px;margin:0 auto;padding:20px clamp(14px,2vw,28px) 90px}
 .ovpage{position:relative;width:min(760px,100%);user-select:none}
 .ovpage img{display:block;width:100%;height:auto}
 .ovpage.draw{cursor:crosshair}
-.ovb{position:absolute;border:1.5px solid rgba(223,255,79,.8);background:rgba(223,255,79,.1);cursor:pointer}
+.ovb{position:absolute;border:1.5px solid rgba(223,255,79,.8);background:rgba(223,255,79,.1);cursor:move;touch-action:none}
 .ovb.on{border-color:#fff;background:rgba(255,255,255,.16);box-shadow:0 0 0 1px var(--acc-dim)}
-.ovb b{position:absolute;top:-2px;left:-2px;background:var(--acc);color:#111;font-family:var(--mono);font-size:10px;padding:0 5px}
+.ovb.act{border-color:#fff;background:rgba(255,255,255,.22)}
+.ovb.ghost{pointer-events:none}
+.ovb b{position:absolute;top:-2px;left:9px;background:var(--acc);color:#111;font-family:var(--mono);font-size:10px;padding:0 5px}
+.ovb.tiny b{left:-2px}                                 /* 小框的把手在外面，编号可以贴回角上 */
+/* 缩放把手：平时不出现，指到框上或框被选中才露出来，免得挡住页图 */
+.ovb:hover,.ovb.on,.ovb.act{z-index:3}
+.ovb i{position:absolute;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border:1px solid #14160f;border-radius:2px;background:#fff;opacity:0;pointer-events:none;transition:opacity .12s}
+.ovb:hover i,.ovb.on i,.ovb.act i{opacity:1;pointer-events:auto}
+.ovb i.nw{left:0;top:0;cursor:nwse-resize}
+.ovb i.n{left:50%;top:0;cursor:ns-resize}
+.ovb i.ne{left:100%;top:0;cursor:nesw-resize}
+.ovb i.e{left:100%;top:50%;cursor:ew-resize}
+.ovb i.se{left:100%;top:100%;cursor:nwse-resize}
+.ovb i.s{left:50%;top:100%;cursor:ns-resize}
+.ovb i.sw{left:0;top:100%;cursor:nesw-resize}
+.ovb i.w{left:0;top:50%;cursor:ew-resize}
+/* 小框：把手压在边上就没地方按住框身了，挪到框外面去，里面整块都能拖 */
+.ovb.tiny i{margin:-6px 0 0 -6px}
+.ovb.tiny i.nw,.ovb.tiny i.w,.ovb.tiny i.sw{margin-left:-17px}
+.ovb.tiny i.ne,.ovb.tiny i.e,.ovb.tiny i.se{margin-left:5px}
+.ovb.tiny i.nw,.ovb.tiny i.n,.ovb.tiny i.ne{margin-top:-17px}
+.ovb.tiny i.sw,.ovb.tiny i.s,.ovb.tiny i.se{margin-top:5px}
 .ovside{border-left:1px solid var(--line);overflow:auto}
 .ovsec{padding:12px 15px;border-bottom:1px solid var(--line2)}
 .ovsec h4{color:var(--subject);font-size:9.5px;letter-spacing:.12em;margin-bottom:9px;display:flex;align-items:center;gap:8px}
@@ -531,7 +552,7 @@ const S={
   data:DATA_EMPTY(), demoDone:false, role:"老孙",
   sel:{key:null,ids:[]}, anchor:null, focus:null,
   pop:null, modal:null, selBlock:null, drawMode:false,
-  drag:null, press:null, split:null, popDrag:null, justDragged:false, mind:false, peekN:null, popHinted:false, lastClick:null, cb:null, scrollBk:false,
+  drag:null, press:null, split:null, popDrag:null, justDragged:false, blockDragged:0, mind:false, peekN:null, popHinted:false, lastClick:null, cb:null, scrollBk:false,
   comments:{}, stars:0,
   collapsed:new Set(), openTrays:new Set(), colw:214, guideOff:false,
   undo:[], redo:[], saveState:"saved", saveAt:"14:20",
@@ -1008,12 +1029,12 @@ function modal(){
         +item("叙述作用",path2+"|narr",{multi:true},"wide")
         +item("关键标记",path2+"|mark",{ph:"这一块里最关键的那句话／那个词"},"wide")
       +'</div></div>';
-  }).join("")||'<p style="color:var(--ink3);font-size:11.5px;margin:0">还没有组块。点上面「＋ 框选」，在左边页图上拖一个框。</p>';
+  }).join("")||'<p style="color:var(--ink3);font-size:11.5px;margin:0">还没有组块。点上面「＋ 框选」，在左边页图上拖一个框。框好之后还能拖动、拉边缩放。</p>';
   return '<div class="ov" data-ovbg><div class="ovbox">'
     +'<div class="ovhead"><b>p'+pad(p.n)+'</b><span class="path">'+esc(path)+'</span><span class="t">'+esc(p.text)+'</span>'
       +'<button class="sm" data-ovclose>关闭 esc</button></div>'
     +'<div class="ovmain"><div class="ovstage"><div class="ovpage'+(S.drawMode?" draw":"")+'" id="ovpage"><img src="'+img(p.n)+'" alt="">'
-      +p.blocks.map((b,i)=>'<span class="ovb'+(S.selBlock===b.id?" on":"")+'" data-bk="'+b.id+'" style="left:'+b.x+'%;top:'+b.y+'%;width:'+b.w+'%;height:'+b.h+'%"><b>'+(i+1)+'</b></span>').join("")
+      +p.blocks.map((b,i)=>'<span class="ovb'+(S.selBlock===b.id?" on":"")+'" data-bk="'+b.id+'" title="拖框身移动 · 拖把手缩放" style="left:'+b.x+'%;top:'+b.y+'%;width:'+b.w+'%;height:'+b.h+'%"><b>'+(i+1)+'</b>'+HANDLES+'</span>').join("")
     +'</div></div>'
     +'<div class="ovside">'
       +'<div class="ovsec"><h4>这一页</h4><div class="ovgrid">'
@@ -1179,21 +1200,98 @@ function movePages(ids,target){
 }
 
 /* ===================== 页图框选组块 ===================== */
+const MINW=3,MINH=2;                                   // 比这更小的框既点不中也读不出内容
+const HANDLES=["nw","n","ne","e","se","s","sw","w"].map(h=>'<i class="'+h+'" data-h="'+h+'"></i>').join("");
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+const paintBox=(el,r)=>{el.style.cssText="left:"+r.x+"%;top:"+r.y+"%;width:"+r.w+"%;height:"+r.h+"%";};
+/** 框的坐标一律是 0–100 的百分比，跟页图显示尺寸无关，缩放窗口也不会跑位。 */
+function commitBox(id,r){
+  const p=pageOf(S.modal),b=p.blocks.find(x=>x.id===id); if(!b)return;
+  S.blockDragged=Date.now();                           // 松手后紧跟的那次 click 别再重渲染一遍
+  mutate(()=>{
+    b.x=+r.x.toFixed(1);b.y=+r.y.toFixed(1);b.w=+r.w.toFixed(1);b.h=+r.h.toFixed(1);
+    p.blocks.sort((a,c)=>(a.y-c.y)||(a.x-c.x));        // 编号始终按页面上的阅读顺序
+    S.selBlock=id;S.scrollBk=true;
+  });
+}
+/** 拖动中不能整块重渲染（DOM 一换，正在拖的那个框就没了），选中态只改 class。 */
+function pickBox(id){
+  if(S.selBlock===id)return;
+  S.selBlock=id;
+  $$("#ovpage .ovb").forEach(x=>x.classList.toggle("on",x.dataset.bk===id));
+  $$(".ovside .bk").forEach(x=>x.classList.toggle("on",x.dataset.bk===id));
+  const card=$('.ovside .bk[data-bk="'+CSS.escape(id)+'"]');
+  if(card)card.scrollIntoView({block:"nearest",behavior:"smooth"});
+}
 function wireDraw(){
-  const stage=$("#ovpage"); if(!stage||!S.drawMode) return;
-  let start=null,ghost=null;
-  const pt=e=>{const r=stage.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*100,y:(e.clientY-r.top)/r.height*100};};
-  stage.onpointerdown=e=>{start=pt(e);ghost=document.createElement("span");ghost.className="ovb";stage.appendChild(ghost);try{stage.setPointerCapture(e.pointerId);}catch(x){}};
-  stage.onpointermove=e=>{if(!start||!ghost)return;const q=pt(e);
-    ghost.style.cssText="left:"+Math.min(start.x,q.x)+"%;top:"+Math.min(start.y,q.y)+"%;width:"+Math.abs(q.x-start.x)+"%;height:"+Math.abs(q.y-start.y)+"%";};
+  const stage=$("#ovpage"); if(!stage) return;
+  let start=null,ghost=null,edit=null;
+  const pt=e=>{const r=stage.getBoundingClientRect();if(!r.width||!r.height)return{x:0,y:0};   // 页图还没加载出来
+    return{x:(e.clientX-r.left)/r.width*100,y:(e.clientY-r.top)/r.height*100};};
+  // 框在屏幕上有多大只有渲染完才知道，太小的框要换一套把手位置
+  const sizeBoxes=()=>{stage.querySelectorAll(".ovb").forEach(el=>{const r=el.getBoundingClientRect();
+    el.classList.toggle("tiny",r.width<34||r.height<34);});};
+  sizeBoxes();
+  const im=stage.querySelector("img"); if(im&&!im.complete)im.addEventListener("load",sizeBoxes,{once:true});
+  stage.onpointerdown=e=>{
+    // 按在已有的框上：拖框身＝移动，拖把手＝缩放。框选模式开着也一样，先照顾已有的框。
+    const box=e.target.closest(".ovb");
+    if(box&&!box.classList.contains("ghost")){
+      const b=pageOf(S.modal).blocks.find(x=>x.id===box.dataset.bk); if(!b)return;
+      const hd=e.target.closest("i");
+      edit={el:box,id:b.id,mode:hd?hd.dataset.h:"move",s:pt(e),o:{x:b.x,y:b.y,w:b.w,h:b.h},cur:{x:b.x,y:b.y,w:b.w,h:b.h},moved:false};
+      pickBox(b.id);                                     // 按下就选中（重渲染会把正在拖的框换掉，所以只改 class）
+      box.classList.add("act");
+      e.preventDefault();try{stage.setPointerCapture(e.pointerId);}catch(x){}
+      return;
+    }
+    if(!S.drawMode)return;
+    start=pt(e);ghost=document.createElement("span");ghost.className="ovb ghost";stage.appendChild(ghost);try{stage.setPointerCapture(e.pointerId);}catch(x){}
+  };
+  stage.onpointermove=e=>{
+    if(edit){
+      const q=pt(e),dx=q.x-edit.s.x,dy=q.y-edit.s.y,o=edit.o,m=edit.mode;
+      if(Math.abs(dx)>.3||Math.abs(dy)>.3)edit.moved=true;
+      let r;
+      if(m==="move"){r={x:clamp(o.x+dx,0,100-o.w),y:clamp(o.y+dy,0,100-o.h),w:o.w,h:o.h};}
+      else{
+        let l=o.x,t=o.y,rt=o.x+o.w,bt=o.y+o.h;         // 拖哪条边就只动哪条边，对边钉住不动
+        if(m.includes("w"))l=clamp(o.x+dx,0,rt-MINW);
+        if(m.includes("e"))rt=clamp(o.x+o.w+dx,l+MINW,100);
+        if(m.includes("n"))t=clamp(o.y+dy,0,bt-MINH);
+        if(m.includes("s"))bt=clamp(o.y+o.h+dy,t+MINH,100);
+        r={x:l,y:t,w:rt-l,h:bt-t};
+      }
+      edit.cur=r;paintBox(edit.el,r);sizeBoxes();      // 拖的时候只改样式，松手才落数据
+      return;
+    }
+    if(!start||!ghost)return;const q=pt(e);
+    const gx1=clamp(Math.min(start.x,q.x),0,100),gx2=clamp(Math.max(start.x,q.x),0,100);
+    const gy1=clamp(Math.min(start.y,q.y),0,100),gy2=clamp(Math.max(start.y,q.y),0,100);
+    paintBox(ghost,{x:gx1,y:gy1,w:gx2-gx1,h:gy2-gy1});
+  };
+  const endEdit=()=>{
+    const ed=edit;edit=null;ed.el.classList.remove("act");
+    if(!ed.moved){paintBox(ed.el,ed.o);return;}        // 只是点了一下：按下时已经选中了，不必落库
+    commitBox(ed.id,ed.cur);
+  };
   stage.onpointerup=e=>{
+    if(edit){endEdit();return;}
     if(!start)return;const q=pt(e),s=start;start=null;if(ghost){ghost.remove();ghost=null;}
-    const x=Math.min(s.x,q.x),y=Math.min(s.y,q.y),w=Math.abs(q.x-s.x),h=Math.abs(q.y-s.y);
-    if(w<3||h<2){toast("框太小了，再拖大一点。");return;}
+    // 拖出页图外的部分不算数：框只在页面之内才有意义，也才好接着拖动、缩放
+    const x1=clamp(Math.min(s.x,q.x),0,100),x2=clamp(Math.max(s.x,q.x),0,100);
+    const y1=clamp(Math.min(s.y,q.y),0,100),y2=clamp(Math.max(s.y,q.y),0,100);
+    const x=x1,y=y1,w=x2-x1,h=y2-y1;
+    if(w<MINW||h<MINH){toast("框太小了，再拖大一点。");return;}
     const p=pageOf(S.modal);
     const nb={id:"b"+rid(),name:"新内容组块",x:+x.toFixed(1),y:+y.toFixed(1),w:+w.toFixed(1),h:+h.toFixed(1),type:"标题",roles:[],style:"中性",rel:"展开",narr:"",mark:""};
     // 连续框选：画完一个不退出，接着画下一个（Esc 或再点一次「框选」退出）
     mutate(()=>{p.blocks.push(nb);p.blocks.sort((a,b)=>(a.y-b.y)||(a.x-b.x));S.selBlock=nb.id;S.scrollBk=true;});
+  };
+  // 指针被系统抢走（右键、切窗口）时按原样收摊，别把框留在半路上
+  stage.onpointercancel=()=>{
+    if(edit){paintBox(edit.el,edit.o);edit.el.classList.remove("act");edit=null;return;}
+    start=null;if(ghost){ghost.remove();ghost=null;}
   };
 }
 
@@ -1278,8 +1376,11 @@ on("[data-cmopen]",el=>{
 on("[data-star]",el=>{if(S.role!=="老孙")return;const v=+el.dataset.star;S.stars=(v===S.stars?0:v);markSaving();rerender();});
 on("[data-ovclose]",()=>{S.modal=null;S.drawMode=false;rerender();});
 on("[data-ovbg]",(el,e)=>{if(e.target===el){S.modal=null;S.drawMode=false;rerender();}});
-on("[data-drawmode]",()=>{S.drawMode=!S.drawMode;rerender();if(S.drawMode)toast("在左边页图上拖一个框。");});
-on("[data-bk]",el=>{S.selBlock=el.dataset.bk;S.scrollBk=true;rerender();});
+on("[data-drawmode]",()=>{S.drawMode=!S.drawMode;rerender();if(S.drawMode)toast("在左边页图上拖一个框。已有的框可以直接拖动、拉把手缩放。");});
+on("[data-bk]",el=>{
+  if(Date.now()-S.blockDragged<500){S.blockDragged=0;return;}  // 刚拖完的那一下不算“点选”
+  S.selBlock=el.dataset.bk;S.scrollBk=true;rerender();
+});
 on("[data-delblk]",el=>{const id=el.dataset.delblk;mutate(()=>{const p=pageOf(S.modal);p.blocks=p.blocks.filter(b=>b.id!==id);S.selBlock=null;});});
 on("[data-cb]",el=>{
   const path=el.dataset.cb,r=el.getBoundingClientRect();
