@@ -25,11 +25,18 @@ const WARN_DURATION_MS = 4200;
 export function useLibraryToast() {
   const [toasts, setToasts] = useState<LibraryToastItem[]>([]);
   const nextId = useRef(0);
+  /** 此刻挂在屏幕上的那几句话。用 ref 而不是读 toasts，连点几下也是同一份最新的。 */
+  const showing = useRef(new Set<string>());
 
   const notify = useCallback((message: string, tone: "plain" | "warn" = "plain") => {
+    // 同一句话还在屏幕上就不再叠一条：连点三下第四票，堆出三条一模一样的提示
+    // 只是把屏幕占掉，没有多告诉用户任何事。原来那条按自己的时间正常消失。
+    if (showing.current.has(message)) return;
+    showing.current.add(message);
     const id = nextId.current++;
     setToasts((current) => [...current, { id, message, tone }]);
     setTimeout(() => {
+      showing.current.delete(message);
       setToasts((current) => current.filter((item) => item.id !== id));
     }, tone === "warn" ? WARN_DURATION_MS : DEFAULT_DURATION_MS);
   }, []);

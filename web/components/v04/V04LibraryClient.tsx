@@ -190,7 +190,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   const [reportUploadRequest, setReportUploadRequest] = useState<{ replacing: ReportReplaceTarget | null } | null>(null);
   const [reportRefreshToken, setReportRefreshToken] = useState(0);
   const [weeklyView, setWeeklyView] = useState(false);
-  const [favoritePendingId, setFavoritePendingId] = useState("");
+  // 同一张卡片上一次请求还没回来就别再发一次；换一张卡片随便点，不互相挡。
+  const favoriteInFlight = useRef(new Set<string>());
   // 收藏这类「这一下没生效」的话要弹在眼前：用户是在页面深处点的卡片，
   // 页面顶部的提示条在屏幕外，等于没说。
   const { toasts, notify } = useLibraryToast();
@@ -294,14 +295,31 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     return () => controller.abort();
   }, []);
 
+  /**
+   * 心先跳，请求在后台跑。一票算不算数最终由服务端说了算，但让人等一个来回
+   * 才看到自己点了什么，等于把网络延迟做进了交互里。失败再把卡片退回去。
+   */
   const toggleFavorite = async (videoId: string, weekKey: string, favorited: boolean) => {
-    if (favoritePendingId) return;
+    if (favoriteInFlight.current.has(videoId)) return;
     // 票投完了服务端也会拒，但那要等一个来回；本地已经知道答案就当场说。
     if (!favorited && !remainingBallots(ballotsUsedIn(weekKey))) {
       notify(CASE_BALLOT_EXHAUSTED_MESSAGE, "warn");
       return;
     }
-    setFavoritePendingId(videoId);
+    favoriteInFlight.current.add(videoId);
+    // 乐观值：心形立刻翻面，计数立刻加减一，本周还剩几票也跟着这一份状态走。
+    setEngagement((current) => {
+      const target = current[videoId] ?? emptyCaseEngagement(weekKey);
+      return {
+        ...current,
+        [videoId]: {
+          ...target,
+          weekKey: target.weekKey || weekKey,
+          viewerFavorited: !favorited,
+          favoriteCount: Math.max(0, target.favoriteCount + (favorited ? -1 : 1)),
+        },
+      };
+    });
     try {
       const response = await fetch(`/api/videos/${encodeURIComponent(videoId)}/favorite`, {
         method: "POST",
@@ -309,6 +327,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
       });
       const result = await readJsonResponse<CaseFavoriteToggleResult & { error?: string }>(response, "收藏");
       if (!response.ok) throw new Error(result.error || "收藏失败，请稍后重试。");
+      // 服务端的计数才是准的——这期间别人也在投，乐观的 ±1 只是我这一票。
       setEngagement((current) => {
         const next = { ...current };
         const target = next[result.videoId] ?? emptyCaseEngagement(result.weekKey);
@@ -321,9 +340,22 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         return next;
       });
     } catch (error) {
+      // 这一票没落库，把卡片退回点之前的样子，别留下一个投上了的假象。
+      setEngagement((current) => {
+        const target = current[videoId];
+        if (!target) return current;
+        return {
+          ...current,
+          [videoId]: {
+            ...target,
+            viewerFavorited: favorited,
+            favoriteCount: Math.max(0, target.favoriteCount + (favorited ? 1 : -1)),
+          },
+        };
+      });
       notify(error instanceof Error ? error.message : "收藏失败，请稍后重试。", "warn");
     } finally {
-      setFavoritePendingId("");
+      favoriteInFlight.current.delete(videoId);
     }
   };
 
@@ -351,7 +383,6 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
                 : remainingBallots(usedBallots)
                   ? `把本周的一票投给这部片（${CASE_FAVORITE_BALLOT}，${ballotHint(usedBallots)}）`
                   : CASE_BALLOT_EXHAUSTED_MESSAGE}
-              disabled={favoritePendingId === item.id}
               onClick={() => void toggleFavorite(item.id, engaged.weekKey, engaged.viewerFavorited)}
             >
               {/* ♡ 与 ♥ 是两个字形，字体给的宽高并不一致，并排就看得出大小差。

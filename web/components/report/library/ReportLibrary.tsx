@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CASE_BALLOT_EXHAUSTED_MESSAGE,
   ballotHint,
@@ -73,7 +73,8 @@ export default function ReportLibrary({
   const [weeklyView, setWeeklyView] = useState(false);
   // 按周视图里的名次是冻结的：投票只改票数，不让卡片从鼠标底下窜走（做法与视频库一致）。
   const [frozenOrder, setFrozenOrder] = useState<ReadonlyMap<string, number> | null>(null);
-  const [favoritePendingId, setFavoritePendingId] = useState("");
+  // 同一份报告上一次请求还没回来就别再发一次；换一份随便点，不互相挡。
+  const favoriteInFlight = useRef(new Set<string>());
   const [retryPendingId, setRetryPendingId] = useState("");
   const [retryError, setRetryError] = useState("");
   const [deletePendingId, setDeletePendingId] = useState("");
@@ -157,14 +158,30 @@ export default function ReportLibrary({
   /** 按当下的真实名次重新拍一张快照。进入按周视图和点「重新排序」时各拍一次。 */
   const freezeCurrentOrder = () => setFrozenOrder(freezeReportOrder(rankedGroups));
 
+  /**
+   * 与视频库同一套乐观更新（见 V04LibraryClient 的 toggleFavorite）：心先跳，
+   * 请求在后台跑，服务端回来校准计数，失败就把卡片退回去。
+   */
   const toggleFavorite = async (reportId: string, weekKey: string, favorited: boolean) => {
-    if (favoritePendingId) return;
+    if (favoriteInFlight.current.has(reportId)) return;
     // 票投完了服务端也会拒，但那要等一个来回；本地已经知道答案就当场说。
     if (!favorited && !remainingBallots(ballotsUsedIn(weekKey))) {
       notify(CASE_BALLOT_EXHAUSTED_MESSAGE, "warn");
       return;
     }
-    setFavoritePendingId(reportId);
+    favoriteInFlight.current.add(reportId);
+    setEngagement((current) => {
+      const target = current[reportId] ?? emptyCaseEngagement(weekKey);
+      return {
+        ...current,
+        [reportId]: {
+          ...target,
+          weekKey: target.weekKey || weekKey,
+          viewerFavorited: !favorited,
+          favoriteCount: Math.max(0, target.favoriteCount + (favorited ? -1 : 1)),
+        },
+      };
+    });
     try {
       const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/favorite`, {
         method: "POST",
@@ -172,6 +189,7 @@ export default function ReportLibrary({
       });
       const result = await readJsonResponse<ReportFavoriteToggleResult & { error?: string }>(response, "收藏");
       if (!response.ok) throw new Error(result.error || "收藏失败，请稍后重试。");
+      // 服务端的计数才是准的——这期间别人也在投，乐观的 ±1 只是我这一票。
       setEngagement((current) => {
         const next = { ...current };
         const target = next[result.reportId] ?? emptyCaseEngagement(result.weekKey);
@@ -184,9 +202,22 @@ export default function ReportLibrary({
         return next;
       });
     } catch (error) {
+      // 这一票没落库，把卡片退回点之前的样子，别留下一个投上了的假象。
+      setEngagement((current) => {
+        const target = current[reportId];
+        if (!target) return current;
+        return {
+          ...current,
+          [reportId]: {
+            ...target,
+            viewerFavorited: favorited,
+            favoriteCount: Math.max(0, target.favoriteCount + (favorited ? 1 : -1)),
+          },
+        };
+      });
       notify(error instanceof Error ? error.message : "收藏失败，请稍后重试。", "warn");
     } finally {
-      setFavoritePendingId("");
+      favoriteInFlight.current.delete(reportId);
     }
   };
 
@@ -241,7 +272,6 @@ export default function ReportLibrary({
       caseNumber={reportIndexById.get(report.id) ?? 0}
       engagement={engagementOf(report)}
       ballotsUsed={ballotsUsedIn(engagementOf(report).weekKey)}
-      favoritePending={favoritePendingId === report.id}
       onToggleFavorite={toggleFavorite}
       retryPending={retryPendingId === report.id}
       onRetry={retryReport}

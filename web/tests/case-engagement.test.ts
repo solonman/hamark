@@ -179,6 +179,35 @@ test("a blocked vote pops up in front of the reader instead of writing a banner 
   }
 });
 
+test("a vote lands on the card immediately and only rolls back if the server refuses it", async () => {
+  const [videoLibrary, reportLibrary] = await Promise.all([
+    source("../components/v04/V04LibraryClient.tsx"),
+    source("../components/report/library/ReportLibrary.tsx"),
+  ]);
+  for (const library of [videoLibrary, reportLibrary]) {
+    // 乐观值写在 try 之前：心形和计数不等网络来回，点下去就变。
+    const toggle = library.slice(library.indexOf("const toggleFavorite ="));
+    const optimistic = toggle.indexOf("setEngagement(");
+    assert.ok(optimistic > 0 && optimistic < toggle.indexOf("await fetch("));
+    assert.match(toggle, /viewerFavorited: !favorited/);
+    assert.match(toggle, /favoriteCount: Math\.max\(0, target\.favoriteCount \+ \(favorited \? -1 : 1\)\)/);
+    // 服务端拒了就把这一票退回去，不留下「投上了」的假象。
+    assert.match(toggle, /catch \(error\)[\s\S]*viewerFavorited: favorited[\s\S]*favoriteCount: Math\.max\(0, target\.favoriteCount \+ \(favorited \? 1 : -1\)\)/);
+    // 在途请求只挡同一张卡片，不再是「有一票在路上，整页的心都点不动」。
+    assert.match(toggle, /if \(favoriteInFlight\.current\.has\(/);
+    assert.doesNotMatch(library, /favoritePendingId/);
+  }
+  // 收藏按钮不再进 disabled 态——那个 :disabled 是 cursor: progress，就是用户看到的「转圈」。
+  assert.doesNotMatch(videoLibrary.slice(videoLibrary.indexOf("styles.caseFavorite")), /^[\s\S]{0,900}disabled=/);
+});
+
+test("the same toast message never stacks while it is still on screen", async () => {
+  const toast = await source("../components/shared/LibraryToast.tsx");
+  assert.match(toast, /if \(showing\.current\.has\(message\)\) return;/);
+  // 消失时要把这句话从「在屏幕上」里摘掉，否则第二次就再也弹不出来了。
+  assert.match(toast, /setTimeout\([\s\S]*showing\.current\.delete\(message\)/);
+});
+
 test("a card leads with the best score the case has earned, not the first version rated", () => {
   assert.equal(pickTopCaseRating([]), null);
   const ratings = [

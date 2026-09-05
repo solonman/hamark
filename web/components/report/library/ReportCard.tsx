@@ -173,7 +173,6 @@ export default function ReportCard({
   caseNumber,
   engagement,
   ballotsUsed,
-  favoritePending,
   onToggleFavorite,
   retryPending,
   onRetry,
@@ -188,7 +187,6 @@ export default function ReportCard({
   engagement: CaseEngagement;
   /** 这份报告所属那一周，本人已经投掉几票——决定还能不能再投，以及按钮上那句「还剩几票」。 */
   ballotsUsed: number;
-  favoritePending: boolean;
   onToggleFavorite: (reportId: string, weekKey: string, favorited: boolean) => void;
   retryPending: boolean;
   onRetry: (reportId: string) => void;
@@ -288,7 +286,7 @@ export default function ReportCard({
                   : remainingBallots(ballotsUsed)
                     ? `把本周的一票投给这份报告（${REPORT_FAVORITE_BALLOT}，${ballotHint(ballotsUsed)}）`
                     : CASE_BALLOT_EXHAUSTED_MESSAGE}
-              disabled={!ready || favoritePending}
+              disabled={!ready}
               onClick={() => onToggleFavorite(report.id, engagement.weekKey, engagement.viewerFavorited)}
             >
               {/* ♡ 与 ♥ 是两个字形，字体给的宽高并不一致；同一段路径只切换填充，描边和实心才是同一颗心。 */}
