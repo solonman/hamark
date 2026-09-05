@@ -151,14 +151,4 @@
 .uploadGo { border-color: rgba(223,255,79,.4) !important; color: var(--v04-accent) !important; background: rgba(223,255,79,.1) !important; }
 .uploadGo:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ---------------- toast：点击未就绪卡片给个响应，demo 第 106-107 行 ---------------- */
-.toastStack {
-  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 99;
-  display: flex; flex-direction: column; gap: 8px; align-items: center;
-  pointer-events: none;
-}
-.toastStack > div {
-  border: 1px solid var(--v04-line); border-radius: 12px;
-  background: rgba(31,25,20,.97); padding: 9px 15px; font-size: 12px; color: var(--v04-ink);
-  box-shadow: 0 16px 42px rgba(0,0,0,.4);
-}
+/* toast 已提炼到 components/shared/LibraryToast.module.css，两个库共用。 */

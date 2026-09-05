@@ -1,0 +1,23 @@
+/* 首页两个库共用的浮层提示。原来只有报告库一份（.toastStack 在
+   ReportLibrary.module.css 里），视频库要用就得跨库 import，所以照
+   DeleteConfirmDialog 的先例提炼到 components/shared 下，样式一并搬过来。
+   固定在视口底部居中：点的是页面深处的某张卡片，提示必须出现在眼前，
+   而不是页面顶部那条要滚回去才看得见的横幅。 */
+.toastStack {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 99;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  max-width: min(520px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toastStack > div {
+  border: 1px solid var(--v04-line); border-radius: 12px;
+  background: rgba(31,25,20,.97); padding: 9px 15px; font-size: 12px; color: var(--v04-ink);
+  box-shadow: 0 16px 42px rgba(0,0,0,.4);
+  text-align: center;
+}
+/* 「这一下没生效」要一眼能和「好了」区分开，用与页内提示条同一套琥珀色。 */
+.toastStack > div.warn {
+  border-color: rgba(255, 174, 120, .5);
+  background: rgba(48, 32, 22, .97);
+  color: #ffcfad;
+}

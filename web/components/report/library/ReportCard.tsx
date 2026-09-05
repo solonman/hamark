@@ -198,7 +198,7 @@ export default function ReportCard({
   deleteError: string;
   onDelete: (reportId: string) => void;
   onReplaceWithPdf: (target: { reportId: string; title: string; taskType: string; tags: string[] }) => void;
-  /** 点击未就绪的封面/主按钮时弹的提示，状态由 ReportLibrary 的 useReportToast 统一管理。 */
+  /** 点击未就绪的封面/主按钮时弹的提示，状态由 ReportLibrary 的 useLibraryToast 统一管理。 */
   notify: (message: string) => void;
 }) {
   const ready = report.status === "READY";

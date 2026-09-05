@@ -24,7 +24,7 @@ import {
 } from "@/lib/report-library-view";
 import v04 from "../../v04/V04Surface.module.css";
 import ReportCard from "./ReportCard";
-import { ReportToastStack, useReportToast } from "./ReportToast";
+import { LibraryToastStack, useLibraryToast } from "@/components/shared/LibraryToast";
 
 /** 只要列表里还有没转完的报告，就每 10 秒悄悄拉一次；比案例库那种一次性加载更频繁，
     因为转换是后台脚本异步在跑，用户在等它从「排队中」变成「可拆解」。 */
@@ -74,12 +74,11 @@ export default function ReportLibrary({
   // 按周视图里的名次是冻结的：投票只改票数，不让卡片从鼠标底下窜走（做法与视频库一致）。
   const [frozenOrder, setFrozenOrder] = useState<ReadonlyMap<string, number> | null>(null);
   const [favoritePendingId, setFavoritePendingId] = useState("");
-  const [favoriteError, setFavoriteError] = useState("");
   const [retryPendingId, setRetryPendingId] = useState("");
   const [retryError, setRetryError] = useState("");
   const [deletePendingId, setDeletePendingId] = useState("");
   const [deleteError, setDeleteError] = useState("");
-  const { toasts, notify } = useReportToast();
+  const { toasts, notify } = useLibraryToast();
 
   const load = useCallback(async (signal: AbortSignal) => {
     const list = await fetchReports(signal);
@@ -162,11 +161,10 @@ export default function ReportLibrary({
     if (favoritePendingId) return;
     // 票投完了服务端也会拒，但那要等一个来回；本地已经知道答案就当场说。
     if (!favorited && !remainingBallots(ballotsUsedIn(weekKey))) {
-      setFavoriteError(CASE_BALLOT_EXHAUSTED_MESSAGE);
+      notify(CASE_BALLOT_EXHAUSTED_MESSAGE, "warn");
       return;
     }
     setFavoritePendingId(reportId);
-    setFavoriteError("");
     try {
       const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/favorite`, {
         method: "POST",
@@ -186,7 +184,7 @@ export default function ReportLibrary({
         return next;
       });
     } catch (error) {
-      setFavoriteError(error instanceof Error ? error.message : "收藏失败，请稍后重试。");
+      notify(error instanceof Error ? error.message : "收藏失败，请稍后重试。", "warn");
     } finally {
       setFavoritePendingId("");
     }
@@ -310,7 +308,6 @@ export default function ReportLibrary({
           </label>
         </div>
       </section>
-      {favoriteError ? <p className={v04.libraryNotice} role="alert">{favoriteError}</p> : null}
       {retryError ? <p className={v04.libraryNotice} role="alert">{retryError}</p> : null}
       {/* 删除失败的原因现在显示在触发删除的那张卡片自己弹出的确认对话框里（ReportCard 用的
           共享组件 components/shared/DeleteConfirmDialog.tsx，跟工作台删除同一个组件），
@@ -351,7 +348,7 @@ export default function ReportLibrary({
         <section className={v04.caseGrid} aria-label="报告列表">{visible.map(renderCard)}</section>
       )}
       {/* demo 的 #toast 是 #app 的固定兄弟节点，不随当前视图状态换掉（demo 第 149 行）。 */}
-      <ReportToastStack toasts={toasts} />
+      <LibraryToastStack toasts={toasts} />
     </>
   );
 }

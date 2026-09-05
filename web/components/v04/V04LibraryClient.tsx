@@ -25,6 +25,7 @@ import {
   type CaseEngagement,
   type CaseFavoriteToggleResult,
 } from "@/lib/case-engagement";
+import { LibraryToastStack, useLibraryToast } from "@/components/shared/LibraryToast";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import ReportLibrary from "@/components/report/library/ReportLibrary";
@@ -190,7 +191,9 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   const [reportRefreshToken, setReportRefreshToken] = useState(0);
   const [weeklyView, setWeeklyView] = useState(false);
   const [favoritePendingId, setFavoritePendingId] = useState("");
-  const [favoriteError, setFavoriteError] = useState("");
+  // 收藏这类「这一下没生效」的话要弹在眼前：用户是在页面深处点的卡片，
+  // 页面顶部的提示条在屏幕外，等于没说。
+  const { toasts, notify } = useLibraryToast();
   // 按周视图里的名次是冻结的：投票只改票数，不让卡片从鼠标底下窜走。
   const [frozenOrder, setFrozenOrder] = useState<ReadonlyMap<string, number> | null>(null);
   const visible = useMemo(() => {
@@ -295,11 +298,10 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     if (favoritePendingId) return;
     // 票投完了服务端也会拒，但那要等一个来回；本地已经知道答案就当场说。
     if (!favorited && !remainingBallots(ballotsUsedIn(weekKey))) {
-      setFavoriteError(CASE_BALLOT_EXHAUSTED_MESSAGE);
+      notify(CASE_BALLOT_EXHAUSTED_MESSAGE, "warn");
       return;
     }
     setFavoritePendingId(videoId);
-    setFavoriteError("");
     try {
       const response = await fetch(`/api/videos/${encodeURIComponent(videoId)}/favorite`, {
         method: "POST",
@@ -319,7 +321,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         return next;
       });
     } catch (error) {
-      setFavoriteError(error instanceof Error ? error.message : "收藏失败，请稍后重试。");
+      notify(error instanceof Error ? error.message : "收藏失败，请稍后重试。", "warn");
     } finally {
       setFavoritePendingId("");
     }
@@ -439,7 +441,6 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
           <label className={styles.librarySearch}><span aria-hidden>⌕</span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label>
         </div>
       </section>
-      {favoriteError ? <p className={styles.libraryNotice} role="alert">{favoriteError}</p> : null}
       {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section>
         : loadError ? <section className={styles.emptyState}><h2>案例库读取失败</h2><p>{loadError}</p></section>
         : !visible.length ? <section className={styles.emptyState}><span>⌕</span><h2>没有找到对应案例</h2><p>可以换一个片名、品牌或标签继续搜索。</p><button onClick={() => { setQuery(""); setCommittedQuery(""); }}>清空搜索</button></section>
@@ -456,6 +457,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         ))
         : <section className={styles.caseGrid} aria-label="案例列表">{visible.map(renderCase)}</section>}
     </>}
+    <LibraryToastStack toasts={toasts} />
     {showUpload ? <UploadDialog onClose={() => setShowUpload(false)} onUploaded={async (videoId) => { setShowUpload(false); window.location.href = detailHref(videoId); }} /> : null}
     {reportUploadRequest ? (
       <ReportUploadDialog

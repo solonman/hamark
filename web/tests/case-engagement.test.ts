@@ -146,7 +146,7 @@ test("the home page offers both libraries, weekly grouping, and per-card collect
   // 收藏是按钮，评级不是：卡片上的星级只读，这一点由标签本身保证。
   assert.match(library, /className=\{`\$\{styles\.caseFavorite\}[\s\S]*onClick=\{\(\) => void toggleFavorite\(item\.id, engaged\.weekKey, engaged\.viewerFavorited\)\}/);
   // 票投完了不等服务端来回，本地就拦下并说清楚为什么。
-  assert.match(library, /if \(!favorited && !remainingBallots\(ballotsUsedIn\(weekKey\)\)\)[\s\S]*CASE_BALLOT_EXHAUSTED_MESSAGE/);
+  assert.match(library, /if \(!favorited && !remainingBallots\(ballotsUsedIn\(weekKey\)\)\)[\s\S]*notify\(CASE_BALLOT_EXHAUSTED_MESSAGE, "warn"\)/);
   // ♡ 与 ♥ 是两个字形，宽高对不齐；实心与描边必须是同一段路径只换填充。
   assert.doesNotMatch(library, /viewerFavorited \? "♥" : "♡"/);
   assert.match(library, /fill=\{engaged\.viewerFavorited \? "currentColor" : "none"\}/);
@@ -158,6 +158,25 @@ test("the home page offers both libraries, weekly grouping, and per-card collect
   assert.match(engagementRoute, /loadCaseEngagement\(getDbClient\(\), videoIds, user\.id\)/);
   assert.match(favoriteRoute, /requireSameOriginMutation\(request\)/);
   assert.match(favoriteRoute, /toggleCaseFavorite\(getDbClient\(\)/);
+});
+
+test("a blocked vote pops up in front of the reader instead of writing a banner off-screen", async () => {
+  const [toast, videoLibrary, reportLibrary] = await Promise.all([
+    source("../components/shared/LibraryToast.tsx"),
+    source("../components/v04/V04LibraryClient.tsx"),
+    source("../components/report/library/ReportLibrary.tsx"),
+  ]);
+  const toastCss = await source("../components/shared/LibraryToast.module.css");
+  // 卡片可能在页面很深的地方，提示必须钉在视口上，而不是排在文档流里。
+  assert.match(toastCss, /\.toastStack \{[^}]*position: fixed/);
+  assert.match(toast, /createPortal\([\s\S]*document\.body/);
+  for (const library of [videoLibrary, reportLibrary]) {
+    assert.match(library, /useLibraryToast\(\)/);
+    assert.match(library, /<LibraryToastStack toasts=\{toasts\} \/>/);
+    // 收藏失败不再写回页面顶部那条 libraryNotice——那条要滚上去才看得见。
+    assert.doesNotMatch(library, /favoriteError/);
+    assert.match(library, /notify\(error instanceof Error \? error\.message : "收藏失败，请稍后重试。", "warn"\)/);
+  }
 });
 
 test("a card leads with the best score the case has earned, not the first version rated", () => {
