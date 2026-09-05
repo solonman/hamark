@@ -5,6 +5,7 @@
 // 这里只负责“报告怎么喂给那套机制”的那一层胶水，以及报告特有的状态文案。
 
 import {
+  CASE_WEEKLY_BALLOT_LIMIT,
   applyFrozenWeeklyOrder,
   deriveWeekKey,
   emptyCaseEngagement,
@@ -17,10 +18,11 @@ import type { ReportListItem, ReportStatus, ReportVersionSummary } from "@/lib/r
 
 /**
  * 报告库的收藏和视频库的收藏是两张独立的库表（见 lib/report-engagement-server.ts 的
- * report_weekly_favorites），同一个人同一周在两个库里各有一票，互不占用。
+ * report_weekly_favorites），同一个人同一周在两个库里各有三票，互不占用。
  * 文案单独定义在这里，别处（尤其是 CASE_FAVORITE_BALLOT 那句）说的是视频库自己的口径。
  */
-export const REPORT_FAVORITE_BALLOT = "每人每周 1 票（报告库单独计票）" as const;
+export const REPORT_FAVORITE_BALLOT =
+  `每人每周 ${CASE_WEEKLY_BALLOT_LIMIT} 票（报告库单独计票）` as const;
 
 /** 与 lib/v04-ui-client-state.ts 的 normalizeV04LibraryQuery 同一套归一化，中文全半角、大小写都不该影响命中。 */
 export function normalizeReportQuery(value = ""): string {

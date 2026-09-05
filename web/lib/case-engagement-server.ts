@@ -3,8 +3,11 @@
 
 import type { DbClient, QueryResultRow } from "@/db";
 import {
+  CASE_BALLOT_EXHAUSTED_MESSAGE,
+  CASE_WEEKLY_BALLOT_LIMIT,
   deriveWeekKey,
   emptyCaseEngagement,
+  firstFreeBallotSlot,
   type CaseEngagement,
   type CaseFavoriteToggleResult,
 } from "@/lib/case-engagement";
@@ -12,6 +15,7 @@ import {
 type VideoWeekRow = QueryResultRow & { id: string; created_at: string };
 type FavoriteCountRow = QueryResultRow & { video_id: string; favorite_count: number };
 type ViewerFavoriteRow = QueryResultRow & { video_id: string };
+type BallotRow = QueryResultRow & { slot: number; video_id: string };
 type RatingRow = QueryResultRow & {
   video_id: string;
   version_number: number;
@@ -93,9 +97,9 @@ async function countFavorites(db: DbClient, videoId: string) {
 }
 
 /**
- * 投票、改投或撤票，三种情况共用一个动作：再点一次自己已收藏的片子就是撤票，
- * 点同一周的另一部片子就是把这张票挪过去。主键 (user_id, week_key) 保证
- * 一周只留得下一行，改投永远不会变成两票。
+ * 投票或撤票：再点一次自己已投的片子就是撤票，点没投过的片子就是用掉一张新票。
+ * 一周三票，一部片最多收下同一个人的一票；三票用完之后再点第四部直接拒绝——
+ * 该让出哪一票只有本人知道，替他挑一票顶掉，票会在他没察觉的时候消失。
  */
 export async function toggleCaseFavorite(
   db: DbClient,
@@ -108,38 +112,43 @@ export async function toggleCaseFavorite(
     throw new Error("该案例不可收藏。");
   }
   return db.withTransaction(async (transaction) => {
-    const existing = await transaction.prepare(
-      "SELECT video_id FROM case_weekly_favorites WHERE user_id = ? AND week_key = ? FOR UPDATE",
-    ).bind(input.userId, weekKey).first<ViewerFavoriteRow>();
-    const previousVideoId = existing?.video_id ?? null;
-    if (previousVideoId === videoId) {
+    // 空票位是数出来的，而行锁锁不住还不存在的行：两个并发请求会数出同一个空位，
+    // 一个插入成功另一个撞主键报错。锁「这个人这一周」本身，两次投票就排成队。
+    await transaction.prepare("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")
+      .bind(`case-weekly-ballot:${input.userId}:${weekKey}`).run();
+    const held = await transaction.prepare(
+      `SELECT slot, video_id FROM case_weekly_favorites
+      WHERE user_id = ? AND week_key = ? ORDER BY slot ASC`,
+    ).bind(input.userId, weekKey).all<BallotRow>();
+    const ballots = held.results;
+    if (ballots.some((row) => row.video_id === videoId)) {
       await transaction.prepare(
-        "DELETE FROM case_weekly_favorites WHERE user_id = ? AND week_key = ?",
-      ).bind(input.userId, weekKey).run();
+        "DELETE FROM case_weekly_favorites WHERE user_id = ? AND week_key = ? AND video_id = ?",
+      ).bind(input.userId, weekKey, videoId).run();
       return {
         weekKey,
         favorited: false,
         videoId,
         favoriteCount: await countFavorites(transaction, videoId),
-        releasedVideoId: null,
-        releasedFavoriteCount: 0,
+        usedBallots: ballots.length - 1,
+        ballotLimit: CASE_WEEKLY_BALLOT_LIMIT,
       };
     }
+    const slot = firstFreeBallotSlot(ballots.map((row) => Number(row.slot)));
+    if (!slot) {
+      throw new Error(CASE_BALLOT_EXHAUSTED_MESSAGE);
+    }
     await transaction.prepare(
-      `INSERT INTO case_weekly_favorites (user_id, week_key, video_id)
-      VALUES (?, ?, ?)
-      ON CONFLICT (user_id, week_key)
-      DO UPDATE SET video_id = EXCLUDED.video_id, updated_at = now()`,
-    ).bind(input.userId, weekKey, videoId).run();
+      `INSERT INTO case_weekly_favorites (user_id, week_key, slot, video_id)
+      VALUES (?, ?, ?, ?)`,
+    ).bind(input.userId, weekKey, slot, videoId).run();
     return {
       weekKey,
       favorited: true,
       videoId,
       favoriteCount: await countFavorites(transaction, videoId),
-      releasedVideoId: previousVideoId,
-      releasedFavoriteCount: previousVideoId
-        ? await countFavorites(transaction, previousVideoId)
-        : 0,
+      usedBallots: ballots.length + 1,
+      ballotLimit: CASE_WEEKLY_BALLOT_LIMIT,
     };
   });
 }

@@ -117,18 +117,52 @@ export const REPORT_SCHEMA_STATEMENTS = [
     CHECK ((base_version_id IS NULL) = (base_version_number IS NULL))
   )`,
   `CREATE INDEX IF NOT EXISTS report_versions_report_updated_idx ON report_versions (report_id, updated_at DESC)`,
-  // week_key 是投票时按自然周算出来的（Asia/Shanghai，周一起算），写进主键让
-  // 「每人每周只有一票」由数据库兜底。结构照抄视频侧的 case_weekly_favorites，
-  // 只把外键换成报告。
+  // week_key 是投票时按自然周算出来的（Asia/Shanghai，周一起算），slot 是这一周的
+  // 三个票位之一：主键 (user_id, week_key, slot) 让「每人每周最多三票」由数据库兜底，
+  // 唯一约束 (user_id, week_key, report_id) 让三票必须落在三份不同的报告上。
+  // 结构照抄视频侧的 case_weekly_favorites，只把外键换成报告。
   `CREATE TABLE IF NOT EXISTS report_weekly_favorites (
     user_id TEXT NOT NULL REFERENCES users(id),
     week_key TEXT NOT NULL,
+    slot INTEGER NOT NULL DEFAULT 1,
     report_id TEXT NOT NULL REFERENCES reports(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, week_key)
+    PRIMARY KEY (user_id, week_key, slot)
   )`,
   `CREATE INDEX IF NOT EXISTS report_weekly_favorites_report_idx ON report_weekly_favorites (report_id)`,
+  // 老库里这张表是每周一票的形状；CREATE TABLE IF NOT EXISTS 不改已存在的表，
+  // 升级要显式写出来。做法与 db/case-engagement-schema.ts 里那段完全一致。
+  `ALTER TABLE report_weekly_favorites ADD COLUMN IF NOT EXISTS slot INTEGER NOT NULL DEFAULT 1`,
+  `DO $report_weekly_ballots$
+  BEGIN
+    IF EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'report_weekly_favorites'::regclass
+        AND contype = 'p' AND array_length(conkey, 1) = 2
+    ) THEN
+      ALTER TABLE report_weekly_favorites DROP CONSTRAINT report_weekly_favorites_pkey;
+      ALTER TABLE report_weekly_favorites ADD PRIMARY KEY (user_id, week_key, slot);
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'report_weekly_favorites'::regclass
+        AND conname = 'report_weekly_favorites_slot_range'
+    ) THEN
+      ALTER TABLE report_weekly_favorites
+        ADD CONSTRAINT report_weekly_favorites_slot_range CHECK (slot BETWEEN 1 AND 3);
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'report_weekly_favorites'::regclass
+        AND conname = 'report_weekly_favorites_one_ballot_per_report'
+    ) THEN
+      ALTER TABLE report_weekly_favorites
+        ADD CONSTRAINT report_weekly_favorites_one_ballot_per_report
+        UNIQUE (user_id, week_key, report_id);
+    END IF;
+  END
+  $report_weekly_ballots$`,
   // 一个版本只有一条评级：改分是覆盖同一行，不是叠加第二个分数。
   `CREATE TABLE IF NOT EXISTS report_version_ratings (
     version_id TEXT PRIMARY KEY REFERENCES report_versions(id),

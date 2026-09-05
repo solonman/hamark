@@ -39,12 +39,20 @@ test("the version chain enforces one version per person and a unique version num
   );
 });
 
-test("the weekly favorite ballot is keyed by (user_id, week_key), one vote per person per week", () => {
+test("the weekly favorite ballot has three slots per person per week, one report each", () => {
   const schema = REPORT_SCHEMA_STATEMENTS.join("\n");
   assert.match(
     schema,
-    /CREATE TABLE IF NOT EXISTS report_weekly_favorites[\s\S]*PRIMARY KEY \(user_id, week_key\)/,
+    /CREATE TABLE IF NOT EXISTS report_weekly_favorites[\s\S]*PRIMARY KEY \(user_id, week_key, slot\)/,
   );
+  assert.match(schema, /CHECK \(slot BETWEEN 1 AND 3\)/);
+  // 三票不能堆在同一份报告上。
+  assert.match(
+    schema,
+    /report_weekly_favorites_one_ballot_per_report\s*\n?\s*UNIQUE \(user_id, week_key, report_id\)/,
+  );
+  // 老库是两列主键的每周一票，升级语句要显式写出来。
+  assert.match(schema, /ALTER TABLE report_weekly_favorites ADD COLUMN IF NOT EXISTS slot/);
 });
 
 test("a version has at most one rating row and one comment per target", () => {

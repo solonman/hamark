@@ -1,15 +1,24 @@
 // 报告库互动的读写：收藏票和版本星级。与 lib/case-engagement-server.ts 同构，
 // 只把外键从 videos/analysis_versions 换成 reports/report_versions。
 // 周口径仍然复用 lib/case-engagement.ts，服务端不另算一套。
+// 票数口径也一样：每人每周三票，一份报告最多收下同一个人的一票。
 // 与案例库不同的一条规则（规格 2.4）：未就绪（未 READY）的报告不能收藏。
 
 import type { DbClient, QueryResultRow } from "@/db";
-import { deriveWeekKey, emptyCaseEngagement, type CaseEngagement } from "@/lib/case-engagement";
+import {
+  CASE_BALLOT_EXHAUSTED_MESSAGE,
+  CASE_WEEKLY_BALLOT_LIMIT,
+  deriveWeekKey,
+  emptyCaseEngagement,
+  firstFreeBallotSlot,
+  type CaseEngagement,
+} from "@/lib/case-engagement";
 import { isReportReady } from "@/lib/report-model";
 
 type ReportWeekRow = QueryResultRow & { id: string; created_at: string; status: string };
 type FavoriteCountRow = QueryResultRow & { report_id: string; favorite_count: number };
 type ViewerFavoriteRow = QueryResultRow & { report_id: string };
+type BallotRow = QueryResultRow & { slot: number; report_id: string };
 type RatingRow = QueryResultRow & {
   report_id: string;
   version_number: number;
@@ -22,9 +31,9 @@ export type ReportFavoriteToggleResult = {
   favorited: boolean;
   reportId: string;
   favoriteCount: number;
-  /** 改投时被让出去的那份报告，前端据此把它的计数减回去。 */
-  releasedReportId: string | null;
-  releasedFavoriteCount: number;
+  /** 这一周投完之后一共用掉几票，前端据此更新「还剩几票」。 */
+  usedBallots: number;
+  ballotLimit: number;
 };
 
 const uniqueIds = (reportIds: readonly string[]) =>
@@ -115,9 +124,10 @@ async function countFavorites(db: DbClient, reportId: string) {
 }
 
 /**
- * 投票、改投或撤票，三种情况共用一个动作，做法与案例库一致（见
- * lib/case-engagement-server.ts 的 toggleCaseFavorite）。多出的一条规则是：
- * 页图还没生成的报告（非 READY）直接拒绝——规格 2.4「未就绪的报告不能收藏」。
+ * 投票或撤票，做法与案例库一致（见 lib/case-engagement-server.ts 的
+ * toggleCaseFavorite）：一周三票，一份报告最多收下同一个人的一票，三票用完
+ * 之后再点第四份直接拒绝。多出的一条规则是：页图还没生成的报告（非 READY）
+ * 也直接拒绝——规格 2.4「未就绪的报告不能收藏」。
  */
 export async function toggleReportFavorite(
   db: DbClient,
@@ -133,41 +143,51 @@ export async function toggleReportFavorite(
     throw new Error("报告尚未就绪，暂时不能收藏。");
   }
   return db.withTransaction(async (transaction) => {
-    const existing = await transaction
-      .prepare("SELECT report_id FROM report_weekly_favorites WHERE user_id = ? AND week_key = ? FOR UPDATE")
+    // 锁「这个人这一周」本身：空票位是数出来的，行锁锁不住还不存在的行。
+    await transaction
+      .prepare("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")
+      .bind(`report-weekly-ballot:${input.userId}:${week.weekKey}`)
+      .run();
+    const held = await transaction
+      .prepare(
+        `SELECT slot, report_id FROM report_weekly_favorites
+        WHERE user_id = ? AND week_key = ? ORDER BY slot ASC`,
+      )
       .bind(input.userId, week.weekKey)
-      .first<ViewerFavoriteRow>();
-    const previousReportId = existing?.report_id ?? null;
-    if (previousReportId === reportId) {
+      .all<BallotRow>();
+    const ballots = held.results;
+    if (ballots.some((row) => row.report_id === reportId)) {
       await transaction
-        .prepare("DELETE FROM report_weekly_favorites WHERE user_id = ? AND week_key = ?")
-        .bind(input.userId, week.weekKey)
+        .prepare("DELETE FROM report_weekly_favorites WHERE user_id = ? AND week_key = ? AND report_id = ?")
+        .bind(input.userId, week.weekKey, reportId)
         .run();
       return {
         weekKey: week.weekKey,
         favorited: false,
         reportId,
         favoriteCount: await countFavorites(transaction, reportId),
-        releasedReportId: null,
-        releasedFavoriteCount: 0,
+        usedBallots: ballots.length - 1,
+        ballotLimit: CASE_WEEKLY_BALLOT_LIMIT,
       };
+    }
+    const slot = firstFreeBallotSlot(ballots.map((row) => Number(row.slot)));
+    if (!slot) {
+      throw new Error(CASE_BALLOT_EXHAUSTED_MESSAGE);
     }
     await transaction
       .prepare(
-        `INSERT INTO report_weekly_favorites (user_id, week_key, report_id)
-        VALUES (?, ?, ?)
-        ON CONFLICT (user_id, week_key)
-        DO UPDATE SET report_id = EXCLUDED.report_id, updated_at = now()`,
+        `INSERT INTO report_weekly_favorites (user_id, week_key, slot, report_id)
+        VALUES (?, ?, ?, ?)`,
       )
-      .bind(input.userId, week.weekKey, reportId)
+      .bind(input.userId, week.weekKey, slot, reportId)
       .run();
     return {
       weekKey: week.weekKey,
       favorited: true,
       reportId,
       favoriteCount: await countFavorites(transaction, reportId),
-      releasedReportId: previousReportId,
-      releasedFavoriteCount: previousReportId ? await countFavorites(transaction, previousReportId) : 0,
+      usedBallots: ballots.length + 1,
+      ballotLimit: CASE_WEEKLY_BALLOT_LIMIT,
     };
   });
 }

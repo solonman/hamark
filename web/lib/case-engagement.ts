@@ -6,8 +6,51 @@
 const WEEK_TIMEZONE_OFFSET_MINUTES = 8 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const CASE_FAVORITE_BALLOT = "每人每周 1 票" as const;
+/**
+ * 一个人一周能投几票。三票是「挑出这周值得看的几支」，不是「给最喜欢的那支加权」——
+ * 所以一部片最多收一个人的一票，三票必须落在三部不同的片上（库表的
+ * UNIQUE (user_id, week_key, video_id) 兜住这一条）。
+ */
+export const CASE_WEEKLY_BALLOT_LIMIT = 3;
+export const CASE_FAVORITE_BALLOT = `每人每周 ${CASE_WEEKLY_BALLOT_LIMIT} 票` as const;
 export const CASE_RATING_MAX_STARS = 5;
+
+/** 票投完了就直说，不去猜该顶掉哪一票——哪一票该让位只有本人知道。 */
+export const CASE_BALLOT_EXHAUSTED_MESSAGE =
+  `本周 ${CASE_WEEKLY_BALLOT_LIMIT} 票已经投完了，先取消一票再投别的。`;
+
+/**
+ * 三个票位里第一个空着的（1..3）；全占满时返回 0，调用方据此拒绝这一票。
+ * 用固定票位而不是数行数，是让「一周最多三票」由主键
+ * (user_id, week_key, slot) 在库里兜底，应用层数错也塞不进第四票。
+ */
+export function firstFreeBallotSlot(occupied: readonly number[]): number {
+  for (let slot = 1; slot <= CASE_WEEKLY_BALLOT_LIMIT; slot += 1) {
+    if (!occupied.includes(slot)) return slot;
+  }
+  return 0;
+}
+
+/** 我在每一周已经投出去几票——从卡片自己的 viewerFavorited 数，不用再问服务端。 */
+export function viewerBallotsByWeek(
+  engagements: Iterable<Pick<CaseEngagement, "weekKey" | "viewerFavorited">>,
+): Map<string, number> {
+  const used = new Map<string, number>();
+  for (const item of engagements) {
+    if (item.viewerFavorited) used.set(item.weekKey, (used.get(item.weekKey) ?? 0) + 1);
+  }
+  return used;
+}
+
+export function remainingBallots(used: number): number {
+  return Math.max(0, CASE_WEEKLY_BALLOT_LIMIT - used);
+}
+
+/** 周标题和收藏按钮上都用这一句，两处说法不能不一样。 */
+export function ballotHint(used: number): string {
+  const left = remainingBallots(used);
+  return left ? `本周还剩 ${left} 票` : `本周 ${CASE_WEEKLY_BALLOT_LIMIT} 票已投完`;
+}
 
 export type CaseVersionRating = {
   versionNumber: number;
@@ -197,7 +240,7 @@ export type CaseFavoriteToggleResult = {
   favorited: boolean;
   videoId: string;
   favoriteCount: number;
-  /** 改投时被让出去的那部片子，前端据此把它的计数减回去。 */
-  releasedVideoId: string | null;
-  releasedFavoriteCount: number;
+  /** 这一周投完之后一共用掉几票，前端据此更新「还剩几票」。 */
+  usedBallots: number;
+  ballotLimit: number;
 };

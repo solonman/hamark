@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { emptyCaseEngagement, type CaseEngagement } from "@/lib/case-engagement";
+import {
+  CASE_BALLOT_EXHAUSTED_MESSAGE,
+  ballotHint,
+  emptyCaseEngagement,
+  remainingBallots,
+  viewerBallotsByWeek,
+  type CaseEngagement,
+} from "@/lib/case-engagement";
 import { readJsonResponse } from "@/lib/http-json";
 import {
   applyFrozenReportOrder,
@@ -132,6 +139,16 @@ export default function ReportLibrary({
     return filterReports(reports, nextQuery);
   }, [reports, committedQuery, composing, query]);
 
+  // 我这一周投掉几票，按整份列表数——搜索过滤掉的那些报告，票一样占着票位。
+  const ballotsByWeek = useMemo(
+    () => viewerBallotsByWeek(reports.map((report) => engagementOf(report))),
+    [reports, engagementOf],
+  );
+  const ballotsUsedIn = useCallback(
+    (weekKey: string) => ballotsByWeek.get(weekKey) ?? 0,
+    [ballotsByWeek],
+  );
+
   const rankedGroups = useMemo(() => reportWeeklyGroups(visible, engagementOf), [visible, engagementOf]);
   const { groups: weeklyGroups, stale: orderStale } = useMemo(
     () => applyFrozenReportOrder(rankedGroups, frozenOrder),
@@ -141,8 +158,13 @@ export default function ReportLibrary({
   /** 按当下的真实名次重新拍一张快照。进入按周视图和点「重新排序」时各拍一次。 */
   const freezeCurrentOrder = () => setFrozenOrder(freezeReportOrder(rankedGroups));
 
-  const toggleFavorite = async (reportId: string) => {
+  const toggleFavorite = async (reportId: string, weekKey: string, favorited: boolean) => {
     if (favoritePendingId) return;
+    // 票投完了服务端也会拒，但那要等一个来回；本地已经知道答案就当场说。
+    if (!favorited && !remainingBallots(ballotsUsedIn(weekKey))) {
+      setFavoriteError(CASE_BALLOT_EXHAUSTED_MESSAGE);
+      return;
+    }
     setFavoritePendingId(reportId);
     setFavoriteError("");
     try {
@@ -161,17 +183,6 @@ export default function ReportLibrary({
           favoriteCount: result.favoriteCount,
           viewerFavorited: result.favorited,
         };
-        // 改投时那一票是从另一份报告挪过来的，原来那份要同时掉下去。
-        if (result.releasedReportId) {
-          const released = next[result.releasedReportId];
-          if (released) {
-            next[result.releasedReportId] = {
-              ...released,
-              favoriteCount: result.releasedFavoriteCount,
-              viewerFavorited: false,
-            };
-          }
-        }
         return next;
       });
     } catch (error) {
@@ -231,6 +242,7 @@ export default function ReportLibrary({
       report={report}
       caseNumber={reportIndexById.get(report.id) ?? 0}
       engagement={engagementOf(report)}
+      ballotsUsed={ballotsUsedIn(engagementOf(report).weekKey)}
       favoritePending={favoritePendingId === report.id}
       onToggleFavorite={toggleFavorite}
       retryPending={retryPendingId === report.id}
@@ -329,7 +341,8 @@ export default function ReportLibrary({
             <div className={v04.weekHeading}>
               <h3>{group.title}</h3>
               {group.rangeLabel ? <span>{group.rangeLabel}</span> : null}
-              <b>{group.items.length} 份 · 按收藏数排序</b>
+              {/* 「还剩几票」跟着周走：票位是按报告上传的那一周分的，不是按当下这一周。 */}
+              <b>{group.items.length} 份 · 按收藏数排序{group.weekKey ? ` · ${ballotHint(ballotsUsedIn(group.weekKey))}` : ""}</b>
             </div>
             <div className={v04.caseGrid}>{group.items.map(renderCard)}</div>
           </section>

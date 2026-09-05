@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { formatStars, pickTopCaseRating, type CaseEngagement } from "@/lib/case-engagement";
+import {
+  CASE_BALLOT_EXHAUSTED_MESSAGE,
+  ballotHint,
+  formatStars,
+  pickTopCaseRating,
+  remainingBallots,
+  type CaseEngagement,
+} from "@/lib/case-engagement";
 import {
   REPORT_FAVORITE_BALLOT,
   reportEnterLabel,
@@ -165,6 +172,7 @@ export default function ReportCard({
   report,
   caseNumber,
   engagement,
+  ballotsUsed,
   favoritePending,
   onToggleFavorite,
   retryPending,
@@ -178,8 +186,10 @@ export default function ReportCard({
   report: ReportListItemView;
   caseNumber: number;
   engagement: CaseEngagement;
+  /** 这份报告所属那一周，本人已经投掉几票——决定还能不能再投，以及按钮上那句「还剩几票」。 */
+  ballotsUsed: number;
   favoritePending: boolean;
-  onToggleFavorite: (reportId: string) => void;
+  onToggleFavorite: (reportId: string, weekKey: string, favorited: boolean) => void;
   retryPending: boolean;
   onRetry: (reportId: string) => void;
   deletePending: boolean;
@@ -270,14 +280,16 @@ export default function ReportCard({
               type="button"
               className={`${v04.caseFavorite} ${engagement.viewerFavorited ? v04.caseFavoriteOn : ""}`.trim()}
               aria-pressed={engagement.viewerFavorited}
-              aria-label={`${engagement.viewerFavorited ? "取消收藏" : "收藏"}《${report.title}》，${REPORT_FAVORITE_BALLOT}，当前 ${engagement.favoriteCount} 人收藏`}
+              aria-label={`${engagement.viewerFavorited ? "取消收藏" : "收藏"}《${report.title}》，${REPORT_FAVORITE_BALLOT}，${ballotHint(ballotsUsed)}，当前 ${engagement.favoriteCount} 人收藏`}
               title={!ready
                 ? "报告还没就绪，暂时不能收藏"
                 : engagement.viewerFavorited
-                  ? `本周这一票投给了这份报告（${REPORT_FAVORITE_BALLOT}），再点一次撤回`
-                  : `把本周这一票投给这份报告（${REPORT_FAVORITE_BALLOT}）`}
+                  ? `这份报告占着你本周的一票（${REPORT_FAVORITE_BALLOT}，${ballotHint(ballotsUsed)}），再点一次撤回`
+                  : remainingBallots(ballotsUsed)
+                    ? `把本周的一票投给这份报告（${REPORT_FAVORITE_BALLOT}，${ballotHint(ballotsUsed)}）`
+                    : CASE_BALLOT_EXHAUSTED_MESSAGE}
               disabled={!ready || favoritePending}
-              onClick={() => onToggleFavorite(report.id)}
+              onClick={() => onToggleFavorite(report.id, engagement.weekKey, engagement.viewerFavorited)}
             >
               {/* ♡ 与 ♥ 是两个字形，字体给的宽高并不一致；同一段路径只切换填充，描边和实心才是同一颗心。 */}
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">

@@ -3,13 +3,18 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { CASE_ENGAGEMENT_SCHEMA_STATEMENTS } from "../db/case-engagement-schema.ts";
 import {
+  CASE_WEEKLY_BALLOT_LIMIT,
   applyFrozenWeeklyOrder,
+  ballotHint,
   deriveWeekKey,
+  firstFreeBallotSlot,
   formatStars,
   formatWeekTitle,
   groupByWeek,
   pickTopCaseRating,
+  remainingBallots,
   snapshotWeeklyOrder,
+  viewerBallotsByWeek,
   weekRangeLabel,
 } from "../lib/case-engagement.ts";
 
@@ -55,9 +60,16 @@ test("stars always render five slots so an unrated case reads as unrated, not as
   assert.equal(formatStars(9), "★★★★★");
 });
 
-test("the database itself enforces one ballot per person per week and a 1-5 star scale", () => {
+test("the database itself enforces three ballots per person per week and a 1-5 star scale", () => {
   const schema = CASE_ENGAGEMENT_SCHEMA_STATEMENTS.join("\n");
-  assert.match(schema, /CREATE TABLE IF NOT EXISTS case_weekly_favorites[\s\S]*PRIMARY KEY \(user_id, week_key\)/);
+  // 三个票位是主键的一部分：一周物理上放不下第四票，不靠应用层数得准。
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS case_weekly_favorites[\s\S]*PRIMARY KEY \(user_id, week_key, slot\)/);
+  assert.match(schema, /CHECK \(slot BETWEEN 1 AND 3\)/);
+  // 一票只能投给一个作品：三票堆在同一部片上会撞这条唯一约束。
+  assert.match(schema, /case_weekly_favorites_one_ballot_per_case\s*\n?\s*UNIQUE \(user_id, week_key, video_id\)/);
+  // 老库是每周一票的两列主键，升级要显式换掉，CREATE TABLE IF NOT EXISTS 不管这事。
+  assert.match(schema, /ALTER TABLE case_weekly_favorites ADD COLUMN IF NOT EXISTS slot/);
+  assert.match(schema, /DROP CONSTRAINT case_weekly_favorites_pkey[\s\S]*ADD PRIMARY KEY \(user_id, week_key, slot\)/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS analysis_version_ratings[\s\S]*stars INTEGER NOT NULL CHECK \(stars BETWEEN 1 AND 5\)/);
   // 一个版本一条评级：改分覆盖同一行，不会叠出第二个分数。
   assert.match(schema, /version_id TEXT PRIMARY KEY REFERENCES analysis_versions\(id\)/);
@@ -67,10 +79,53 @@ test("the database itself enforces one ballot per person per week and a 1-5 star
 
 test("the migration file mirrors the schema module so production can apply it by hand", async () => {
   const migration = await source("../db/migrations/2026-09-01-case-engagement.sql");
+  // 这一份是当初建表的那次迁移，生产早已执行过，保持原样不改写。
   assert.match(migration, /PRIMARY KEY \(user_id, week_key\)/);
   assert.match(migration, /stars INTEGER NOT NULL CHECK \(stars BETWEEN 1 AND 5\)/);
   assert.match(migration, /ALTER TABLE case_weekly_favorites ENABLE ROW LEVEL SECURITY/);
   assert.match(migration, /ALTER TABLE analysis_version_ratings ENABLE ROW LEVEL SECURITY/);
+});
+
+test("the ballot migration upgrades both libraries from one vote to three, without dropping votes", async () => {
+  const migration = await source("../db/migrations/2026-09-05-weekly-ballots.sql");
+  for (const table of ["case_weekly_favorites", "report_weekly_favorites"]) {
+    assert.match(migration, new RegExp(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS slot INTEGER NOT NULL DEFAULT 1`));
+    assert.match(migration, new RegExp(`ALTER TABLE ${table} ADD PRIMARY KEY \\(user_id, week_key, slot\\)`));
+    assert.match(migration, new RegExp(`ADD CONSTRAINT ${table}_slot_range CHECK \\(slot BETWEEN 1 AND 3\\)`));
+  }
+  assert.match(migration, /UNIQUE \(user_id, week_key, video_id\)/);
+  assert.match(migration, /UNIQUE \(user_id, week_key, report_id\)/);
+  // 只加不删：既有的那一票落在 slot 1，迁移不会让任何人掉票。
+  assert.doesNotMatch(migration, /DELETE FROM|TRUNCATE|DROP TABLE/);
+});
+
+test("three ballots go into three fixed slots, and a full week has no slot left", () => {
+  assert.equal(CASE_WEEKLY_BALLOT_LIMIT, 3);
+  assert.equal(firstFreeBallotSlot([]), 1);
+  // 撤掉中间那一票后再投，补的是空出来的那个位，不是往后接。
+  assert.equal(firstFreeBallotSlot([1, 3]), 2);
+  assert.equal(firstFreeBallotSlot([2, 3]), 1);
+  // 三个位都占满就没有第四票——0 是「投不了」，调用方据此拒绝。
+  assert.equal(firstFreeBallotSlot([1, 2, 3]), 0);
+});
+
+test("used ballots are counted per week from the viewer's own hearts", () => {
+  const used = viewerBallotsByWeek([
+    { weekKey: "2026-W36", viewerFavorited: true },
+    { weekKey: "2026-W36", viewerFavorited: true },
+    { weekKey: "2026-W36", viewerFavorited: false },
+    { weekKey: "2026-W35", viewerFavorited: true },
+  ]);
+  assert.equal(used.get("2026-W36"), 2);
+  assert.equal(used.get("2026-W35"), 1);
+  // 一票没投的周不在表里，读出来就是 0 票。
+  assert.equal(used.get("2026-W34"), undefined);
+  assert.equal(remainingBallots(2), 1);
+  assert.equal(remainingBallots(3), 0);
+  // 数据脏了也不该冒出负数票。
+  assert.equal(remainingBallots(9), 0);
+  assert.equal(ballotHint(1), "本周还剩 2 票");
+  assert.equal(ballotHint(3), "本周 3 票已投完");
 });
 
 test("the home page offers both libraries, weekly grouping, and per-card collect and rating", async () => {
@@ -89,7 +144,9 @@ test("the home page offers both libraries, weekly grouping, and per-card collect
   assert.match(library, /if \(next\) freezeCurrentOrder\(\); else setFrozenOrder\(null\);/);
   assert.match(library, /weeklyView && orderStale[\s\S]*顺序已变 · 重新排序/);
   // 收藏是按钮，评级不是：卡片上的星级只读，这一点由标签本身保证。
-  assert.match(library, /className=\{`\$\{styles\.caseFavorite\}[\s\S]*onClick=\{\(\) => void toggleFavorite\(item\.id\)\}/);
+  assert.match(library, /className=\{`\$\{styles\.caseFavorite\}[\s\S]*onClick=\{\(\) => void toggleFavorite\(item\.id, engaged\.weekKey, engaged\.viewerFavorited\)\}/);
+  // 票投完了不等服务端来回，本地就拦下并说清楚为什么。
+  assert.match(library, /if \(!favorited && !remainingBallots\(ballotsUsedIn\(weekKey\)\)\)[\s\S]*CASE_BALLOT_EXHAUSTED_MESSAGE/);
   // ♡ 与 ♥ 是两个字形，宽高对不齐；实心与描边必须是同一段路径只换填充。
   assert.doesNotMatch(library, /viewerFavorited \? "♥" : "♡"/);
   assert.match(library, /fill=\{engaged\.viewerFavorited \? "currentColor" : "none"\}/);

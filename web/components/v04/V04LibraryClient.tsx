@@ -10,14 +10,18 @@ import { matchesV04LibraryQuery } from "@/lib/v04-ui-client-state";
 import { V04UiApiError, v04UiApi } from "@/lib/v04-ui-api-client";
 import { v04MetadataQueue } from "@/lib/v04-media-loading";
 import {
+  CASE_BALLOT_EXHAUSTED_MESSAGE,
   CASE_FAVORITE_BALLOT,
+  ballotHint,
   deriveWeekKey,
   emptyCaseEngagement,
   formatStars,
   applyFrozenWeeklyOrder,
   groupByWeek,
   pickTopCaseRating,
+  remainingBallots,
   snapshotWeeklyOrder,
+  viewerBallotsByWeek,
   type CaseEngagement,
   type CaseFavoriteToggleResult,
 } from "@/lib/case-engagement";
@@ -201,6 +205,15 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     (entry: V04LibraryCase) => engagement[entry.item.id] ?? emptyCaseEngagement(deriveWeekKey(entry.video.createdAt)),
     [engagement],
   );
+  // 我这一周投掉几票，按整份列表数——搜索过滤掉的那些片子，票一样占着票位。
+  const ballotsByWeek = useMemo(
+    () => viewerBallotsByWeek(cases.map((entry) => engagementOf(entry))),
+    [cases, engagementOf],
+  );
+  const ballotsUsedIn = useCallback(
+    (weekKey: string) => ballotsByWeek.get(weekKey) ?? 0,
+    [ballotsByWeek],
+  );
   const rankedGroups = useMemo(() => groupByWeek(visible, (entry) => {
     const current = engagementOf(entry);
     return {
@@ -278,8 +291,13 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     return () => controller.abort();
   }, []);
 
-  const toggleFavorite = async (videoId: string) => {
+  const toggleFavorite = async (videoId: string, weekKey: string, favorited: boolean) => {
     if (favoritePendingId) return;
+    // 票投完了服务端也会拒，但那要等一个来回；本地已经知道答案就当场说。
+    if (!favorited && !remainingBallots(ballotsUsedIn(weekKey))) {
+      setFavoriteError(CASE_BALLOT_EXHAUSTED_MESSAGE);
+      return;
+    }
     setFavoritePendingId(videoId);
     setFavoriteError("");
     try {
@@ -298,17 +316,6 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
           favoriteCount: result.favoriteCount,
           viewerFavorited: result.favorited,
         };
-        // 改投时那一票是从另一部片子挪过来的，原来那部要同时掉下去。
-        if (result.releasedVideoId) {
-          const released = next[result.releasedVideoId];
-          if (released) {
-            next[result.releasedVideoId] = {
-              ...released,
-              favoriteCount: result.releasedFavoriteCount,
-              viewerFavorited: false,
-            };
-          }
-        }
         return next;
       });
     } catch (error) {
@@ -325,6 +332,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     const detail = detailHref(item.id);
     const workspace = workspaceHref(item.id);
     const engaged = engagementOf({ item, video });
+    const usedBallots = ballotsUsedIn(engaged.weekKey);
     return <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
       <Link href={detail} className={styles.poster} aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
       <div className={styles.caseBody}>
@@ -335,10 +343,14 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
               type="button"
               className={`${styles.caseFavorite} ${engaged.viewerFavorited ? styles.caseFavoriteOn : ""}`.trim()}
               aria-pressed={engaged.viewerFavorited}
-              aria-label={`${engaged.viewerFavorited ? "取消收藏" : "收藏"}《${item.title}》，${CASE_FAVORITE_BALLOT}，当前 ${engaged.favoriteCount} 人收藏`}
-              title={engaged.viewerFavorited ? `本周这一票投给了这部片（${CASE_FAVORITE_BALLOT}），再点一次撤回` : `把本周这一票投给这部片（${CASE_FAVORITE_BALLOT}）`}
+              aria-label={`${engaged.viewerFavorited ? "取消收藏" : "收藏"}《${item.title}》，${CASE_FAVORITE_BALLOT}，${ballotHint(usedBallots)}，当前 ${engaged.favoriteCount} 人收藏`}
+              title={engaged.viewerFavorited
+                ? `这部片占着你本周的一票（${CASE_FAVORITE_BALLOT}，${ballotHint(usedBallots)}），再点一次撤回`
+                : remainingBallots(usedBallots)
+                  ? `把本周的一票投给这部片（${CASE_FAVORITE_BALLOT}，${ballotHint(usedBallots)}）`
+                  : CASE_BALLOT_EXHAUSTED_MESSAGE}
               disabled={favoritePendingId === item.id}
-              onClick={() => void toggleFavorite(item.id)}
+              onClick={() => void toggleFavorite(item.id, engaged.weekKey, engaged.viewerFavorited)}
             >
               {/* ♡ 与 ♥ 是两个字形，字体给的宽高并不一致，并排就看得出大小差。
                   同一段路径只切换填充，描边和实心才是同一颗心。 */}
@@ -436,7 +448,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
             <div className={styles.weekHeading}>
               <h3>{group.title}</h3>
               {group.rangeLabel ? <span>{group.rangeLabel}</span> : null}
-              <b>{group.items.length} 部 · 按收藏数排序</b>
+              {/* 「还剩几票」跟着周走：票位是按案例上传的那一周分的，不是按当下这一周。 */}
+              <b>{group.items.length} 部 · 按收藏数排序{group.weekKey ? ` · ${ballotHint(ballotsUsedIn(group.weekKey))}` : ""}</b>
             </div>
             <div className={styles.caseGrid}>{group.items.map(renderCase)}</div>
           </section>
