@@ -104,14 +104,14 @@ export function listV04ContractViolations(payload: V04DraftPayloadV1): V04Contra
   }
 
   const facts = payload?.factsAndCoreJudgement;
-  checkChoice(facts?.mainMechanism, "generalMechanism", 1, "facts.mainMechanism", "创意主导手法及机制");
-  checkChoice(facts?.auxiliaryMechanism, "generalMechanism", 2, "facts.auxiliaryMechanism", "创意辅助手法及机制");
+  checkChoice(facts?.mainMechanism, "generalMechanism", 1, "facts.mainMechanism", "主导机制");
+  checkChoice(facts?.auxiliaryMechanism, "generalMechanism", 2, "facts.auxiliaryMechanism", "辅助机制");
   checkChoice(facts?.storyReference, "storyReferenceType", 1, "facts.storyReference", "故事参照类型");
   if (overlap(
     facts?.mainMechanism?.selectedOptionIds ?? [],
     facts?.auxiliaryMechanism?.selectedOptionIds ?? [],
   ).length) {
-    add("facts.auxiliaryMechanism", "创意辅助手法及机制", "与主导机制选了同一项；主辅机制必须互斥");
+    add("facts.auxiliaryMechanism", "辅助机制", "与主导机制选了同一项；主辅机制必须互斥");
   }
   const carriers = facts?.creativeCarriers ?? [];
   if (carriers.length > 3) add("facts.creativeCarriers", "创意承重载体", "最多选 3 项");

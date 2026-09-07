@@ -163,8 +163,13 @@ test("readOnly renders no insert buttons", () => {
 
 test("source: story reference, main/auxiliary mechanism, and bridge primary/auxiliary role render V04ChoiceField", async () => {
   const source = await readFile(new URL("../components/v04/V19StudioDocument.tsx", import.meta.url), "utf8");
-  for (const label of ["故事参照类型", "创意主导手法及机制", "创意辅助手法及机制", "桥段主创意作用", "桥段辅助创意作用"]) {
+  for (const label of ["故事参照类型", "桥段主创意作用", "桥段辅助创意作用"]) {
     assert.match(source, new RegExp(`<V04ChoiceField label="${label}"`), `expected ${label} to render <V04ChoiceField>`);
+  }
+  // 主导／辅助机制被拆到了「创意机制」卡里（自定义那半在「创意手法」卡），
+  // 所以它们用的是 V04ChoiceField 拆出来的选项行，仍然是同一份词表控件。
+  for (const label of ["主导机制", "辅助机制"]) {
+    assert.match(source, new RegExp(`<V04ChoiceOptionsRow label="${label}"`), `expected ${label} to render <V04ChoiceOptionsRow>`);
   }
   assert.doesNotMatch(source, /<select\b/, "must never hand-roll a <select> for a vocabulary field");
 });

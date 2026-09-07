@@ -140,7 +140,7 @@ test("comment buttons sit on open-ended items only, and on bridges and shots in 
     assert.match(document, new RegExp(`labelWithComment\\("${label}`), label);
   }
   // 固定选项没有可评的写法：评它等于评这份词表，所以这些条目上没有评论入口。
-  for (const label of ["故事参照类型", "创意主导手法及机制", "创意辅助手法及机制", "创意承重载体"]) {
+  for (const label of ["故事参照类型", "创意机制", "创意手法", "创意承重载体"]) {
     assert.match(document, new RegExp(`<small>${label}</small>`), label);
   }
   assert.match(document, /CASE_REVIEW_TARGETS\.bridge\(group\.id\)/);

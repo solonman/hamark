@@ -310,7 +310,15 @@
 .bridgeActions button, .inlineChoices button, .gradeSection button { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 12px; }
 
 .choiceField { position: relative; display: grid; align-content: start; gap: 8px; min-width: 0; padding: 14px; border: 1px solid var(--v04-line); border-radius: 12px; }
-.choiceField > label:first-child, .formField > span, .inlineChoices > label, .gradeSection > label { color: var(--v04-subject); font-size: 11px; font-weight: 800; }
+/* 条目名。`.choiceField > .choiceLabel` 取代了原来的 `> label:first-child`：
+   一张卡里现在可能并排放两个条目（工作台第一模块的「创意机制」），第二个
+   的标题也要按条目名排。自定义输入行当条目用时（「创意手法」卡）只给里面
+   那个 span 上样式，不给外面的 label——`.surface input { font: inherit }`
+   会把 label 的字号字重原样灌进输入框，标题一加粗输入的正文也跟着粗了。 */
+.choiceField > .choiceLabel, .choiceField > .customInputAsField > span, .formField > span, .inlineChoices > label, .gradeSection > label { color: var(--v04-subject); font-size: 11px; font-weight: 800; }
+/* 同一张卡里的第二个条目要跟上一行拉开，否则 8px 的行距读起来像上一条目的
+   补充说明。选择器写到 (0,2,0)，跟上面那条条目名规则同一量级。 */
+.choiceField > .choiceLabel:not(:first-child), .choiceField > .customInputAsField:not(:first-child) { margin-top: 8px; }
 .choiceLabel { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .choiceLabel button, .formField > span button { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 3px 7px; font-size: 9px; }
 .choiceTrigger { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--v04-line); border-radius: 9px; background: #11120f; color: var(--v04-ink); padding: 8px 10px; text-align: left; }

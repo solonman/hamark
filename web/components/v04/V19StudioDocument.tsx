@@ -25,7 +25,7 @@ import {
 import type { V04VocabularyFieldKey } from "@/lib/v04-vocabulary";
 import V19EditableValue, { V19SystemValue } from "./V19EditableValue";
 import V19ReviewComment from "./V19ReviewComment";
-import V04ChoiceField from "./V04ChoiceField";
+import V04ChoiceField, { V04ChoiceAdvancedRow, V04ChoiceCustomRow, V04ChoiceOptionsRow } from "./V04ChoiceField";
 import styles from "./V04Surface.module.css";
 
 /**
@@ -230,16 +230,17 @@ function carriersBaseText(diff: V19BaseDiff | null, targetKey: string): string |
   return raw.map((item) => CARRIER_LABELS[String(item)] ?? String(item)).join("、");
 }
 
-function ChoiceDiffNote({ diff, targetKey, labels }: { diff: V19BaseDiff | null; targetKey: string; labels: Record<string, string> }): JSX.Element | null {
+function ChoiceDiffNote({ diff, targetKey, labels, block = false }: { diff: V19BaseDiff | null; targetKey: string; labels: Record<string, string>; /** 直接放进 `.choiceField` 的 grid 里时置 true：包一层让这一对标签算一个格子，否则那颗 inline-flex 的胶囊会被拉成整行宽。 */ block?: boolean }): JSX.Element | null {
   if (!diff || !diff.changedFields.has(targetKey)) return null;
   const raw = diff.changedFields.get(targetKey);
   const label = raw && typeof raw === "object" ? choiceValueLabel(raw as V04ChoiceValue, labels) : "";
-  return (
+  const body = (
     <>
       <span className={styles.diffTag} data-v19-diff="changed">已修改</span>
       <span className={styles.diffBase}>基版：{label || "—"}</span>
     </>
   );
+  return block ? <div>{body}</div> : body;
 }
 
 function formatV19TraceValue(value: unknown): string {
@@ -611,21 +612,42 @@ export default function V19StudioDocument({
                 {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.storyReference, "storyReferenceType")} />
               <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.storyReference} labels={storyLabels} />
             </div>
-            <div id={V04_WORKSPACE_TARGETS.primaryMechanism}>
-              <small>创意主导手法及机制</small>
-              <V04ChoiceField label="创意主导手法及机制" value={draft.primaryMechanism} options={V04_UI_MECHANISM_OPTIONS}
-                customLabel="自定义通用机制" showAdvanced={draft.primaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM")}
-                advancedTargetId={V04_WORKSPACE_TARGETS.primaryMechanismAdvanced} readOnly={readOnly} onChange={setPrimaryMechanism}
-                {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.primaryMechanism, "generalMechanism")} />
-              <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.primaryMechanism} labels={mechanismLabels} />
+            {/*
+              「创意机制」与「创意手法」两张卡：底下仍是 primaryMechanism /
+              auxiliaryMechanism 两个字段，只是把一个字段的两半拆开摆——固定
+              选项行归机制卡，自定义文本行归手法卡。机制有词表可选，手法目前
+              只有自由填写，按控件类型分组比按主／辅分组更好认。数据结构、契约
+              校验（主辅互斥、进阶机制层）都没动，纯界面重排。
+              基版对照与集成版溯源挂在选项行这一侧：它们描述的是整个字段值
+              （选项 ｜ 自定义 ｜ 进阶），两张卡各挂一份就成了重复。
+            */}
+            <div>
+              <small>创意机制</small>
+              <section className={styles.choiceField} data-choice-field>
+                <V04ChoiceOptionsRow label="主导机制" value={draft.primaryMechanism} options={V04_UI_MECHANISM_OPTIONS}
+                  triggerId={V04_WORKSPACE_TARGETS.primaryMechanism} readOnly={readOnly} onChange={setPrimaryMechanism}
+                  {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.primaryMechanism, "generalMechanism")} />
+                {draft.primaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM") && (
+                  <V04ChoiceAdvancedRow value={draft.primaryMechanism} readOnly={readOnly}
+                    targetId={V04_WORKSPACE_TARGETS.primaryMechanismAdvanced} onChange={setPrimaryMechanism} />
+                )}
+                <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.primaryMechanism} labels={mechanismLabels} />
+                <V04ChoiceOptionsRow label="辅助机制" value={draft.auxiliaryMechanism} options={V04_UI_MECHANISM_OPTIONS} multiple
+                  triggerId={V04_WORKSPACE_TARGETS.auxiliaryMechanism} readOnly={readOnly} onChange={setAuxiliaryMechanism}
+                  {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism, "generalMechanism")} />
+                {draft.auxiliaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM") && (
+                  <V04ChoiceAdvancedRow value={draft.auxiliaryMechanism} readOnly={readOnly}
+                    targetId={V04_WORKSPACE_TARGETS.auxiliaryMechanismAdvanced} onChange={setAuxiliaryMechanism} />
+                )}
+                <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism} labels={mechanismLabels} />
+              </section>
             </div>
-            <div id={V04_WORKSPACE_TARGETS.auxiliaryMechanism}>
-              <small>创意辅助手法及机制</small>
-              <V04ChoiceField label="创意辅助手法及机制" value={draft.auxiliaryMechanism} options={V04_UI_MECHANISM_OPTIONS} multiple
-                customLabel="自定义辅助机制" showAdvanced={draft.auxiliaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM")}
-                advancedTargetId={V04_WORKSPACE_TARGETS.auxiliaryMechanismAdvanced} readOnly={readOnly} onChange={setAuxiliaryMechanism}
-                {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism, "generalMechanism")} />
-              <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism} labels={mechanismLabels} />
+            <div>
+              <small>创意手法</small>
+              <section className={styles.choiceField} data-choice-field>
+                <V04ChoiceCustomRow label="主导手法" asField value={draft.primaryMechanism} readOnly={readOnly} onChange={setPrimaryMechanism} />
+                <V04ChoiceCustomRow label="辅助手法" asField value={draft.auxiliaryMechanism} readOnly={readOnly} onChange={setAuxiliaryMechanism} />
+              </section>
             </div>
             <div id={V04_WORKSPACE_TARGETS.carriers}>
               <small>创意承重载体</small>
