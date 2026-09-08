@@ -25,6 +25,7 @@ import {
   type CaseEngagement,
   type CaseFavoriteToggleResult,
 } from "@/lib/case-engagement";
+import { libraryCountLabel } from "@/lib/library-count";
 import { LibraryToastStack, useLibraryToast } from "@/components/shared/LibraryToast";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
@@ -441,7 +442,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     </>) : <>
       <section className={styles.libraryHero}><p>CREATIVE REVERSE-ENGINEERING LIBRARY</p><h1>从好作品里，<br />练出看见创意的能力。</h1></section>
       <section className={styles.libraryToolbar}>
-        <div><p>VIDEO LIBRARY</p><h2>视频库</h2></div>
+        <div><p>VIDEO LIBRARY{loading || loadError ? null : <span className={styles.libraryCount}> · {libraryCountLabel(visible.length, cases.length, "部")}</span>}</p><h2>视频库</h2></div>
         <div className={styles.libraryToolbarControls}>
           <button
             type="button"

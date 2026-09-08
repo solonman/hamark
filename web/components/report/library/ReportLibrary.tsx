@@ -10,6 +10,7 @@ import {
   type CaseEngagement,
 } from "@/lib/case-engagement";
 import { readJsonResponse } from "@/lib/http-json";
+import { libraryCountLabel } from "@/lib/library-count";
 import {
   applyFrozenReportOrder,
   filterReports,
@@ -291,7 +292,7 @@ export default function ReportLibrary({
         <span>沿真实页序，按「模块 → 单元 → 页 → 组块」把一份策略报告拆开，看清它是怎么被讲成立的。</span>
       </section>
       <section className={v04.libraryToolbar}>
-        <div><p>REPORT LIBRARY</p><h2>报告库</h2></div>
+        <div><p>REPORT LIBRARY{loading || loadError ? null : <span className={v04.libraryCount}> · {libraryCountLabel(visible.length, reports.length, "份")}</span>}</p><h2>报告库</h2></div>
         <div className={v04.libraryToolbarControls}>
           <button
             type="button"
