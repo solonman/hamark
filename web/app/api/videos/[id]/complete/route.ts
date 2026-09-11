@@ -1,5 +1,11 @@
 import { getDbClient, getVideoBucket } from "@/db";
-import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import {
+  type CurrentUser,
+  newId,
+  requireApiUser,
+  requireSameOriginMutation,
+} from "@/lib/current-user";
+import { uploadCompletionFailure } from "@/lib/upload-completion-failure";
 
 type UploadRow = {
   id: string;
@@ -19,6 +25,14 @@ export async function POST(
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   const { id } = await context.params;
+  try {
+    return await completeUpload(id, user);
+  } catch (error) {
+    return uploadCompletionFailure(id, error);
+  }
+}
+
+async function completeUpload(id: string, user: CurrentUser) {
   const db = getDbClient();
   const video = await db
     .prepare(

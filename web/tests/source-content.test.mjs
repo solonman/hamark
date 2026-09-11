@@ -133,8 +133,9 @@ test("home keeps the current screen when its background library request is unaut
 });
 
 test("video uploads go directly to COS and are completed through a small API request", async () => {
-  const [upload, createRoute, completeRoute] = await Promise.all([
+  const [upload, confirmation, createRoute, completeRoute] = await Promise.all([
     readFile(new URL("../app/components/UploadDialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/confirm-video-upload.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/videos/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/videos/[id]/complete/route.ts", import.meta.url), "utf8"),
   ]);
@@ -147,8 +148,11 @@ test("video uploads go directly to COS and are completed through a small API req
   assert.match(upload, /createThumbnailFromVideoFile/);
   assert.match(upload, /data\.thumbnailUploadUrl/);
   assert.match(upload, /Promise\.all/);
-  assert.match(upload, /\/api\/videos\/\$\{data\.videoId\}\/complete/);
+  assert.match(upload, /confirmVideoUpload\(videoId\)/);
+  assert.match(confirmation, /\/api\/videos\/\$\{videoId\}\/complete/);
   assert.doesNotMatch(upload, /\/api\/videos\/\$\{data\.videoId\}\/content/);
+  // 确认失败时不能把 COS / 数据库异常原样抛出去，变成一个空的 500。
+  assert.match(completeRoute, /return uploadCompletionFailure\(id, error\)/);
   assert.match(completeRoute, /const bucket = getVideoBucket\(\)/);
   assert.match(completeRoute, /bucket\.head\(video\.object_key\)/);
   assert.match(completeRoute, /thumbnail_key/);
@@ -218,6 +222,7 @@ test("replacing an original video never streams the file through a serverless fu
   assert.match(completeRoute, /bucket\.head\(replacementThumbnail\)/);
   assert.match(completeRoute, /VIDEO_ORIGINAL_REPLACED/);
   assert.match(completeRoute, /SET object_key = \?, thumbnail_key = \?/);
+  assert.match(completeRoute, /return uploadCompletionFailure\(id, error\)/);
 });
 
 test("replacement object keys are rebuilt from an opaque asset id", async () => {

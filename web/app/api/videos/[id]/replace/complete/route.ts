@@ -1,5 +1,11 @@
 import { getDbClient, getVideoBucket, withDbTransaction } from "@/db";
-import { newId, requireApiUser, requireSameOriginMutation } from "@/lib/current-user";
+import {
+  type CurrentUser,
+  newId,
+  requireApiUser,
+  requireSameOriginMutation,
+} from "@/lib/current-user";
+import { uploadCompletionFailure } from "@/lib/upload-completion-failure";
 import {
   isReplacementAssetId,
   replacementObjectKey,
@@ -16,6 +22,13 @@ type ReplacementRow = {
   created_by_email: string;
 };
 
+type ReplacementBody = {
+  assetId?: string;
+  originalName?: string;
+  contentType?: string;
+  fileSize?: number;
+};
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -25,13 +38,15 @@ export async function POST(
   const user = await requireApiUser(request);
   if (user instanceof Response) return user;
   const { id } = await context.params;
-  const body = (await request.json()) as {
-    assetId?: string;
-    originalName?: string;
-    contentType?: string;
-    fileSize?: number;
-  };
+  const body = (await request.json()) as ReplacementBody;
+  try {
+    return await completeReplacement(id, user, body);
+  } catch (error) {
+    return uploadCompletionFailure(id, error);
+  }
+}
 
+async function completeReplacement(id: string, user: CurrentUser, body: ReplacementBody) {
   if (!isReplacementAssetId(body.assetId)) {
     return Response.json({ error: "替换会话不可用，请重新选择文件。" }, { status: 400 });
   }

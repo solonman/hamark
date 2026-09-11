@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/http-json";
+import { confirmVideoUpload, UploadConfirmationError } from "./confirm-video-upload";
 import { createThumbnailFromVideoFile } from "./video-thumbnail";
 
 type UploadDialogProps = {
@@ -9,9 +10,13 @@ type UploadDialogProps = {
   onUploaded: (videoId: string) => Promise<void>;
 };
 
+function redirectToLogin() {
+  window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+}
+
 function redirectOnUnauthorized(response: Response | XMLHttpRequest) {
   if (response.status === 401) {
-    window.location.assign(`/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    redirectToLogin();
     return true;
   }
   return false;
@@ -58,6 +63,9 @@ export default function UploadDialog({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  // 文件和封面都已落到 COS、只差确认入库的那条条目。再点提交只补确认，不重建条目、不重传。
+  const [pendingVideoId, setPendingVideoId] = useState<string | null>(null);
+  const locked = busy || pendingVideoId !== null;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -68,54 +76,58 @@ export default function UploadDialog({
     setBusy(true);
     setError("");
     try {
-      const thumbnail = await createThumbnailFromVideoFile(file);
-      const response = await fetch("/api/videos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          brand,
-          tags: tags.split(/[，,]/).map((tag) => tag.trim()),
-          description,
-          originalName: file.name,
-          contentType: file.type,
-          fileSize: file.size,
-          rightsConfirmed,
-        }),
-      });
-      if (redirectOnUnauthorized(response)) return;
-      const data = await readJsonResponse<{
-        videoId?: string;
-        uploadUrl?: string;
-        thumbnailUploadUrl?: string;
-        error?: string;
-      }>(response, "创建视频条目");
-      if (!response.ok || !data.videoId || !data.uploadUrl || !data.thumbnailUploadUrl) {
-        throw new Error(data.error || "无法创建视频条目。");
+      let videoId = pendingVideoId;
+      if (!videoId) {
+        const thumbnail = await createThumbnailFromVideoFile(file);
+        const response = await fetch("/api/videos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            brand,
+            tags: tags.split(/[，,]/).map((tag) => tag.trim()),
+            description,
+            originalName: file.name,
+            contentType: file.type,
+            fileSize: file.size,
+            rightsConfirmed,
+          }),
+        });
+        if (redirectOnUnauthorized(response)) return;
+        const data = await readJsonResponse<{
+          videoId?: string;
+          uploadUrl?: string;
+          thumbnailUploadUrl?: string;
+          error?: string;
+        }>(response, "创建视频条目");
+        if (!response.ok || !data.videoId || !data.uploadUrl || !data.thumbnailUploadUrl) {
+          throw new Error(data.error || "无法创建视频条目。");
+        }
+        await Promise.all([
+          uploadFile(data.uploadUrl, file, setProgress),
+          uploadFile(
+            data.thumbnailUploadUrl,
+            thumbnail,
+            () => undefined,
+            "视频封面上传失败，请重试。",
+          ),
+        ]);
+        videoId = data.videoId;
+        setPendingVideoId(videoId);
       }
-      await Promise.all([
-        uploadFile(data.uploadUrl, file, setProgress),
-        uploadFile(
-          data.thumbnailUploadUrl,
-          thumbnail,
-          () => undefined,
-          "视频封面上传失败，请重试。",
-        ),
-      ]);
-      const completeResponse = await fetch(`/api/videos/${data.videoId}/complete`, {
-        method: "POST",
-      });
-      if (redirectOnUnauthorized(completeResponse)) return;
-      const completeData = await readJsonResponse<{ error?: string }>(
-        completeResponse,
-        "确认视频上传完成",
-      );
-      if (!completeResponse.ok) {
-        throw new Error(completeData.error || "视频上传完成确认失败，请重试。");
+      if ((await confirmVideoUpload(videoId)) === "unauthorized") {
+        redirectToLogin();
+        return;
       }
-      await onUploaded(data.videoId);
+      await onUploaded(videoId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "上传失败，请重试。");
+      if (reason instanceof UploadConfirmationError && reason.retryable) {
+        setError(`${reason.message}（点「重新确认入库」只补这一步，不会重传文件。）`);
+      } else {
+        // 服务端明确拒绝的确认（文件没传上、大小对不上）补确认也没用，下次从头建条目重传。
+        if (reason instanceof UploadConfirmationError) setPendingVideoId(null);
+        setError(reason instanceof Error ? reason.message : "上传失败，请重试。");
+      }
       setBusy(false);
     }
   }
@@ -149,7 +161,7 @@ export default function UploadDialog({
             className={`file-drop ${file ? "has-file" : ""}`}
             type="button"
             onClick={() => fileInput.current?.click()}
-            disabled={busy}
+            disabled={locked}
           >
             <input
               ref={fileInput}
@@ -181,7 +193,7 @@ export default function UploadDialog({
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="例如：The Greatest"
                 required
-                disabled={busy}
+                disabled={locked}
               />
             </label>
             <label>
@@ -190,7 +202,7 @@ export default function UploadDialog({
                 value={brand}
                 onChange={(event) => setBrand(event.target.value)}
                 placeholder="例如：Apple"
-                disabled={busy}
+                disabled={locked}
               />
             </label>
             <label className="form-span">
@@ -199,7 +211,7 @@ export default function UploadDialog({
                 value={tags}
                 onChange={(event) => setTags(event.target.value)}
                 placeholder="品牌片，情感，反转（用逗号分隔）"
-                disabled={busy}
+                disabled={locked}
               />
             </label>
             <label className="form-span">
@@ -209,7 +221,7 @@ export default function UploadDialog({
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="为什么值得大家一起拆解？"
                 rows={3}
-                disabled={busy}
+                disabled={locked}
               />
             </label>
           </div>
@@ -219,7 +231,7 @@ export default function UploadDialog({
               type="checkbox"
               checked={rightsConfirmed}
               onChange={(event) => setRightsConfirmed(event.target.checked)}
-              disabled={busy}
+              disabled={locked}
             />
             <span>
               我确认该素材仅用于公司内部学习与评审，并已判断其来源与使用边界。
@@ -230,7 +242,7 @@ export default function UploadDialog({
           {busy ? (
             <div className="upload-progress">
               <div>
-                <span>正在生成封面并上传原始文件</span>
+                <span>{pendingVideoId ? "文件已上传，正在确认入库" : "正在生成封面并上传原始文件"}</span>
                 <strong>{progress}%</strong>
               </div>
               <div className="meter-track">
@@ -249,7 +261,7 @@ export default function UploadDialog({
               取消
             </button>
             <button className="button button-accent" type="submit" disabled={busy}>
-              {busy ? "正在入库…" : "上传并加入片库"}
+              {busy ? "正在入库…" : pendingVideoId ? "重新确认入库" : "上传并加入片库"}
             </button>
           </div>
         </form>
