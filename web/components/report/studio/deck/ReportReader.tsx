@@ -89,7 +89,7 @@ export function ReportReaderButton({ pages, reportTitle }: ReportReaderButtonPro
           <span className={styles.readerTitle}>{reportTitle} · {sortedPages.length} 页</span>
           <button type="button" className={styles.smBtn} onClick={close}>关闭 esc</button>
         </div>
-        <div className={styles.readerBody}>
+        <div className={styles.readerBody} data-v04-scheme="dark">
           {sortedPages.map((p) => {
             const failed = p.renderStatus !== "OK" || !p.largeUrl;
             return (

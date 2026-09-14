@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { THEME_COOKIE, parseThemePreference } from "@/lib/theme";
 import GlobalHomeButton from "./components/GlobalHomeButton";
+import { ThemeProvider } from "./components/ThemeProvider";
 import UpdateNotifier from "./components/UpdateNotifier";
 import "./globals.css";
 
@@ -42,17 +44,20 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-theme={theme}>
       <body>
-        <GlobalHomeButton hideForV04Default={process.env.V04_DEFAULT_UI_ENABLED === "true"} />
-        <UpdateNotifier version={process.env.VERCEL_GIT_COMMIT_SHA || "dev"} />
-        {children}
+        <ThemeProvider initialPreference={theme}>
+          <GlobalHomeButton hideForV04Default={process.env.V04_DEFAULT_UI_ENABLED === "true"} />
+          <UpdateNotifier version={process.env.VERCEL_GIT_COMMIT_SHA || "dev"} />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

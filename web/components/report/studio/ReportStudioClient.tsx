@@ -42,6 +42,7 @@ import {
   ReportStudioApiError,
 } from "./report-studio-api";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import ReportPartOne from "./ReportPartOne";
 import ReportPartTwo from "./ReportPartTwo";
 import ReportVersionBar from "./ReportVersionBar";
@@ -736,6 +737,7 @@ export default function ReportStudioClient({
               <button type="button" onClick={() => void flushSave()}>重试</button>
             ) : null}
           </span>
+          <ThemeSwitcher />
           <span>{viewerName}</span>
         </div>
       </header>

@@ -211,7 +211,7 @@ export default function ReportPageModal({
           <button type="button" className={styles.smBtn} onClick={onClose}>关闭 esc</button>
         </div>
         <div className={styles.ovmain}>
-          <div className={styles.ovstage}>
+          <div className={styles.ovstage} data-v04-scheme="dark">
             <div
               ref={stageRef}
               className={drawMode ? `${styles.ovpage} ${styles.ovpageDraw}` : styles.ovpage}
@@ -429,7 +429,7 @@ export default function ReportPageModal({
             <button type="button" disabled={idx < 0 || idx >= sortedPages.length - 1} onClick={() => goTo(idx < sortedPages.length - 1 ? sortedPages[idx + 1].n : null)}>下一页 →</button>
             <button type="button" disabled={idx < 0 || idx >= sortedPages.length - 1} title="跳到最后一页" onClick={() => goTo(sortedPages[sortedPages.length - 1]?.n ?? null)}>尾页</button>
           </span>
-          <span className={styles.ovfootStrip}>
+          <span className={styles.ovfootStrip} data-v04-scheme="dark">
             {sortedPages.map((p) => {
               const cell = navStripCell(annotation, p, pageNo);
               const cls = [styles.stripCell, cell.mark === "partial" ? styles.stripCellHalf : "", cell.isModuleStart ? styles.stripCellMs : "", cell.isCurrent ? styles.stripCellCur : ""]

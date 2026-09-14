@@ -149,7 +149,7 @@ function ReportCover({ report, notify }: { report: ReportListItemView; notify: (
 
   if (ready) {
     return (
-      <Link href={`/reports/${encodeURIComponent(report.id)}`} className={styles.cover} aria-label={`进入《${report.title}》拆解工作台`}>
+      <Link href={`/reports/${encodeURIComponent(report.id)}`} className={styles.cover} data-v04-scheme="dark" aria-label={`进入《${report.title}》拆解工作台`}>
         {body}
       </Link>
     );
@@ -160,6 +160,7 @@ function ReportCover({ report, notify }: { report: ReportListItemView; notify: (
     <button
       type="button"
       className={`${styles.cover} ${styles.busy}`}
+      data-v04-scheme="dark"
       aria-label={`《${report.title}》${reportStatusLabel(report.status)}，点击查看`}
       onClick={() => notify(NOT_READY_TOAST)}
     >

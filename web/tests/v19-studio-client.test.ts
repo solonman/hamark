@@ -111,7 +111,7 @@ test("source: no OPEN-status pill/toast/aria-label says 进行中 — they all s
 test("source: the OPEN status dot no longer pulses — the v04SavePulse animation is gone from .finalStatusOpen, the dot itself stays", () => {
   assert.doesNotMatch(cssSource, /\.finalStatusOpen \.finalStatusDot \{ animation: v04SavePulse/);
   assert.match(cssSource, /\.finalStatusPill \.finalStatusDot \{ width: 6px; height: 6px; border-radius: 99px; background: currentColor; \}/);
-  assert.match(cssSource, /\.finalStatusOpen \{ color: #8fd3ff; border: 1px solid rgba\(143, 211, 255, \.45\); \}/);
+  assert.match(cssSource, /\.finalStatusOpen \{ color: var\(--v04-info\); border: 1px solid rgb\(var\(--v04-info-rgb\) \/ \.45\); \}/);
 });
 
 // ---------------------------------------------------------------------------

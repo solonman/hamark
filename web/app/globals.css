@@ -22,6 +22,210 @@
   --radius: 18px;
 }
 
+/* ============================================================
+   V0.4 外壳（案例库、工作台、报告库、报告工作台）的深浅两套配色。
+   只按用途命名（底、面板、正文、强调……），组件样式里只引用这些变量，
+   不写具体色值；换主题就是换这里的一组值。
+
+   - 深色是默认值，也就是上线以来的样子——下面这组数就是原来写死在
+     各样式文件里的那些色值（输入框底、卡片胶囊底、版本菜单「我的」标签等
+     几处，把只差几个色阶的近似色并成了同一个变量，肉眼分不出）。
+   - `<html data-theme>` 由根布局按 cookie 渲染：light / dark / system。
+     system 交给媒体查询，跟着电脑的深浅设置走。
+   - `[data-v04-scheme="dark"]`：视频播放器、报告翻页器、封面这类「看片子」
+     的区域，两种主题下都保持深色（跟 YouTube、B 站的做法一样）。
+   - 浅色那组在下面写了两遍（手动浅色、跟随系统时的浅色），必须逐字一致，
+     tests/theme.test.ts 会比对。
+   - 最低浏览器是 Chrome/Firefox 111、Safari 16.4，所以不用 light-dark()、
+     color-mix()；带透明度的颜色写成 rgb(var(--v04-xxx-rgb) / .4)。
+   - 投影写成 rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)))：
+     深色下是纯黑、原透明度；浅色下换成深棕、透明度打三折。投影色不能用浅灰
+     去凑淡——浮层压在深色视频上时，浅灰投影会变成一圈发白的光晕。
+   ============================================================ */
+:root,
+[data-v04-scheme="dark"] {
+  --v04-scheme: dark;
+  --v04-gutter: #090a08;
+  --v04-sunken: #0f100e;
+  --v04-bg: #10110f;
+  --v04-bg-rgb: 16 17 15;
+  --v04-panel-deep: #151612;
+  --v04-panel: #171815;
+  --v04-panel-rgb: 23 24 21;
+  --v04-panel-alt: #1c1d19;
+  --v04-raised: #20211d;
+  --v04-raised-alt: #24251f;
+  --v04-raised-2: #2e302a;
+  --v04-well: #000;
+  --v04-ink: #e6e7df;
+  --v04-ink-soft: #d4d6cd;
+  --v04-ink-dim: #b9bbb2;
+  --v04-muted: #92958b;
+  --v04-muted-rgb: 146 149 139;
+  --v04-faint: #6d7066;
+  --v04-subject: #c7aa72;
+  --v04-subject-rgb: 199 170 114;
+  --v04-line: rgba(255, 255, 255, .12);
+  --v04-line-strong: #36382f;
+  --v04-fg-rgb: 255 255 255;
+  --v04-accent: #dfff4f;
+  --v04-accent-rgb: 223 255 79;
+  --v04-accent-fill: #dfff4f;
+  --v04-on-accent: #10110f;
+  --v04-accent-surface: #202219;
+  --v04-tint-well: #131409;
+  --v04-tint-card: #15170f;
+  --v04-tint-nest: #171910;
+  --v04-tint-nest-2: #191b12;
+  --v04-warn: #ffae78;
+  --v04-warn-rgb: 255 174 120;
+  --v04-warn-soft: #ffb58c;
+  --v04-warn-soft-rgb: 255 181 140;
+  --v04-warn-ink: #ffcfad;
+  --v04-warn-surface: rgba(31, 25, 20, .97);
+  --v04-warn-surface-strong: rgba(48, 32, 22, .97);
+  --v04-warn-well: #1a1006;
+  --v04-gold: #ffd166;
+  --v04-gold-rgb: 255 209 102;
+  --v04-danger: #ff9a9a;
+  --v04-danger-rgb: 255 122 122;
+  --v04-danger-2: #ff8f7d;
+  --v04-danger-2-rgb: 255 143 125;
+  --v04-info: #8fd3ff;
+  --v04-info-rgb: 143 211 255;
+  --v04-shadow-rgb: 0 0 0;
+  --v04-shadow-strength: 1;
+  --v04-scrim: rgba(6, 7, 6, .86);
+  --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* 浅色：沿用品牌自己的纸感浅色（登录页、旧版首页那套 paper / ink），
+   酸绿做底色时照旧（深字压酸绿），做文字和描边时换成同色相的橄榄绿——
+   酸绿字放在浅底上几乎看不见。文字对纸底的对比度都在 4.5:1 以上。 */
+:root[data-theme="light"] {
+  --v04-scheme: light;
+  --v04-gutter: #e9e5da;
+  --v04-sunken: #ffffff;
+  --v04-bg: #f3f0e8;
+  --v04-bg-rgb: 243 240 232;
+  --v04-panel-deep: #f7f5ef;
+  --v04-panel: #fbfaf6;
+  --v04-panel-rgb: 251 250 246;
+  --v04-panel-alt: #f4f1ea;
+  --v04-raised: #ece8de;
+  --v04-raised-alt: #e7e3d8;
+  --v04-raised-2: #e0dccf;
+  --v04-well: #e4e0d4;
+  --v04-ink: #1a1b16;
+  --v04-ink-soft: #2e3029;
+  --v04-ink-dim: #484a42;
+  --v04-muted: #63655c;
+  --v04-muted-rgb: 99 101 92;
+  --v04-faint: #7f8178;
+  --v04-subject: #7d5f24;
+  --v04-subject-rgb: 125 95 36;
+  --v04-line: rgba(26, 27, 22, .13);
+  --v04-line-strong: #d3cfc3;
+  --v04-fg-rgb: 26 27 22;
+  --v04-accent: #536118;
+  --v04-accent-rgb: 83 97 24;
+  --v04-accent-fill: #dfff4f;
+  --v04-on-accent: #10110f;
+  --v04-accent-surface: #f1f4dd;
+  --v04-tint-well: #eceee0;
+  --v04-tint-card: #f8f8f0;
+  --v04-tint-nest: #f0f2e4;
+  --v04-tint-nest-2: #e7ebd7;
+  --v04-warn: #ab4f1a;
+  --v04-warn-rgb: 171 79 26;
+  --v04-warn-soft: #a24818;
+  --v04-warn-soft-rgb: 162 72 24;
+  --v04-warn-ink: #8c3d10;
+  --v04-warn-surface: rgba(255, 244, 233, .97);
+  --v04-warn-surface-strong: rgba(255, 233, 214, .97);
+  --v04-warn-well: #fbeee1;
+  --v04-gold: #8a6300;
+  --v04-gold-rgb: 150 108 0;
+  --v04-danger: #b3261e;
+  --v04-danger-rgb: 179 38 30;
+  --v04-danger-2: #b23a1c;
+  --v04-danger-2-rgb: 178 58 28;
+  --v04-info: #1c6ea4;
+  --v04-info-rgb: 28 110 164;
+  --v04-shadow-rgb: 38 32 18;
+  --v04-shadow-strength: .32;
+  --v04-scrim: rgba(33, 31, 24, .42);
+  --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2363655c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --v04-scheme: light;
+    --v04-gutter: #e9e5da;
+    --v04-sunken: #ffffff;
+    --v04-bg: #f3f0e8;
+    --v04-bg-rgb: 243 240 232;
+    --v04-panel-deep: #f7f5ef;
+    --v04-panel: #fbfaf6;
+    --v04-panel-rgb: 251 250 246;
+    --v04-panel-alt: #f4f1ea;
+    --v04-raised: #ece8de;
+    --v04-raised-alt: #e7e3d8;
+    --v04-raised-2: #e0dccf;
+    --v04-well: #e4e0d4;
+    --v04-ink: #1a1b16;
+    --v04-ink-soft: #2e3029;
+    --v04-ink-dim: #484a42;
+    --v04-muted: #63655c;
+    --v04-muted-rgb: 99 101 92;
+    --v04-faint: #7f8178;
+    --v04-subject: #7d5f24;
+    --v04-subject-rgb: 125 95 36;
+    --v04-line: rgba(26, 27, 22, .13);
+    --v04-line-strong: #d3cfc3;
+    --v04-fg-rgb: 26 27 22;
+    --v04-accent: #536118;
+    --v04-accent-rgb: 83 97 24;
+    --v04-accent-fill: #dfff4f;
+    --v04-on-accent: #10110f;
+    --v04-accent-surface: #f1f4dd;
+    --v04-tint-well: #eceee0;
+    --v04-tint-card: #f8f8f0;
+    --v04-tint-nest: #f0f2e4;
+    --v04-tint-nest-2: #e7ebd7;
+    --v04-warn: #ab4f1a;
+    --v04-warn-rgb: 171 79 26;
+    --v04-warn-soft: #a24818;
+    --v04-warn-soft-rgb: 162 72 24;
+    --v04-warn-ink: #8c3d10;
+    --v04-warn-surface: rgba(255, 244, 233, .97);
+    --v04-warn-surface-strong: rgba(255, 233, 214, .97);
+    --v04-warn-well: #fbeee1;
+    --v04-gold: #8a6300;
+    --v04-gold-rgb: 150 108 0;
+    --v04-danger: #b3261e;
+    --v04-danger-rgb: 179 38 30;
+    --v04-danger-2: #b23a1c;
+    --v04-danger-2-rgb: 178 58 28;
+    --v04-info: #1c6ea4;
+    --v04-info-rgb: 28 110 164;
+    --v04-shadow-rgb: 38 32 18;
+  --v04-shadow-strength: .32;
+    --v04-scrim: rgba(33, 31, 24, .42);
+    --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2363655c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+/* 深色岛：主题是浅色时，这些区域里的变量拉回深色那组（见上面 :root 那条规则）。
+   变量换了，但从外面继承进来的文字颜色是按浅色算好的深字，所以岛上要重新给一次
+   正文色；配色方案也要跟着声明，里面的原生控件、滚动条才是深色的。
+   优先级 (0,1,0)：要压过上面 `a, button { color: inherit }`（封面本身就是链接／按钮），
+   又跟组件的单类名同级——组件样式表排在全局之后，组件自己设的颜色照样生效。 */
+[data-v04-scheme] {
+  color-scheme: var(--v04-scheme);
+  color: var(--v04-ink);
+}
+
 * {
   box-sizing: border-box;
 }

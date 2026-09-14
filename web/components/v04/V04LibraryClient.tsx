@@ -27,6 +27,7 @@ import {
 } from "@/lib/case-engagement";
 import { libraryCountLabel } from "@/lib/library-count";
 import { LibraryToastStack, useLibraryToast } from "@/components/shared/LibraryToast";
+import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import UploadDialog from "@/app/components/UploadDialog";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import ReportLibrary from "@/components/report/library/ReportLibrary";
@@ -369,7 +370,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     const engaged = engagementOf({ item, video });
     const usedBallots = ballotsUsedIn(engaged.weekKey);
     return <article className={styles.caseCard} key={item.id} data-case-id={item.id}>
-      <Link href={detail} className={styles.poster} aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
+      <Link href={detail} className={styles.poster} data-v04-scheme="dark" aria-label={`查看 ${item.title} 的只读成果`}>{video.thumbnailUrl ? <img className={styles.posterImage} src={video.thumbnailUrl} alt="" loading="lazy" /> : <span className={styles.posterFallback} />}<span className={styles.posterBrand}>{item.brand || "未标注品牌"}</span><span className={styles.playButton} aria-hidden>▶</span><VideoDuration videoId={item.id} /></Link>
       <div className={styles.caseBody}>
         <div className={styles.caseQuickActions}>
           <Link className={styles.caseEnterPill} href={detail}>进入工作台</Link>
@@ -424,7 +425,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         : reportLibraryEnabled
           ? <button type="button" onClick={() => setReportUploadRequest({ replacing: null })}>上传报告</button>
           : <button type="button" disabled title="报告逆向工程建设中，暂不能上传报告">上传报告</button>
-      ) : null}{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
+      ) : null}<ThemeSwitcher />{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
     </header>
     {library === "REPORT" ? (reportLibraryEnabled ? (
       <ReportLibrary

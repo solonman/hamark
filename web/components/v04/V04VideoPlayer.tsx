@@ -153,6 +153,7 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
         ref={shellRef}
         className={`${styles.videoShell} ${floating || video.minimized ? styles.videoFloating : styles.videoHero} ${video.minimized ? styles.videoMinimized : ""}`}
         data-v04-video-single-instance
+        data-v04-scheme="dark"
         data-v04-video-docked={docked ? "true" : undefined}
         onPointerDown={handleShellPointerDown}
         onPointerMove={handleShellPointerMove}

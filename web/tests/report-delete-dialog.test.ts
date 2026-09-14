@@ -99,7 +99,7 @@ test("the dialog's chrome (backdrop/box/head/body/footer) lives in the component
   assert.match(css, /\.deleteDialogLine \{ margin: 0; color: var\(--v04-muted\); font-size: 11\.5px; line-height: 1\.6; \}/);
   // .surface button{font:inherit}（V04Surface.module.css）是 (0,1,1)，单类选择器会被压过
   // （见「报告线 CSS 优先级教训」）；确认按钮的强调色借 .uploadFooter 把特异性提到 (0,2,0)。
-  assert.match(css, /\.uploadFooter \.deleteDialogConfirm \{ border-color: rgba\(223,255,79,\.55\); color: var\(--v04-accent\); \}/);
+  assert.match(css, /\.uploadFooter \.deleteDialogConfirm \{ border-color: rgb\(var\(--v04-accent-rgb\) \/ \.55\); color: var\(--v04-accent\); \}/);
 
   // 报告库自己的 CSS 不再持有这套已经搬走的规则。
   const reportLibraryCss = await source("../components/report/library/ReportLibrary.module.css");

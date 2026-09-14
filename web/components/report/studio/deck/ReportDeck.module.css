@@ -1,30 +1,39 @@
 /*
  * ReportDeck 视觉系统：直接照搬 demo（docs/demos/2026-09-01-报告拆解工作台demo-V2.html）
  * 第 9–310 行的深色配色与部件样式，改用 CSS Modules 局部作用域、变量前缀 --rd-*
- * （对齐 components/v04/V04Surface.module.css 用 .surface{--v04-*} 包一层深色主题
- * 的做法，因为站点全局主题是浅色纸感，第三部分需要自己撑一块深色画布）。
+ * （--rd-* 只是 app/globals.css 里 --v04-* 深浅两套配色的短名，跟着 <html data-theme>
+ * 一起切换；页面大图舞台、整本预览、页码条是深色岛，两种主题下都保持深色）。
  */
 
+/* --rd-* 只是 app/globals.css 里 --v04-* 深浅两套配色的短名。
+   深色岛（[data-v04-scheme]，页面大图舞台、整本预览、页码条）里要再声明一遍：
+   自定义属性里的 var() 在声明它的元素上就算好了，不重新声明的话，
+   岛里拿到的还是外层按浅色算出来的值。 */
+.root,
+.root [data-v04-scheme] {
+  --rd-bg: var(--v04-bg);
+  --rd-panel: var(--v04-panel);
+  --rd-raised: var(--v04-raised);
+  --rd-field: var(--v04-sunken);
+  --rd-ink: var(--v04-ink);
+  --rd-ink2: var(--v04-muted);
+  --rd-ink3: var(--v04-faint);
+  --rd-subject: var(--v04-subject);
+  --rd-answer: var(--v04-ink-soft);
+  --rd-line: var(--v04-line);
+  --rd-line2: rgb(var(--v04-fg-rgb) / 0.07);
+  --rd-acc: var(--v04-accent);
+  --rd-acc-dim: rgb(var(--v04-accent-rgb) / 0.4);
+  --rd-acc-fill: var(--v04-accent-fill);
+  --rd-on-acc: var(--v04-on-accent);
+  --rd-warn: var(--v04-warn);
+  --rd-danger: var(--v04-danger-2);
+  --rd-chev: var(--v04-chevron);
+}
 .root {
-  --rd-bg: #10110f;
-  --rd-panel: #171815;
-  --rd-raised: #20211d;
-  --rd-field: #0f100e;
-  --rd-ink: #e6e7df;
-  --rd-ink2: #92958b;
-  --rd-ink3: #6d7066;
-  --rd-subject: #c7aa72;
-  --rd-answer: #d4d6cd;
-  --rd-line: rgba(255, 255, 255, 0.12);
-  --rd-line2: rgba(255, 255, 255, 0.07);
-  --rd-acc: #dfff4f;
-  --rd-acc-dim: rgba(223, 255, 79, 0.4);
-  --rd-warn: #ffae78;
-  --rd-danger: #ff8f7d;
-  --rd-chev: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --rd-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   position: relative;
-  color-scheme: dark;
+  color-scheme: var(--v04-scheme);
   color: var(--rd-ink);
   font-size: 14px;
   line-height: 1.7;
@@ -53,16 +62,16 @@
 .deck { display: grid; grid-template-columns: var(--rd-colw, 214px) 7px minmax(0, 1fr); align-items: start; gap: 0; min-height: 420px; position: relative; }
 .splitter { position: sticky; top: 0; align-self: stretch; height: 100%; min-height: 420px; cursor: col-resize; touch-action: none; position: relative; }
 .splitter::after { content: ""; position: absolute; inset: 0 2px; background: var(--rd-line2); border-radius: 2px; }
-.splitter:hover::after, .splitterOn::after { background: var(--rd-acc); box-shadow: 0 0 8px rgba(223, 255, 79, 0.5); }
+.splitter:hover::after, .splitterOn::after { background: var(--rd-acc); box-shadow: 0 0 8px rgb(var(--v04-accent-rgb) / 0.5); }
 
-.pagecol { border-right: 1px solid var(--rd-line2); background: #131409; padding: 10px 10px 20px; position: sticky; top: 0; max-height: 78vh; overflow: auto; user-select: none; border-radius: 12px 0 0 12px; }
+.pagecol { border-right: 1px solid var(--rd-line2); background: var(--v04-tint-well); padding: 10px 10px 20px; position: sticky; top: 0; max-height: 78vh; overflow: auto; user-select: none; border-radius: 12px 0 0 12px; }
 .colhead { display: flex; align-items: center; gap: 7px; padding: 2px 3px 9px; color: var(--rd-ink3); font-size: 9.5px; letter-spacing: 0.1em; }
 .colhead b { color: var(--rd-subject); }
 .colheadN { margin-left: auto; font-family: var(--rd-mono); color: var(--rd-ink2); }
 .pagelist { display: grid; gap: 5px; position: relative; touch-action: none; }
 
 .pc { position: relative; display: grid; grid-template-columns: 26px 1fr; gap: 7px; align-items: center; border: 1px solid transparent; border-radius: 8px; padding: 4px; cursor: pointer; }
-.pc img { width: 100%; grid-column: 2; border: 1px solid var(--rd-line); background: #000; display: block; }
+.pc img { width: 100%; grid-column: 2; border: 1px solid var(--rd-line); background: var(--v04-well); display: block; }
 /* 量不出真实像素尺寸（ReportPageView.width/height 为 0，TSX 就不会标 width/
    height 属性）时的占位比例——生产报告几乎全是 16:9。有 width 属性的图不用
    这条：浏览器自己会用属性算出正确的默认 aspect-ratio，这条占位规则反而会
@@ -70,20 +79,20 @@
    占位了，交给图片自己的原始比例。 */
 .pc img:not([width]):not([data-loaded]) { aspect-ratio: 16 / 9; }
 .pcN { grid-column: 1; font-family: var(--rd-mono); font-size: 9.5px; color: var(--rd-ink2); text-align: right; }
-.pc:hover { border-color: var(--rd-line); background: rgba(255, 255, 255, 0.03); }
-.pcSel { border-color: var(--rd-acc) !important; background: rgba(223, 255, 79, 0.12) !important; }
+.pc:hover { border-color: var(--rd-line); background: rgb(var(--v04-fg-rgb) / 0.03); }
+.pcSel { border-color: var(--rd-acc) !important; background: rgb(var(--v04-accent-rgb) / 0.12) !important; }
 .pcTaken { opacity: 0.3; cursor: default; }
 .pcTaken:hover { border-color: transparent; background: none; }
 .pcLit { border-color: var(--rd-lit, var(--rd-acc)); background: color-mix(in srgb, var(--rd-lit, var(--rd-acc)) 14%, transparent); opacity: 1; }
 .pcLit .pcN { color: var(--rd-lit, var(--rd-acc)); }
-.pcFail { display: flex; align-items: center; justify-content: center; width: 100%; grid-column: 2; aspect-ratio: 16 / 9; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 9.5px; text-align: center; padding: 4px; }
+.pcFail { display: flex; align-items: center; justify-content: center; width: 100%; grid-column: 2; aspect-ratio: 16 / 9; border: 1px dashed var(--rd-line); border-radius: 4px; background: var(--v04-warn-well); color: var(--rd-warn); font-size: 9.5px; text-align: center; padding: 4px; }
 
-.marquee { position: fixed; border: 1px solid var(--rd-acc); background: rgba(223, 255, 79, 0.14); border-radius: 3px; pointer-events: none; z-index: 75; }
+.marquee { position: fixed; border: 1px solid var(--rd-acc); background: rgb(var(--v04-accent-rgb) / 0.14); border-radius: 3px; pointer-events: none; z-index: 75; }
 
 .boxcol { padding: 14px 16px 22px; min-height: 380px; }
 
 /* ---------------- 分步引导 ---------------- */
-.guide { border: 1px solid var(--rd-line); border-radius: 14px; background: #15170f; margin: 0 0 14px; }
+.guide { border: 1px solid var(--rd-line); border-radius: 14px; background: var(--v04-tint-card); margin: 0 0 14px; }
 .guideBig { max-width: 640px; margin: 36px auto 0; padding: 22px 26px 18px; }
 .ghead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .ghead small { color: var(--rd-subject); font-size: 9.5px; letter-spacing: 0.14em; font-weight: 900; }
@@ -102,17 +111,17 @@
 .gstep p b { color: var(--rd-acc); font-weight: 700; }
 .gstepTip { color: var(--rd-ink3) !important; font-size: 11.5px !important; }
 .gstepTip::before { content: "※ "; color: var(--rd-subject); }
-.gstepCur { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.06); }
-.gstepCur > b { border-color: var(--rd-acc); background: var(--rd-acc); color: #111; font-weight: 900; }
+.gstepCur { border-color: var(--rd-acc-dim); background: rgb(var(--v04-accent-rgb) / 0.06); }
+.gstepCur > b { border-color: var(--rd-acc-fill); background: var(--rd-acc-fill); color: var(--rd-on-acc); font-weight: 900; }
 .gstepCur h4 { color: var(--rd-ink); font-weight: 800; }
 .gstepDone > b { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
-.gstepDone h4 { color: var(--rd-ink3); text-decoration: line-through; text-decoration-color: rgba(255, 255, 255, 0.25); }
+.gstepDone h4 { color: var(--rd-ink3); text-decoration: line-through; text-decoration-color: rgb(var(--v04-fg-rgb) / 0.25); }
 .guideBar { display: flex; align-items: center; gap: 14px; padding: 8px 12px 8px 14px; }
 .gbar { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 6px; flex: none; }
 .gbar li { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--rd-ink3); white-space: nowrap; }
 .gbar li > b { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 99px; border: 1px solid var(--rd-line); font-family: var(--rd-mono); font-size: 10px; font-weight: 400; }
 .gbarCur { color: var(--rd-ink); font-weight: 800; }
-.gbarCur > b { border-color: var(--rd-acc); background: var(--rd-acc); color: #111; }
+.gbarCur > b { border-color: var(--rd-acc-fill); background: var(--rd-acc-fill); color: var(--rd-on-acc); }
 .gbarDone > b { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
 .gbarSep { width: 18px; height: 1px; background: var(--rd-line); }
 .guideBar > p { margin: 0; flex: 1; min-width: 0; color: var(--rd-answer); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -122,7 +131,7 @@
 .startpanel p { margin: 0; font-size: 12px; max-width: 390px; line-height: 1.85; }
 
 /* ---------------- 模块／单元收纳框 ---------------- */
-.box { border: 1px solid var(--rd-line); border-left: 3px solid var(--rd-k, var(--rd-subject)); border-radius: 0 12px 12px 0; background: #15170f; margin: 0 0 12px; }
+.box { border: 1px solid var(--rd-line); border-left: 3px solid var(--rd-k, var(--rd-subject)); border-radius: 0 12px 12px 0; background: var(--v04-tint-card); margin: 0 0 12px; }
 .boxFocus { box-shadow: 0 0 0 1px var(--rd-k, var(--rd-subject)); }
 .boxHead { display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid var(--rd-line2); cursor: pointer; flex-wrap: wrap; }
 .boxNo { flex: none; font-family: var(--rd-mono); font-size: 11px; color: var(--rd-k, var(--rd-subject)); font-weight: 800; }
@@ -139,11 +148,11 @@
   background-color: var(--rd-field); background-image: var(--rd-chev); background-repeat: no-repeat;
   background-position: center; background-size: 10px 6px; opacity: 1; font-size: 0;
 }
-.root .boxNameChevron:hover { border-color: var(--rd-acc-dim); background-color: rgba(223, 255, 79, 0.12); }
+.root .boxNameChevron:hover { border-color: var(--rd-acc-dim); background-color: rgb(var(--v04-accent-rgb) / 0.12); }
 /* 候选菜单——demo 的 `#cbmenu`。 */
-.cbMenu { position: fixed; z-index: 97; display: grid; gap: 2px; min-width: 130px; border: 1px solid var(--rd-line); border-radius: 10px; background: var(--rd-panel); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); padding: 5px; }
+.cbMenu { position: fixed; z-index: 97; display: grid; gap: 2px; min-width: 130px; border: 1px solid var(--rd-line); border-radius: 10px; background: var(--rd-panel); box-shadow: 0 16px 40px rgb(var(--v04-shadow-rgb) / calc(0.6 * var(--v04-shadow-strength))); padding: 5px; }
 .root .cbMenu button { text-align: left; padding: 6px 10px; border-radius: 7px; font-size: 11.5px; white-space: nowrap; color: var(--rd-ink); }
-.root .cbMenu button:hover { background: rgba(223, 255, 79, 0.1); color: var(--rd-acc); }
+.root .cbMenu button:hover { background: rgb(var(--v04-accent-rgb) / 0.1); color: var(--rd-acc); }
 /* demo #cbmenu button.on 是复合选择器（约 233 行），不是单独的 .on——同名 .cbMenuOn
    若单写会天生比 `.cbMenu button` 低一档特异度，选中态的 color 永远赢不了基础态；
    这里照抄成复合选择器，顺带把它也提到能压过 V04Surface `.surface button{font:inherit}`
@@ -151,49 +160,49 @@
 .root .cbMenu button.cbMenuOn { color: var(--rd-acc); font-weight: 700; }
 .root .boxAct { flex: none; border: 1px solid var(--rd-line); border-radius: 999px; padding: 2px 9px; font-size: 9.5px; color: var(--rd-ink2); }
 .root .boxAct:hover { border-color: var(--rd-acc-dim); color: var(--rd-acc); }
-.root .boxActOn { border-color: var(--rd-acc-dim); color: var(--rd-acc); background: rgba(223, 255, 79, 0.1); }
-.root .boxActDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
+.root .boxActOn { border-color: var(--rd-acc-dim); color: var(--rd-acc); background: rgb(var(--v04-accent-rgb) / 0.1); }
+.root .boxActDel:hover { border-color: rgb(var(--v04-danger-2-rgb) / 0.5); color: var(--rd-danger); }
 /* 收纳框标题栏下一行的划分来源（仅 traceMode，docs/21 一之 D）——跟标题栏
    本身的左右内边距对齐（12px），顶部留一点点空隙、底部接到 .tray 之前。 */
 .boxSpanTrace { padding: 2px 12px 9px; }
-.unitbox { margin: 8px 10px 10px; background: #171910; }
-.unitbox .unitbox { background: #191b12; }
+.unitbox { margin: 8px 10px 10px; background: var(--v04-tint-nest); }
+.unitbox .unitbox { background: var(--v04-tint-nest-2); }
 
 .tray { display: flex; flex-wrap: wrap; gap: 6px; padding: 9px 11px; min-height: 44px; user-select: none; position: relative; touch-action: none; }
 .trayEmpty { align-items: center; color: var(--rd-ink3); font-size: 11px; padding: 11px; }
 .tk { position: relative; width: 84px; border: 1px solid transparent; border-radius: 7px; padding: 3px; cursor: pointer; }
-.tk img { display: block; width: 100%; border: 1px solid var(--rd-line); background: #000; }
+.tk img { display: block; width: 100%; border: 1px solid var(--rd-line); background: var(--v04-well); }
 .tk img:not([width]):not([data-loaded]) { aspect-ratio: 16 / 9; }
 .tkCaption { display: block; margin-top: 3px; font-family: var(--rd-mono); font-size: 9px; color: var(--rd-ink2); font-weight: 500; text-align: center; }
-.tk:hover { border-color: var(--rd-line); background: rgba(255, 255, 255, 0.04); }
-.tkSel { border-color: var(--rd-acc) !important; background: rgba(223, 255, 79, 0.14) !important; }
+.tk:hover { border-color: var(--rd-line); background: rgb(var(--v04-fg-rgb) / 0.04); }
+.tkSel { border-color: var(--rd-acc) !important; background: rgb(var(--v04-accent-rgb) / 0.14) !important; }
 .tkTaken { opacity: 0.32; }
-.tkFail { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; border: 1px dashed var(--rd-line); border-radius: 4px; background: #1a1006; color: var(--rd-warn); font-size: 8px; text-align: center; padding: 2px; }
-.dot { position: absolute; top: 4px; left: 4px; z-index: 2; display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 99px; background: var(--rd-acc); color: #111; font-size: 9px; font-weight: 900; line-height: 1; }
-.dotHalf { background: transparent; border: 1px solid rgba(223, 255, 79, 0.55); color: rgba(223, 255, 79, 0.75); font-weight: 600; }
+.tkFail { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; border: 1px dashed var(--rd-line); border-radius: 4px; background: var(--v04-warn-well); color: var(--rd-warn); font-size: 8px; text-align: center; padding: 2px; }
+.dot { position: absolute; top: 4px; left: 4px; z-index: 2; display: flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 99px; background: var(--rd-acc-fill); color: var(--rd-on-acc); font-size: 9px; font-weight: 900; line-height: 1; }
+.dotHalf { background: transparent; border: 1px solid rgb(var(--v04-accent-rgb) / 0.55); color: rgb(var(--v04-accent-rgb) / 0.75); font-weight: 600; }
 .pcDot { left: auto; right: 4px; top: 4px; }
 .dropok { outline: 2px dashed var(--rd-acc); outline-offset: -3px; }
 /* 卡片右上角悬浮出的"标注"入口——demo 的 `.pc .open,.tk .open`：hover／
    键盘 focus 才现身，选中态直接不露（选中已经是主要操作，两个入口叠一起
    会乱）。CSS 驱动而不是内联 JS 切 opacity，才接得上 :focus-visible 和
    .sel 这两条规则。 */
-.root .openHint { position: absolute; top: 4px; right: 4px; z-index: 3; opacity: 0; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(16, 17, 15, 0.92); color: var(--rd-acc); font-size: 9px; padding: 1px 7px; transition: opacity 0.12s; }
+.root .openHint { position: absolute; top: 4px; right: 4px; z-index: 3; opacity: 0; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgb(var(--v04-bg-rgb) / 0.92); color: var(--rd-acc); font-size: 9px; padding: 1px 7px; transition: opacity 0.12s; }
 .pc:hover .openHint, .tk:hover .openHint, .openHint:focus-visible { opacity: 1; }
 .pcSel .openHint, .tkSel .openHint { display: none; }
-.insbar { width: 3px; align-self: stretch; min-height: 52px; margin: 3px 1px; border-radius: 2px; background: var(--rd-acc); box-shadow: 0 0 10px rgba(223, 255, 79, 0.7); flex: none; }
+.insbar { width: 3px; align-self: stretch; min-height: 52px; margin: 3px 1px; border-radius: 2px; background: var(--rd-acc); box-shadow: 0 0 10px rgb(var(--v04-accent-rgb) / 0.7); flex: none; }
 .trayfold { display: flex; align-items: center; gap: 8px; padding: 7px 12px; color: var(--rd-ink3); font-size: 10.5px; cursor: pointer; width: 100%; }
 .trayfold:hover { color: var(--rd-acc); }
 .trayfold b { font-family: var(--rd-mono); color: var(--rd-ink2); font-weight: 500; }
 .trayfoldMore { margin-left: auto; border: 1px solid var(--rd-line); border-radius: 999px; padding: 1px 8px; font-size: 9.5px; }
 
 /* ---------------- 拖动提示 / 浮出工具栏 ---------------- */
-.dragtip { position: fixed; z-index: 96; pointer-events: none; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(23, 24, 21, 0.98); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5); padding: 5px 11px; font-size: 11px; color: var(--rd-acc); white-space: nowrap; }
-.dragtipNo { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
+.dragtip { position: fixed; z-index: 96; pointer-events: none; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgb(var(--v04-panel-rgb) / 0.98); box-shadow: 0 10px 26px rgb(var(--v04-shadow-rgb) / calc(0.5 * var(--v04-shadow-strength))); padding: 5px 11px; font-size: 11px; color: var(--rd-acc); white-space: nowrap; }
+.dragtipNo { border-color: rgb(var(--v04-danger-2-rgb) / 0.5); color: var(--rd-danger); }
 
-.fab { position: fixed; z-index: 70; display: flex; gap: 7px; align-items: center; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgba(23, 24, 21, 0.98); box-shadow: 0 14px 38px rgba(0, 0, 0, 0.55); padding: 6px 8px 6px 13px; font-size: 11.5px; color: var(--rd-ink); }
+.fab { position: fixed; z-index: 70; display: flex; gap: 7px; align-items: center; border: 1px solid var(--rd-acc-dim); border-radius: 999px; background: rgb(var(--v04-panel-rgb) / 0.98); box-shadow: 0 14px 38px rgb(var(--v04-shadow-rgb) / calc(0.55 * var(--v04-shadow-strength))); padding: 6px 8px 6px 13px; font-size: 11.5px; color: var(--rd-ink); }
 .fab b { color: var(--rd-acc); font-family: var(--rd-mono); }
-.root .fabAct { border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--rd-acc); font-weight: 700; background: rgba(223, 255, 79, 0.1); }
-.root .fabAct:hover { background: rgba(223, 255, 79, 0.2); }
+.root .fabAct { border: 1px solid var(--rd-acc-dim); border-radius: 999px; padding: 5px 13px; font-size: 11.5px; color: var(--rd-acc); font-weight: 700; background: rgb(var(--v04-accent-rgb) / 0.1); }
+.root .fabAct:hover { background: rgb(var(--v04-accent-rgb) / 0.2); }
 .root .fabAct:disabled { opacity: 0.4; cursor: not-allowed; }
 .root .fabX { border: 0; color: var(--rd-ink3); padding: 5px 7px; font-weight: 400; }
 .fabReason { color: var(--rd-ink3); font-size: 10.5px; }
@@ -209,7 +218,7 @@
    `.pop` 的 `--rd-panel` 透出来，不裁边也不会露出方角色差；浮层本身的高度
    交给 `ReportSectionPopover` 的 `placeAnchoredPanel`（量整个 `.pop` 的
    `getBoundingClientRect()` 再收进视口）兜底，不需要在这两层另设 max-height。 */
-.pop { position: fixed; z-index: 80; width: min(520px, calc(100vw - 28px)); border: 1px solid var(--rd-line); border-radius: 13px; background: var(--rd-panel); box-shadow: 0 20px 54px rgba(0, 0, 0, 0.6); overflow: visible; }
+.pop { position: fixed; z-index: 80; width: min(520px, calc(100vw - 28px)); border: 1px solid var(--rd-line); border-radius: 13px; background: var(--rd-panel); box-shadow: 0 20px 54px rgb(var(--v04-shadow-rgb) / calc(0.6 * var(--v04-shadow-strength))); overflow: visible; }
 .popHead { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border-bottom: 1px solid var(--rd-line2); cursor: grab; user-select: none; touch-action: none; }
 .popHead:active { cursor: grabbing; }
 .popHead small { color: var(--rd-subject); font-size: 9px; letter-spacing: 0.12em; }
@@ -221,7 +230,7 @@
 .popReadOnlyNote { grid-column: 1 / -1; margin: 0; color: var(--rd-ink3); font-size: 11px; }
 
 /* ---------------- 悬浮预览 ---------------- */
-.peek { position: fixed; z-index: 79; width: 440px; border: 1px solid var(--rd-line); border-radius: 12px; background: var(--rd-panel); box-shadow: 0 20px 54px rgba(0, 0, 0, 0.65); overflow: hidden; pointer-events: none; }
+.peek { position: fixed; z-index: 79; width: 440px; border: 1px solid var(--rd-line); border-radius: 12px; background: var(--rd-panel); box-shadow: 0 20px 54px rgb(var(--v04-shadow-rgb) / calc(0.65 * var(--v04-shadow-strength))); overflow: hidden; pointer-events: none; }
 .peek img { display: block; width: 100%; }
 .peekCap { display: flex; gap: 9px; align-items: baseline; padding: 7px 11px; font-size: 11px; color: var(--rd-ink2); border-top: 1px solid var(--rd-line2); }
 .peekCap b { font-family: var(--rd-mono); color: var(--rd-subject); }
@@ -230,7 +239,7 @@
 .item { position: relative; min-width: 0; }
 .item > small { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; color: var(--rd-subject); font-size: 10px; font-weight: 800; }
 .val { display: inline-block; min-width: 52px; border-bottom: 1px dashed transparent; color: var(--rd-answer); cursor: text; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
-.val:hover { border-bottom-color: var(--rd-line); background: rgba(255, 255, 255, 0.03); }
+.val:hover { border-bottom-color: var(--rd-line); background: rgb(var(--v04-fg-rgb) / 0.03); }
 .valBlank { color: var(--rd-ink3); }
 .valBlock { display: block; min-height: 22px; }
 .root .editing { width: 100%; border: 1px solid var(--rd-acc-dim); border-radius: 6px; background: var(--rd-field); padding: 6px 8px; line-height: 1.6; resize: vertical; font-size: 12.5px; }
@@ -238,7 +247,7 @@
 .sysval::before { content: "⌾"; color: var(--rd-ink3); font-size: 10px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .root .chips button { border: 1px solid var(--rd-line); border-radius: 999px; padding: 4px 10px; font-size: 11px; color: var(--rd-ink2); }
-.root .chips button.chipOn { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.13); color: var(--rd-acc); font-weight: 700; }
+.root .chips button.chipOn { border-color: var(--rd-acc-dim); background: rgb(var(--v04-accent-rgb) / 0.13); color: var(--rd-acc); font-weight: 700; }
 
 /* ---------------- 评论入口：容器 hover/focus-within 才显现 ---------------- */
 /* `DeckCommentEntry` 套的是 `V19ReviewComment`（components/v04），它的
@@ -264,7 +273,7 @@
    是我之前顶位置时写的一版站位实现，组件删掉后这些类也跟着清掉。 */
 
 /* ---------------- 页面＋组块 modal ---------------- */
-.ov { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; background: rgba(6, 7, 6, 0.86); backdrop-filter: blur(6px); }
+.ov { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; background: var(--v04-scrim); backdrop-filter: blur(6px); }
 .ovbox { width: min(1220px, calc(100vw - 36px)); height: min(880px, calc(100vh - 36px)); display: flex; flex-direction: column; border: 1px solid var(--rd-line); border-radius: 16px; background: var(--rd-panel); overflow: hidden; }
 .ovhead { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid var(--rd-line); }
 .ovhead b { font-family: var(--rd-mono); color: var(--rd-subject); }
@@ -275,9 +284,9 @@
 .ovpage { position: relative; width: min(760px, 100%); user-select: none; touch-action: none; }
 .ovpage img { display: block; width: 100%; height: auto; }
 .ovpageDraw { cursor: crosshair; }
-.ovb { position: absolute; border: 1.5px solid rgba(223, 255, 79, 0.8); background: rgba(223, 255, 79, 0.1); cursor: pointer; }
-.ovbOn { border-color: #fff; background: rgba(255, 255, 255, 0.16); box-shadow: 0 0 0 1px var(--rd-acc-dim); }
-.ovbNum { position: absolute; top: -2px; left: -2px; background: var(--rd-acc); color: #111; font-family: var(--rd-mono); font-size: 10px; padding: 0 5px; }
+.ovb { position: absolute; border: 1.5px solid rgb(var(--v04-accent-rgb) / 0.8); background: rgb(var(--v04-accent-rgb) / 0.1); cursor: pointer; }
+.ovbOn { border-color: #fff; background: rgb(var(--v04-fg-rgb) / 0.16); box-shadow: 0 0 0 1px var(--rd-acc-dim); }
+.ovbNum { position: absolute; top: -2px; left: -2px; background: var(--rd-acc-fill); color: var(--rd-on-acc); font-family: var(--rd-mono); font-size: 10px; padding: 0 5px; }
 /* 这一栏要滚（组块可以有很多个，不能像 .pop 那样干脆不裁），所以评论面板
    还是可能比这栏的可视高度更靠下——面板本身没被裁（overflow:auto 允许滚出
    来），但滚到底时贴着容器最后一点内容，几乎没有余量。留一块顶评论面板
@@ -289,11 +298,11 @@
 .ovgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
 .ovgrid .wide { grid-column: 1 / -1; }
 .bk { border: 1px solid var(--rd-line2); border-radius: 10px; padding: 9px 11px; margin-bottom: 8px; }
-.bkOn { border-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.06); }
+.bkOn { border-color: var(--rd-acc-dim); background: rgb(var(--v04-accent-rgb) / 0.06); }
 .bkL { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .bkL b { font-family: var(--rd-mono); color: var(--rd-acc); font-size: 11px; }
 .root .bkDel { margin-left: auto; border: 1px solid var(--rd-line); border-radius: 999px; padding: 1px 8px; font-size: 9px; color: var(--rd-ink3); }
-.root .bkDel:hover { border-color: rgba(255, 143, 125, 0.5); color: var(--rd-danger); }
+.root .bkDel:hover { border-color: rgb(var(--v04-danger-2-rgb) / 0.5); color: var(--rd-danger); }
 .bkG { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 7px; }
 .bkG .wide { grid-column: 1 / -1; }
 .bkEmpty { color: var(--rd-ink3); font-size: 11.5px; margin: 0; }
@@ -316,7 +325,7 @@
 .readerTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rd-ink2); font-size: 11.5px; }
 .readerBody { flex: 1; overflow: auto; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; background: #080907; }
 .readerPage { display: flex; flex-direction: column; align-items: center; gap: 6px; width: min(820px, 100%); flex: none; }
-.readerPage img { display: block; width: 100%; height: auto; border: 1px solid var(--rd-line); background: #000; }
+.readerPage img { display: block; width: 100%; height: auto; border: 1px solid var(--rd-line); background: var(--v04-well); }
 /* 同 .pc img/.tk img 那条：量得出尺寸的图标了 width/height 属性，交给浏览器
    按属性自己算 aspect-ratio，才能安全用 loading="lazy"（不然未加载的图没有
    高度，进不了视口判定，一整列大图会卡死不加载，参见那两条规则旁边的注释）；
@@ -333,7 +342,7 @@
 .kids::before { content: ""; position: absolute; left: 0; top: 26px; bottom: 26px; width: 1px; background: var(--rd-line); }
 .kid { position: relative; display: flex; align-items: center; }
 .kid::before { content: ""; position: absolute; left: -30px; top: 50%; width: 30px; height: 1px; background: var(--rd-line); }
-.node { position: relative; width: 250px; border: 1px solid var(--rd-line); border-left: 3px solid var(--rd-k, var(--rd-subject)); border-radius: 0 10px 10px 0; background: #15170f; padding: 9px 12px; cursor: pointer; }
+.node { position: relative; width: 250px; border: 1px solid var(--rd-line); border-left: 3px solid var(--rd-k, var(--rd-subject)); border-radius: 0 10px 10px 0; background: var(--v04-tint-card); padding: 9px 12px; cursor: pointer; }
 .node:hover { border-color: var(--rd-acc-dim); }
 .nodeRoot { --rd-k: var(--rd-ink); cursor: default; background: var(--rd-raised); }
 .node b { font-family: var(--rd-mono); font-size: 10.5px; color: var(--rd-k, var(--rd-subject)); margin-right: 8px; }
@@ -358,7 +367,7 @@
   background: transparent; padding: 4px 9px; text-align: left; font: inherit; color: var(--rd-ink3);
   font-size: 11px; line-height: 1.3; cursor: pointer;
 }
-.finalTraceSummaryRow:hover { border-left-color: var(--rd-acc-dim); background: rgba(223, 255, 79, 0.05); }
+.finalTraceSummaryRow:hover { border-left-color: var(--rd-acc-dim); background: rgb(var(--v04-accent-rgb) / 0.05); }
 .finalTraceSummaryLabel { color: var(--rd-ink3); font-family: var(--rd-mono); font-weight: 400; margin-right: 8px; }
 .finalTraceSummaryPreview { color: var(--rd-ink3); opacity: 0.72; }
 .finalTraceSummaryRow[aria-expanded="false"] .finalTraceSummaryPreview {
@@ -376,17 +385,17 @@
 .finalTraceTime { font-family: var(--rd-mono); font-size: 9.5px; }
 .finalTraceValue { grid-column: 1 / -1; color: var(--rd-ink3); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
 .finalTraceTag { justify-self: start; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; font-size: 9px; font-weight: 800; }
-.finalTraceRowPending { border-left-color: rgba(255, 174, 120, 0.55); background: rgba(255, 174, 120, 0.08); }
+.finalTraceRowPending { border-left-color: rgb(var(--v04-warn-rgb) / 0.55); background: rgb(var(--v04-warn-rgb) / 0.08); }
 .finalTraceRowPending .finalTraceTag { color: var(--rd-warn); }
 .root .finalTraceAdopt {
-  grid-column: 1 / -1; justify-self: start; border: 1px solid rgba(255, 174, 120, 0.55); border-radius: 999px;
+  grid-column: 1 / -1; justify-self: start; border: 1px solid rgb(var(--v04-warn-rgb) / 0.55); border-radius: 999px;
   background: transparent; color: var(--rd-warn); padding: 2px 10px; font: inherit; font-size: 10px; cursor: pointer;
 }
-.finalTraceAdopt:hover { background: rgba(255, 174, 120, 0.15); }
+.finalTraceAdopt:hover { background: rgb(var(--v04-warn-rgb) / 0.15); }
 
 /* ---------------- 内部 toast ---------------- */
 .toastHost { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 99; display: grid; gap: 8px; justify-items: center; pointer-events: none; }
-.toastHost div { border: 1px solid var(--rd-line); border-radius: 12px; background: rgba(31, 25, 20, 0.97); padding: 9px 15px; font-size: 12px; box-shadow: 0 16px 42px rgba(0, 0, 0, 0.4); color: var(--rd-ink); }
+.toastHost div { border: 1px solid var(--rd-line); border-radius: 12px; background: var(--v04-warn-surface); padding: 9px 15px; font-size: 12px; box-shadow: 0 16px 42px rgb(var(--v04-shadow-rgb) / calc(0.4 * var(--v04-shadow-strength))); color: var(--rd-ink); }
 
 /* ---------------- 标注浮层开启期间：deck 冻结（只看不动） ---------------- */
 /* pointer-events:none 直接了当地做到"完全不可操作"，比 demo 的"拦截点击再弹 toast" 更省事；

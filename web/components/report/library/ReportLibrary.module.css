@@ -1,7 +1,9 @@
 /* 报告库首页的报告特有样式。布局壳（siteHeader / libraryHero / libraryToolbar /
    weekToggle / caseGrid / caseCard / emptyState / weekSection 等）直接复用
-   components/v04/V04Surface.module.css 的同名类，颜色也都取自它在 .surface 上
-   声明的 --v04-* 自定义属性；这里只补报告特有的东西：四态封面、重试按钮、上传对话框。
+   components/v04/V04Surface.module.css 的同名类，颜色也都取自 app/globals.css
+   声明的 --v04-* 深浅两套配色变量；这里只补报告特有的东西：四态封面、重试按钮、上传对话框。
+   封面是深色岛（ReportCard 上的 data-v04-scheme="dark"），两种主题下都是深色，
+   所以封面那几条规则保留写死的深色值。
    见 docs/demos/2026-09-02-报告库首页demo.html。 */
 
 /* ---------------- 封面：READY 用缩略图，其余三态是占位 + 状态条 ---------------- */
@@ -54,9 +56,9 @@
 /* 失败态整支用 demo 的 --danger（#ff8f7d，见 demo 第 17、180 行），报告库自己的类，不碰共享文件。 */
 .coverStateFailed b { color: #ff8f7d; }
 .coverState small { color: rgba(255,255,255,.72); font-size: 10.5px; line-height: 1.5; display: block; }
-.coverBar { height: 5px; border-radius: 99px; background: rgba(255,255,255,.18); overflow: hidden; }
+.coverBar { height: 5px; border-radius: 99px; background: rgb(var(--v04-fg-rgb) / .18); overflow: hidden; }
 .coverBarFill { display: block; height: 100%; background: var(--v04-accent); border-radius: 99px; transition: width .4s; }
-.coverBarError { background: #ff8f7d; }
+.coverBarError { background: var(--v04-danger-2); }
 
 /* ---------- 就绪之外的主按钮：鼠标点不动，键盘还能聚焦触发 toast ---------- */
 /* demo 的禁用态就是 .enter 本体套 opacity:.45 + pointer-events:none（demo 第 118 行），
@@ -64,8 +66,8 @@
    （见 demo 第 251 行的 data-enter 委托——键盘激活不走指针命中测试）。 */
 .enterPillDisabled {
   display: inline-flex; align-items: center; min-height: 38px;
-  border: 1px solid rgba(255,255,255,.22); border-radius: 999px;
-  background: rgba(18,19,16,.88); color: var(--v04-ink);
+  border: 1px solid rgb(var(--v04-fg-rgb) / .22); border-radius: 999px;
+  background: rgb(var(--v04-bg-rgb) / .88); color: var(--v04-ink);
   padding: 0 16px; font-size: 11px; font-weight: 900;
   opacity: .45; cursor: not-allowed; pointer-events: none;
 }
@@ -81,20 +83,20 @@
   background: none; color: var(--v04-muted);
   padding: 6px 11px; font-size: 10.5px; cursor: pointer;
 }
-.retryButton:hover:not(:disabled) { border-color: rgba(223,255,79,.4); color: var(--v04-accent); }
+.retryButton:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
 .retryButton:disabled { cursor: progress; opacity: .55; }
 /* 删除是不可逆动作，demo 给它单独一支橙红（.retry button.del:hover，--danger:#ff8f7d），
    与站内别处收藏/评论删除用的 #ff9a9a 不是同一个值——这里照 demo 保留这处细微差异。 */
-.retryButtonDanger:hover:not(:disabled) { border-color: rgba(255,143,125,.5); color: #ff8f7d; }
+.retryButtonDanger:hover:not(:disabled) { border-color: rgb(var(--v04-danger-2-rgb) / .5); color: var(--v04-danger-2); }
 
 /* 任务类型 chip 比普通标签多一点强调，呼应 demo 的 .cband .task。 */
-.taskTypeTag { border-color: rgba(223,255,79,.4) !important; color: var(--v04-accent) !important; }
+.taskTypeTag { border-color: rgb(var(--v04-accent-rgb) / .4) !important; color: var(--v04-accent) !important; }
 
 /* ---------------- 上传对话框 ---------------- */
 .uploadBackdrop {
   position: fixed; inset: 0; z-index: 90;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(6,7,6,.86); backdrop-filter: blur(6px);
+  background: var(--v04-scrim); backdrop-filter: blur(6px);
   padding: 16px;
 }
 .uploadDialog {
@@ -113,32 +115,32 @@
   width: 100%; border: 1px dashed var(--v04-line); border-radius: 12px; padding: 22px;
   text-align: center; cursor: pointer; font-size: 11.5px;
   /* demo 用 --ink3（#6d7066），比正文的 --v04-muted 更沉一档，见 demo 第 132 行。 */
-  color: #6d7066;
+  color: var(--v04-faint);
   background: none;
 }
 .fileDrop b { color: var(--v04-accent); font-size: 13px; }
 /* demo 的 --answer（#d4d6cd）比 --v04-ink（#e6e7df）暗一档，见 demo 第 134 行。 */
-.fileDropHas { border-style: solid; border-color: rgba(223,255,79,.4); color: #d4d6cd; }
-.fileDrop:hover { border-color: rgba(223,255,79,.4); background: rgba(223,255,79,.05); }
+.fileDropHas { border-style: solid; border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-ink-soft); }
+.fileDrop:hover { border-color: rgb(var(--v04-accent-rgb) / .4); background: rgb(var(--v04-accent-rgb) / .05); }
 .fileDrop:disabled { cursor: not-allowed; opacity: .6; }
 
 .field { display: grid; gap: 5px; }
 .field small { color: var(--v04-subject); font-size: 10px; font-weight: 800; }
 .field input, .field select {
-  border: 1px solid var(--v04-line); border-radius: 999px; background: #0f100e;
+  border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-sunken);
   padding: 0 12px; height: 30px; font-size: 12px; color: var(--v04-ink);
 }
-.field select { appearance: none; background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px; padding-right: 28px; }
+.field select { appearance: none; background-image: var(--v04-chevron); background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px; padding-right: 28px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 .hint {
-  border-left: 3px solid var(--v04-subject); background: rgba(199,170,114,.07);
+  border-left: 3px solid var(--v04-subject); background: rgb(var(--v04-subject-rgb) / .07);
   padding: 9px 12px; border-radius: 0 9px 9px 0; font-size: 11.5px; line-height: 1.7;
   /* demo 的 --answer（#d4d6cd），见 demo 第 141 行。 */
-  color: #d4d6cd;
+  color: var(--v04-ink-soft);
 }
 
-.formError { color: #ff9a9a; font-size: 11.5px; line-height: 1.6; }
+.formError { color: var(--v04-danger); font-size: 11.5px; line-height: 1.6; }
 
 /* 正在上传时整张表单换成这一小块（demo 的 .up，第 146 行）：文件名／百分比／进度条／状态语
    四个直接子节点，靠 .uploadBody 的 grid 逐行堆叠，不是横向并排。 */
@@ -147,8 +149,8 @@
 
 .uploadFooter { display: flex; justify-content: flex-end; gap: 9px; padding: 12px 18px; border-top: 1px solid var(--v04-line); }
 .uploadFooter button { border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-ink); padding: 8px 15px; font-size: 12px; cursor: pointer; }
-.uploadFooter button:hover:not(:disabled) { border-color: rgba(223,255,79,.4); color: var(--v04-accent); }
-.uploadGo { border-color: rgba(223,255,79,.4) !important; color: var(--v04-accent) !important; background: rgba(223,255,79,.1) !important; }
+.uploadFooter button:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.uploadGo { border-color: rgb(var(--v04-accent-rgb) / .4) !important; color: var(--v04-accent) !important; background: rgb(var(--v04-accent-rgb) / .1) !important; }
 .uploadGo:disabled { opacity: .4; cursor: not-allowed; }
 
 /* toast 已提炼到 components/shared/LibraryToast.module.css，两个库共用。 */

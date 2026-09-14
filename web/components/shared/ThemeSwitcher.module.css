@@ -1,0 +1,44 @@
+/* 顶栏外观开关。按钮规则一律写成 `.root .xxx`（0,2,0）：它渲染在 V04 的
+   `.surface` 里，`.surface button { font: inherit }`（0,1,1）会压过单个类名。 */
+.root { position: relative; display: inline-flex; flex: none; }
+
+.root .trigger {
+  display: grid; width: 32px; height: 32px; place-items: center;
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent;
+  color: var(--v04-muted); padding: 0; cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.root .trigger:hover, .root .trigger[aria-expanded="true"] {
+  border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent);
+}
+.root svg { display: block; width: 15px; height: 15px; flex: none; }
+
+.popover {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 70;
+  width: 220px; padding: 6px;
+  border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-panel);
+  box-shadow: 0 18px 44px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)));
+  color: var(--v04-ink); text-align: left;
+}
+.heading {
+  margin: 5px 9px 7px; color: var(--v04-subject);
+  font-size: 9px; font-weight: 900; letter-spacing: .14em;
+}
+
+.root .option {
+  display: flex; width: 100%; align-items: center; gap: 10px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--v04-ink);
+  padding: 9px 10px; font-size: 12px; font-weight: 600; line-height: 1.35; text-align: left; cursor: pointer;
+}
+.root .option:hover { background: rgb(var(--v04-fg-rgb) / .06); }
+.root .option[aria-checked="true"] { background: rgb(var(--v04-accent-rgb) / .1); color: var(--v04-accent); }
+.option span { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.option small { color: var(--v04-muted); font-size: 10px; font-weight: 400; }
+.option b { font-size: 11px; }
+
+/* 手机宽度下，工作台那几条顶栏（带 data-v04-fixed-header 的）本来就挤满一行了：
+   版本、保存状态、姓名已经顶到左边的站标，再多一个按钮会把站标也压住。
+   偏好是全站通用的，手机上到案例库顶栏切换就行。 */
+@media (max-width: 620px) {
+  :global([data-v04-fixed-header]) .root { display: none; }
+}

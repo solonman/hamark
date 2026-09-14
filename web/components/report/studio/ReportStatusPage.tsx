@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { ReportDetail } from "@/lib/report-model";
 import { loadReportDetail, retryReport, ReportStudioApiError } from "./report-studio-api";
+import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import v04styles from "@/components/v04/V04Surface.module.css";
 import styles from "./ReportStudio.module.css";
 
@@ -85,6 +86,7 @@ export default function ReportStatusPage({ reportId, initialReport, canManage, l
         </nav>
         <div className={v04styles.siteUtilities}>
           <Link href={libraryHref}>返回报告库</Link>
+          <ThemeSwitcher />
         </div>
       </header>
       <section className={v04styles.emptyState}>

@@ -38,6 +38,7 @@ import { formatShortDateTime } from "@/lib/date-format";
 import { describeV19StructuralIntake, pendingV19StructuralIntakes } from "@/lib/v19-final-trace";
 import type { V19StudioFinalContext } from "./V19StudioDocument";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V19StudioDocument from "./V19StudioDocument";
 import V19AssignmentRating from "./V19AssignmentRating";
@@ -1421,6 +1422,7 @@ export default function V04StudioClient({
             </span>
             {saveStatus.kind === "ERROR" && <button type="button" onClick={retrySave}>重试</button>}
           </span>
+          <ThemeSwitcher />
           <span>{viewerName}</span>
         </div>
       </header>

@@ -721,6 +721,6 @@ test("样式：正文与「当前采用」之间不再有虚线分隔，间距�
   // 锁定态（非老孙）字段 hover 出来的琥珀色虚线是完全不同的一套东西
   // （V19EditableValue/V04ChoiceField 的 .editableLocked / .choiceTriggerLocked），
   // 这轮反馈明确说了不要动它。
-  assert.match(css, /\.editableLocked:hover \{ border-bottom-color: rgba\(255, 174, 120, \.55\); background: rgba\(255, 174, 120, \.08\); \}/,
+  assert.match(css, /\.editableLocked:hover \{ border-bottom-color: rgb\(var\(--v04-warn-rgb\) \/ \.55\); background: rgb\(var\(--v04-warn-rgb\) \/ \.08\); \}/,
     "the locked-field amber dashed hover treatment must remain untouched");
 });

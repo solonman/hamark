@@ -29,7 +29,7 @@ import type { ReportMindMapButtonProps } from "./deck-types";
  * 关住，脑图整个挤扁贴在标题栏那一条上，这正是协调方在真实工作台里看到、
  * 预览页（按钮外层没有 backdrop-filter 祖先）复现不出来的那个 bug。SSR 阶段
  * 没有 `document`，`mounted` 挂载后才第一次真正 portal；portal 出去之后这块
- * 内容脱离了 `ReportDeck` 自己的 `.root`（那里定义了全部 `--rd-*` 深色主题
+ * 内容脱离了 `ReportDeck` 自己的 `.root`（那里定义了全部 `--rd-*` 配色
  * 变量），所以额外套一层 `styles.root` 把变量作用域接回来，不然面板会因为
  * 变量取不到值而背景透明、边框隐形。
  */
