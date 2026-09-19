@@ -264,13 +264,13 @@ export default function VisualLibrary({
         <span>户外广告、公共艺术、商业展陈。</span>
       </section>
       <section className={v04.libraryToolbar} ref={toolbarRef}>
-        <div>
+        <div className={styles.toolbarTitle}>
           <p>PUBLIC VISUAL LIBRARY{loading || loadError ? null : (
             <span className={v04.libraryCount}> · {libraryCountLabel(searched.length, cases.length, "条")}</span>
           )}</p>
           <h2>公共视觉库</h2>
         </div>
-        <div className={v04.libraryToolbarControls}>
+        <div className={`${v04.libraryToolbarControls} ${styles.toolbarControls}`}>
           <div className={styles.filterGroup} role="radiogroup" aria-label="子领域">
             {SUBDOMAIN_OPTIONS.map((option) => (
               <button
@@ -326,7 +326,7 @@ export default function VisualLibrary({
           >
             只看我收藏的
           </button>
-          <label className={v04.librarySearch}>
+          <label className={`${v04.librarySearch} ${styles.toolbarSearch}`}>
             <span aria-hidden>⌕</span>
             <input
               aria-label="搜索案例"

@@ -81,7 +81,7 @@ function VisualCover({ item, notify }: { item: VisualCaseListItem; notify: (mess
       {badge ? <span className={report.coverFormat}>{badge}</span> : null}
       {ready && cover && cover.derivativeStatus === "READY" && cover.type === "VIDEO" ? (
         <>
-          <span className={v04.playButton} aria-hidden>▶</span>
+          <span className={styles.coverPlay} aria-hidden>▶</span>
           <span className={report.coverPages}>{formatDuration(cover.durationSeconds)}</span>
         </>
       ) : null}

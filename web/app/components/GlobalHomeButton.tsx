@@ -19,11 +19,13 @@ export function isProtectedDraftWorkspacePath(pathname: string) {
  * 「← 全部作品」按钮反而是多余的重复入口，这一层不显示它。视频库的详情页、练习页
  * 原来就认；报告库的拆解工作台（/reports/[id]，见 app/reports/[id]/page.tsx）之前
  * 漏判，浮钮在报告工作台里一直露着、跟视频工作台不一致——这里补上同一条规则。
+ * 公共视觉库的案例详情（/visual/[id]）同理。
  */
 export function isFormalV04SurfacePath(pathname: string) {
   return pathname === "/" ||
     /^\/videos\/[^/]+(?:\/practice)?$/.test(pathname) ||
-    /^\/reports\/[^/]+$/.test(pathname);
+    /^\/reports\/[^/]+$/.test(pathname) ||
+    /^\/visual\/[^/]+$/.test(pathname);
 }
 
 export default function GlobalHomeButton({ hideForV04Default = false }: { hideForV04Default?: boolean }) {

@@ -95,15 +95,20 @@ export default function VisualCaseClient({ caseId, viewerName, user }: {
   const safeStageIndex = readyAssets.length ? Math.min(stageIndex, readyAssets.length - 1) : 0;
   const currentAsset = readyAssets[safeStageIndex] ?? null;
 
+  // 键盘切换时焦点要跟到新选中的那一格（roving tabindex）。等 React 把新的 aria-selected
+  // 提交到 DOM 之后再挪，requestAnimationFrame 有可能早于提交（页签在后台时还会被暂停）。
+  const focusStripAfterCommit = useRef(false);
+  useEffect(() => {
+    if (!focusStripAfterCommit.current) return;
+    focusStripAfterCommit.current = false;
+    stripRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+  }, [safeStageIndex]);
+
   function stageGo(nextIndex: number, focusStrip = false) {
     const clamped = Math.max(0, Math.min(readyAssets.length - 1, nextIndex));
     if (clamped === safeStageIndex) return;
+    focusStripAfterCommit.current = focusStrip;
     setStageIndex(clamped);
-    if (focusStrip) {
-      requestAnimationFrame(() => {
-        stripRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
-      });
-    }
   }
 
   function openViewer(imageIndex: number) {

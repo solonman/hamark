@@ -17,6 +17,23 @@
 /* ---------------- 子领域筛选药丸组：外壳是新的，单个药丸复用 v04.weekToggle 同一种样式 ---------------- */
 .filterGroup { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* 搜索框：站里 .libraryToolbar label 是 width: min(520px, 100%)，工具栏多了子领域组和三个开关，
+   520 会被挤到下一行；而 flex 算内容宽度时 min(…, 100%) 的百分比解析不了，所以写死 360px + max-width。 */
+.toolbarControls .toolbarSearch { width: 360px; max-width: 100%; }
+/* 控件多，窄一点的屏幕上折行的应该是右边的控件，不是左边的「PUBLIC VISUAL LIBRARY · N 条」。 */
+.toolbarTitle { flex: none; }
+.toolbarTitle p { white-space: nowrap; }
+
+/* 第一位素材是视频时的播放圆：长相同视频库的 .playButton（酸绿实心圆），但那条是给视频海报的
+   flex 居中写的（position: relative !important），放进报告库的 4:3 .cover（display: block）里不居中，
+   所以这里单独写一条绝对居中的。 */
+.coverPlay {
+  position: absolute; left: 50%; top: 50%; z-index: 3;
+  display: grid; width: 64px; height: 64px; place-items: center; border-radius: 50%;
+  background: var(--v04-accent-fill); color: var(--v04-on-accent); font-size: 17px;
+  transform: translate(-50%, -50%);
+}
+
 /* ---------------- 卡片上的一句话摘要：站里视频卡片、报告卡片都没有这一行，是本域新增的 ---------------- */
 .caseSummary { display: -webkit-box; overflow: hidden; margin: 10px 0 0; color: var(--v04-muted); font-size: 13px; line-height: 1.55; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
@@ -94,6 +111,17 @@
   background: radial-gradient(circle at 24% 22%, #2a2c24, #15160f 46%, #0b0c0a);
 }
 
+/* ---------------- 对话框：报告上传框的壳之外，demo 多出来的几条 ----------------
+   表单比报告上传长得多，页头与底部按钮栏分别吸顶、吸底（规格 6.4）；
+   报告库的 .field 只管 input/select，没有 textarea；标签里的灰色说明用 <i>，要改回正体。 */
+.root .dialogHead { position: sticky; top: 0; z-index: 2; background: var(--v04-panel); }
+.root .dialogFoot { position: sticky; bottom: 0; z-index: 2; background: var(--v04-panel); }
+.root .briefInput {
+  min-height: 96px; border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-sunken);
+  padding: 8px 12px; font-size: 12px; line-height: 1.7; color: var(--v04-ink); resize: vertical;
+}
+.dialog small i { color: var(--v04-muted); font-style: normal; font-weight: 400; }
+
 /* ---------------- 补充信息折叠区、专有字段块（对话框正文，非深色岛） ---------------- */
 .root .foldToggle {
   border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-muted);
@@ -161,6 +189,7 @@
 .viewerImage img { display: block; width: 100%; height: 100%; object-fit: contain; background: #080907; }
 
 @media (max-width: 620px) {
+  .toolbarControls .toolbarSearch { width: 100%; }
   /* .mediaSlot 是本域新增的类，V04Surface.module.css 自己的窄屏规则（第 448 行那一组）
      不认得它，这里单独补上同样的收窄，与 .detailHero／.readingBody 保持一致宽度。 */
   .mediaSlot { width: calc(100% - 24px); }

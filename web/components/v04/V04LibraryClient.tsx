@@ -561,7 +561,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         onSaved={() => {
           setVisualResumeCaseId(null);
           setVisualRefreshToken((token) => token + 1);
-          notify("已保存");
+          // 在库首页补传完，说法同新建（demo 的 finishUpload）：这是「传上去了」，不是「改好了」。
+          notify("已上传");
         }}
       />
     ) : null}

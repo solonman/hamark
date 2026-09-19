@@ -720,8 +720,8 @@ export default function VisualUploadDialog({
         role="presentation"
         onMouseDown={(event) => { if (event.target === event.currentTarget && canDismissLightly) onClose(); }}
       >
-        <section className={report.uploadDialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-          <div className={report.uploadHead}>
+        <section className={`${report.uploadDialog} ${styles.dialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+          <div className={`${report.uploadHead} ${styles.dialogHead}`}>
             <div><small>{eyebrow}</small><b id={titleId}>{dialogTitleText}</b></div>
             {phase === "uploading" ? null : (
               <button type="button" className={report.uploadClose} onClick={onClose} aria-label="关闭上传窗口">×</button>
@@ -736,7 +736,7 @@ export default function VisualUploadDialog({
                 <span>{formatUploadProgressLabel(countCompletedUploads(Object.values(progressMap)), Object.keys(progressMap).length || 1, activeUploadName)}</span>
                 <b>{aggregateUploadPercent(Object.values(progressMap))}%</b>
                 <div className={report.coverBar}><i className={report.coverBarFill} style={{ width: `${aggregateUploadPercent(Object.values(progressMap))}%` }} /></div>
-                <span>逐个直传到对象存储，每个文件用自己的上传链接，不经服务器中转</span>
+                <span>直传到对象存储，每个文件用自己的上传链接，不经服务器中转</span>
               </div>
             </div>
           ) : phase === "partial" ? (
@@ -763,7 +763,7 @@ export default function VisualUploadDialog({
                   onChange={(event) => { void handleRefillPicked(event.target.files); event.target.value = ""; }}
                 />
               </div>
-              <div className={report.uploadFooter}><button type="button" onClick={onClose}>稍后再说</button></div>
+              <div className={`${report.uploadFooter} ${styles.dialogFoot}`}><button type="button" onClick={onClose}>稍后再说</button></div>
             </>
           ) : (
             <>
@@ -869,6 +869,7 @@ export default function VisualUploadDialog({
                 <label className={report.field}>
                   <small>案例简介 <i>选填，纯文本，保留换行；不能单独成为一条案例，至少要有一段视频或一张图片</i></small>
                   <textarea
+                    className={styles.briefInput}
                     maxLength={VISUAL_LIMITS.textBodyMax}
                     value={draft.textBody}
                     placeholder="记下做法、看点、成本、可复用的地方…"
@@ -990,7 +991,7 @@ export default function VisualUploadDialog({
 
                 {error ? <p className={report.formError} role="alert" ref={formErrorRef}>{error}</p> : null}
               </div>
-              <div className={report.uploadFooter}>
+              <div className={`${report.uploadFooter} ${styles.dialogFoot}`}>
                 <button type="button" onClick={onClose}>取消</button>
                 <button type="button" className={report.uploadGo} onClick={() => void handleSubmit()}>
                   {editing ? "保存修改" : "开始上传"}

@@ -13,6 +13,7 @@ test("formal V04 surfaces hide the floating '全部作品' button — home, vide
   // 报告库工作台（/reports/[id]，见 app/reports/[id]/page.tsx）：本次要修的那条——
   // 之前的判断只认视频路径，报告工作台一直漏判，浮钮跟视频工作台不一致地露着。
   assert.equal(isFormalV04SurfacePath("/reports/report-a"), true);
+  assert.equal(isFormalV04SurfacePath("/visual/visual-a"), true);
 
   // 报告库首页列表（不带 id）不算工作台，浮钮该照常显示，方便离开搜索/筛选状态回到入口。
   assert.equal(isFormalV04SurfacePath("/reports"), false);
