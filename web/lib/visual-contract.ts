@@ -249,6 +249,8 @@ export type VisualCaseListItem = {
   subdomain: VisualSubdomain;
   title: string;
   summary: string;
+  /** 案例简介全文：库首页的搜索要搜到它（规格 6.2）。纯文本，前端只按文本渲染。 */
+  textBody: string;
   tags: string[];
   location: string;
   creator: string;

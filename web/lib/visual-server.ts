@@ -426,6 +426,7 @@ export async function listVisualCases(db: DbClient, viewer: VisualViewer): Promi
         subdomain: row.subdomain as VisualSubdomain,
         title: row.title,
         summary: row.summary,
+        textBody: row.text_body ?? "",
         tags: tagsFromVisualJson(row.tags_json),
         location: row.location,
         creator: row.creator,
