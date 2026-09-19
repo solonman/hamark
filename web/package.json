@@ -39,6 +39,8 @@
     "thumbnails:backfill": "tsx scripts/backfill-thumbnails.ts",
     "convert:report-pages": "node --env-file=.env.local --import tsx scripts/convert-report-pages.ts",
     "convert:report-pages:local": "NODE_ENV=development node --env-file=.env.development.local --import tsx scripts/convert-report-pages.ts",
+    "visual:derivatives": "node --env-file=.env.local --import tsx scripts/visual-derivatives.ts",
+    "visual:derivatives:local": "NODE_ENV=development node --env-file=.env.development.local --import tsx scripts/visual-derivatives.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
