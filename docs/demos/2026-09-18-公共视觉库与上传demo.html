@@ -265,10 +265,6 @@ button { cursor: pointer; }
 .coverPages { position: absolute; right: 12px; bottom: 12px; z-index: 2; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: #fff; background: rgba(0,0,0,.55); border-radius: 4px; padding: 2px 7px; }
 /* 第一位素材是视频时，照视频库卡片的 .playButton（酸绿实心圆）。 */
 .playButton { position: absolute; left: 50%; top: 50%; z-index: 3; display: grid; width: 64px; height: 64px; place-items: center; border-radius: 50%; background: var(--v04-accent-fill); color: var(--v04-on-accent); font-size: 17px; transform: translate(-50%, -50%); }
-/* 纯文字案例：视频库 .posterFallback 的深色底 + 标题排版。 */
-.coverPlate { position: absolute; inset: 0; z-index: 2; display: grid; align-content: center; gap: 12px; padding: 0 12%; background: radial-gradient(circle at 24% 22%, #4c503e, #1c1d19 42%, #0b0c0a); }
-.coverPlate b { display: -webkit-box; overflow: hidden; color: #fff; font-size: clamp(18px, 2.1vw, 26px); line-height: 1.25; letter-spacing: -.03em; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
-.coverPlate small { color: rgba(255,255,255,.72); font-size: 10px; letter-spacing: .14em; }
 .coverState { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: grid; gap: 7px; }
 .coverState b { font-size: 12px; color: #fff; font-weight: 800; }
 .coverStateFailed b { color: #ff8f7d; }
@@ -664,16 +660,6 @@ const CASES = [
     assets: [img("i1", "paper"), img("i2", "orange"), img("i3", "garden"), img("i4", "grey")],
     by: "lin", at: "2026-09-03T13:15:00+08:00", favBase: 2, favedBy: [],
   },
-  {
-    id: "vc-008", status: "READY", sub: "PUBLIC_ART", title: "废弃管廊的检修门：每扇门后是不同的声音",
-    summary: "现场不允许拍摄，只记了文字。",
-    tags: ["待补素材", "声音装置"], location: "北京 · 798", creator: "",
-    occ: "2026-08", url: "", rights: "仅公司内部学习使用",
-    text: "一条纯文字的案例条目也是成立的：现场禁止拍摄，但描述足够说清做法。\n\n做法：把废弃管廊的检修口做成可开合的小门，每扇门后面是不同的声音。\n\n待补：下次去补两张门开着和关着的照片。",
-    meta: { artType: "临时介入", materials: "旧管廊 + 音频", scale: "12 扇检修门", permanence: "临时" },
-    assets: [],
-    by: "sun", at: "2026-09-02T17:55:00+08:00", favBase: 1, favedBy: [],
-  },
 ];
 CASES.forEach((item) => { item.favedBy = new Set(item.favedBy); });
 
@@ -960,9 +946,8 @@ function coverInnerHTML(item) {
       <div class="coverState"><b>上传未完成</b><small>${item.assets.length} 个文件里有 ${missing} 个没传完${canManage(item) ? "，点「继续上传」补传或去掉" : ""}</small></div>`;
   }
   const first = shownAssets(item)[0];
-  if (!first) {
-    return `<div class="coverPlate"><b>${esc(item.title)}</b><small>纯文字案例</small></div>${badge}`;
-  }
+  // 不收纯文字案例：READY 的案例至少有一个传完的素材，这一支只是兜底
+  if (!first) return `<div class="coverPlaceholder">没有预览</div>${badge}`;
   if (first.deriv === "PENDING") {
     return `<div class="coverPlaceholder">等待生成预览</div>${badge}<div class="coverState"><b>正在生成预览</b><small>上传已完成，缩略图生成后自动出现</small><div class="coverBar"><i style="width:40%"></i></div></div>`;
   }
@@ -1394,7 +1379,7 @@ function renderUpload() {
     const filledMeta = fields.filter((field) => { const v = d.meta[field.key]; return Array.isArray(v) ? v.length : v; }).length;
     body = `<div class="uploadBody">
       <button type="button" class="fileDrop" data-action="picker" aria-expanded="${overlay.picker}">
-        <b>${d.assets.length ? "继续添加视频或图片" : "选择视频或图片"}</b>
+        <b>${d.assets.length ? "继续添加视频或图片" : "选择视频或图片 *"}</b>
         <span>可以一次选多个 · 视频不限格式与大小 · 图片收 ${IMAGE_FORMATS.join("／")}</span>
       </button>
       ${overlay.picker ? `<div class="demoPicker"><em>DEMO · 用这几个按钮代替系统的选文件窗口</em>
@@ -1415,7 +1400,7 @@ function renderUpload() {
         <label class="field"><small>采集地点 *</small><input data-draft="location" maxlength="${LIMITS.location}" value="${esc(d.location)}" placeholder="城市 · 场地，写到城市即可"></label>
         <label class="field"><small>标签 *</small><input data-draft="tags" value="${esc(d.tags)}" placeholder="用逗号分开，至少一个"></label>
       </div>
-      <label class="field"><small>案例简介 <i>选填，纯文本，保留换行；没有视频和图片时，简介就是这条案例</i></small><textarea data-draft="text" maxlength="${LIMITS.text}" placeholder="记下做法、看点、成本、可复用的地方…">${esc(d.text)}</textarea></label>
+      <label class="field"><small>案例简介 <i>选填，纯文本，保留换行；不能单独成为一条案例，至少要有一段视频或一张图片</i></small><textarea data-draft="text" maxlength="${LIMITS.text}" placeholder="记下做法、看点、成本、可复用的地方…">${esc(d.text)}</textarea></label>
 
       <button type="button" class="foldToggle" aria-expanded="${overlay.fold}" data-action="fold">${overlay.fold ? "收起补充信息" : "补充信息（选填）"}${d.sub ? ` · 含${SUBS[d.sub].label}专有 ${fields.length} 项${filledMeta ? `，已填 ${filledMeta}` : ""}` : ""}</button>
       ${overlay.fold ? `
@@ -1514,7 +1499,8 @@ function toggleMetaMany(key, value) {
   renderUpload();
 }
 
-function validateDraft(d) {
+function validateDraft(d, editing) {
+  if (!d.assets.length) return editing ? "至少要保留一段视频或一张图片。" : "请先选择视频或图片，至少一个。";
   if (!d.sub) return "请选择子领域。";
   if (!d.title.trim()) return "请填写标题。";
   if (!d.location.trim()) return "请填写采集地点，写到城市即可。";
@@ -1522,14 +1508,13 @@ function validateDraft(d) {
   if (!tags.length) return "至少填一个标签。";
   if (tags.length > LIMITS.tags) return `标签最多 ${LIMITS.tags} 个。`;
   if (tags.some((tag) => tag.length > LIMITS.tagLength)) return `每个标签不超过 ${LIMITS.tagLength} 个字。`;
-  if (!d.assets.length && !d.text.trim()) return "至少要有一段视频、一张图片，或者写一段案例简介。";
   if (d.url.trim() && !isHttpUrl(d.url.trim())) return "来源链接只收 http:// 或 https:// 开头的网址。";
   return "";
 }
 function submitDraft() {
   const overlay = state.overlay;
   const d = overlay.draft;
-  const error = validateDraft(d);
+  const error = validateDraft(d, overlay.mode === "edit");
   if (error) {
     overlay.error = error;
     if (error.startsWith("来源链接")) overlay.fold = true;
@@ -1558,12 +1543,11 @@ function submitDraft() {
   }
   // 新建：服务端建条目（UPLOADING），素材逐个签发链接、逐个直传，最后 complete
   const item = {
-    id: `vc-${nextId()}`, status: fields.text && !d.assets.length ? "READY" : "UPLOADING", ...fields,
+    id: `vc-${nextId()}`, status: "UPLOADING", ...fields,
     assets: d.assets.map(({ failOnUpload, existing, ...rest }) => ({ ...rest, upload: "MISSING", deriv: rest.type === "IMAGE" ? "PENDING" : "READY", failOnUpload })),
     by: state.viewer, at: new Date().toISOString(), favBase: 0, favedBy: new Set(),
   };
   CASES.push(item);
-  if (!item.assets.length) { closeOverlay(); notify("已发布纯文字案例"); render(); return; }
   uploadAssets(item, item.assets.map((asset) => asset.id), () => finishUpload(item));
 }
 function pruneMeta(sub, meta) {
@@ -1641,8 +1625,8 @@ function dropFailed() {
   const overlay = state.overlay;
   const item = findCase(overlay.caseId);
   const remaining = item.assets.filter((asset) => !overlay.failed.includes(asset.id));
-  if (!remaining.length && !item.text.trim()) {
-    overlay.error = "去掉之后这条案例既没有素材也没有案例简介，请重传，或者删掉这条案例。";
+  if (!remaining.length) {
+    overlay.error = "去掉之后这条案例一个素材都不剩了，请重传，或者删掉这条案例。";
     renderUpload();
     return;
   }
