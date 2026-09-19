@@ -1,0 +1,169 @@
+/* 公共视觉库自己的样式：只放站里没有的那部分。
+   顶栏、库首页壳、按周分组、卡片骨架、上传/删除对话框壳、只读详情壳全部复用
+   components/v04/V04Surface.module.css 与 components/report/library/ReportLibrary.module.css
+   的同名类（见 docs/22 六之 6.0 复用清单），这里不重复定义。
+   本文件只补：子领域筛选药丸的颜色、子领域 chip 的颜色、详情页的舞台＋素材条、
+   上传对话框里的素材格排序、补充信息折叠区、大图查看。
+   舞台、素材条、对话框素材格、大图查看都是深色岛（元素上加 data-v04-scheme="dark"），
+   两种主题下都是深色，同视频封面、报告页图，登记进 tests/theme.test.ts 的
+   ALLOWED_LITERAL_SELECTORS（窄正则，只覆盖这些深色岛选择器）。
+
+   优先级教训（见 memory「报告线 CSS 优先级教训」）：.surface button/input/textarea
+   { font: inherit } 是 (0,1,1)，会压过单类名的按钮/输入框规则；这里给按钮、输入类
+   控件的规则统一套一层 .root（组件最外层套的类），把特异性提到 (0,2,0) 以上。
+   .root 分别套在 VisualCaseClient 的舞台区、VisualUploadDialog 的对话框根节点、
+   大图查看的根节点上。 */
+
+/* ---------------- 子领域筛选药丸组：外壳是新的，单个药丸复用 v04.weekToggle 同一种样式 ---------------- */
+.filterGroup { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------------- 卡片上的一句话摘要：站里视频卡片、报告卡片都没有这一行，是本域新增的 ---------------- */
+.caseSummary { display: -webkit-box; overflow: hidden; margin: 10px 0 0; color: var(--v04-muted); font-size: 13px; line-height: 1.55; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ---------------- 子领域 chip：位置同报告卡片「任务类型」chip，颜色换成子领域色 ---------------- */
+.subdomainTag { font-weight: 800; }
+.subdomainTag[data-sub="OOH"] { border-color: rgb(var(--v04-visual-ooh-rgb) / .45) !important; color: var(--v04-visual-ooh); }
+.subdomainTag[data-sub="PUBLIC_ART"] { border-color: rgb(var(--v04-visual-art-rgb) / .45) !important; color: var(--v04-visual-art); }
+.subdomainTag[data-sub="RETAIL"] { border-color: rgb(var(--v04-visual-retail-rgb) / .45) !important; color: var(--v04-visual-retail); }
+
+/* ---------------- 详情页动作行、工具按钮：站里只读详情页原本没有这一行（V04DetailClient
+   用的是 .detailCompatibility，链接样式，不是按钮），本域新增。 ---------------- */
+.detailActions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 24px; }
+.root .toolButton {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 11px; font-size: 10px;
+}
+.root .toolButton:hover { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.root .toolButtonDanger:hover { border-color: rgb(var(--v04-danger-2-rgb) / .5); color: var(--v04-danger-2); }
+
+/* ---------------- 案例简介／案例信息模块的正文：站里 readingModule 壳复用，内部这两块新增 ---------------- */
+.mediaSlot { width: min(1160px, calc(100% - 48px)); margin: 0 auto 36px; }
+.prose { max-width: 72ch; margin: 0; padding: 20px 22px 24px; color: var(--v04-ink-soft); font-size: 14.5px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+.readingNote { margin: 0; padding: 14px 22px 18px; color: var(--v04-muted); font-size: 11px; line-height: 1.7; }
+
+/* ---------------- 舞台 + 素材条：外壳复用 v04.videoShell，这里补内部结构（深色岛）。
+   视频用浏览器原生 <video controls>（同站内 V04VideoPlayer），demo 里那套自己画的大播放圆／
+   进度条／时钟是演示道具（demo 没有真实视频文件，靠脚本假装播放），线上不实现，
+   所以这里不需要 stageBig／stageVeil／stageControls／stageBar／stageClock 这些类。 ---------------- */
+.stageView { position: relative; aspect-ratio: 16 / 9; background: #050505; }
+.stageArt { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; border: 0; padding: 0; background: #050505; }
+.stageArt.clickable { cursor: zoom-in; }
+.stagePlaceholder {
+  position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center;
+  background: radial-gradient(circle at 50% 30%, #383b31, #121310 60%);
+}
+.stagePlaceholder b { color: #e6e7df; font-size: 16px; }
+.stagePlaceholder small { color: #a3a69b; font-size: 11px; }
+.stagePlaceholder.failed b { color: #ff8f7d; }
+.stageTools { position: absolute; top: 12px; right: 12px; z-index: 4; display: flex; gap: 6px; }
+.root .stageTools button, .root .stageTools a {
+  border: 1px solid rgba(255,255,255,.22); border-radius: 999px;
+  background: rgba(9,10,8,.72); color: #e6e7df; padding: 7px 10px; font-size: 10px; text-decoration: none;
+}
+.root .stageTools button:hover, .root .stageTools a:hover { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.root .stageNav {
+  position: absolute; top: 50%; z-index: 4;
+  display: grid; width: 42px; height: 42px; place-items: center;
+  border: 1px solid rgba(255,255,255,.18); border-radius: 50%; padding: 0;
+  background: rgba(9,10,8,.72); color: #e6e7df; font-size: 18px; transform: translateY(-50%);
+}
+.root .stageNav:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.root .stageNav:disabled { opacity: .28; cursor: default; }
+.stageNav.prev { left: 14px; }
+.stageNav.next { right: 14px; }
+.stageCaption {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px;
+  padding: 11px 14px; border-top: 1px solid var(--v04-line); background: var(--v04-panel-deep); color: var(--v04-muted); font-size: 11px;
+}
+.stageCaption b { color: var(--v04-ink); font-weight: 800; }
+.mediaStrip { display: flex; gap: 8px; overflow-x: auto; padding: 0 12px 12px; background: var(--v04-panel-deep); }
+.root .mediaStrip button.mediaThumb {
+  position: relative; flex: 0 0 auto; width: 112px; aspect-ratio: 4 / 3; overflow: hidden;
+  border: 1px solid var(--v04-line); border-radius: 8px; background: #0b0c0a; padding: 0;
+}
+.mediaThumb .mediaThumbArt { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: filter .15s; }
+.mediaThumb[aria-selected="false"] .mediaThumbArt { filter: brightness(.72); }
+.mediaThumb[aria-selected="true"] { outline: 2px solid var(--v04-accent); outline-offset: -2px; }
+.mediaThumb i, .mediaThumb b {
+  position: absolute; z-index: 2; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9px; font-style: normal; font-weight: 700; color: #fff; background: rgba(0,0,0,.6); border-radius: 4px; padding: 2px 5px;
+}
+.mediaThumb i { left: 5px; top: 5px; }
+.mediaThumb b { right: 5px; bottom: 5px; }
+.thumbPending {
+  position: absolute; inset: 0; display: grid; place-items: center; color: #a3a69b; font-size: 9px;
+  background: radial-gradient(circle at 24% 22%, #2a2c24, #15160f 46%, #0b0c0a);
+}
+
+/* ---------------- 补充信息折叠区、专有字段块（对话框正文，非深色岛） ---------------- */
+.root .foldToggle {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-muted);
+  padding: 7px 13px; font-size: 11.5px; font-weight: 800; justify-self: start;
+}
+.root .foldToggle:hover { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.root .foldToggle[aria-expanded="true"] { color: var(--v04-accent); border-color: rgb(var(--v04-accent-rgb) / .4); }
+.subBlock { display: grid; gap: 12px; border: 1px solid var(--v04-line); border-radius: 12px; padding: 12px; }
+.subBlock > b { color: var(--v04-subject); font-size: 11px; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.root .checks button.check {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-muted); padding: 5px 10px; font-size: 11px;
+}
+.root .checks button.check:hover { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.root .checks button.check[aria-pressed="true"] { border-color: rgb(var(--v04-accent-rgb) / .55); background: rgb(var(--v04-accent-rgb) / .12); color: var(--v04-accent); }
+
+/* ---------------- 对话框里的素材：一条混排列表，第一位就是封面（深色岛） ---------------- */
+.mediaList { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mediaTile { position: relative; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 10px; background: #0b0c0a; }
+.mediaTile.isCover { outline: 2px solid var(--v04-accent-fill); outline-offset: -2px; }
+.mediaTile .tileArt { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.mediaTile .idx, .mediaTile .kind, .mediaTile .coverMark {
+  position: absolute; z-index: 2; border-radius: 4px; padding: 2px 5px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 9px; font-weight: 700; color: #fff; background: rgba(0,0,0,.62);
+}
+.mediaTile .idx { left: 6px; top: 6px; }
+.mediaTile .coverMark { left: 6px; top: 6px; background: var(--v04-accent-fill); color: var(--v04-on-accent); font-family: inherit; font-weight: 900; }
+.mediaTile .kind { left: 6px; bottom: 34px; }
+.mediaTile .kind.bad { color: #ffb3a6; }
+.tileActs { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: space-between; gap: 4px; padding: 5px; background: linear-gradient(transparent, rgba(0,0,0,.72)); }
+.root .tileActs button {
+  display: grid; width: 24px; height: 24px; place-items: center;
+  border: 1px solid rgba(255,255,255,.2); border-radius: 50%; background: rgba(9,10,8,.8); color: #f0f1ea; font-size: 11px; padding: 0;
+}
+.root .tileActs button:hover:not(:disabled) { border-color: rgba(223,255,79,.6); color: #dfff4f; }
+.root .tileActs button:disabled { opacity: .3; cursor: default; }
+.tileActs .grow { flex: 1; }
+
+.failList { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.failList li { display: flex; justify-content: space-between; gap: 10px; border: 1px solid rgb(var(--v04-danger-2-rgb) / .35); border-radius: 10px; padding: 8px 10px; font-size: 11.5px; color: var(--v04-ink-soft); }
+.failList li span { color: var(--v04-danger-2); white-space: nowrap; }
+.inlineActs { display: flex; flex-wrap: wrap; gap: 8px; }
+.root .inlineActs button {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-ink); padding: 7px 13px; font-size: 11.5px;
+}
+.root .inlineActs button:hover { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.root .inlineActs button.primary { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); background: rgb(var(--v04-accent-rgb) / .1); }
+
+/* ---------------- 大图查看：报告工作台 .ov 一组用的是 --rd-* 变量（ReportDeck 自己的别名），
+   不能跨模块直接借用；这里按 --v04-* 重新声明一份同样观感的（demo 已验证过这套值）。
+   图区是深色岛。 ---------------- */
+.ov { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; background: var(--v04-scrim); backdrop-filter: blur(6px); }
+.ovbox { display: flex; width: min(1220px, calc(100vw - 36px)); height: min(880px, calc(100vh - 36px)); flex-direction: column; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 16px; background: var(--v04-panel); color: var(--v04-ink); }
+.ovhead { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid var(--v04-line); }
+.ovhead b { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: var(--v04-subject); font-size: 12px; white-space: nowrap; }
+.ovheadT { flex: 1; overflow: hidden; color: var(--v04-muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.root .smBtn {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 6px 11px; font-size: 10.5px; white-space: nowrap;
+}
+.root .smBtn:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.root .smBtn:disabled { opacity: .35; cursor: default; }
+.viewerBody { position: relative; display: grid; flex: 1; min-height: 0; place-items: center; padding: 20px 70px; background: #080907; }
+.viewerImage { position: relative; width: min(100%, calc((min(880px, 100vh - 36px) - 100px) * 4 / 3)); aspect-ratio: 4 / 3; border: 1px solid var(--v04-line); overflow: hidden; }
+.viewerImage img { display: block; width: 100%; height: 100%; object-fit: contain; background: #080907; }
+
+@media (max-width: 620px) {
+  /* .mediaSlot 是本域新增的类，V04Surface.module.css 自己的窄屏规则（第 448 行那一组）
+     不认得它，这里单独补上同样的收窄，与 .detailHero／.readingBody 保持一致宽度。 */
+  .mediaSlot { width: calc(100% - 24px); }
+  .root .stageNav { width: 34px; height: 34px; }
+  .viewerBody { padding: 12px 44px; }
+}

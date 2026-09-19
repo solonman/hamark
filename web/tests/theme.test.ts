@@ -115,6 +115,9 @@ const ALLOWED_LITERAL_SELECTORS: Record<string, RegExp> = {
   "components/shared/DeleteConfirmDialog.module.css": /^$/,
   "components/shared/LibraryToast.module.css": /^$/,
   "components/shared/ThemeSwitcher.module.css": /^$/,
+  // 公共视觉库的深色岛：舞台、素材条、对话框里的素材格、大图查看（docs/22 3.9 第 3 条）。
+  "components/visual/Visual.module.css":
+    /\.(stageView|stageArt|stagePlaceholder|stageTools|stageNav|mediaThumb|thumbPending|mediaStrip|mediaTile|tileActs|viewerBody|viewerImage)\b/,
 };
 
 test("themed stylesheets only use colour tokens outside the always-dark media areas", async () => {
