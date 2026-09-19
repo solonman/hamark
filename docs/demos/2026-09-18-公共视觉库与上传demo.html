@@ -1,0 +1,1686 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>公共视觉库与上传 demo</title>
+<!--
+  公共视觉域 demo　2026-09-18 初版 ／ 2026-09-19 按全站交互对齐重做（配套 docs/22_公共视觉_立项与实施规格_V0.2.md）
+
+  这一版的原则：能用站里现成的，就长得和它一模一样。
+  - 类名、配色变量照抄线上：components/v04/V04Surface.module.css（顶栏、库首页、案例卡、只读详情）、
+    components/report/library/ReportLibrary.module.css（4:3 封面、四态封面、上传对话框）、
+    components/shared/LibraryToast / DeleteConfirmDialog / ThemeSwitcher、app/globals.css 的 --v04-* 深浅两套。
+    实现时直接复用这些类，不要照着 demo 另写一份。
+  - 本域新增的只有：子领域筛选、子领域色（--v04-visual-*）、详情页的「舞台 + 素材条」、对话框里的素材排序、
+    「补充信息」折叠区。
+  - 封面、舞台、大图查看都是深色岛（data-v04-scheme="dark"），浅色主题下仍是深色——站里视频封面、报告页图同一做法。
+  - 纯前端，不保存，刷新即回到初始状态；外观偏好存 localStorage（线上存 cookie hm-theme）。
+  - 右上角「身份」下拉是 demo 专用，用来看上传者／别人／管理员三种权限；线上这里是 UserMenu。
+-->
+<script>
+  // 首屏前按偏好设好 data-theme，免得先闪一下深色（线上是根布局按 cookie 直接渲染）。
+  try {
+    const saved = localStorage.getItem("hm-theme");
+    if (saved === "light" || saved === "dark" || saved === "system") document.documentElement.dataset.theme = saved;
+  } catch (error) { /* 隐私模式读不到就用默认深色 */ }
+</script>
+<style>
+/* =====================================================================
+   配色：与 app/globals.css 同名同值。只列本页用到的那部分。
+   唯一的差异是 --v04-faint：这里用的是 docs/22 3.9 第 4 条要求先行提交的新值
+   （深 #6d7066→#8b8e83、浅 #7f8178→#6d6e67，把 3.75 / 3.47 提到 4.5 以上）。
+   ===================================================================== */
+:root,
+[data-v04-scheme="dark"] {
+  --v04-scheme: dark;
+  --v04-sunken: #0f100e;
+  --v04-bg: #10110f;
+  --v04-bg-rgb: 16 17 15;
+  --v04-panel-deep: #151612;
+  --v04-panel: #171815;
+  --v04-raised: #20211d;
+  --v04-raised-2: #2e302a;
+  --v04-ink: #e6e7df;
+  --v04-ink-soft: #d4d6cd;
+  --v04-ink-dim: #b9bbb2;
+  --v04-muted: #92958b;
+  --v04-muted-rgb: 146 149 139;
+  --v04-faint: #8b8e83;
+  --v04-subject: #c7aa72;
+  --v04-subject-rgb: 199 170 114;
+  --v04-line: rgba(255, 255, 255, .12);
+  --v04-line-strong: #36382f;
+  --v04-fg-rgb: 255 255 255;
+  --v04-accent: #dfff4f;
+  --v04-accent-rgb: 223 255 79;
+  --v04-accent-fill: #dfff4f;
+  --v04-on-accent: #10110f;
+  --v04-warn: #ffae78;
+  --v04-warn-rgb: 255 174 120;
+  --v04-warn-ink: #ffcfad;
+  --v04-warn-surface: rgba(31, 25, 20, .97);
+  --v04-warn-surface-strong: rgba(48, 32, 22, .97);
+  --v04-danger: #ff9a9a;
+  --v04-danger-rgb: 255 122 122;
+  --v04-danger-2: #ff8f7d;
+  --v04-danger-2-rgb: 255 143 125;
+  --v04-shadow-rgb: 0 0 0;
+  --v04-shadow-strength: 1;
+  --v04-scrim: rgba(6, 7, 6, .86);
+  --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* 本域新增：子领域色。压在页面底上当字用，所以浅色那组要压深（对纸底都 ≥4.5:1）。 */
+  --v04-visual-ooh: #ff8d4d;
+  --v04-visual-ooh-rgb: 255 141 77;
+  --v04-visual-art: #6ca0d8;
+  --v04-visual-art-rgb: 108 160 216;
+  --v04-visual-retail: #75b985;
+  --v04-visual-retail-rgb: 117 185 133;
+}
+:root[data-theme="light"] {
+  --v04-scheme: light;
+  --v04-sunken: #ffffff;
+  --v04-bg: #f3f0e8;
+  --v04-bg-rgb: 243 240 232;
+  --v04-panel-deep: #f7f5ef;
+  --v04-panel: #fbfaf6;
+  --v04-raised: #ece8de;
+  --v04-raised-2: #e0dccf;
+  --v04-ink: #1a1b16;
+  --v04-ink-soft: #2e3029;
+  --v04-ink-dim: #484a42;
+  --v04-muted: #63655c;
+  --v04-muted-rgb: 99 101 92;
+  --v04-faint: #6d6e67;
+  --v04-subject: #7d5f24;
+  --v04-subject-rgb: 125 95 36;
+  --v04-line: rgba(26, 27, 22, .13);
+  --v04-line-strong: #d3cfc3;
+  --v04-fg-rgb: 26 27 22;
+  --v04-accent: #536118;
+  --v04-accent-rgb: 83 97 24;
+  --v04-accent-fill: #dfff4f;
+  --v04-on-accent: #10110f;
+  --v04-warn: #ab4f1a;
+  --v04-warn-rgb: 171 79 26;
+  --v04-warn-ink: #8c3d10;
+  --v04-warn-surface: rgba(255, 244, 233, .97);
+  --v04-warn-surface-strong: rgba(255, 233, 214, .97);
+  --v04-danger: #b3261e;
+  --v04-danger-rgb: 179 38 30;
+  --v04-danger-2: #b23a1c;
+  --v04-danger-2-rgb: 178 58 28;
+  --v04-shadow-rgb: 38 32 18;
+  --v04-shadow-strength: .32;
+  --v04-scrim: rgba(33, 31, 24, .42);
+  --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2363655c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --v04-visual-ooh: #b0521a;
+  --v04-visual-ooh-rgb: 176 82 26;
+  --v04-visual-art: #1c5f96;
+  --v04-visual-art-rgb: 28 95 150;
+  --v04-visual-retail: #3f794e;
+  --v04-visual-retail-rgb: 63 121 78;
+}
+/* 跟随系统时的浅色：必须与上面逐字一致（线上 tests/theme.test.ts 会比对）。 */
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --v04-scheme: light;
+    --v04-sunken: #ffffff;
+    --v04-bg: #f3f0e8;
+    --v04-bg-rgb: 243 240 232;
+    --v04-panel-deep: #f7f5ef;
+    --v04-panel: #fbfaf6;
+    --v04-raised: #ece8de;
+    --v04-raised-2: #e0dccf;
+    --v04-ink: #1a1b16;
+    --v04-ink-soft: #2e3029;
+    --v04-ink-dim: #484a42;
+    --v04-muted: #63655c;
+    --v04-muted-rgb: 99 101 92;
+    --v04-faint: #6d6e67;
+    --v04-subject: #7d5f24;
+    --v04-subject-rgb: 125 95 36;
+    --v04-line: rgba(26, 27, 22, .13);
+    --v04-line-strong: #d3cfc3;
+    --v04-fg-rgb: 26 27 22;
+    --v04-accent: #536118;
+    --v04-accent-rgb: 83 97 24;
+    --v04-accent-fill: #dfff4f;
+    --v04-on-accent: #10110f;
+    --v04-warn: #ab4f1a;
+    --v04-warn-rgb: 171 79 26;
+    --v04-warn-ink: #8c3d10;
+    --v04-warn-surface: rgba(255, 244, 233, .97);
+    --v04-warn-surface-strong: rgba(255, 233, 214, .97);
+    --v04-danger: #b3261e;
+    --v04-danger-rgb: 179 38 30;
+    --v04-danger-2: #b23a1c;
+    --v04-danger-2-rgb: 178 58 28;
+    --v04-shadow-rgb: 38 32 18;
+    --v04-shadow-strength: .32;
+    --v04-scrim: rgba(33, 31, 24, .42);
+    --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2363655c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --v04-visual-ooh: #b0521a;
+    --v04-visual-ooh-rgb: 176 82 26;
+    --v04-visual-art: #1c5f96;
+    --v04-visual-art-rgb: 28 95 150;
+    --v04-visual-retail: #3f794e;
+    --v04-visual-retail-rgb: 63 121 78;
+  }
+}
+
+/* ---------------- 基础（globals.css + V04Surface .surface） ---------------- */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--v04-bg); color: var(--v04-ink);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { color: inherit; font: inherit; }
+button { cursor: pointer; }
+.surface { color-scheme: var(--v04-scheme); min-height: 100vh; overflow-x: clip; background: var(--v04-bg); color: var(--v04-ink); font-size: 14px; }
+.surface button, .surface a { -webkit-tap-highlight-color: transparent; }
+:where(button, a, input, textarea, select):focus-visible { outline: 2px solid var(--v04-accent); outline-offset: 3px; }
+[hidden] { display: none !important; }
+.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+
+/* ---------------- 顶栏（V04Surface .siteHeader 一组） ---------------- */
+.siteHeader {
+  position: sticky; top: 0; z-index: 40;
+  display: grid; grid-template-columns: minmax(190px, 1fr) auto minmax(190px, 1fr);
+  min-height: 70px; align-items: center; gap: 18px;
+  padding: 0 clamp(18px, 3vw, 48px); border-bottom: 1px solid var(--v04-line);
+  background: rgb(var(--v04-bg-rgb) / .96); backdrop-filter: blur(18px);
+}
+.brandWordmark { display: inline-flex; width: fit-content; align-items: baseline; gap: 6px; color: var(--v04-ink); text-decoration: none; }
+.brandWordmark b { color: var(--v04-accent); font-size: 24px; letter-spacing: -.08em; }
+.brandWordmark span { font-weight: 900; letter-spacing: -.05em; }
+.brandWordmark small { color: var(--v04-muted); font-size: 9px; letter-spacing: .15em; }
+.siteNav { display: flex; align-items: center; justify-content: center; gap: 18px; min-width: 0; }
+.siteNav a, .siteNav span, .siteNav button { border: 0; background: transparent; color: var(--v04-muted); padding: 0; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.siteNav button:hover, .siteNav a:hover { color: var(--v04-ink); }
+.siteNav .activeNav { color: var(--v04-ink); }
+.headerCaseTitle { overflow: hidden; max-width: min(30vw, 360px); color: var(--v04-ink) !important; text-overflow: ellipsis; letter-spacing: 0 !important; cursor: default !important; }
+.siteUtilities { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.siteUtilities > button { border: 0; background: transparent; color: var(--v04-muted); padding: 8px; font-size: 11px; }
+.siteUtilities > button:hover { color: var(--v04-accent); }
+/* demo 专用的身份切换，线上这里是 UserMenu。 */
+.viewerSwitch { display: inline-flex; align-items: center; gap: 6px; color: var(--v04-muted); font-size: 11px; white-space: nowrap; }
+.viewerSwitch select { appearance: none; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-sunken) var(--v04-chevron) no-repeat right 9px center / 9px 5px; color: var(--v04-ink); padding: 4px 24px 4px 10px; font-size: 11px; }
+
+/* ---------------- 外观开关（components/shared/ThemeSwitcher.module.css） ---------------- */
+.themeRoot { position: relative; display: inline-flex; flex: none; }
+.themeRoot .trigger { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 0; transition: color .12s, border-color .12s; }
+.themeRoot .trigger:hover, .themeRoot .trigger[aria-expanded="true"] { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.themeRoot svg { display: block; width: 15px; height: 15px; flex: none; }
+.popover { position: absolute; top: calc(100% + 8px); right: 0; z-index: 70; width: 220px; padding: 6px; border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-panel); box-shadow: 0 18px 44px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength))); color: var(--v04-ink); text-align: left; }
+.popover .heading { margin: 5px 9px 7px; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.themeRoot .option { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; border-radius: 8px; background: transparent; color: var(--v04-ink); padding: 9px 10px; font-size: 12px; font-weight: 600; line-height: 1.35; text-align: left; }
+.themeRoot .option:hover { background: rgb(var(--v04-fg-rgb) / .06); }
+.themeRoot .option[aria-checked="true"] { background: rgb(var(--v04-accent-rgb) / .1); color: var(--v04-accent); }
+.option span { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.option small { color: var(--v04-muted); font-size: 10px; font-weight: 400; }
+.option b { font-size: 11px; }
+
+/* ---------------- 库首页（V04Surface .libraryHero / .libraryToolbar / .caseGrid） ---------------- */
+.libraryHero { width: min(1340px, calc(100% - 48px)); margin: 0 auto; padding: clamp(48px, 8vw, 110px) 0 42px; }
+.libraryHero p { margin: 0 0 8px; color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+.libraryHero h1 { margin: 0; font-size: clamp(46px, 8vw, 94px); line-height: .92; letter-spacing: -.07em; }
+.libraryHero span { display: block; max-width: 660px; margin-top: 18px; color: var(--v04-muted); font-size: 15px; line-height: 1.7; }
+.libraryToolbar { display: flex; width: min(1340px, calc(100% - 48px)); align-items: end; justify-content: space-between; gap: 20px; margin: 0 auto 28px; padding-top: 22px; border-top: 1px solid var(--v04-line); }
+.libraryToolbar > div > p { margin: 0 0 5px; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .17em; }
+.libraryToolbar > div > h2 { margin: 0; font-size: 22px; letter-spacing: -.04em; white-space: nowrap; }
+.libraryCount { color: var(--v04-muted); font-weight: 800; }
+.libraryToolbarControls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 14px; }
+.filterGroup { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 子领域、按收藏排序、只看我收藏的：都是 V04Surface .weekToggle 那一种药丸，亮起来才说明列表换了口径。 */
+.pillToggle { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 9px 14px; font-size: 11px; font-weight: 800; white-space: nowrap; transition: border-color .12s, color .12s, background .12s; }
+.pillToggle:hover { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.pillToggle[aria-pressed="true"], .pillToggle[aria-checked="true"] { border-color: rgb(var(--v04-accent-rgb) / .55); background: rgb(var(--v04-accent-rgb) / .12); color: var(--v04-accent); }
+.reorderChip { flex: none; border: 1px solid rgb(var(--v04-subject-rgb) / .5); border-radius: 999px; background: transparent; color: var(--v04-subject); padding: 9px 14px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.reorderChip:hover { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+/* 宽度写死 360px + max-width：写成 min(360px,100%) 时，flex 算内容宽度时百分比无从解析，搜索框会被挤到下一行。 */
+.librarySearch { position: relative; display: grid; width: 360px; max-width: 100%; }
+.librarySearch > span { position: absolute; left: 0; bottom: 13px; color: var(--v04-muted); font-size: 18px; }
+.librarySearch input { width: 100%; border: 0; border-bottom: 1px solid var(--v04-line); background: transparent; color: var(--v04-ink); padding: 13px 2px 13px 28px; font-size: 18px; border-radius: 0; }
+.librarySearch input::placeholder { color: var(--v04-muted); }
+.caseGrid { display: grid; width: min(1340px, calc(100% - 48px)); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 42px 24px; margin: 0 auto; padding-bottom: 80px; }
+.caseCard { min-width: 0; }
+
+/* ---------------- 封面（ReportLibrary .cover 一组：4:3、深色岛、四态） ---------------- */
+.cover { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid var(--v04-line); background: #0b0c0a; padding: 0; text-align: left; color: #fff; text-decoration: none; }
+.cover::after { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 46%, rgba(0,0,0,.66)); content: ""; pointer-events: none; }
+.coverArt { position: absolute; inset: 0; }
+.busy .coverArt { filter: saturate(.5) brightness(.55); }
+.coverPlaceholder { position: absolute; inset: 0; display: grid; place-items: center; color: #8b8e83; font-size: 12px; background: radial-gradient(circle at 24% 22%, #2a2c24, #15160f 46%, #0b0c0a); }
+.coverFormat { position: absolute; top: 12px; left: 12px; z-index: 2; border: 1px solid rgba(255,255,255,.28); border-radius: 999px; padding: 4px 9px; font-size: 9px; letter-spacing: .06em; background: rgba(0,0,0,.4); color: #e6e7df; }
+.coverPages { position: absolute; right: 12px; bottom: 12px; z-index: 2; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; color: #fff; background: rgba(0,0,0,.55); border-radius: 4px; padding: 2px 7px; }
+/* 第一位素材是视频时，照视频库卡片的 .playButton（酸绿实心圆）。 */
+.playButton { position: absolute; left: 50%; top: 50%; z-index: 3; display: grid; width: 64px; height: 64px; place-items: center; border-radius: 50%; background: var(--v04-accent-fill); color: var(--v04-on-accent); font-size: 17px; transform: translate(-50%, -50%); }
+/* 纯文字案例：视频库 .posterFallback 的深色底 + 标题排版。 */
+.coverPlate { position: absolute; inset: 0; z-index: 2; display: grid; align-content: center; gap: 12px; padding: 0 12%; background: radial-gradient(circle at 24% 22%, #4c503e, #1c1d19 42%, #0b0c0a); }
+.coverPlate b { display: -webkit-box; overflow: hidden; color: #fff; font-size: clamp(18px, 2.1vw, 26px); line-height: 1.25; letter-spacing: -.03em; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.coverPlate small { color: rgba(255,255,255,.72); font-size: 10px; letter-spacing: .14em; }
+.coverState { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: grid; gap: 7px; }
+.coverState b { font-size: 12px; color: #fff; font-weight: 800; }
+.coverStateFailed b { color: #ff8f7d; }
+.coverState small { display: block; color: rgba(255,255,255,.72); font-size: 10.5px; line-height: 1.5; }
+.coverBar { height: 5px; border-radius: 99px; background: rgb(var(--v04-fg-rgb) / .18); overflow: hidden; }
+.coverBar i { display: block; height: 100%; background: var(--v04-accent); border-radius: 99px; transition: width .4s; }
+
+/* ---------------- 卡片正文（V04Surface .caseBody 一组） ---------------- */
+.caseBody { padding: 14px 2px 0; }
+.caseQuickActions { position: relative; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 14px; }
+.caseEnterPill, .enterPillDisabled { display: inline-flex; align-items: center; min-height: 38px; border: 1px solid rgb(var(--v04-fg-rgb) / .22); border-radius: 999px; background: rgb(var(--v04-bg-rgb) / .88); color: var(--v04-ink); padding: 0 16px; font-size: 11px; font-weight: 900; text-decoration: none; backdrop-filter: blur(10px); transition: border-color .12s, color .12s, background .12s; }
+.caseEnterPill:hover { border-color: rgb(var(--v04-accent-rgb) / .55); background: rgb(var(--v04-accent-rgb) / .1); color: var(--v04-accent); }
+.enterPillDisabled { opacity: .45; cursor: not-allowed; }
+.caseCardMetrics { display: flex; min-width: 0; align-items: center; gap: 10px; margin-left: auto; }
+.caseFavorite { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 38px; border: 1px solid rgb(var(--v04-fg-rgb) / .22); border-radius: 999px; background: rgb(var(--v04-bg-rgb) / .88); color: var(--v04-ink); padding: 0 13px; font-size: 11px; font-weight: 900; backdrop-filter: blur(10px); transition: border-color .12s, color .12s, background .12s; }
+.caseFavorite svg { display: block; flex: none; }
+.caseFavorite b { font-variant-numeric: tabular-nums; }
+.caseFavorite:hover:not(:disabled) { border-color: rgb(var(--v04-danger-rgb) / .6); color: var(--v04-danger); }
+.caseFavorite:disabled { cursor: not-allowed; opacity: .55; }
+.caseFavoriteOn { border-color: rgb(var(--v04-danger-rgb) / .65); background: rgb(var(--v04-danger-rgb) / .14); color: var(--v04-danger); }
+.retryGroup { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.retryButton { border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-muted); padding: 6px 11px; font-size: 10.5px; }
+.retryButton:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.retryButtonDanger:hover:not(:disabled) { border-color: rgb(var(--v04-danger-2-rgb) / .5); color: var(--v04-danger-2); }
+.caseNumber { margin: 0 0 7px; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .15em; }
+.caseTitleStatus h2 { display: grid; gap: 3px; margin: 0; min-width: 0; }
+.caseTitleStatus h2 small { color: var(--v04-muted); font-size: 10px; font-weight: 700; }
+.caseTitleStatus h2 span { font-size: clamp(21px, 2.4vw, 30px); line-height: 1.05; letter-spacing: -.055em; }
+/* 一句话摘要：V04Surface 的 .caseBody > p 那一档，最多两行。 */
+.caseSummary { display: -webkit-box; overflow: hidden; margin: 10px 0 0; color: var(--v04-muted); font-size: 13px; line-height: 1.55; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.caseInfoBand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--v04-line); color: var(--v04-muted); font-size: 9px; }
+.caseInfoBand > span { border-radius: 999px; padding: 5px 8px; }
+.caseInfoBand > span:not(.caseCategoryTag) { background: var(--v04-raised); }
+.caseCategoryTag { border: 1px solid var(--v04-line); }
+/* 子领域 chip：位置与报告卡片的「任务类型」chip 一样（信息带第一个），颜色换成子领域色。 */
+.subdomainTag { font-weight: 800; }
+.subdomainTag[data-sub="OOH"] { border-color: rgb(var(--v04-visual-ooh-rgb) / .45) !important; color: var(--v04-visual-ooh); }
+.subdomainTag[data-sub="PUBLIC_ART"] { border-color: rgb(var(--v04-visual-art-rgb) / .45) !important; color: var(--v04-visual-art); }
+.subdomainTag[data-sub="RETAIL"] { border-color: rgb(var(--v04-visual-retail-rgb) / .45) !important; color: var(--v04-visual-retail); }
+
+.emptyState { width: min(900px, calc(100% - 48px)); margin: 60px auto; padding: 44px; border: 1px solid var(--v04-line); border-radius: 18px; background: var(--v04-panel); text-align: center; }
+.emptyState > span { color: var(--v04-muted); font-size: 26px; }
+.emptyState h2 { margin: 0 0 10px; }
+.emptyState p { color: var(--v04-muted); }
+.emptyState button { display: inline-flex; margin-top: 16px; border: 0; border-radius: 999px; background: var(--v04-accent-fill); color: var(--v04-on-accent); padding: 12px 18px; font-weight: 800; }
+
+/* ---------------- 只读详情（V04Surface .detailHero / .readingModule 一组） ---------------- */
+.detailHero { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: clamp(38px, 6vw, 82px) 0 30px; }
+.breadcrumb { display: flex; gap: 8px; margin: 0 0 44px; color: var(--v04-muted); font-size: 10px; }
+.breadcrumb a { color: inherit; text-decoration: none; }
+.breadcrumb a:hover { color: var(--v04-accent); }
+.breadcrumb b { color: var(--v04-ink); }
+.detailEyebrow { margin: 0 0 12px; color: var(--v04-subject); font-size: 10px; font-weight: 900; letter-spacing: .14em; }
+/* 标题用 .detailIntro h1 那一档（36–68px）：这里的标题是一句描述，比片名长得多。 */
+.detailHero h1 { max-width: 1020px; margin: 0; font-size: clamp(36px, 5vw, 68px); line-height: 1.02; letter-spacing: -.055em; }
+.detailSummary { max-width: 720px; margin: 22px 0 0; color: var(--v04-muted); font-size: 15px; line-height: 1.8; }
+.detailTags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; }
+.detailTags span { border: 1px solid var(--v04-line); border-radius: 999px; padding: 6px 10px; color: var(--v04-muted); font-size: 9px; }
+.detailActions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 24px; }
+/* .analysisToolbar button 那一档：细边、10px 字。删除 hover 用报告库的 danger-2。 */
+.toolButton { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 8px 11px; font-size: 10px; }
+.toolButton:hover { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.toolButtonDanger:hover { border-color: rgb(var(--v04-danger-2-rgb) / .5); color: var(--v04-danger-2); }
+
+/* 舞台 + 素材条：外壳照 .videoShell（圆角 18、#050505），整块是深色岛。 */
+.mediaSlot { width: min(1160px, calc(100% - 48px)); margin: 0 auto 36px; }
+.videoShell { overflow: hidden; border: 1px solid var(--v04-line); border-radius: 18px; background: #050505; box-shadow: 0 18px 60px rgba(0,0,0,.32); color: var(--v04-ink); }
+.stageView { position: relative; aspect-ratio: 16 / 9; background: #050505; }
+.stageArt { position: absolute; inset: 0; }
+.stageArt.clickable { cursor: zoom-in; }
+.stageVeil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.1), rgba(0,0,0,.5)); pointer-events: none; }
+.stageBig { position: absolute; left: 50%; top: 50%; z-index: 3; display: grid; width: 76px; height: 76px; place-items: center; border: 0; border-radius: 50%; background: var(--v04-accent-fill); color: var(--v04-on-accent); font-size: 20px; transform: translate(-50%, -50%); }
+.stagePlaceholder { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center; background: radial-gradient(circle at 50% 30%, #383b31, #121310 60%); }
+.stagePlaceholder b { color: #e6e7df; font-size: 16px; }
+.stagePlaceholder small { color: #a3a69b; font-size: 11px; }
+.stagePlaceholder.failed b { color: #ff8f7d; }
+.stageTools { position: absolute; top: 12px; right: 12px; z-index: 4; display: flex; gap: 6px; }
+.stageTools button, .stageTools a { border: 1px solid rgba(255,255,255,.22); border-radius: 999px; background: rgba(9,10,8,.72); color: #e6e7df; padding: 7px 10px; font-size: 10px; text-decoration: none; }
+.stageTools button:hover, .stageTools a:hover { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.stageNav { position: absolute; top: 50%; z-index: 4; display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; background: rgba(9,10,8,.72); color: #e6e7df; font-size: 18px; transform: translateY(-50%); }
+.stageNav:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.stageNav:disabled { opacity: .28; cursor: default; }
+.stageNav.prev { left: 14px; } .stageNav.next { right: 14px; }
+.stageControls { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--v04-line); background: var(--v04-panel-deep); }
+.stageControls button { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border: 1px solid var(--v04-line); border-radius: 50%; background: transparent; color: var(--v04-ink); font-size: 11px; }
+.stageControls button:hover { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.stageBar { flex: 1; height: 4px; overflow: hidden; border-radius: 99px; background: var(--v04-raised-2); }
+.stageBar i { display: block; width: 0; height: 100%; background: var(--v04-accent); transition: width .3s linear; }
+.stageClock { color: var(--v04-muted); font-size: 11px; white-space: nowrap; }
+.stageCaption { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; padding: 11px 14px; border-top: 1px solid var(--v04-line); background: var(--v04-panel-deep); color: var(--v04-muted); font-size: 11px; }
+.stageCaption b { color: var(--v04-ink); font-weight: 800; }
+.mediaStrip { display: flex; gap: 8px; overflow-x: auto; padding: 0 12px 12px; background: var(--v04-panel-deep); }
+.mediaThumb { position: relative; flex: 0 0 auto; width: 112px; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 8px; background: #0b0c0a; padding: 0; }
+.mediaThumb .coverArt { transition: filter .15s; }
+.mediaThumb[aria-selected="false"] .coverArt { filter: brightness(.72); }
+.mediaThumb[aria-selected="true"] { outline: 2px solid var(--v04-accent); outline-offset: -2px; }
+.mediaThumb i, .mediaThumb b { position: absolute; z-index: 2; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 9px; font-style: normal; font-weight: 700; color: #fff; background: rgba(0,0,0,.6); border-radius: 4px; padding: 2px 5px; }
+.mediaThumb i { left: 5px; top: 5px; }
+.mediaThumb b { right: 5px; bottom: 5px; }
+.mediaThumb .thumbPending { position: absolute; inset: 0; display: grid; place-items: center; color: #a3a69b; font-size: 9px; background: radial-gradient(circle at 24% 22%, #2a2c24, #15160f 46%, #0b0c0a); }
+
+.readingBody { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding-bottom: 100px; }
+.readingModule { margin: 0 0 22px; border: 1px solid var(--v04-line); border-radius: 18px; background: var(--v04-panel); }
+.readingModule > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--v04-line); }
+.readingModule > header small { display: block; margin-bottom: 4px; color: var(--v04-muted); font-size: 9px; font-weight: 900; letter-spacing: .17em; }
+.readingModule > header h2 { margin: 0; color: var(--v04-subject); font-size: 18px; }
+/* 正文：纯文本，保留换行，按文本插入（不走 innerHTML）。 */
+.prose { max-width: 72ch; margin: 0; padding: 20px 22px 24px; color: var(--v04-ink-soft); font-size: 14.5px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
+.readingCore { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.readingCore > div { min-width: 0; padding: 18px 22px; border-bottom: 1px solid var(--v04-line); }
+.readingCore > div:nth-child(even) { border-left: 1px solid var(--v04-line); }
+.readingCore small { display: block; margin-bottom: 6px; color: var(--v04-subject); font-size: 10px; font-weight: 800; }
+.readingCore p { margin: 0; color: var(--v04-ink-soft); line-height: 1.65; overflow-wrap: anywhere; }
+.readingCore a { color: var(--v04-accent); }
+.readingNote { margin: 0; padding: 14px 22px 18px; color: var(--v04-muted); font-size: 11px; line-height: 1.7; }
+
+/* ---------------- 浮层提示（components/shared/LibraryToast.module.css） ---------------- */
+.toastStack { position: fixed; left: 50%; bottom: 26px; z-index: 99; display: flex; flex-direction: column; gap: 8px; align-items: center; max-width: min(520px, calc(100vw - 32px)); transform: translateX(-50%); pointer-events: none; }
+.toastStack > div { border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-warn-surface); padding: 9px 15px; font-size: 12px; color: var(--v04-ink); box-shadow: 0 16px 42px rgb(var(--v04-shadow-rgb) / calc(.4 * var(--v04-shadow-strength))); text-align: center; }
+.toastStack > div.warn { border-color: rgb(var(--v04-warn-rgb) / .5); background: var(--v04-warn-surface-strong); color: var(--v04-warn-ink); }
+
+/* ---------------- 上传／编辑／删除对话框（ReportLibrary 上传对话框 + DeleteConfirmDialog 同一套壳） ---------------- */
+.uploadBackdrop { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--v04-scrim); backdrop-filter: blur(6px); }
+.uploadDialog { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; border: 1px solid var(--v04-line); border-radius: 16px; background: var(--v04-panel); color: var(--v04-ink); }
+.uploadHead { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--v04-line); background: var(--v04-panel); }
+.uploadHead small { display: block; color: var(--v04-subject); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.uploadHead b { font-size: 14px; }
+.uploadClose { margin-left: auto; border: 0; background: none; color: var(--v04-muted); font-size: 18px; line-height: 1; padding: 4px; }
+.uploadClose:hover { color: var(--v04-ink); }
+.uploadBody { display: grid; gap: 14px; padding: 16px 18px; }
+.fileDrop { display: grid; place-items: center; gap: 4px; width: 100%; border: 1px dashed var(--v04-line); border-radius: 12px; padding: 18px; text-align: center; font-size: 11.5px; color: var(--v04-faint); background: none; }
+.fileDrop b { color: var(--v04-accent); font-size: 13px; }
+.fileDrop:hover { border-color: rgb(var(--v04-accent-rgb) / .4); background: rgb(var(--v04-accent-rgb) / .05); }
+.demoPicker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -6px; padding: 10px 12px; border: 1px dashed rgb(var(--v04-subject-rgb) / .45); border-radius: 12px; font-size: 10.5px; color: var(--v04-muted); }
+.demoPicker em { flex-basis: 100%; font-style: normal; color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.field { display: grid; gap: 5px; }
+.field small { color: var(--v04-subject); font-size: 10px; font-weight: 800; }
+.field small i { color: var(--v04-muted); font-style: normal; font-weight: 400; }
+.field input, .field select { height: 30px; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-sunken); padding: 0 12px; font-size: 12px; color: var(--v04-ink); min-width: 0; }
+.field select { appearance: none; background-image: var(--v04-chevron); background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px; padding-right: 28px; }
+.field textarea { min-height: 96px; border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-sunken); padding: 8px 12px; font-size: 12px; line-height: 1.7; color: var(--v04-ink); resize: vertical; }
+.field .fieldTip { color: var(--v04-muted); font-size: 10.5px; line-height: 1.5; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hint { border-left: 3px solid var(--v04-subject); background: rgb(var(--v04-subject-rgb) / .07); padding: 9px 12px; border-radius: 0 9px 9px 0; font-size: 11.5px; line-height: 1.7; color: var(--v04-ink-soft); }
+.formError { margin: 0; color: var(--v04-danger); font-size: 11.5px; line-height: 1.6; }
+.uploadFooter { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 9px; padding: 12px 18px; border-top: 1px solid var(--v04-line); background: var(--v04-panel); }
+.uploadFooter button { border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-ink); padding: 8px 15px; font-size: 12px; }
+.uploadFooter button:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.uploadFooter button:disabled { opacity: .4; cursor: not-allowed; }
+.uploadFooter .uploadGo { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); background: rgb(var(--v04-accent-rgb) / .1); }
+.uploadProgress { display: grid; gap: 6px; font-size: 11.5px; color: var(--v04-muted); }
+.uploadProgress b { color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+.uploadProgress .coverBar { background: rgb(var(--v04-fg-rgb) / .12); }
+.failList { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.failList li { display: flex; justify-content: space-between; gap: 10px; border: 1px solid rgb(var(--v04-danger-2-rgb) / .35); border-radius: 10px; padding: 8px 10px; font-size: 11.5px; color: var(--v04-ink-soft); }
+.failList li span { color: var(--v04-danger-2); white-space: nowrap; }
+.inlineActs { display: flex; flex-wrap: wrap; gap: 8px; }
+.inlineActs button, .foldToggle { border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-ink); padding: 7px 13px; font-size: 11.5px; }
+.inlineActs button:hover, .foldToggle:hover { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.inlineActs .primary { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); background: rgb(var(--v04-accent-rgb) / .1); }
+.foldToggle { justify-self: start; color: var(--v04-muted); font-weight: 800; }
+.foldToggle[aria-expanded="true"] { color: var(--v04-accent); border-color: rgb(var(--v04-accent-rgb) / .4); }
+.subBlock { display: grid; gap: 12px; border: 1px solid var(--v04-line); border-radius: 12px; padding: 12px; }
+.subBlock > b { color: var(--v04-subject); font-size: 11px; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.check { border: 1px solid var(--v04-line); border-radius: 999px; background: none; color: var(--v04-muted); padding: 5px 10px; font-size: 11px; }
+.check:hover { border-color: rgb(var(--v04-accent-rgb) / .4); color: var(--v04-accent); }
+.check[aria-pressed="true"] { border-color: rgb(var(--v04-accent-rgb) / .55); background: rgb(var(--v04-accent-rgb) / .12); color: var(--v04-accent); }
+
+/* 对话框里的素材：一条混排列表，第一位就是封面。 */
+.mediaList { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mediaTile { position: relative; aspect-ratio: 1; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 10px; background: #0b0c0a; }
+.mediaTile.isCover { outline: 2px solid var(--v04-accent-fill); outline-offset: -2px; }
+.mediaTile .idx, .mediaTile .kind, .mediaTile .coverMark { position: absolute; z-index: 2; border-radius: 4px; padding: 2px 5px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 9px; font-weight: 700; color: #fff; background: rgba(0,0,0,.62); }
+.mediaTile .idx { left: 6px; top: 6px; }
+.mediaTile .coverMark { left: 6px; top: 6px; background: var(--v04-accent-fill); color: var(--v04-on-accent); font-family: inherit; font-weight: 900; }
+.mediaTile .kind { left: 6px; bottom: 34px; }
+.mediaTile .kind.bad { color: #ffb3a6; }
+.tileActs { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: space-between; gap: 4px; padding: 5px; background: linear-gradient(transparent, rgba(0,0,0,.72)); }
+.tileActs button { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid rgba(255,255,255,.2); border-radius: 50%; background: rgba(9,10,8,.8); color: #f0f1ea; font-size: 11px; padding: 0; }
+.tileActs button:hover:not(:disabled) { border-color: rgba(223,255,79,.6); color: #dfff4f; }
+.tileActs button:disabled { opacity: .3; cursor: default; }
+.tileActs .grow { flex: 1; }
+
+.deleteDialog { width: min(460px, 100%); }
+.deleteDialog .uploadBody > b { font-size: 14px; }
+.deleteDialogLine { margin: 0; color: var(--v04-muted); font-size: 11.5px; line-height: 1.6; }
+.uploadFooter .deleteDialogConfirm { border-color: rgb(var(--v04-accent-rgb) / .55); color: var(--v04-accent); }
+
+/* ---------------- 大图查看（报告工作台 .ov / .ovbox / .ovhead 一组） ---------------- */
+.ov { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; background: var(--v04-scrim); backdrop-filter: blur(6px); }
+.ovbox { display: flex; width: min(1220px, calc(100vw - 36px)); height: min(880px, calc(100vh - 36px)); flex-direction: column; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 16px; background: var(--v04-panel); color: var(--v04-ink); }
+.ovhead { display: flex; align-items: center; gap: 10px; padding: 10px 15px; border-bottom: 1px solid var(--v04-line); }
+.ovhead b { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; color: var(--v04-subject); font-size: 12px; white-space: nowrap; }
+.ovheadT { flex: 1; overflow: hidden; color: var(--v04-muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.smBtn { border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink); padding: 6px 11px; font-size: 10.5px; white-space: nowrap; }
+.smBtn:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.smBtn:disabled { opacity: .35; cursor: default; }
+.viewerBody { position: relative; display: grid; flex: 1; min-height: 0; place-items: center; padding: 20px 70px; background: #080907; }
+.viewerImage { position: relative; width: min(100%, calc((min(880px, 100vh - 36px) - 100px) * 4 / 3)); aspect-ratio: 4 / 3; border: 1px solid var(--v04-line); }
+
+@media (max-width: 620px) {
+  .siteHeader { grid-template-columns: 1fr auto; min-height: 58px; gap: 7px; padding: 8px 12px; }
+  .siteNav { order: 3; grid-column: 1 / -1; justify-content: flex-start; overflow-x: auto; }
+  .headerCaseTitle { flex: 1 0 min(62vw, 230px); max-width: min(62vw, 230px); }
+  .brandWordmark span { font-size: 13px; }
+  .viewerSwitch > span { display: none; }
+  .libraryHero, .libraryToolbar, .caseGrid, .detailHero, .mediaSlot, .readingBody { width: calc(100% - 24px); }
+  .libraryHero { padding: 42px 0 26px; }
+  .libraryHero h1 { font-size: 52px; }
+  .libraryToolbar { align-items: stretch; flex-direction: column; }
+  .libraryToolbarControls { align-items: stretch; justify-content: flex-start; }
+  .librarySearch { width: 100%; }
+  .caseGrid { grid-template-columns: 1fr; }
+  .caseCardMetrics { margin-left: 0; }
+  .detailHero h1 { font-size: 34px; }
+  .readingCore { grid-template-columns: 1fr; }
+  .readingCore > div:nth-child(even) { border-left: 0; }
+  .stageNav { width: 34px; height: 34px; }
+  .viewerBody { padding: 12px 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="overlay"></div>
+<div class="toastStack" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   词表（lib/visual-metadata.ts 的字段清单；V0.2 删掉了「是否互动」和商业展陈的「品牌」）
+   ============================================================ */
+const SUBS = {
+  OOH: {
+    label: "户外广告", hint: "装置、互动、大屏、快闪空间",
+    fields: [
+      { key: "mediaFormat", label: "媒体形式", type: "one", options: ["地铁", "公交", "楼宇", "户外大牌", "裸眼 3D", "快闪空间", "其他"] },
+      { key: "interactionType", label: "互动方式", type: "many", options: ["体感", "触摸", "AR", "声音", "扫码", "人脸识别", "机械动作", "其他"], tip: "不互动就都不选" },
+      { key: "techNotes", label: "技术与材料", type: "text", placeholder: "LED、投影、雾幕、镜面…" },
+      { key: "campaignPeriod", label: "投放周期", type: "text", placeholder: "如 2026-05 至 2026-08" },
+    ],
+  },
+  PUBLIC_ART: {
+    label: "公共艺术", hint: "雕塑、壁画、城市家具",
+    fields: [
+      { key: "artType", label: "作品类型", type: "one", options: ["雕塑", "壁画／涂鸦", "装置", "城市家具", "临时介入", "其他"] },
+      { key: "materials", label: "材质", type: "text" },
+      { key: "scale", label: "尺度", type: "text", placeholder: "如 12m × 4m × 6m" },
+      { key: "permanence", label: "是否永久", type: "one", options: ["永久", "临时", "已拆除"] },
+      { key: "commissioner", label: "委托方／策展方", type: "text" },
+    ],
+  },
+  RETAIL: {
+    label: "商业展陈", hint: "门头、围挡、橱窗、陈列",
+    fields: [
+      { key: "displayVenue", label: "展陈位置", type: "one", options: ["门头", "围挡", "橱窗", "中庭", "快闪店", "其他"] },
+      { key: "displayPeriod", label: "展陈周期", type: "text" },
+      { key: "displayMaterials", label: "主材", type: "text" },
+      { key: "producer", label: "制作方", type: "text" },
+    ],
+  },
+};
+const SUB_KEYS = Object.keys(SUBS);
+const LIMITS = { videos: 12, images: 24, title: 80, summary: 60, location: 60, creator: 60, tags: 10, tagLength: 20, text: 20000, url: 500, derivativeMB: 20 };
+const IMAGE_FORMATS = ["JPG", "PNG", "WebP", "HEIC"];
+
+/* 渐变占位代替真实照片与视频截帧。封面、舞台、素材格都是深色岛，照片不随主题变，所以只有一套。 */
+const ART = {
+  led: "linear-gradient(150deg,#1d2a44 0%,#0e1730 46%,#2b1a12 100%)",
+  night: "linear-gradient(160deg,#0d1220 0%,#1a2540 52%,#090c14 100%)",
+  blue: "linear-gradient(150deg,#12233a 0%,#1d3f63 50%,#0a1522 100%)",
+  steel: "linear-gradient(145deg,#25292c 0%,#3a4045 48%,#15181a 100%)",
+  mirror: "linear-gradient(135deg,#2a3a3d 0%,#4a6a70 45%,#1a2426 100%)",
+  orange: "linear-gradient(150deg,#3a1f12 0%,#7a3a1a 52%,#1a0e08 100%)",
+  mist: "linear-gradient(160deg,#1b1d22 0%,#33363d 50%,#0e0f12 100%)",
+  garden: "linear-gradient(150deg,#16241a 0%,#2f5233 50%,#0b110d 100%)",
+  paper: "linear-gradient(150deg,#2b2621 0%,#453b31 50%,#171310 100%)",
+  grey: "linear-gradient(150deg,#1f2124 0%,#343840 50%,#121316 100%)",
+};
+const artOf = (key) => ART[key] || ART.grey;
+
+const VIEWERS = [
+  { id: "sun", name: "老孙", admin: false, label: "老孙" },
+  { id: "lin", name: "小林", admin: false, label: "小林" },
+  { id: "wang", name: "王工", admin: true, label: "王工（系统管理员）" },
+];
+const nameOf = (id) => (VIEWERS.find((viewer) => viewer.id === id) || { name: "未知" }).name;
+
+/* 素材：upload = READY | MISSING（没传完）；deriv = READY | PENDING | FAILED（480w／1600w 两档预览）。 */
+const img = (id, art, extra) => Object.assign({ id, type: "IMAGE", art, name: `IMG_${id.toUpperCase()}.jpg`, fmt: "JPG", sizeMB: 4.2, upload: "READY", deriv: "READY" }, extra || {});
+const vid = (id, art, dur, name, extra) => Object.assign({ id, type: "VIDEO", art, dur, name, sizeMB: 86, upload: "READY", deriv: "READY" }, extra || {});
+
+const CASES = [
+  {
+    id: "vc-011", status: "UPLOADING", sub: "OOH", title: "静安寺换乘通道的灯箱改造：把广告位变成导视",
+    summary: "", tags: ["灯箱", "地铁", "导视"], location: "上海 · 静安寺站", creator: "",
+    occ: "2026-09", url: "", rights: "仅公司内部学习使用", text: "", meta: { mediaFormat: "地铁" },
+    assets: [img("k1", "steel"), img("k2", "grey"), vid("k3", "night", 48, "通道实拍.mov", { upload: "MISSING" })],
+    by: "sun", at: "2026-09-18T21:40:00+08:00", favBase: 0, favedBy: [],
+  },
+  {
+    id: "vc-001", status: "READY", sub: "OOH", title: "南京西路裸眼 3D 巨幕：把商场外墙变成水族箱",
+    summary: "整点开箱的裸眼 3D 内容，路人停下就是为了等下一次「开箱」。",
+    tags: ["裸眼3D", "大屏", "商圈"], location: "上海 · 南京西路", creator: "某商业地产 × 制作方",
+    occ: "2026-05", url: "https://example.com/case/naked-eye-3d", rights: "仅公司内部学习使用",
+    text: "内容按整点循环，每 15 分钟一次“开箱”。\n\n看点是等待：屏幕上先出现裂纹，十几秒后才“破框”，人群的拍照动作基本都发生在破框那一下。\n\n记一笔：这类内容的价值不在画面精度，在于制造一个可预期的、一定会发生的瞬间。",
+    meta: { mediaFormat: "裸眼 3D", techNotes: "LED 转角屏 + 定制渲染", campaignPeriod: "2026-05 至 2026-08" },
+    assets: [vid("a1", "night", 42, "现场整点开箱.mp4"), img("a2", "led"), img("a3", "blue"), img("a4", "grey")],
+    by: "sun", at: "2026-09-16T10:20:00+08:00", favBase: 4, favedBy: [],
+  },
+  {
+    id: "vc-002", status: "READY", sub: "OOH", title: "地铁通道的声音地板：走过去才会响",
+    summary: "把一段通道做成可踩的琴键，通勤高峰的脚步声就是内容。",
+    tags: ["互动", "体感", "地铁", "声音"], location: "深圳 · 车公庙站", creator: "某品牌 × 互动代理商",
+    occ: "2026-03", url: "", rights: "仅公司内部学习使用",
+    text: "压力感应地板铺了 24 米，每块砖对应一个音。\n\n有意思的是有人专门来回走：互动装置真正的内容是人的行为，装置只是给了一个理由。",
+    meta: { mediaFormat: "地铁", interactionType: ["体感", "声音"], techNotes: "压力感应地砖 + 定向音箱", campaignPeriod: "2026-03 两周" },
+    assets: [vid("b1", "mist", 78, "通道实拍.mp4"), img("b2", "blue"), img("b3", "steel")],
+    by: "lin", at: "2026-09-14T16:05:00+08:00", favBase: 2, favedBy: [],
+  },
+  {
+    id: "vc-003", status: "READY", sub: "PUBLIC_ART", title: "苏州河边的不锈钢镜面装置：把对岸折进来",
+    summary: "镜面切面朝向不同，走近以后能看到被切碎的对岸。",
+    tags: ["镜面", "装置", "城市家具", "河岸"], location: "上海 · 苏州河", creator: "某公共艺术计划",
+    occ: "2025-11", url: "", rights: "仅公司内部学习使用",
+    text: "六块 4 米高的镜面不锈钢，角度各不相同。\n\n它不生产图像，它把已有的城市切成几段再还给你。落地成本很低，效果全在角度上。",
+    meta: { artType: "装置", materials: "镜面不锈钢", scale: "4m × 1.2m × 6 组", permanence: "永久", commissioner: "区文旅局" },
+    assets: [img("c1", "mirror"), img("c2", "steel"), img("c3", "mist"), img("c4", "grey"), img("c5", "blue")],
+    by: "sun", at: "2026-09-12T09:12:00+08:00", favBase: 4, favedBy: ["sun"],
+  },
+  {
+    id: "vc-004", status: "READY", sub: "PUBLIC_ART", title: "老厂房外墙的巨幅涂鸦：只画了拆不掉的那一面",
+    summary: "顺着原有窗格构图，把一栋待拆建筑的最后一面留了下来。",
+    tags: ["壁画", "厂区更新", "涂鸦"], location: "重庆 · 鹅岭", creator: "本地创作小组",
+    occ: "2025-06", url: "", rights: "仅公司内部学习使用",
+    text: "创作前先量了窗洞的位置，画面里所有的水平线都对上了窗台。\n\n记录一下方法：先读建筑，再画内容。反过来就变成一张贴上去的广告。",
+    meta: { artType: "壁画／涂鸦", materials: "外墙涂料", scale: "约 18m × 12m", permanence: "临时", commissioner: "园区运营方" },
+    assets: [img("d1", "orange"), img("d2", "paper")],
+    by: "lin", at: "2026-09-10T14:30:00+08:00", favBase: 1, favedBy: [],
+  },
+  {
+    id: "vc-005", status: "READY", sub: "RETAIL", title: "咖啡店门头：一块会呼吸的布",
+    summary: "门头没有字，只有一块被风机吹动的布，走近才看见缝线里的店名。",
+    tags: ["门头", "材料", "小店"], location: "成都 · 玉林", creator: "某独立咖啡",
+    occ: "2026-01", url: "", rights: "仅公司内部学习使用",
+    text: "布是帆布，缝线用的是同色线，名字只在不同角度才看得见。\n\n小预算案例：一块布 + 一台风机，比换一套亚克力字便宜，辨识度反而更高。",
+    meta: { displayVenue: "门头", displayPeriod: "长期", displayMaterials: "帆布 + 风机", producer: "店主自制" },
+    assets: [img("e1", "paper"), img("e2", "garden", { name: "IMG_4411.HEIC", fmt: "HEIC", sizeMB: 2.8 }), img("e3", "grey")],
+    by: "sun", at: "2026-09-08T11:48:00+08:00", favBase: 3, favedBy: [],
+  },
+  {
+    id: "vc-006", status: "READY", sub: "RETAIL", title: "工地围挡做成城市橱窗：里面是空的，但每天换内容",
+    summary: "围挡上开了六个窗口，窗口里每天换一件小东西。",
+    tags: ["围挡", "窗口", "城市更新"], location: "杭州 · 湖滨", creator: "某商业项目",
+    occ: "2026-04", url: "", rights: "仅公司内部学习使用",
+    text: "围挡本身没画面，只开了窗。\n\n内容由附近商户每天放一件东西：一盆绿植、一只旧钟、一张唱片。\n\n记一笔：留白比贴满更留人，但它需要有人真的每天去换。",
+    meta: { displayVenue: "围挡", displayPeriod: "2026-04 至 2026-07", displayMaterials: "钢框 + 亚克力窗", producer: "项目自建" },
+    assets: [img("f1", "grey"), img("f2", "paper", { name: "DSC_0912.jpg", sizeMB: 26.3, deriv: "FAILED" })],
+    by: "lin", at: "2026-09-06T18:20:00+08:00", favBase: 0, favedBy: [],
+  },
+  {
+    id: "vc-009", status: "READY", sub: "OOH", title: "地铁站的裸眼 3D 双屏：两块屏接成一条连续的街",
+    summary: "两块屏不同角度，站在中间才看得到完整画面——一个必须走到位的装置。",
+    tags: ["裸眼3D", "地铁", "双屏"], location: "上海 · 徐家汇", creator: "某品牌 × 内容方",
+    occ: "2026-06", url: "", rights: "仅公司内部学习使用",
+    text: "两条视频是同一装置的两个机位：一条拍正面，一条拍侧面走过的视角。\n\n现场的关键是站位——不在正确的位置上，两块屏就是两幅无关的画面。",
+    meta: { mediaFormat: "地铁", techNotes: "双 LED 屏 + 透视校正", campaignPeriod: "2026-06 至 2026-09" },
+    assets: [img("g1", "steel"), vid("g2", "night", 36, "正面机位.mp4"), vid("g3", "led", 24, "侧面走过.m4v"), img("g4", "grey")],
+    by: "sun", at: "2026-09-05T20:02:00+08:00", favBase: 3, favedBy: [],
+  },
+  {
+    id: "vc-007", status: "READY", sub: "OOH", title: "公交站台的雾幕：等车的时候下了一场雨",
+    summary: "雾幕上的雨只在有人站进感应区时落下。",
+    tags: ["公交", "雾幕", "互动", "快闪"], location: "广州 · 天河", creator: "某饮料品牌",
+    occ: "2026-07", url: "", rights: "仅公司内部学习使用",
+    text: "雾幕装置装在站台顶棚，感应区就是候车黄线以内。\n\n下雨的时长 8 秒，刚好是一次抬头的时间。",
+    meta: { mediaFormat: "公交", interactionType: ["体感", "机械动作"], techNotes: "雾幕 + 红外感应", campaignPeriod: "2026-07 一周" },
+    assets: [vid("h1", "mist", 31, "站台实拍.mp4")],
+    by: "lin", at: "2026-09-04T08:40:00+08:00", favBase: 2, favedBy: [],
+  },
+  {
+    id: "vc-010", status: "READY", sub: "RETAIL", title: "书店橱窗：只放一把椅子和一盏灯",
+    summary: "纯图片案例——没有视频也没有正文，四张照片说清一件事。",
+    tags: ["橱窗", "极简", "书店"], location: "南京 · 先锋书店", creator: "某书店",
+    occ: "2026-02", url: "", rights: "仅公司内部学习使用", text: "",
+    meta: { displayVenue: "橱窗", displayPeriod: "长期", displayMaterials: "旧木椅 + 暖光", producer: "店内陈列" },
+    assets: [img("i1", "paper"), img("i2", "orange"), img("i3", "garden"), img("i4", "grey")],
+    by: "lin", at: "2026-09-03T13:15:00+08:00", favBase: 2, favedBy: [],
+  },
+  {
+    id: "vc-008", status: "READY", sub: "PUBLIC_ART", title: "废弃管廊的检修门：每扇门后是不同的声音",
+    summary: "现场不允许拍摄，只记了文字。",
+    tags: ["待补素材", "声音装置"], location: "北京 · 798", creator: "",
+    occ: "2026-08", url: "", rights: "仅公司内部学习使用",
+    text: "一条纯文字的案例条目也是成立的：现场禁止拍摄，但描述足够说清做法。\n\n做法：把废弃管廊的检修口做成可开合的小门，每扇门后面是不同的声音。\n\n待补：下次去补两张门开着和关着的照片。",
+    meta: { artType: "临时介入", materials: "旧管廊 + 音频", scale: "12 扇检修门", permanence: "临时" },
+    assets: [],
+    by: "sun", at: "2026-09-02T17:55:00+08:00", favBase: 1, favedBy: [],
+  },
+];
+CASES.forEach((item) => { item.favedBy = new Set(item.favedBy); });
+
+/* ============================================================
+   状态
+   ============================================================ */
+const state = {
+  viewer: "sun",
+  sub: "ALL", sortFav: false, frozen: null, mine: false,
+  query: "", composing: false, committedQuery: "",
+  stageIndex: 0, playing: false, playAt: 0, playTimer: null,
+  listScroll: 0,
+  overlay: null,            // null | { kind: "upload" | "delete" | "viewer", ... }
+  favoriteInFlight: new Set(),
+  themeOpen: false,
+};
+let seq = 100;
+const nextId = () => String(++seq);
+
+/* ============================================================
+   小工具
+   ============================================================ */
+const $ = (selector, root) => (root || document).querySelector(selector);
+const $$ = (selector, root) => Array.from((root || document).querySelectorAll(selector));
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const pad = (value) => String(value).padStart(2, "0");
+const fmtDur = (seconds) => `${pad(Math.floor(seconds / 60))}:${pad(Math.round(seconds) % 60)}`;
+/** 卡片时间与视频库一致：MM-DD HH:mm。 */
+const fmtTime = (iso) => { const d = new Date(iso); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+/** 恢复滚动位置要瞬间到位：html 上有 scroll-behavior:smooth（同 globals.css），直接 scrollTo 会看见一段滑动。 */
+const jumpTo = (y) => window.scrollTo({ top: y, left: 0, behavior: "instant" });
+const norm = (value) => String(value || "").normalize("NFKC").toLocaleLowerCase("zh-CN");
+const viewer = () => VIEWERS.find((item) => item.id === state.viewer);
+const canManage = (item) => viewer().admin || item.by === state.viewer;
+const favCount = (item) => item.favBase + item.favedBy.size;
+const faved = (item) => item.favedBy.has(state.viewer);
+const findCase = (id) => CASES.find((item) => item.id === id);
+const byNewest = () => [...CASES].sort((a, b) => new Date(b.at) - new Date(a.at));
+/** CASE 编号按完整列表（不受筛选、搜索、排序影响），与视频库 caseIndexById 同一做法。 */
+const caseNumberOf = (id) => byNewest().findIndex((item) => item.id === id) + 1;
+/** 与 lib/library-count.ts 一致：没筛掉东西只报总数。 */
+const countLabel = (matched, total, unit) => (matched >= total ? `${total} ${unit}` : `符合 ${matched} / ${total} ${unit}`);
+
+/** 已经传完的素材。没传完的（upload=MISSING）不上舞台、不当封面、不计数。 */
+const shownAssets = (item) => item.assets.filter((asset) => asset.upload === "READY");
+/** 载体摘要：查询期按计数推导，不入库。上传未完成的卡片按「计划上传的」数，其余按已传完的数。 */
+function carrierParts(item) {
+  const assets = item.status === "UPLOADING" ? item.assets : shownAssets(item);
+  const videos = assets.filter((asset) => asset.type === "VIDEO").length;
+  const images = assets.filter((asset) => asset.type === "IMAGE").length;
+  const parts = [];
+  if (videos) parts.push(`视频 ${videos}`);
+  if (images) parts.push(`图片 ${images}`);
+  if (item.text.trim()) parts.push("文字");
+  return parts;
+}
+
+/** 标签：中英文逗号分隔；去空白、NFKC 归一（全角转半角）、同一案例内忽略大小写和空格去重。 */
+function parseTags(text) {
+  const seen = new Set();
+  const tags = [];
+  for (const raw of String(text).split(/[，,]/)) {
+    const tag = raw.normalize("NFKC").trim().replace(/\s+/g, " ");
+    if (!tag) continue;
+    const key = tag.toLocaleLowerCase("zh-CN").replace(/\s/g, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  return tags;
+}
+const isHttpUrl = (value) => { try { const url = new URL(value); return url.protocol === "http:" || url.protocol === "https:"; } catch { return false; } };
+
+/* ============================================================
+   浮层提示：components/shared/LibraryToast 的行为——底部居中、同一句话不叠、warn 多停一会儿
+   ============================================================ */
+const showingToasts = new Set();
+function notify(message, tone) {
+  if (showingToasts.has(message)) return;
+  showingToasts.add(message);
+  const el = document.createElement("div");
+  if (tone === "warn") el.className = "warn";
+  el.textContent = message;
+  $("#toasts").appendChild(el);
+  setTimeout(() => { showingToasts.delete(message); el.remove(); }, tone === "warn" ? 4200 : 2800);
+}
+
+/* ============================================================
+   外观：深色／浅色／跟随系统（ThemeSwitcher 同一套）
+   ============================================================ */
+const THEME_PREFERENCES = ["dark", "light", "system"];
+const THEME_LABELS = { dark: "深色", light: "浅色", system: "跟随系统" };
+const themePreference = () => (THEME_PREFERENCES.includes(document.documentElement.dataset.theme) ? document.documentElement.dataset.theme : "dark");
+function themeIcon(kind) {
+  if (kind === "light") return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="2.9"/><path d="M8 1.4v1.5M8 13.1v1.5M1.4 8h1.5M13.1 8h1.5M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M3.3 12.7l1.1-1.1M11.6 4.4l1.1-1.1"/></svg>`;
+  if (kind === "dark") return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13.4 10.1A5.6 5.6 0 0 1 5.9 2.6a5.6 5.6 0 1 0 7.5 7.5Z"/></svg>`;
+  return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.8" y="2.6" width="12.4" height="8.6" rx="1.4"/><path d="M5.6 14h4.8M8 11.2V14"/></svg>`;
+}
+function themeSwitcherHTML() {
+  const pref = themePreference();
+  const label = `外观：${THEME_LABELS[pref]}`;
+  return `<div class="themeRoot" data-theme-switcher>
+    <button type="button" class="trigger" aria-haspopup="menu" aria-expanded="${state.themeOpen}" aria-label="${label}" title="${label}" data-action="theme-toggle">${themeIcon(pref)}</button>
+    ${state.themeOpen ? `<div class="popover"><p class="heading" aria-hidden="true">外观</p><div role="menu" aria-label="外观">
+      ${THEME_PREFERENCES.map((option) => `<button type="button" role="menuitemradio" aria-checked="${pref === option}" class="option" data-theme-pick="${option}">
+        ${themeIcon(option)}<span>${THEME_LABELS[option]}${option === "system" ? "<small>按电脑的深浅设置自动切换</small>" : ""}</span>${pref === option ? `<b aria-hidden="true">✓</b>` : ""}
+      </button>`).join("")}
+    </div></div>` : ""}
+  </div>`;
+}
+function chooseTheme(option) {
+  document.documentElement.dataset.theme = option;
+  try { localStorage.setItem("hm-theme", option); } catch (error) { /* 忽略 */ }
+  state.themeOpen = false;
+  renderHeader();
+  $("[data-theme-switcher] .trigger")?.focus();
+}
+
+/* ============================================================
+   顶栏
+   ============================================================ */
+function viewerSwitchHTML() {
+  return `<label class="viewerSwitch" title="demo 专用：切换身份看权限差异（线上是 UserMenu）"><span>身份</span><select data-viewer-switch aria-label="切换身份（demo）">
+    ${VIEWERS.map((item) => `<option value="${item.id}"${item.id === state.viewer ? " selected" : ""}>${esc(item.label)}</option>`).join("")}
+  </select></label>`;
+}
+function renderHeader() {
+  const route = currentRoute();
+  const header = $("#siteHeader");
+  if (!header) return;
+  if (route.caseId) {
+    const item = findCase(route.caseId);
+    header.innerHTML = `<a href="#" class="brandWordmark" data-action="go-list"><b>R:</b><span>RE:VERSE</span><small>反写</small></a>
+      <nav class="siteNav" aria-label="站点导航"><span class="headerCaseTitle" title="${esc(item ? item.title : "")}">${esc(item ? item.title : "")}</span><a href="#" data-action="go-list">公共视觉库</a></nav>
+      <div class="siteUtilities">${themeSwitcherHTML()}${viewerSwitchHTML()}</div>`;
+  } else {
+    header.innerHTML = `<a href="#" class="brandWordmark" data-action="go-list"><b>R:</b><span>RE:VERSE</span><small>反写</small></a>
+      <nav class="siteNav" aria-label="站点导航">
+        <button type="button" data-action="other-library" data-library="视频库">视频库</button>
+        <button type="button" data-action="other-library" data-library="报告库">报告库</button>
+        <button type="button" class="activeNav" aria-current="page">公共视觉库</button>
+      </nav>
+      <div class="siteUtilities"><button type="button" data-action="upload">上传案例</button>${themeSwitcherHTML()}${viewerSwitchHTML()}</div>`;
+  }
+}
+
+/* ============================================================
+   路由：#/visual/<id> 对应线上 /visual/[id]；其余是库首页（?library=VISUAL）。
+   路由记在内存里，地址栏用 pushState 同步——以 data: 方式打开时浏览器不许改地址，
+   那时只是不写地址栏，页面照常切换。
+   ============================================================ */
+const route = { caseId: parseHash() };
+function parseHash() {
+  const match = location.hash.match(/^#\/visual\/([\w-]+)$/);
+  return match ? match[1] : null;
+}
+function currentRoute() { return route; }
+function navigate(caseId, push) {
+  stopPlay();
+  state.stageIndex = 0;
+  if (state.overlay) closeOverlay();
+  route.caseId = caseId;
+  if (push) {
+    try { history.pushState({ caseId }, "", caseId ? `#/visual/${caseId}` : `${location.pathname}${location.search}`); } catch (error) { /* data: 地址不许改，忽略 */ }
+  }
+  render();
+  jumpTo(caseId ? 0 : state.listScroll);
+}
+function goList() {
+  if (route.caseId) navigate(null, true);
+  else render();
+}
+function openCase(id) {
+  state.listScroll = window.scrollY;
+  navigate(id, true);
+}
+
+/* ============================================================
+   库首页
+   ============================================================ */
+function ranking(list) {
+  return [...list].sort((a, b) => favCount(b) - favCount(a) || new Date(b.at) - new Date(a.at));
+}
+/** 按收藏排序时名次冻结：点心形只改数字，不让卡片从鼠标底下窜走（与视频库「按周显示」同一做法）。 */
+function freezeOrder() { state.frozen = new Map(ranking(CASES).map((item, index) => [item.id, index])); }
+function visibleCases() {
+  const q = norm(state.composing ? state.committedQuery : state.query).trim();
+  let list = byNewest();
+  if (state.sub !== "ALL") list = list.filter((item) => item.sub === state.sub);
+  if (state.mine) list = list.filter((item) => faved(item));
+  if (q) {
+    list = list.filter((item) => norm([item.title, item.summary, item.location, item.creator, item.tags.join(" "), item.text, nameOf(item.by)].join(" ")).includes(q));
+  }
+  let stale = false;
+  if (state.sortFav && state.frozen) {
+    const rankOf = (item) => (state.frozen.has(item.id) ? state.frozen.get(item.id) : -1);
+    const frozenList = [...list].sort((a, b) => rankOf(a) - rankOf(b));
+    const liveIds = ranking(list).map((item) => item.id).join();
+    stale = frozenList.map((item) => item.id).join() !== liveIds;
+    list = frozenList;
+  }
+  return { list, stale };
+}
+
+function heartSVG(on) {
+  return `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 13.7 3.2 9.1a3.1 3.1 0 0 1 0-4.5 3.3 3.3 0 0 1 4.6 0L8 4.8l.2-.2a3.3 3.3 0 0 1 4.6 0 3.1 3.1 0 0 1 0 4.5L8 13.7Z" fill="${on ? "currentColor" : "none"}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
+}
+function favoriteButtonHTML(item) {
+  const ready = item.status === "READY";
+  const on = faved(item);
+  const count = favCount(item);
+  const title = !ready ? "案例还没上传完，暂时不能收藏" : on ? "已收藏，再点一次取消" : "收藏（不限数量，只是给自己留档）";
+  return `<button type="button" class="caseFavorite${on ? " caseFavoriteOn" : ""}" aria-pressed="${on}"
+    aria-label="${on ? "取消收藏" : "收藏"}《${esc(item.title)}》，当前 ${count} 人收藏" title="${title}"${ready ? "" : " disabled"} data-action="favorite" data-id="${item.id}">${heartSVG(on)}<b>${count}</b></button>`;
+}
+
+function coverInnerHTML(item) {
+  const parts = carrierParts(item);
+  const badge = parts.length ? `<span class="coverFormat">${esc(parts.join(" · "))}</span>` : "";
+  if (item.status === "UPLOADING") {
+    const missing = item.assets.filter((asset) => asset.upload === "MISSING").length;
+    const first = item.assets.find((asset) => asset.upload === "READY");
+    return `${first ? `<div class="coverArt" style="background:${artOf(first.art)}"></div>` : `<div class="coverPlaceholder">没有预览</div>`}${badge}
+      <div class="coverState"><b>上传未完成</b><small>${item.assets.length} 个文件里有 ${missing} 个没传完${canManage(item) ? "，点「继续上传」补传或去掉" : ""}</small></div>`;
+  }
+  const first = shownAssets(item)[0];
+  if (!first) {
+    return `<div class="coverPlate"><b>${esc(item.title)}</b><small>纯文字案例</small></div>${badge}`;
+  }
+  if (first.deriv === "PENDING") {
+    return `<div class="coverPlaceholder">等待生成预览</div>${badge}<div class="coverState"><b>正在生成预览</b><small>上传已完成，缩略图生成后自动出现</small><div class="coverBar"><i style="width:40%"></i></div></div>`;
+  }
+  if (first.deriv === "FAILED") {
+    return `<div class="coverPlaceholder">没有预览</div>${badge}<div class="coverState coverStateFailed"><b>预览生成失败</b><small>${esc(derivFailReason(first))}</small></div>`;
+  }
+  const video = first.type === "VIDEO";
+  return `<div class="coverArt" style="background:${artOf(first.art)}"></div>${badge}${video ? `<span class="playButton" aria-hidden="true">▶</span><span class="coverPages">${fmtDur(first.dur)}</span>` : ""}`;
+}
+const derivFailReason = (asset) => (asset.sizeMB > LIMITS.derivativeMB ? `原图 ${asset.sizeMB} MB，超过 ${LIMITS.derivativeMB} MB 的处理上限；可以查看原图` : "处理失败；可以查看原图");
+
+function caseCardHTML(item) {
+  const ready = item.status === "READY";
+  const manage = canManage(item);
+  const cover = ready
+    ? `<a class="cover" href="#/visual/${item.id}" data-v04-scheme="dark" data-action="open" data-id="${item.id}" aria-label="查看《${esc(item.title)}》">${coverInnerHTML(item)}</a>`
+    : `<button type="button" class="cover busy" data-v04-scheme="dark" data-action="not-ready" aria-label="《${esc(item.title)}》上传未完成">${coverInnerHTML(item)}</button>`;
+  let actions;
+  if (ready) actions = `<a class="caseEnterPill" href="#/visual/${item.id}" data-action="open" data-id="${item.id}">查看案例</a>`;
+  else if (manage) actions = `<span class="retryGroup"><button type="button" class="retryButton" data-action="resume" data-id="${item.id}">继续上传</button><button type="button" class="retryButton retryButtonDanger" data-action="delete" data-id="${item.id}">删除</button></span>`;
+  else actions = `<button type="button" class="enterPillDisabled" aria-disabled="true" data-action="not-ready">上传未完成</button>`;
+  return `<article class="caseCard" data-case-id="${item.id}" data-status="${item.status}">
+    ${cover}
+    <div class="caseBody">
+      <div class="caseQuickActions">${actions}<div class="caseCardMetrics">${favoriteButtonHTML(item)}</div></div>
+      <p class="caseNumber">CASE ${pad(caseNumberOf(item.id))}</p>
+      <div class="caseTitleStatus"><h2><small>${esc(item.creator || "未标注创作方")}</small><span>${esc(item.title)}</span></h2></div>
+      ${item.summary ? `<p class="caseSummary">${esc(item.summary)}</p>` : ""}
+      <div class="caseInfoBand">
+        <span class="caseCategoryTag subdomainTag" data-sub="${item.sub}">${SUBS[item.sub].label}</span>
+        <span>上传者 ${esc(nameOf(item.by))} · ${fmtTime(item.at)}</span>
+        ${item.location ? `<span>${esc(item.location)}</span>` : ""}
+        ${item.tags.map((tag) => `<span class="caseCategoryTag">#${esc(tag)}</span>`).join("")}
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderLibrary() {
+  const { list, stale } = visibleCases();
+  let body;
+  if (!list.length && state.mine && state.sub === "ALL" && !norm(state.query).trim()) {
+    body = `<section class="emptyState"><span>♡</span><h2>你还没有收藏案例</h2><p>在卡片上点心形就能收藏，不限数量，只给自己留档。</p><button type="button" data-action="clear-filters">看全部案例</button></section>`;
+  } else if (!list.length) {
+    body = `<section class="emptyState"><span>⌕</span><h2>没有找到对应案例</h2><p>换一个标题、地点、创作方或标签，或者清掉子领域筛选。</p><button type="button" data-action="clear-filters">清空搜索和筛选</button></section>`;
+  } else {
+    body = `<section class="caseGrid" aria-label="案例列表">${list.map(caseCardHTML).join("")}</section>`;
+  }
+  $("#page").innerHTML = `
+    <section class="libraryHero"><p>PUBLIC VISUAL COLLECTION</p><h1>把街上被记住的，<br>收进来。</h1><span>户外广告、公共艺术、商业展陈。现场拍到的视频、照片，或者只来得及记下的几句话——一个案例就是一条。</span></section>
+    <section class="libraryToolbar">
+      <div><p>PUBLIC VISUAL LIBRARY<span class="libraryCount"> · ${countLabel(list.length, CASES.length, "条")}</span></p><h2>公共视觉库</h2></div>
+      <div class="libraryToolbarControls">
+        <div class="filterGroup" role="radiogroup" aria-label="子领域">
+          ${[["ALL", "全部"], ...SUB_KEYS.map((key) => [key, SUBS[key].label])].map(([key, label]) => `<button type="button" class="pillToggle" role="radio" aria-checked="${state.sub === key}" data-action="sub" data-sub="${key}">${label}</button>`).join("")}
+        </div>
+        <button type="button" class="pillToggle" aria-pressed="${state.sortFav}" title="按收藏数从多到少；打开那一刻的名次会冻结，点心形不会让卡片挪位" data-action="sort-fav">按收藏排序</button>
+        ${state.sortFav && stale ? `<button type="button" class="reorderChip" title="收藏数已变化，点此按新的收藏数重新排序" data-action="reorder">顺序已变 · 重新排序</button>` : ""}
+        <button type="button" class="pillToggle" aria-pressed="${state.mine}" title="只看我收藏过的案例" data-action="mine">只看我收藏的</button>
+        <label class="librarySearch"><span aria-hidden="true">⌕</span><input id="search" aria-label="搜索案例" value="${esc(state.query)}" placeholder="搜索标题、地点、创作方或标签"></label>
+      </div>
+    </section>
+    ${body}`;
+  bindSearch();
+}
+function bindSearch() {
+  const input = $("#search");
+  if (!input) return;
+  input.addEventListener("compositionstart", () => { state.composing = true; });
+  input.addEventListener("compositionend", (event) => {
+    state.composing = false;
+    state.query = event.target.value; state.committedQuery = event.target.value;
+    rerenderLibraryKeepingSearchFocus();
+  });
+  input.addEventListener("input", (event) => {
+    state.query = event.target.value;
+    if (!state.composing) { state.committedQuery = event.target.value; rerenderLibraryKeepingSearchFocus(); }
+  });
+}
+function rerenderLibraryKeepingSearchFocus() {
+  const caret = $("#search")?.selectionStart ?? state.query.length;
+  renderLibrary();
+  const input = $("#search");
+  input.focus();
+  input.setSelectionRange(caret, caret);
+}
+
+/* 收藏：心先跳，请求在后台跑；同一张卡片上一次没回来就不再发（与视频库 toggleFavorite 同一套）。 */
+function toggleFavorite(id) {
+  const item = findCase(id);
+  if (!item || item.status !== "READY" || state.favoriteInFlight.has(id)) return;
+  state.favoriteInFlight.add(id);
+  if (faved(item)) item.favedBy.delete(state.viewer); else item.favedBy.add(state.viewer);
+  refreshFavoriteButtons(id);
+  setTimeout(() => {
+    state.favoriteInFlight.delete(id);
+    // 服务端回来：计数以服务端为准（demo 里就是本地值）。收藏列表与排序提示可能要跟着变。
+    if (!currentRoute().caseId) renderLibraryPreservingScroll();
+  }, 320);
+}
+function refreshFavoriteButtons(id) {
+  const item = findCase(id);
+  $$(`[data-action="favorite"][data-id="${id}"]`).forEach((button) => { button.outerHTML = favoriteButtonHTML(item); });
+}
+function renderLibraryPreservingScroll() {
+  const y = window.scrollY;
+  const active = document.activeElement;
+  const focusKey = active?.id === "search" ? "#search"
+    : active?.dataset?.action ? `[data-action="${active.dataset.action}"]${active.dataset.id ? `[data-id="${active.dataset.id}"]` : ""}${active.dataset.sub ? `[data-sub="${active.dataset.sub}"]` : ""}`
+    : "";
+  renderLibrary();
+  jumpTo(y);
+  if (focusKey) $(focusKey)?.focus({ preventScroll: true });
+}
+
+/* ============================================================
+   详情
+   ============================================================ */
+function renderDetail(id) {
+  const item = findCase(id);
+  if (!item || item.status !== "READY") {
+    $("#page").innerHTML = `<section class="emptyState"><h2>${item ? "这条案例还在上传" : "案例不存在或已移入回收站"}</h2><p>${item ? "上传完成后才能查看。" : "回收站里的案例由上传者或系统管理员恢复。"}</p><button type="button" data-action="go-list">返回公共视觉库</button></section>`;
+    return;
+  }
+  if (state.stageIndex >= shownAssets(item).length) state.stageIndex = 0;
+  const manage = canManage(item);
+  const missing = item.assets.filter((asset) => asset.upload === "MISSING").length;
+  const eyebrow = [SUBS[item.sub].label, item.location, item.occ].filter(Boolean).join(" · ");
+  $("#page").innerHTML = `
+    <section class="detailHero">
+      <p class="breadcrumb"><a href="#" data-action="go-list">公共视觉库</a><span>/</span><b>案例</b></p>
+      <p class="detailEyebrow">${esc(eyebrow)}</p>
+      <h1>${esc(item.title)}</h1>
+      ${item.summary ? `<p class="detailSummary">${esc(item.summary)}</p>` : ""}
+      <div class="detailTags">
+        <span class="subdomainTag" data-sub="${item.sub}">${SUBS[item.sub].label}</span>
+        ${carrierParts(item).length ? `<span>${esc(carrierParts(item).join(" · "))}</span>` : ""}
+        ${item.tags.map((tag) => `<span>#${esc(tag)}</span>`).join("")}
+        <span>上传者 ${esc(nameOf(item.by))} · ${fmtTime(item.at)}</span>
+      </div>
+      <div class="detailActions">
+        ${favoriteButtonHTML(item)}
+        ${manage && missing ? `<button type="button" class="toolButton" data-action="resume" data-id="${item.id}">有 ${missing} 个新素材没传完 · 继续上传</button>` : ""}
+        ${manage ? `<button type="button" class="toolButton" data-action="edit" data-id="${item.id}">编辑信息与素材</button><button type="button" class="toolButton toolButtonDanger" data-action="delete" data-id="${item.id}">删除案例</button>` : ""}
+      </div>
+    </section>
+    ${shownAssets(item).length ? `<section class="mediaSlot" aria-label="素材"><div class="videoShell" data-v04-scheme="dark" id="stage">${stageHTML(item)}</div></section>` : ""}
+    <div class="readingBody">
+      ${item.text.trim() ? `<section class="readingModule"><header><div><small>TEXT</small><h2>正文</h2></div></header><p class="prose" id="prose"></p></section>` : ""}
+      <section class="readingModule"><header><div><small>DETAILS</small><h2>案例信息</h2></div></header>
+        <div class="readingCore">${infoRowsHTML(item)}</div>
+        <p class="readingNote">仅公司内部学习使用，不对外公开分享。图片先看 480w 缩略图与 1600w 展示图，「查看原图」才读取原始文件。</p>
+      </section>
+    </div>`;
+  const prose = $("#prose");
+  if (prose) prose.textContent = item.text; // 纯文本：按文本插入，不解析任何标记
+}
+
+function infoRowsHTML(item) {
+  const rows = [
+    ["采集地点", item.location],
+    ["创作方／品牌", item.creator],
+    ["投放／落成时间", item.occ],
+    ["来源", item.url && isHttpUrl(item.url) ? { link: item.url } : ""],
+    ["版权／拍摄说明", item.rights],
+  ];
+  for (const field of SUBS[item.sub].fields) {
+    const value = (item.meta || {})[field.key];
+    rows.push([field.label, Array.isArray(value) ? value.join("、") : value]);
+  }
+  return rows.filter(([, value]) => value && (typeof value !== "string" || value.trim()))
+    .map(([label, value]) => `<div><small>${esc(label)}</small><p>${typeof value === "object" ? `<a href="${esc(value.link)}" target="_blank" rel="noopener noreferrer">${esc(value.link)}</a>` : esc(value)}</p></div>`)
+    .join("");
+}
+
+/* 舞台 + 素材条：所有素材按上传顺序排成一条；首屏是第一位素材；点哪格看哪格。 */
+function stageHTML(item) {
+  const assets = shownAssets(item);
+  const index = state.stageIndex;
+  const asset = assets[index];
+  const images = assets.filter((entry) => entry.type === "IMAGE");
+  let view;
+  if (asset.type === "VIDEO") {
+    view = `<div class="stageArt" style="background:${artOf(asset.art)}"></div><div class="stageVeil"></div>
+      ${state.playing ? "" : `<button type="button" class="stageBig" aria-label="播放 ${esc(asset.name)}" data-action="play">▶</button>`}`;
+  } else if (asset.deriv === "PENDING") {
+    view = `<div class="stagePlaceholder"><b>正在生成预览</b><small>上传已完成，展示图生成后自动出现</small></div>`;
+  } else if (asset.deriv === "FAILED") {
+    view = `<div class="stagePlaceholder failed"><b>预览生成失败</b><small>${esc(derivFailReason(asset))}</small></div>`;
+  } else {
+    view = `<div class="stageArt clickable" style="background:${artOf(asset.art)}" data-action="viewer" data-image="${images.indexOf(asset)}" title="全屏查看"></div>`;
+  }
+  const tools = asset.type === "IMAGE"
+    ? `<div class="stageTools">${asset.deriv === "READY" ? `<button type="button" data-action="viewer" data-image="${images.indexOf(asset)}">全屏查看</button>` : ""}<button type="button" data-action="original" data-id="${asset.id}">查看原图</button></div>`
+    : "";
+  const nav = assets.length > 1
+    ? `<button type="button" class="stageNav prev" aria-label="上一个素材" data-action="stage-step" data-step="-1"${index === 0 ? " disabled" : ""}>‹</button><button type="button" class="stageNav next" aria-label="下一个素材" data-action="stage-step" data-step="1"${index === assets.length - 1 ? " disabled" : ""}>›</button>`
+    : "";
+  const controls = asset.type === "VIDEO"
+    ? `<div class="stageControls"><button type="button" aria-label="${state.playing ? "暂停" : "播放"}" data-action="play">${state.playing ? "❚❚" : "▶"}</button><div class="stageBar"><i id="stageBarFill" style="width:${Math.min(100, (state.playAt / asset.dur) * 100)}%"></i></div><span class="stageClock mono" id="stageClock">${fmtDur(state.playAt)} / ${fmtDur(asset.dur)}</span></div>`
+    : "";
+  const caption = `<div class="stageCaption"><span><b>${pad(index + 1)} / ${pad(assets.length)}</b> · ${asset.type === "VIDEO" ? `视频 · ${esc(asset.name)} · ${fmtDur(asset.dur)}` : `图片${asset.fmt === "HEIC" ? " · HEIC 原图" : ""}`}</span>${assets.length > 1 ? `<span>点缩略图切换，焦点在缩略图上时可用 ← →</span>` : ""}</div>`;
+  const strip = assets.length > 1
+    ? `<div class="mediaStrip" role="tablist" aria-label="全部素材（按上传顺序）">${assets.map((entry, i) => `<button type="button" class="mediaThumb" role="tab" aria-selected="${i === index}" tabindex="${i === index ? 0 : -1}" aria-label="第 ${i + 1} 个素材：${entry.type === "VIDEO" ? `视频 ${esc(entry.name)}` : "图片"}" data-action="stage-go" data-index="${i}">
+        ${entry.type === "IMAGE" && entry.deriv !== "READY" ? `<span class="thumbPending">${entry.deriv === "FAILED" ? "无预览" : "生成中"}</span>` : `<span class="coverArt" style="background:${artOf(entry.art)}"></span>`}
+        <i>${pad(i + 1)}</i>${entry.type === "VIDEO" ? `<b>▶ ${fmtDur(entry.dur)}</b>` : ""}
+      </button>`).join("")}</div>`
+    : "";
+  return `<div class="stageView">${view}${tools}${nav}</div>${controls}${caption}${strip}`;
+}
+function rerenderStage(focusStrip) {
+  const item = findCase(currentRoute().caseId);
+  const stage = $("#stage");
+  if (!item || !stage) return;
+  stage.innerHTML = stageHTML(item);
+  if (focusStrip) $(".mediaThumb[aria-selected='true']")?.focus();
+}
+function stageGo(index, focusStrip) {
+  const item = findCase(currentRoute().caseId);
+  if (!item) return;
+  const next = Math.max(0, Math.min(shownAssets(item).length - 1, index));
+  if (next === state.stageIndex) return;
+  stopPlay();
+  state.stageIndex = next;
+  rerenderStage(focusStrip);
+}
+function togglePlay() {
+  const item = findCase(currentRoute().caseId);
+  const asset = item && shownAssets(item)[state.stageIndex];
+  if (!asset || asset.type !== "VIDEO") return;
+  state.playing = !state.playing;
+  clearInterval(state.playTimer);
+  if (state.playing) {
+    if (state.playAt >= asset.dur) state.playAt = 0;
+    notify("demo 没有真实视频，只演示播放状态");
+    state.playTimer = setInterval(() => {
+      state.playAt = Math.min(asset.dur, state.playAt + 0.5);
+      if (state.playAt >= asset.dur) { state.playing = false; clearInterval(state.playTimer); rerenderStage(); return; }
+      const fill = $("#stageBarFill"); const clock = $("#stageClock");
+      if (fill) fill.style.width = `${(state.playAt / asset.dur) * 100}%`;
+      if (clock) clock.textContent = `${fmtDur(state.playAt)} / ${fmtDur(asset.dur)}`;
+    }, 500);
+  }
+  rerenderStage();
+}
+function stopPlay() { state.playing = false; state.playAt = 0; clearInterval(state.playTimer); state.playTimer = null; }
+
+/* ============================================================
+   浮层：大图查看、删除确认、上传／编辑。全部渲染进 #overlay，
+   键盘监听只在文件底部挂一次（Esc、←→ 都在那里分派），不会随开关叠加。
+   ============================================================ */
+function lockScroll(on) { document.body.style.overflow = on ? "hidden" : ""; }
+function closeOverlay() {
+  const previous = state.overlay;
+  state.overlay = null;
+  $("#overlay").innerHTML = "";
+  lockScroll(false);
+  if (previous && previous.returnFocus) previous.returnFocus.focus?.();
+}
+
+/* ---------- 大图查看（报告工作台页面 modal 的 ←→ / Esc，首尾不回绕） ---------- */
+function openViewer(imageIndex) {
+  const item = findCase(currentRoute().caseId);
+  const images = shownAssets(item).filter((asset) => asset.type === "IMAGE");
+  state.overlay = { kind: "viewer", caseId: item.id, index: Math.max(0, Math.min(images.length - 1, imageIndex)), returnFocus: document.activeElement };
+  lockScroll(true);
+  renderViewer();
+}
+function renderViewer() {
+  const overlay = state.overlay;
+  const item = findCase(overlay.caseId);
+  const images = shownAssets(item).filter((asset) => asset.type === "IMAGE");
+  const asset = images[overlay.index];
+  $("#overlay").innerHTML = `<div class="ov" data-backdrop="viewer">
+    <div class="ovbox" role="dialog" aria-modal="true" aria-label="查看图片：${esc(item.title)}">
+      <div class="ovhead"><b>图片 ${pad(overlay.index + 1)} / ${pad(images.length)}</b><span class="ovheadT">${esc(item.title)}</span>
+        <button type="button" class="smBtn" data-action="viewer-step" data-step="-1"${overlay.index === 0 ? " disabled" : ""}>← 上一张</button>
+        <button type="button" class="smBtn" data-action="viewer-step" data-step="1"${overlay.index === images.length - 1 ? " disabled" : ""}>下一张 →</button>
+        <button type="button" class="smBtn" data-action="original" data-id="${asset.id}">查看原图</button>
+        <button type="button" class="smBtn" data-action="close-overlay" id="viewerClose">关闭 esc</button></div>
+      <div class="viewerBody" data-v04-scheme="dark">
+        ${asset.deriv === "READY" ? `<div class="viewerImage" style="background:${artOf(asset.art)}" role="img" aria-label="展示图 1600w"></div>` : `<div class="viewerImage"><div class="stagePlaceholder${asset.deriv === "FAILED" ? " failed" : ""}"><b>${asset.deriv === "FAILED" ? "预览生成失败" : "正在生成预览"}</b><small>${asset.deriv === "FAILED" ? esc(derivFailReason(asset)) : "稍后再看"}</small></div></div>`}
+      </div>
+    </div></div>`;
+  $("#viewerClose").focus();
+}
+function viewerStep(step) {
+  const overlay = state.overlay;
+  const images = shownAssets(findCase(overlay.caseId)).filter((asset) => asset.type === "IMAGE");
+  const next = overlay.index + step;
+  if (next < 0 || next >= images.length) return;
+  overlay.index = next;
+  renderViewer();
+}
+function openOriginal(assetId) {
+  const asset = CASES.flatMap((item) => item.assets).find((entry) => entry.id === assetId);
+  notify(asset && asset.fmt === "HEIC" ? "线上此处签发原图 URL；HEIC 原图浏览器打不开，会作为文件下载" : "线上此处才签发原图 URL，在新标签页打开原始文件");
+}
+
+/* ---------- 删除确认（components/shared/DeleteConfirmDialog） ---------- */
+function openDelete(id) {
+  state.overlay = { kind: "delete", caseId: id, pending: false, error: "", returnFocus: document.activeElement };
+  lockScroll(true);
+  renderDelete();
+}
+function renderDelete() {
+  const overlay = state.overlay;
+  const item = findCase(overlay.caseId);
+  $("#overlay").innerHTML = `<div class="uploadBackdrop" role="presentation" data-backdrop="delete">
+    <section class="uploadDialog deleteDialog" role="alertdialog" aria-modal="true" aria-labelledby="deleteTitle">
+      <div class="uploadHead"><div><small>DELETE</small><b id="deleteTitle">删除案例</b></div>${overlay.pending ? "" : `<button type="button" class="uploadClose" data-action="close-overlay" aria-label="关闭删除确认窗口">×</button>`}</div>
+      <div class="uploadBody"><b>把《${esc(item.title)}》移入回收站？</b>
+        <span class="deleteDialogLine">案例会从公共视觉库中移除，保留 90 天，可由上传者或系统管理员恢复；原始素材文件不会被清理。</span>
+        <span class="deleteDialogLine">收藏关系一并保留，恢复后原样回来。</span>
+        ${overlay.error ? `<p class="formError" role="alert">${esc(overlay.error)}</p>` : ""}</div>
+      <div class="uploadFooter"><button type="button" id="deleteCancel" data-action="close-overlay"${overlay.pending ? " disabled" : ""}>取消</button><button type="button" class="deleteDialogConfirm" data-action="confirm-delete"${overlay.pending ? " disabled" : ""}>${overlay.pending ? "正在移入回收站…" : "确认移入回收站"}</button></div>
+    </section></div>`;
+  if (!overlay.pending) $("#deleteCancel").focus(); // 不可逆操作，默认焦点落在「取消」
+}
+function confirmDelete() {
+  const overlay = state.overlay;
+  overlay.pending = true;
+  renderDelete();
+  setTimeout(() => {
+    const index = CASES.findIndex((item) => item.id === overlay.caseId);
+    if (index >= 0) CASES.splice(index, 1);
+    state.overlay = null; $("#overlay").innerHTML = ""; lockScroll(false);
+    // 与只读成果页删除后一样直接回到库首页（线上是 location.assign），卡片已经不在列表里。
+    goList();
+  }, 500);
+}
+
+/* ---------- 上传／编辑对话框 ---------- */
+function blankDraft() {
+  return { sub: "", title: "", location: "", tags: "", text: "", creator: "", occ: "", url: "", summary: "", rights: "仅公司内部学习使用", meta: {}, assets: [] };
+}
+function openUpload() {
+  state.overlay = { kind: "upload", mode: "create", draft: blankDraft(), dirty: false, fold: false, picker: false, error: "", phase: "form", returnFocus: document.activeElement };
+  lockScroll(true);
+  renderUpload();
+}
+function openEdit(id) {
+  const item = findCase(id);
+  const draft = {
+    sub: item.sub, title: item.title, location: item.location, tags: item.tags.join(", "), text: item.text,
+    creator: item.creator, occ: item.occ, url: item.url, summary: item.summary, rights: item.rights,
+    meta: JSON.parse(JSON.stringify(item.meta || {})),
+    assets: item.assets.map((asset) => ({ ...asset, existing: true })),
+  };
+  state.overlay = { kind: "upload", mode: "edit", caseId: id, draft, dirty: false, fold: true, picker: false, error: "", phase: "form", returnFocus: document.activeElement };
+  lockScroll(true);
+  renderUpload();
+}
+/** 「继续上传」：从卡片进来，直接落在「有几个文件没传完」那一步。 */
+function openResume(id) {
+  const item = findCase(id);
+  state.overlay = { kind: "upload", mode: "resume", caseId: id, draft: null, dirty: false, phase: "partial", failed: item.assets.filter((asset) => asset.upload === "MISSING").map((asset) => asset.id), returnFocus: document.activeElement };
+  lockScroll(true);
+  renderUpload();
+}
+
+function mediaTileHTML(asset, index, total) {
+  const oversized = asset.type === "IMAGE" && asset.sizeMB > LIMITS.derivativeMB;
+  const missing = asset.existing && asset.upload === "MISSING";
+  const kind = missing ? "没传完"
+    : asset.type === "VIDEO" ? `视频 ${fmtDur(asset.dur)}` : oversized ? `${asset.sizeMB} MB` : asset.fmt === "HEIC" ? "HEIC" : "图片";
+  return `<li class="mediaTile${index === 0 ? " isCover" : ""}" data-v04-scheme="dark">
+    <span class="coverArt" style="background:${artOf(asset.art)}"></span>
+    ${index === 0 ? `<span class="coverMark">01 · 封面</span>` : `<span class="idx">${pad(index + 1)}</span>`}
+    <span class="kind${oversized || missing ? " bad" : ""}" title="${oversized ? "超过 20 MB：原图照样保存，但不会生成预览" : missing ? "上次没传完，保存后可在详情页继续上传" : ""}">${kind}</span>
+    <div class="tileActs">
+      <button type="button" aria-label="设为封面（挪到第一位）" title="设为封面（挪到第一位）" data-action="media-cover" data-index="${index}"${index === 0 ? " disabled" : ""}>⤒</button>
+      <button type="button" aria-label="往前挪" title="往前挪" data-action="media-move" data-index="${index}" data-step="-1"${index === 0 ? " disabled" : ""}>←</button>
+      <button type="button" aria-label="往后挪" title="往后挪" data-action="media-move" data-index="${index}" data-step="1"${index === total - 1 ? " disabled" : ""}>→</button>
+      <span class="grow"></span>
+      <button type="button" aria-label="移除这个素材" title="移除" data-action="media-remove" data-index="${index}">×</button>
+    </div>
+  </li>`;
+}
+
+function metaFieldHTML(field, meta) {
+  const value = meta[field.key];
+  if (field.type === "one") {
+    return `<label class="field"><small>${esc(field.label)}</small><select data-meta="${field.key}"><option value="">不填</option>${field.options.map((option) => `<option${value === option ? " selected" : ""}>${esc(option)}</option>`).join("")}</select></label>`;
+  }
+  if (field.type === "many") {
+    const selected = Array.isArray(value) ? value : [];
+    return `<div class="field"><small>${esc(field.label)} <i>多选${field.tip ? `，${esc(field.tip)}` : ""}</i></small><div class="checks">${field.options.map((option) => `<button type="button" class="check" aria-pressed="${selected.includes(option)}" data-action="meta-many" data-key="${field.key}" data-value="${esc(option)}">${esc(option)}</button>`).join("")}</div></div>`;
+  }
+  return `<label class="field"><small>${esc(field.label)}</small><input data-meta="${field.key}" value="${esc(value || "")}" placeholder="${esc(field.placeholder || "")}"></label>`;
+}
+
+function renderUpload() {
+  const overlay = state.overlay;
+  const editing = overlay.mode === "edit";
+  const resume = overlay.mode === "resume";
+  const busy = overlay.phase === "uploading";
+  const title = busy ? "正在上传" : resume ? "继续上传" : editing ? "编辑信息与素材" : "上传案例";
+  let body;
+  let footer = "";
+  if (busy) {
+    const p = overlay.progress;
+    body = `<div class="uploadBody"><div class="uploadProgress">
+      <span>第 ${p.done + 1} / ${p.total} 个 · ${esc(p.name)}</span><b>${p.pct}%</b>
+      <div class="coverBar"><i style="width:${p.pct}%"></i></div>
+      <span>逐个直传到对象存储，每个文件用自己的上传链接，不经服务器中转</span></div></div>`;
+  } else if (overlay.phase === "partial") {
+    const item = findCase(overlay.caseId);
+    const failed = item.assets.filter((asset) => overlay.failed.includes(asset.id));
+    body = `<div class="uploadBody">
+      <p class="hint">《${esc(item.title)}》已经建好，但有 ${failed.length} 个文件没传上。已经传好的不用重传；这条案例在补齐之前以「上传未完成」显示在库里，只有你和管理员能继续处理。</p>
+      <ul class="failList">${failed.map((asset) => `<li>${esc(asset.name)}<span>没有传完</span></li>`).join("")}</ul>
+      ${overlay.error ? `<p class="formError" role="alert">${esc(overlay.error)}</p>` : ""}
+      <div class="inlineActs"><button type="button" class="primary" data-action="retry-failed">重传这 ${failed.length} 个</button><button type="button" data-action="drop-failed">去掉它们，其余入库</button></div>
+    </div>`;
+    footer = `<div class="uploadFooter"><button type="button" data-action="close-overlay">稍后再说</button></div>`;
+  } else {
+    const d = overlay.draft;
+    const videos = d.assets.filter((asset) => asset.type === "VIDEO").length;
+    const images = d.assets.filter((asset) => asset.type === "IMAGE").length;
+    const fields = d.sub ? SUBS[d.sub].fields : [];
+    const filledMeta = fields.filter((field) => { const v = d.meta[field.key]; return Array.isArray(v) ? v.length : v; }).length;
+    body = `<div class="uploadBody">
+      <button type="button" class="fileDrop" data-action="picker" aria-expanded="${overlay.picker}">
+        <b>${d.assets.length ? "继续添加视频或图片" : "选择视频或图片"}</b>
+        <span>可以一次选多个 · 视频不限格式与大小 · 图片收 ${IMAGE_FORMATS.join("／")}</span>
+      </button>
+      ${overlay.picker ? `<div class="demoPicker"><em>DEMO · 用这几个按钮代替系统的选文件窗口</em>
+        <button type="button" class="check" data-action="pick" data-kind="video">+ 1 段视频</button>
+        <button type="button" class="check" data-action="pick" data-kind="images">+ 3 张照片</button>
+        <button type="button" class="check" data-action="pick" data-kind="heic">+ 1 张 HEIC</button>
+        <button type="button" class="check" data-action="pick" data-kind="big">+ 1 张 26 MB 大图</button>
+        <button type="button" class="check" data-action="pick" data-kind="fail">+ 1 张（会传失败）</button>
+      </div>` : ""}
+      ${d.assets.length ? `<div class="field"><small>素材 <i>视频 ${videos} / ${LIMITS.videos} · 图片 ${images} / ${LIMITS.images} · 按这个顺序展示，第一位就是列表封面</i></small>
+        <ul class="mediaList">${d.assets.map((asset, index) => mediaTileHTML(asset, index, d.assets.length)).join("")}</ul></div>` : ""}
+
+      <label class="field"><small>子领域 *</small><select id="f-sub" data-draft="sub">
+        <option value="">请选择</option>${SUB_KEYS.map((key) => `<option value="${key}"${d.sub === key ? " selected" : ""}>${SUBS[key].label}（${SUBS[key].hint}）</option>`).join("")}
+      </select></label>
+      <label class="field"><small>标题 *</small><input data-draft="title" maxlength="${LIMITS.title}" value="${esc(d.title)}" placeholder="现场是什么、做了一件什么事"></label>
+      <div class="two">
+        <label class="field"><small>采集地点 *</small><input data-draft="location" maxlength="${LIMITS.location}" value="${esc(d.location)}" placeholder="城市 · 场地，写到城市即可"></label>
+        <label class="field"><small>标签 *</small><input data-draft="tags" value="${esc(d.tags)}" placeholder="用逗号分开，至少一个"></label>
+      </div>
+      <label class="field"><small>正文 <i>选填，纯文本，保留换行；没有视频和图片时，正文就是这条案例</i></small><textarea data-draft="text" maxlength="${LIMITS.text}" placeholder="记下做法、看点、成本、可复用的地方…">${esc(d.text)}</textarea></label>
+
+      <button type="button" class="foldToggle" aria-expanded="${overlay.fold}" data-action="fold">${overlay.fold ? "收起补充信息" : "补充信息（选填）"}${d.sub ? ` · 含${SUBS[d.sub].label}专有 ${fields.length} 项${filledMeta ? `，已填 ${filledMeta}` : ""}` : ""}</button>
+      ${overlay.fold ? `
+        <div class="two">
+          <label class="field"><small>创作方／品牌</small><input data-draft="creator" maxlength="${LIMITS.creator}" value="${esc(d.creator)}" placeholder="不确定可留空"></label>
+          <label class="field"><small>投放／落成时间</small><input data-draft="occ" value="${esc(d.occ)}" placeholder="2026-05 或 2026"></label>
+        </div>
+        <label class="field"><small>一句话摘要 <i>卡片上显示，最多 ${LIMITS.summary} 字</i></small><input data-draft="summary" maxlength="${LIMITS.summary}" value="${esc(d.summary)}" placeholder="留空就不显示"></label>
+        <label class="field"><small>来源链接</small><input data-draft="url" maxlength="${LIMITS.url}" value="${esc(d.url)}" placeholder="https://…"></label>
+        <label class="field"><small>版权／拍摄说明</small><input data-draft="rights" value="${esc(d.rights)}"></label>
+        ${d.sub ? `<div class="subBlock"><b>${SUBS[d.sub].label}专有信息</b>${fields.map((field) => metaFieldHTML(field, d.meta)).join("")}</div>` : `<p class="hint">选了子领域之后，这里会多出该子领域的专有信息。</p>`}
+      ` : ""}
+      ${overlay.error ? `<p class="formError" role="alert">${esc(overlay.error)}</p>` : ""}
+    </div>`;
+    footer = `<div class="uploadFooter"><button type="button" data-action="close-overlay">取消</button><button type="button" class="uploadGo" data-action="submit">${editing ? "保存修改" : "开始上传"}</button></div>`;
+  }
+  $("#overlay").innerHTML = `<div class="uploadBackdrop" role="presentation" data-backdrop="upload">
+    <section class="uploadDialog" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+      <div class="uploadHead"><div><small>${editing ? "EDIT" : "UPLOAD"}</small><b id="uploadTitle">${title}</b></div>${busy ? "" : `<button type="button" class="uploadClose" data-action="close-overlay" aria-label="关闭上传窗口">×</button>`}</div>
+      ${body}${footer}
+    </section></div>`;
+}
+
+/** 表单输入直接写进草稿，不整体重画（保住光标）；结构性变化（加删挪素材、换子领域、展开）才重画。 */
+function onDraftInput(target) {
+  const overlay = state.overlay;
+  if (!overlay || overlay.kind !== "upload" || !overlay.draft) return;
+  const d = overlay.draft;
+  if (target.dataset.draft) {
+    const key = target.dataset.draft;
+    if (key === "sub") {
+      d.sub = target.value;
+      // 换子领域：旧子领域的专有字段整组丢掉——服务端也会把不属于当前子领域的键当未知键拒绝
+      const allowed = new Set((SUBS[d.sub]?.fields || []).map((field) => field.key));
+      d.meta = Object.fromEntries(Object.entries(d.meta).filter(([key2]) => allowed.has(key2)));
+      overlay.dirty = true;
+      renderUpload();
+      $("#f-sub")?.focus();
+      return;
+    }
+    d[key] = target.value;
+  } else if (target.dataset.meta) {
+    d.meta[target.dataset.meta] = target.value;
+  } else return;
+  overlay.dirty = true;
+}
+
+let pickCounter = 0;
+function pickFiles(kind) {
+  const d = state.overlay.draft;
+  const videos = d.assets.filter((asset) => asset.type === "VIDEO").length;
+  const images = d.assets.filter((asset) => asset.type === "IMAGE").length;
+  const pool = ["led", "blue", "steel", "mirror", "orange", "mist", "garden", "paper", "grey", "night"];
+  const pick = () => pool[(pickCounter++ * 3) % pool.length];
+  const add = [];
+  if (kind === "video") {
+    if (videos >= LIMITS.videos) return notify(`单条案例最多 ${LIMITS.videos} 段视频`, "warn");
+    add.push({ id: `n${nextId()}`, type: "VIDEO", art: ["night", "mist", "led"][pickCounter++ % 3], dur: 40 + (pickCounter % 5) * 13, name: `现场_${pickCounter}.mp4`, sizeMB: 120, upload: "READY", deriv: "READY" });
+  } else {
+    const count = kind === "images" ? 3 : 1;
+    const room = LIMITS.images - images;
+    if (room <= 0) return notify(`单条案例最多 ${LIMITS.images} 张图片`, "warn");
+    for (let i = 0; i < Math.min(count, room); i++) {
+      const base = { id: `n${nextId()}`, type: "IMAGE", art: pick(), fmt: "JPG", sizeMB: 3.6, upload: "READY", deriv: "READY" };
+      base.name = `IMG_${2200 + pickCounter}.jpg`;
+      if (kind === "heic") Object.assign(base, { fmt: "HEIC", name: `IMG_${2200 + pickCounter}.HEIC`, sizeMB: 2.9 });
+      if (kind === "big") Object.assign(base, { name: `DSC_${pickCounter}.jpg`, sizeMB: 26.3 });
+      if (kind === "fail") base.failOnUpload = true;
+      add.push(base);
+    }
+    if (count > room) notify(`单条案例最多 ${LIMITS.images} 张图片，多出来的没有加进来`, "warn");
+  }
+  d.assets.push(...add);
+  state.overlay.dirty = true;
+  renderUpload();
+}
+function mediaOp(action, index, step) {
+  const list = state.overlay.draft.assets;
+  if (action === "remove") list.splice(index, 1);
+  if (action === "cover" && index > 0) list.unshift(...list.splice(index, 1));
+  if (action === "move") {
+    const to = index + step;
+    if (to < 0 || to >= list.length) return;
+    [list[index], list[to]] = [list[to], list[index]];
+  }
+  state.overlay.dirty = true;
+  renderUpload();
+}
+function toggleMetaMany(key, value) {
+  const meta = state.overlay.draft.meta;
+  const current = Array.isArray(meta[key]) ? [...meta[key]] : [];
+  const index = current.indexOf(value);
+  if (index >= 0) current.splice(index, 1); else current.push(value);
+  meta[key] = current; // 多选一律存字符串数组
+  state.overlay.dirty = true;
+  renderUpload();
+}
+
+function validateDraft(d) {
+  if (!d.sub) return "请选择子领域。";
+  if (!d.title.trim()) return "请填写标题。";
+  if (!d.location.trim()) return "请填写采集地点，写到城市即可。";
+  const tags = parseTags(d.tags);
+  if (!tags.length) return "至少填一个标签。";
+  if (tags.length > LIMITS.tags) return `标签最多 ${LIMITS.tags} 个。`;
+  if (tags.some((tag) => tag.length > LIMITS.tagLength)) return `每个标签不超过 ${LIMITS.tagLength} 个字。`;
+  if (!d.assets.length && !d.text.trim()) return "至少要有一段视频、一张图片或一段正文。";
+  if (d.url.trim() && !isHttpUrl(d.url.trim())) return "来源链接只收 http:// 或 https:// 开头的网址。";
+  return "";
+}
+function submitDraft() {
+  const overlay = state.overlay;
+  const d = overlay.draft;
+  const error = validateDraft(d);
+  if (error) {
+    overlay.error = error;
+    if (error.startsWith("来源链接")) overlay.fold = true;
+    renderUpload();
+    $(".formError")?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  overlay.error = "";
+  const fields = {
+    sub: d.sub, title: d.title.trim(), location: d.location.trim(), tags: parseTags(d.tags), text: d.text,
+    creator: d.creator.trim(), occ: d.occ.trim(), url: d.url.trim(), summary: d.summary.trim(), rights: d.rights.trim() || "仅公司内部学习使用",
+    meta: pruneMeta(d.sub, d.meta),
+  };
+  const fresh = d.assets.filter((asset) => !asset.existing);
+  if (overlay.mode === "edit") {
+    const item = findCase(overlay.caseId);
+    Object.assign(item, fields);
+    // 素材按对话框里的顺序整体写回（position 由这个顺序决定，不按类型重排）
+    item.assets = d.assets.map((asset) => {
+      const { existing, failOnUpload, ...rest } = asset;
+      return existing ? rest : { ...rest, upload: "MISSING", deriv: rest.type === "IMAGE" ? "PENDING" : "READY", failOnUpload };
+    });
+    if (!fresh.length) { closeOverlay(); notify("已保存修改"); render(); return; }
+    uploadAssets(item, fresh.map((asset) => asset.id), () => finishUpload(item));
+    return;
+  }
+  // 新建：服务端建条目（UPLOADING），素材逐个签发链接、逐个直传，最后 complete
+  const item = {
+    id: `vc-${nextId()}`, status: fields.text && !d.assets.length ? "READY" : "UPLOADING", ...fields,
+    assets: d.assets.map(({ failOnUpload, existing, ...rest }) => ({ ...rest, upload: "MISSING", deriv: rest.type === "IMAGE" ? "PENDING" : "READY", failOnUpload })),
+    by: state.viewer, at: new Date().toISOString(), favBase: 0, favedBy: new Set(),
+  };
+  CASES.push(item);
+  if (!item.assets.length) { closeOverlay(); notify("已发布纯文字案例"); render(); return; }
+  uploadAssets(item, item.assets.map((asset) => asset.id), () => finishUpload(item));
+}
+function pruneMeta(sub, meta) {
+  const allowed = new Set(SUBS[sub].fields.map((field) => field.key));
+  const out = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (!allowed.has(key)) continue;
+    if (Array.isArray(value) ? value.length : String(value).trim()) out[key] = Array.isArray(value) ? value : String(value).trim();
+  }
+  return out;
+}
+/** 逐个上传；失败的记下来，进入「有几个没传上」那一步，而不是整条案例判死。 */
+function uploadAssets(item, ids, onDone) {
+  const overlay = state.overlay;
+  overlay.phase = "uploading";
+  overlay.caseId = item.id;
+  const queue = ids.map((id) => item.assets.find((asset) => asset.id === id));
+  const failed = [];
+  let i = 0;
+  const step = () => {
+    if (i >= queue.length) {
+      if (failed.length) { overlay.phase = "partial"; overlay.failed = failed; overlay.error = ""; renderUpload(); render(); return; }
+      onDone();
+      return;
+    }
+    const asset = queue[i];
+    overlay.progress = { done: i, total: queue.length, name: asset.name, pct: 0 };
+    renderUpload();
+    let pct = 0;
+    const timer = setInterval(() => {
+      pct += 34;
+      if (asset.failOnUpload && pct >= 68) {
+        clearInterval(timer); asset.upload = "MISSING"; failed.push(asset.id); i++; step(); return;
+      }
+      if (pct >= 100) { clearInterval(timer); asset.upload = "READY"; i++; step(); return; }
+      overlay.progress.pct = pct;
+      renderUpload();
+    }, 110);
+  };
+  step();
+}
+function finishUpload(item) {
+  item.status = "READY";
+  const pending = item.assets.some((asset) => asset.deriv === "PENDING");
+  closeOverlay();
+  if (currentRoute().caseId) {
+    notify(pending ? "已保存，新图片的预览生成后自动出现" : "已保存");
+    render();
+  } else {
+    notify(pending ? "已上传，预览生成后自动出现" : "已上传");
+    // 新卡片被当前筛选挡住时才清筛选，免得「上传成功却找不到」
+    if (!visibleCases().list.includes(item)) { state.sub = "ALL"; state.mine = false; state.query = ""; state.committedQuery = ""; }
+    render();
+    const toolbar = $(".libraryToolbar");
+    if (toolbar) window.scrollTo({ top: Math.max(0, toolbar.offsetTop - 90), behavior: "smooth" });
+  }
+  scheduleDerivatives(item);
+}
+/** 模拟数据万象持久化处理：几秒后两档预览就绪；原图超过 20 MB 的标 FAILED。列表靠轮询（每 10 秒）看到结果，demo 直接重画。 */
+function scheduleDerivatives(item) {
+  setTimeout(() => {
+    item.assets.forEach((asset) => {
+      if (asset.type === "IMAGE" && asset.deriv === "PENDING" && asset.upload === "READY") asset.deriv = asset.sizeMB > LIMITS.derivativeMB ? "FAILED" : "READY";
+    });
+    if (!state.overlay) { if (currentRoute().caseId) rerenderStage(); else renderLibraryPreservingScroll(); }
+  }, 2600);
+}
+function retryFailed() {
+  const overlay = state.overlay;
+  const item = findCase(overlay.caseId);
+  item.assets.forEach((asset) => { if (overlay.failed.includes(asset.id)) asset.failOnUpload = false; });
+  uploadAssets(item, overlay.failed, () => finishUpload(item));
+}
+function dropFailed() {
+  const overlay = state.overlay;
+  const item = findCase(overlay.caseId);
+  const remaining = item.assets.filter((asset) => !overlay.failed.includes(asset.id));
+  if (!remaining.length && !item.text.trim()) {
+    overlay.error = "去掉之后这条案例既没有素材也没有正文，请重传，或者删掉这条案例。";
+    renderUpload();
+    return;
+  }
+  item.assets = remaining;
+  finishUpload(item);
+}
+
+/* ============================================================
+   渲染入口与事件
+   ============================================================ */
+function render() {
+  const route = currentRoute();
+  if (!$("#siteHeader")) {
+    $("#app").innerHTML = `<main class="surface"><header class="siteHeader" id="siteHeader"></header><div id="page"></div></main>`;
+  }
+  renderHeader();
+  if (route.caseId) renderDetail(route.caseId); else renderLibrary();
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-action]");
+  // 外观菜单：点菜单以外的地方收起
+  if (state.themeOpen && !event.target.closest("[data-theme-switcher]")) { state.themeOpen = false; renderHeader(); }
+  if (event.target.closest("[data-theme-pick]")) { chooseTheme(event.target.closest("[data-theme-pick]").dataset.themePick); return; }
+  if (!target) return;
+  const { action, id } = target.dataset;
+  switch (action) {
+    case "theme-toggle": state.themeOpen = !state.themeOpen; renderHeader(); if (state.themeOpen) $(".option[aria-checked='true']")?.focus(); break;
+    case "go-list": event.preventDefault(); goList(); break;
+    case "other-library": notify(`demo 只做公共视觉库；${target.dataset.library}沿用现有页面`); break;
+    case "upload": openUpload(); break;
+    case "open": event.preventDefault(); openCase(id); break;
+    case "not-ready": notify("这条案例还没上传完，完成后才能查看。"); break;
+    case "favorite": toggleFavorite(id); break;
+    case "sub": state.sub = target.dataset.sub; renderLibraryPreservingScroll(); break;
+    case "sort-fav": state.sortFav = !state.sortFav; if (state.sortFav) freezeOrder(); else state.frozen = null; renderLibraryPreservingScroll(); break;
+    case "reorder": freezeOrder(); renderLibraryPreservingScroll(); break;
+    case "mine": state.mine = !state.mine; renderLibraryPreservingScroll(); break;
+    case "clear-filters": state.sub = "ALL"; state.mine = false; state.query = ""; state.committedQuery = ""; renderLibraryPreservingScroll(); break;
+    case "resume": openResume(id); break;
+    case "delete": openDelete(id); break;
+    case "confirm-delete": confirmDelete(); break;
+    case "edit": openEdit(id); break;
+    case "stage-go": stageGo(Number(target.dataset.index)); break;
+    case "stage-step": stageGo(state.stageIndex + Number(target.dataset.step)); break;
+    case "play": togglePlay(); break;
+    case "viewer": openViewer(Number(target.dataset.image)); break;
+    case "viewer-step": viewerStep(Number(target.dataset.step)); break;
+    case "original": openOriginal(id); break;
+    case "close-overlay": closeOverlay(); break;
+    case "picker": state.overlay.picker = !state.overlay.picker; renderUpload(); break;
+    case "pick": pickFiles(target.dataset.kind); break;
+    case "media-cover": mediaOp("cover", Number(target.dataset.index)); break;
+    case "media-move": mediaOp("move", Number(target.dataset.index), Number(target.dataset.step)); break;
+    case "media-remove": mediaOp("remove", Number(target.dataset.index)); break;
+    case "meta-many": toggleMetaMany(target.dataset.key, target.dataset.value); break;
+    case "fold": state.overlay.fold = !state.overlay.fold; renderUpload(); break;
+    case "submit": submitDraft(); break;
+    case "retry-failed": retryFailed(); break;
+    case "drop-failed": dropFailed(); break;
+    default: break;
+  }
+});
+
+/* 遮罩：查看器和删除确认点遮罩就关（删除提交中除外）；上传对话框只有在什么都没填时才关——
+   这张表单比报告上传长得多，误点一下丢光不划算（视频上传对话框本来就不响应遮罩点击）。 */
+document.addEventListener("mousedown", (event) => {
+  const backdrop = event.target.dataset && event.target.dataset.backdrop;
+  if (!backdrop || !state.overlay) return;
+  if (backdrop === "viewer") closeOverlay();
+  if (backdrop === "delete" && !state.overlay.pending) closeOverlay();
+  if (backdrop === "upload" && state.overlay.phase === "form" && !state.overlay.dirty) closeOverlay();
+});
+
+document.addEventListener("input", (event) => onDraftInput(event.target));
+document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-viewer-switch]")) { state.viewer = event.target.value; render(); }
+});
+
+/* 唯一的键盘监听：按当前浮层分派，不会因为开关多次而叠加。 */
+document.addEventListener("keydown", (event) => {
+  const overlay = state.overlay;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
+  if (state.themeOpen) {
+    const options = $$(".option");
+    const index = options.indexOf(document.activeElement);
+    if (event.key === "Escape") { state.themeOpen = false; renderHeader(); $("[data-theme-switcher] .trigger")?.focus(); return; }
+    const next = { ArrowDown: (index + 1) % options.length, ArrowUp: (index - 1 + options.length) % options.length, Home: 0, End: options.length - 1 }[event.key];
+    if (next !== undefined && index >= 0) { event.preventDefault(); options[next].focus(); }
+    return;
+  }
+  if (overlay && overlay.kind === "viewer") {
+    if (event.key === "Escape") closeOverlay();
+    else if (event.key === "ArrowLeft") viewerStep(-1);
+    else if (event.key === "ArrowRight") viewerStep(1);
+    return;
+  }
+  if (overlay && overlay.kind === "delete") { if (event.key === "Escape" && !overlay.pending) closeOverlay(); return; }
+  if (overlay && overlay.kind === "upload") {
+    if (event.key === "Escape" && overlay.phase === "form" && !overlay.dirty) closeOverlay();
+    return;
+  }
+  // 详情页：焦点在素材条上时 ←→ 切换（roving tabindex），不抢页面其他地方的方向键
+  if (!typing && event.target.classList && event.target.classList.contains("mediaThumb")) {
+    if (event.key === "ArrowLeft") { event.preventDefault(); stageGo(state.stageIndex - 1, true); }
+    if (event.key === "ArrowRight") { event.preventDefault(); stageGo(state.stageIndex + 1, true); }
+  }
+});
+
+window.addEventListener("popstate", () => navigate(parseHash(), false));
+// 跟随系统时，系统深浅一变，外观开关的图标不变（偏好还是 system），颜色由 CSS 媒体查询自己跟上，不用脚本。
+
+render();
+</script>
+</body>
+</html>
