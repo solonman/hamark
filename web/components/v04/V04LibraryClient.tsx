@@ -33,6 +33,8 @@ import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import ReportLibrary from "@/components/report/library/ReportLibrary";
 import ReportUploadDialog from "@/components/report/library/ReportUploadDialog";
 import type { ReportReplaceTarget } from "@/lib/report-library-view";
+import VisualLibrary from "@/components/visual/VisualLibrary";
+import VisualUploadDialog from "@/components/visual/VisualUploadDialog";
 import styles from "./V04Surface.module.css";
 
 /** 卡片上的时间只需要「哪天几点」，精确到秒反而挤占版面。 */
@@ -45,8 +47,8 @@ function formatV19CardTime(iso: string): string {
 
 type V04LibraryCase = { item: V04UiCase; video: VideoItem };
 
-/** 本站现在有两条逆向工程线：片子和报告。首页先分库，再谈单个案例。 */
-type LibraryTab = "VIDEO" | "REPORT";
+/** 本站现在有三条线：片子、报告、公共视觉案例。首页先分库，再谈单个案例。 */
+type LibraryTab = "VIDEO" | "REPORT" | "VISUAL";
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "--:--";
@@ -170,12 +172,14 @@ function CaseRating({ engagement }: { engagement: CaseEngagement }) {
   );
 }
 
-export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false }: {
+export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false, visualLibraryEnabled = false }: {
   viewerName: string;
   formal?: boolean;
   user?: UserMenuUser;
   /** 报告库的总开关（REPORT_LIBRARY_UI_ENABLED）。关闭时 REPORT 页签保持占位空态，一个像素都不该变。 */
   reportLibraryEnabled?: boolean;
+  /** 公共视觉库的总开关（PUBLIC_VISUAL_LIBRARY_ENABLED）。关闭时 VISUAL 页签保持占位空态，同 REPORT。 */
+  visualLibraryEnabled?: boolean;
 }) {
   const tabToken = useRef(`v04-library-${crypto.randomUUID()}`);
   const [cases, setCases] = useState<V04LibraryCase[]>([]);
@@ -191,6 +195,13 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   // null = 对话框关着；非 null 时打开，replacing 非空代表这是从一份失败报告发起的「改传 PDF」。
   const [reportUploadRequest, setReportUploadRequest] = useState<{ replacing: ReportReplaceTarget | null } | null>(null);
   const [reportRefreshToken, setReportRefreshToken] = useState(0);
+  // null = 对话框关着；"create" 是首页的「上传案例」；resumeCaseId 非空代表从卡片/详情页
+  // 发起的「继续上传」（照报告库 reportUploadRequest 同一套 null-代表关着 的写法）。
+  const [visualUploadOpen, setVisualUploadOpen] = useState(false);
+  const [visualResumeCaseId, setVisualResumeCaseId] = useState<string | null>(null);
+  const [visualRefreshToken, setVisualRefreshToken] = useState(0);
+  // 新上传成功的案例 id：交给 VisualLibrary 判断要不要清掉筛选（见该组件的 revealCaseId）。
+  const [visualRevealCaseId, setVisualRevealCaseId] = useState<string | null>(null);
   const [weeklyView, setWeeklyView] = useState(false);
   // 同一张卡片上一次请求还没回来就别再发一次；换一张卡片随便点，不互相挡。
   const favoriteInFlight = useRef(new Set<string>());
@@ -238,11 +249,11 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     snapshotWeeklyOrder(rankedGroups, (entry) => entry.item.id),
   );
 
-  // 切页签时把 ?library=REPORT 写回地址栏（不刷新页面），工作台的「返回报告库」链接会带这个参数回来。
+  // 切页签时把 ?library=REPORT/VISUAL 写回地址栏（不刷新页面），工作台/详情页的返回链接会带这个参数回来。
   const setLibrary = useCallback((next: LibraryTab) => {
     setLibraryState(next);
     const url = new URL(window.location.href);
-    if (next === "REPORT") url.searchParams.set("library", "REPORT");
+    if (next === "REPORT" || next === "VISUAL") url.searchParams.set("library", next);
     else url.searchParams.delete("library");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
@@ -255,9 +266,10 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   // 初始化里读 window 造成水合不一致），挂载后再读一次 URL 纠正。之后页签切换全部由
   // setLibrary 自己维护 URL，这里只在挂载时跑一次，是本页仅有的一次同步 setState。
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("library") === "REPORT") {
+    const initial = new URLSearchParams(window.location.search).get("library");
+    if (initial === "REPORT" || initial === "VISUAL") {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 从 URL 读初始页签，SSR 期间不存在更早的时机
-      setLibraryState("REPORT");
+      setLibraryState(initial);
     }
   }, []);
 
@@ -416,15 +428,20 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
       <nav className={styles.siteNav} aria-label="站点导航">
         <button type="button" className={library === "VIDEO" ? styles.activeNav : ""} aria-current={library === "VIDEO" ? "page" : undefined} onClick={() => setLibrary("VIDEO")}>视频库</button>
         <button type="button" className={library === "REPORT" ? styles.activeNav : ""} aria-current={library === "REPORT" ? "page" : undefined} onClick={() => setLibrary("REPORT")}>报告库</button>
+        <button type="button" className={library === "VISUAL" ? styles.activeNav : ""} aria-current={library === "VISUAL" ? "page" : undefined} onClick={() => setLibrary("VISUAL")}>公共视觉库</button>
         {formal ? null : <span>UI PROTOTYPE</span>}
       </nav>
-      {/* 上传按钮跟着当前库走：站里现在有两种可反写的东西，「上传作品」说不清是哪一种。
-          报告库开关关着的时候按钮在，但按不动——它说明的是形状，不是承诺。 */}
+      {/* 上传按钮跟着当前库走：站里现在有三种可反写／可收集的东西，「上传作品」说不清是哪一种。
+          报告库、公共视觉库开关关着的时候按钮在，但按不动——它说明的是形状，不是承诺。 */}
       <div className={styles.siteUtilities}>{formal ? (library === "VIDEO"
         ? <button type="button" onClick={() => setShowUpload(true)}>上传视频</button>
-        : reportLibraryEnabled
-          ? <button type="button" onClick={() => setReportUploadRequest({ replacing: null })}>上传报告</button>
-          : <button type="button" disabled title="报告逆向工程建设中，暂不能上传报告">上传报告</button>
+        : library === "VISUAL"
+          ? (visualLibraryEnabled
+            ? <button type="button" onClick={() => setVisualUploadOpen(true)}>上传案例</button>
+            : <button type="button" disabled title="公共视觉库建设中，暂不能上传">上传案例</button>)
+          : reportLibraryEnabled
+            ? <button type="button" onClick={() => setReportUploadRequest({ replacing: null })}>上传报告</button>
+            : <button type="button" disabled title="报告逆向工程建设中，暂不能上传报告">上传报告</button>
       ) : null}<ThemeSwitcher />{formal && user ? <UserMenu user={user} /> : <span>{viewerName}</span>}</div>
     </header>
     {library === "REPORT" ? (reportLibraryEnabled ? (
@@ -438,6 +455,22 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         <span>◫</span>
         <h2>报告逆向工程建设中</h2>
         <p>报告库和视频库并列，用同一套逆向工程方法拆解报告。等报告的字段与流程定下来，这里会列出可反写的报告。</p>
+        <button type="button" onClick={() => setLibrary("VIDEO")}>先去视频库</button>
+      </section>
+    </>) : library === "VISUAL" ? (visualLibraryEnabled ? (
+      <VisualLibrary
+        refreshToken={visualRefreshToken}
+        revealCaseId={visualRevealCaseId}
+        onRevealed={() => setVisualRevealCaseId(null)}
+        onRequestUpload={() => setVisualUploadOpen(true)}
+        onRequestResume={(caseId) => setVisualResumeCaseId(caseId)}
+      />
+    ) : <>
+      <section className={styles.libraryHero}><p>PUBLIC VISUAL COLLECTION</p><h1>把街上值得被记住的，<br />收进来。</h1></section>
+      <section className={styles.emptyState}>
+        <span>◫</span>
+        <h2>公共视觉库建设中</h2>
+        <p>公共视觉库和视频库、报告库并列，收集户外广告、公共艺术、商业展陈的案例。等这里开放，会列出可以查看的案例。</p>
         <button type="button" onClick={() => setLibrary("VIDEO")}>先去视频库</button>
       </section>
     </>) : <>
@@ -501,6 +534,34 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
           // 新报告已经建好并进入转换队列（改传 PDF 的话，旧的失败记录也已经删掉）；重新拉一次
           // 列表就能看到它以「排队中」出现在最前面。
           setReportRefreshToken((token) => token + 1);
+        }}
+      />
+    ) : null}
+    {visualUploadOpen ? (
+      <VisualUploadDialog
+        mode="create"
+        notify={notify}
+        onClose={() => setVisualUploadOpen(false)}
+        onCreated={(caseId, hasImage) => {
+          setVisualUploadOpen(false);
+          setVisualRefreshToken((token) => token + 1);
+          setVisualRevealCaseId(caseId);
+          notify(hasImage ? "已上传，预览生成后自动出现" : "已上传");
+        }}
+        onSaved={() => { setVisualUploadOpen(false); setVisualRefreshToken((token) => token + 1); }}
+      />
+    ) : null}
+    {visualResumeCaseId ? (
+      <VisualUploadDialog
+        mode="resume"
+        caseId={visualResumeCaseId}
+        notify={notify}
+        onClose={() => setVisualResumeCaseId(null)}
+        onCreated={() => setVisualResumeCaseId(null)}
+        onSaved={() => {
+          setVisualResumeCaseId(null);
+          setVisualRefreshToken((token) => token + 1);
+          notify("已保存");
         }}
       />
     ) : null}
