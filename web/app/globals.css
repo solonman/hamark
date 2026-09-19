@@ -97,6 +97,13 @@
   --v04-shadow-strength: 1;
   --v04-scrim: rgba(6, 7, 6, .86);
   --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2392958b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* 公共视觉的子领域色（户外广告／公共艺术／商业展陈），当字用在页面底上；见 docs/22 3.9。 */
+  --v04-visual-ooh: #ff8d4d;
+  --v04-visual-ooh-rgb: 255 141 77;
+  --v04-visual-art: #6ca0d8;
+  --v04-visual-art-rgb: 108 160 216;
+  --v04-visual-retail: #75b985;
+  --v04-visual-retail-rgb: 117 185 133;
 }
 
 /* 浅色：沿用品牌自己的纸感浅色（登录页、旧版首页那套 paper / ink），
@@ -156,6 +163,12 @@
   --v04-shadow-strength: .32;
   --v04-scrim: rgba(33, 31, 24, .42);
   --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2363655c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --v04-visual-ooh: #b0521a;
+  --v04-visual-ooh-rgb: 176 82 26;
+  --v04-visual-art: #1c5f96;
+  --v04-visual-art-rgb: 28 95 150;
+  --v04-visual-retail: #3f794e;
+  --v04-visual-retail-rgb: 63 121 78;
 }
 
 @media (prefers-color-scheme: light) {
@@ -213,6 +226,12 @@
   --v04-shadow-strength: .32;
     --v04-scrim: rgba(33, 31, 24, .42);
     --v04-chevron: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2363655c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --v04-visual-ooh: #b0521a;
+    --v04-visual-ooh-rgb: 176 82 26;
+    --v04-visual-art: #1c5f96;
+    --v04-visual-art-rgb: 28 95 150;
+    --v04-visual-retail: #3f794e;
+    --v04-visual-retail-rgb: 63 121 78;
   }
 }
 
