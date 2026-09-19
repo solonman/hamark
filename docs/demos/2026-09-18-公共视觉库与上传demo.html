@@ -234,7 +234,7 @@ button { cursor: pointer; }
 .libraryCount { color: var(--v04-muted); font-weight: 800; }
 .libraryToolbarControls { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 14px; }
 .filterGroup { display: flex; flex-wrap: wrap; gap: 6px; }
-/* 子领域、按收藏排序、只看我收藏的：都是 V04Surface .weekToggle 那一种药丸，亮起来才说明列表换了口径。 */
+/* 子领域、按周显示、按收藏排序、只看我收藏的：都是 V04Surface .weekToggle 那一种药丸，亮起来才说明列表换了口径。 */
 .pillToggle { flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-muted); padding: 9px 14px; font-size: 11px; font-weight: 800; white-space: nowrap; transition: border-color .12s, color .12s, background .12s; }
 .pillToggle:hover { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
 .pillToggle[aria-pressed="true"], .pillToggle[aria-checked="true"] { border-color: rgb(var(--v04-accent-rgb) / .55); background: rgb(var(--v04-accent-rgb) / .12); color: var(--v04-accent); }
@@ -247,6 +247,13 @@ button { cursor: pointer; }
 .librarySearch input::placeholder { color: var(--v04-muted); }
 .caseGrid { display: grid; width: min(1340px, calc(100% - 48px)); grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 42px 24px; margin: 0 auto; padding-bottom: 80px; }
 .caseCard { min-width: 0; }
+/* 按周显示（V04Surface .weekSection / .weekHeading）。 */
+.weekSection { width: min(1340px, calc(100% - 48px)); margin: 0 auto; }
+.weekSection .caseGrid { width: 100%; padding-bottom: 46px; }
+.weekHeading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--v04-line); }
+.weekHeading h3 { margin: 0; font-size: 16px; letter-spacing: -.03em; }
+.weekHeading span { color: var(--v04-muted); font-size: 11px; }
+.weekHeading b { margin-left: auto; color: var(--v04-subject); font-size: 9px; font-weight: 900; letter-spacing: .14em; }
 
 /* ---------------- 封面（ReportLibrary .cover 一组：4:3、深色岛、四态） ---------------- */
 .cover { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid var(--v04-line); background: #0b0c0a; padding: 0; text-align: left; color: #fff; text-decoration: none; }
@@ -469,7 +476,8 @@ button { cursor: pointer; }
   .headerCaseTitle { flex: 1 0 min(62vw, 230px); max-width: min(62vw, 230px); }
   .brandWordmark span { font-size: 13px; }
   .viewerSwitch > span { display: none; }
-  .libraryHero, .libraryToolbar, .caseGrid, .detailHero, .mediaSlot, .readingBody { width: calc(100% - 24px); }
+  .libraryHero, .libraryToolbar, .caseGrid, .weekSection, .detailHero, .mediaSlot, .readingBody { width: calc(100% - 24px); }
+  .weekSection .caseGrid { width: 100%; }
   .libraryHero { padding: 42px 0 26px; }
   .libraryHero h1 { font-size: 52px; }
   .libraryToolbar { align-items: stretch; flex-direction: column; }
@@ -674,7 +682,7 @@ CASES.forEach((item) => { item.favedBy = new Set(item.favedBy); });
    ============================================================ */
 const state = {
   viewer: "sun",
-  sub: "ALL", sortFav: false, frozen: null, mine: false,
+  sub: "ALL", view: "NEW", frozen: null, mine: false,   // view：NEW 按上传时间 ｜ WEEK 按周显示 ｜ FAV 按收藏排序
   query: "", composing: false, committedQuery: "",
   stageIndex: 0, playing: false, playAt: 0, playTimer: null,
   listScroll: 0,
@@ -846,11 +854,66 @@ function openCase(id) {
 /* ============================================================
    库首页
    ============================================================ */
+/** 收藏数从多到少，同数时新上传的在前（与 lib/case-engagement.ts 的 groupByWeek 周内排序同一规则）。 */
 function ranking(list) {
   return [...list].sort((a, b) => favCount(b) - favCount(a) || new Date(b.at) - new Date(a.at));
 }
-/** 按收藏排序时名次冻结：点心形只改数字，不让卡片从鼠标底下窜走（与视频库「按周显示」同一做法）。 */
-function freezeOrder() { state.frozen = new Map(ranking(CASES).map((item, index) => [item.id, index])); }
+
+/* ---- 按周显示：照搬 lib/case-engagement.ts 的 deriveWeekKey / formatWeekTitle / weekRangeLabel / groupByWeek ----
+   周次由上传时间决定，按北京时间（UTC+8）、周一起算、ISO-8601 周号；周从新到旧，周内按收藏数排。 */
+const DAY_MS = 24 * 60 * 60 * 1000;
+function weekKeyOf(iso) {
+  const shifted = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000);
+  const target = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()));
+  target.setUTCDate(target.getUTCDate() - ((target.getUTCDay() + 6) % 7) + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - ((firstThursday.getUTCDay() + 6) % 7) + 3);
+  const week = 1 + Math.round((target.getTime() - firstThursday.getTime()) / (7 * DAY_MS));
+  return `${target.getUTCFullYear()}-W${pad(week)}`;
+}
+function weekTitle(key) { const m = /^(\d{4})-W(\d{2})$/.exec(key); return m ? `${m[1]} 年第 ${Number(m[2])} 周` : "时间未知"; }
+function weekRange(key) {
+  const m = /^(\d{4})-W(\d{2})$/.exec(key);
+  if (!m) return "";
+  const firstThursday = new Date(Date.UTC(Number(m[1]), 0, 4));
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - ((firstThursday.getUTCDay() + 6) % 7));
+  const monday = new Date(firstThursday.getTime() + (Number(m[2]) - 1) * 7 * DAY_MS);
+  const sunday = new Date(monday.getTime() + 6 * DAY_MS);
+  const short = (d) => `${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  return `${short(monday)} ~ ${short(sunday)}`;
+}
+function groupByWeek(list) {
+  const buckets = new Map();
+  for (const item of list) {
+    const key = weekKeyOf(item.at);
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(item);
+  }
+  return [...buckets.entries()].sort(([a], [b]) => b.localeCompare(a))
+    .map(([key, items]) => ({ key, title: weekTitle(key), range: weekRange(key), items: ranking(items) }));
+}
+
+/**
+ * 按周显示、按收藏排序：打开那一刻冻结名次，之后点心形只改数字，卡片不挪位；
+ * 真实名次变了才出现「顺序已变 · 重新排序」。冻结之后才出现的案例排在所在组最后，并算作顺序已变
+ * （与 applyFrozenWeeklyOrder 同一规则）。
+ */
+function freezeOrder() {
+  if (state.view === "WEEK") state.frozen = new Map(groupByWeek(CASES).flatMap((group) => group.items.map((item, index) => [item.id, index])));
+  else if (state.view === "FAV") state.frozen = new Map(ranking(CASES).map((item, index) => [item.id, index]));
+  else state.frozen = null;
+}
+function applyFrozen(items) {
+  const rankOf = (item) => (state.frozen && state.frozen.has(item.id) ? state.frozen.get(item.id) : Number.MAX_SAFE_INTEGER);
+  const frozen = state.frozen ? [...items].sort((a, b) => rankOf(a) - rankOf(b)) : items;
+  return { items: frozen, stale: frozen.some((item, index) => item !== items[index]) };
+}
+function setView(view) {
+  // 按周显示本身就是周内按收藏数排，两者互斥：点亮一个，另一个熄掉；再点一次回到按上传时间
+  state.view = state.view === view ? "NEW" : view;
+  freezeOrder();
+  renderLibraryPreservingScroll();
+}
 function visibleCases() {
   const q = norm(state.composing ? state.committedQuery : state.query).trim();
   let list = byNewest();
@@ -860,14 +923,19 @@ function visibleCases() {
     list = list.filter((item) => norm([item.title, item.summary, item.location, item.creator, item.tags.join(" "), item.text, nameOf(item.by)].join(" ")).includes(q));
   }
   let stale = false;
-  if (state.sortFav && state.frozen) {
-    const rankOf = (item) => (state.frozen.has(item.id) ? state.frozen.get(item.id) : -1);
-    const frozenList = [...list].sort((a, b) => rankOf(a) - rankOf(b));
-    const liveIds = ranking(list).map((item) => item.id).join();
-    stale = frozenList.map((item) => item.id).join() !== liveIds;
-    list = frozenList;
+  let groups = null;
+  if (state.view === "FAV") {
+    const applied = applyFrozen(ranking(list));
+    list = applied.items; stale = applied.stale;
+  } else if (state.view === "WEEK") {
+    groups = groupByWeek(list).map((group) => {
+      const applied = applyFrozen(group.items);
+      if (applied.stale) stale = true;
+      return { ...group, items: applied.items };
+    });
+    list = groups.flatMap((group) => group.items);
   }
-  return { list, stale };
+  return { list, groups, stale };
 }
 
 function heartSVG(on) {
@@ -934,12 +1002,18 @@ function caseCardHTML(item) {
 }
 
 function renderLibrary() {
-  const { list, stale } = visibleCases();
+  const { list, groups, stale } = visibleCases();
   let body;
   if (!list.length && state.mine && state.sub === "ALL" && !norm(state.query).trim()) {
     body = `<section class="emptyState"><span>♡</span><h2>你还没有收藏案例</h2><p>在卡片上点心形就能收藏，不限数量，只给自己留档。</p><button type="button" data-action="clear-filters">看全部案例</button></section>`;
   } else if (!list.length) {
     body = `<section class="emptyState"><span>⌕</span><h2>没有找到对应案例</h2><p>换一个标题、地点、创作方或标签，或者清掉子领域筛选。</p><button type="button" data-action="clear-filters">清空搜索和筛选</button></section>`;
+  } else if (groups) {
+    // 周标题行照视频库：「2026 年第 38 周 · 09-14 ~ 09-20 · N 条 · 按收藏数排序」；本域没有票，不写「还剩几票」
+    body = groups.map((group) => `<section class="weekSection" aria-label="${group.title} 的案例">
+      <div class="weekHeading"><h3>${group.title}</h3>${group.range ? `<span>${group.range}</span>` : ""}<b>${group.items.length} 条 · 按收藏数排序</b></div>
+      <div class="caseGrid">${group.items.map(caseCardHTML).join("")}</div>
+    </section>`).join("");
   } else {
     body = `<section class="caseGrid" aria-label="案例列表">${list.map(caseCardHTML).join("")}</section>`;
   }
@@ -951,8 +1025,9 @@ function renderLibrary() {
         <div class="filterGroup" role="radiogroup" aria-label="子领域">
           ${[["ALL", "全部"], ...SUB_KEYS.map((key) => [key, SUBS[key].label])].map(([key, label]) => `<button type="button" class="pillToggle" role="radio" aria-checked="${state.sub === key}" data-action="sub" data-sub="${key}">${label}</button>`).join("")}
         </div>
-        <button type="button" class="pillToggle" aria-pressed="${state.sortFav}" title="按收藏数从多到少；打开那一刻的名次会冻结，点心形不会让卡片挪位" data-action="sort-fav">按收藏排序</button>
-        ${state.sortFav && stale ? `<button type="button" class="reorderChip" title="收藏数已变化，点此按新的收藏数重新排序" data-action="reorder">顺序已变 · 重新排序</button>` : ""}
+        <button type="button" class="pillToggle" aria-pressed="${state.view === "WEEK"}" title="按上传周分组，周内按收藏数排序；打开那一刻的名次会冻结，点心形不会让卡片挪位" data-action="view" data-view="WEEK">按周显示</button>
+        <button type="button" class="pillToggle" aria-pressed="${state.view === "FAV"}" title="不分周，全部按收藏数从多到少；打开那一刻的名次会冻结" data-action="view" data-view="FAV">按收藏排序</button>
+        ${stale ? `<button type="button" class="reorderChip" title="收藏数已变化，点此按新的收藏数重新排序" data-action="reorder">顺序已变 · 重新排序</button>` : ""}
         <button type="button" class="pillToggle" aria-pressed="${state.mine}" title="只看我收藏过的案例" data-action="mine">只看我收藏的</button>
         <label class="librarySearch"><span aria-hidden="true">⌕</span><input id="search" aria-label="搜索案例" value="${esc(state.query)}" placeholder="搜索标题、地点、创作方或标签"></label>
       </div>
@@ -1003,7 +1078,7 @@ function renderLibraryPreservingScroll() {
   const y = window.scrollY;
   const active = document.activeElement;
   const focusKey = active?.id === "search" ? "#search"
-    : active?.dataset?.action ? `[data-action="${active.dataset.action}"]${active.dataset.id ? `[data-id="${active.dataset.id}"]` : ""}${active.dataset.sub ? `[data-sub="${active.dataset.sub}"]` : ""}`
+    : active?.dataset?.action ? `[data-action="${active.dataset.action}"]${active.dataset.id ? `[data-id="${active.dataset.id}"]` : ""}${active.dataset.sub ? `[data-sub="${active.dataset.sub}"]` : ""}${active.dataset.view ? `[data-view="${active.dataset.view}"]` : ""}`
     : "";
   renderLibrary();
   jumpTo(y);
@@ -1603,7 +1678,7 @@ document.addEventListener("click", (event) => {
     case "not-ready": notify("这条案例还没上传完，完成后才能查看。"); break;
     case "favorite": toggleFavorite(id); break;
     case "sub": state.sub = target.dataset.sub; renderLibraryPreservingScroll(); break;
-    case "sort-fav": state.sortFav = !state.sortFav; if (state.sortFav) freezeOrder(); else state.frozen = null; renderLibraryPreservingScroll(); break;
+    case "view": setView(target.dataset.view); break;
     case "reorder": freezeOrder(); renderLibraryPreservingScroll(); break;
     case "mine": state.mine = !state.mine; renderLibraryPreservingScroll(); break;
     case "clear-filters": state.sub = "ALL"; state.mine = false; state.query = ""; state.committedQuery = ""; renderLibraryPreservingScroll(); break;
