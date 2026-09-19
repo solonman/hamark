@@ -375,7 +375,7 @@ button { cursor: pointer; }
 .readingModule > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--v04-line); }
 .readingModule > header small { display: block; margin-bottom: 4px; color: var(--v04-muted); font-size: 9px; font-weight: 900; letter-spacing: .17em; }
 .readingModule > header h2 { margin: 0; color: var(--v04-subject); font-size: 18px; }
-/* 正文：纯文本，保留换行，按文本插入（不走 innerHTML）。 */
+/* 案例简介：纯文本，保留换行，按文本插入（不走 innerHTML）。 */
 .prose { max-width: 72ch; margin: 0; padding: 20px 22px 24px; color: var(--v04-ink-soft); font-size: 14.5px; line-height: 1.95; white-space: pre-wrap; overflow-wrap: anywhere; }
 .readingCore { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .readingCore > div { min-width: 0; padding: 18px 22px; border-bottom: 1px solid var(--v04-line); }
@@ -657,7 +657,7 @@ const CASES = [
   },
   {
     id: "vc-010", status: "READY", sub: "RETAIL", title: "书店橱窗：只放一把椅子和一盏灯",
-    summary: "纯图片案例——没有视频也没有正文，四张照片说清一件事。",
+    summary: "纯图片案例——没有视频也没有简介，四张照片说清一件事。",
     tags: ["橱窗", "极简", "书店"], location: "南京 · 先锋书店", creator: "某书店",
     occ: "2026-02", url: "", rights: "仅公司内部学习使用", text: "",
     meta: { displayVenue: "橱窗", displayPeriod: "长期", displayMaterials: "旧木椅 + 暖光", producer: "店内陈列" },
@@ -1118,7 +1118,7 @@ function renderDetail(id) {
     </section>
     ${shownAssets(item).length ? `<section class="mediaSlot" aria-label="素材"><div class="videoShell" data-v04-scheme="dark" id="stage">${stageHTML(item)}</div></section>` : ""}
     <div class="readingBody">
-      ${item.text.trim() ? `<section class="readingModule"><header><div><small>TEXT</small><h2>正文</h2></div></header><p class="prose" id="prose"></p></section>` : ""}
+      ${item.text.trim() ? `<section class="readingModule"><header><div><small>BRIEF</small><h2>案例简介</h2></div></header><p class="prose" id="prose"></p></section>` : ""}
       <section class="readingModule"><header><div><small>DETAILS</small><h2>案例信息</h2></div></header>
         <div class="readingCore">${infoRowsHTML(item)}</div>
         <p class="readingNote">仅公司内部学习使用，不对外公开分享。图片先看 480w 缩略图与 1600w 展示图，「查看原图」才读取原始文件。</p>
@@ -1415,7 +1415,7 @@ function renderUpload() {
         <label class="field"><small>采集地点 *</small><input data-draft="location" maxlength="${LIMITS.location}" value="${esc(d.location)}" placeholder="城市 · 场地，写到城市即可"></label>
         <label class="field"><small>标签 *</small><input data-draft="tags" value="${esc(d.tags)}" placeholder="用逗号分开，至少一个"></label>
       </div>
-      <label class="field"><small>正文 <i>选填，纯文本，保留换行；没有视频和图片时，正文就是这条案例</i></small><textarea data-draft="text" maxlength="${LIMITS.text}" placeholder="记下做法、看点、成本、可复用的地方…">${esc(d.text)}</textarea></label>
+      <label class="field"><small>案例简介 <i>选填，纯文本，保留换行；没有视频和图片时，简介就是这条案例</i></small><textarea data-draft="text" maxlength="${LIMITS.text}" placeholder="记下做法、看点、成本、可复用的地方…">${esc(d.text)}</textarea></label>
 
       <button type="button" class="foldToggle" aria-expanded="${overlay.fold}" data-action="fold">${overlay.fold ? "收起补充信息" : "补充信息（选填）"}${d.sub ? ` · 含${SUBS[d.sub].label}专有 ${fields.length} 项${filledMeta ? `，已填 ${filledMeta}` : ""}` : ""}</button>
       ${overlay.fold ? `
@@ -1522,7 +1522,7 @@ function validateDraft(d) {
   if (!tags.length) return "至少填一个标签。";
   if (tags.length > LIMITS.tags) return `标签最多 ${LIMITS.tags} 个。`;
   if (tags.some((tag) => tag.length > LIMITS.tagLength)) return `每个标签不超过 ${LIMITS.tagLength} 个字。`;
-  if (!d.assets.length && !d.text.trim()) return "至少要有一段视频、一张图片或一段正文。";
+  if (!d.assets.length && !d.text.trim()) return "至少要有一段视频、一张图片，或者写一段案例简介。";
   if (d.url.trim() && !isHttpUrl(d.url.trim())) return "来源链接只收 http:// 或 https:// 开头的网址。";
   return "";
 }
@@ -1642,7 +1642,7 @@ function dropFailed() {
   const item = findCase(overlay.caseId);
   const remaining = item.assets.filter((asset) => !overlay.failed.includes(asset.id));
   if (!remaining.length && !item.text.trim()) {
-    overlay.error = "去掉之后这条案例既没有素材也没有正文，请重传，或者删掉这条案例。";
+    overlay.error = "去掉之后这条案例既没有素材也没有案例简介，请重传，或者删掉这条案例。";
     renderUpload();
     return;
   }
