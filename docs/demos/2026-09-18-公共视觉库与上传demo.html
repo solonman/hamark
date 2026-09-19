@@ -944,7 +944,7 @@ function renderLibrary() {
     body = `<section class="caseGrid" aria-label="案例列表">${list.map(caseCardHTML).join("")}</section>`;
   }
   $("#page").innerHTML = `
-    <section class="libraryHero"><p>PUBLIC VISUAL COLLECTION</p><h1>把街上被记住的，<br>收进来。</h1><span>户外广告、公共艺术、商业展陈。现场拍到的视频、照片，或者只来得及记下的几句话——一个案例就是一条。</span></section>
+    <section class="libraryHero"><p>PUBLIC VISUAL COLLECTION</p><h1>把街上值得被记住的，<br>收进来。</h1><span>户外广告、公共艺术、商业展陈。</span></section>
     <section class="libraryToolbar">
       <div><p>PUBLIC VISUAL LIBRARY<span class="libraryCount"> · ${countLabel(list.length, CASES.length, "条")}</span></p><h2>公共视觉库</h2></div>
       <div class="libraryToolbarControls">
