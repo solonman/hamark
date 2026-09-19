@@ -260,6 +260,10 @@ export default function VisualUploadDialog({
   ));
 
   const editing = mode === "edit";
+  // 编辑时从格子里移除的已有素材：保存后服务端会连文件一起删掉，不进回收站，不能恢复——要当场说清楚。
+  const removedExistingCount = editing && detail
+    ? detail.assets.filter((asset) => !draft.assets.some((item) => item.kind === "existing" && item.assetId === asset.id)).length
+    : 0;
 
   // resume / edit 且没有现成 detail 时，先读一次。
   useEffect(() => {
@@ -821,6 +825,11 @@ export default function VisualUploadDialog({
                       })}
                     </ul>
                   </div>
+                ) : null}
+                {removedExistingCount ? (
+                  <p className={report.hint} role="note">
+                    移除了 {removedExistingCount} 个已有素材：点「保存修改」后会连原文件一起彻底删除，不进回收站，不能恢复。不想删就点「取消」。
+                  </p>
                 ) : null}
 
                 <label className={report.field}>

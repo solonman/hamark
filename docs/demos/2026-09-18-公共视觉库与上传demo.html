@@ -1373,6 +1373,8 @@ function renderUpload() {
     footer = `<div class="uploadFooter"><button type="button" data-action="close-overlay">稍后再说</button></div>`;
   } else {
     const d = overlay.draft;
+    // 编辑时移除的已有素材：保存后连文件一起删，不进回收站（规格 6.4）
+    const removedCount = editing ? findCase(overlay.caseId).assets.filter((asset) => !d.assets.some((item) => item.existing && item.id === asset.id)).length : 0;
     const videos = d.assets.filter((asset) => asset.type === "VIDEO").length;
     const images = d.assets.filter((asset) => asset.type === "IMAGE").length;
     const fields = d.sub ? SUBS[d.sub].fields : [];
@@ -1391,6 +1393,7 @@ function renderUpload() {
       </div>` : ""}
       ${d.assets.length ? `<div class="field"><small>素材 <i>视频 ${videos} / ${LIMITS.videos} · 图片 ${images} / ${LIMITS.images} · 按这个顺序展示，第一位就是列表封面</i></small>
         <ul class="mediaList">${d.assets.map((asset, index) => mediaTileHTML(asset, index, d.assets.length)).join("")}</ul></div>` : ""}
+      ${removedCount ? `<p class="hint" role="note">移除了 ${removedCount} 个已有素材：点「保存修改」后会连原文件一起彻底删除，不进回收站，不能恢复。不想删就点「取消」。</p>` : ""}
 
       <label class="field"><small>子领域 *</small><select id="f-sub" data-draft="sub">
         <option value="">请选择</option>${SUB_KEYS.map((key) => `<option value="${key}"${d.sub === key ? " selected" : ""}>${SUBS[key].label}（${SUBS[key].hint}）</option>`).join("")}
