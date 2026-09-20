@@ -281,8 +281,23 @@ export default function VisualUploadDialog({
         setResolvedCaseId(data.case.id);
         setDraft(draftFromDetail(data.case));
         if (mode === "resume") {
-          setMissing(missingFromDetail(data.case));
+          const pending = missingFromDetail(data.case);
           setTotalAssetsAtSubmit(data.case.assets.length);
+          if (!pending.length) {
+            // 别的标签页（或别人）已经把缺的补上了：直接收口，不摆一个「有 0 个文件没传上」的空清单。
+            void callComplete(data.case.id)
+              .then((complete) => {
+                if (complete.status !== "READY") throw new Error(complete.error || "这条案例还没补齐，请刷新后重试。");
+                notify("已上传");
+                onSaved(data.case!.id, false);
+              })
+              .catch((reason: unknown) => {
+                setLoadError(reason instanceof Error ? reason.message : "这条案例还没补齐，请刷新后重试。");
+                setPhase("form");
+              });
+            return;
+          }
+          setMissing(pending);
           setPhase("partial");
         } else {
           setPhase("form");
@@ -478,13 +493,26 @@ export default function VisualUploadDialog({
     return failedIds;
   }
 
+  /**
+   * 确认上传完成。只有 409（服务端点名哪几个素材没到位）才回到「有几个文件没传上」那一步；
+   * 403／404／500 这些是别的问题，要把服务端的原话抛出去显示在表单上，不能一律当成「有文件没传上」——
+   * 那样会出现「有 0 个文件没传上」这种谁也看不懂的提示，真正的原因反而被吞掉。
+   */
   async function callComplete(targetCaseId: string): Promise<VisualCompleteResponse & { error?: string }> {
     const response = await fetch(`/api/visual-cases/${encodeURIComponent(targetCaseId)}/complete`, { method: "POST", cache: "no-store" });
     redirectOnUnauthorized(response);
-    return readJsonResponse<VisualCompleteResponse & { error?: string }>(response, "确认上传完成");
+    const body = await readJsonResponse<VisualCompleteResponse & { error?: string }>(response, "确认上传完成");
+    if (!response.ok && response.status !== 409) {
+      throw new Error(body.error || "确认上传完成失败，请重试。");
+    }
+    return body;
   }
 
   function enterPartial(targetCaseId: string, missingIds: string[], assetLookup: Map<string, { originalName: string; type: VisualAssetType; file: File | null }>, total: number) {
+    // 没点名任何素材就说明不是「有文件没传上」，别把空清单摆出来。
+    if (!missingIds.length) {
+      throw new Error("上传没有完成，但服务端没有指出缺哪个文件。请关掉重试；案例已经建好的话，可以在库里那张卡片上点「继续上传」。");
+    }
     setResolvedCaseId(targetCaseId);
     setMissing(missingIds.map((id) => {
       const found = assetLookup.get(id);
@@ -631,7 +659,17 @@ export default function VisualUploadDialog({
   async function retryMissingWithFiles(items: MissingItem[]) {
     const targetCaseId = resolvedCaseId;
     if (!targetCaseId) return;
+    setError("");
     setPhase("uploading");
+    try {
+      await retryUpload(targetCaseId, items);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "重传失败，请重试。");
+      setPhase("partial");
+    }
+  }
+
+  async function retryUpload(targetCaseId: string, items: MissingItem[]) {
     const readyItems = items.filter((item): item is MissingItem & { file: File } => Boolean(item.file));
     const tasks = readyItems.map((item) => ({
       key: item.assetId, assetId: item.assetId,
