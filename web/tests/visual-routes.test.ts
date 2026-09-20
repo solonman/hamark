@@ -155,3 +155,20 @@ test("the offline script is the one place sharp is loaded, and only via a dynami
   assert.doesNotMatch(text, /^import sharp/m);
   assert.match(text, /await import\(specifier\)/);
 });
+
+test("storage failures come back as Chinese sentences, not the storage layer's internal English", async () => {
+  const [complete, removeAsset, uploadUrl] = await Promise.all([
+    source("../app/api/visual-cases/[id]/complete/route.ts"),
+    source("../app/api/visual-cases/[id]/assets/[assetId]/route.ts"),
+    source("../app/api/visual-cases/[id]/assets/[assetId]/upload-url/route.ts"),
+  ]);
+  // 这三条路由都会向对象存储发请求（核对文件、删素材、签链接前取行），出错时先翻译再走业务分支。
+  for (const route of [complete, removeAsset, uploadUrl]) {
+    assert.match(route, /import \{ visualStorageFailureResponse \} from "@\/lib\/visual-storage-failure";/);
+    assert.match(route, /\} catch \(error\) \{\s*const storageFailure = visualStorageFailureResponse\(/);
+  }
+  const helper = await source("../lib/visual-storage-failure.ts");
+  // 权限不足重试没用，要点名 visual\/ 目录的授权；其余按「稍后再试」处理。
+  assert.match(helper, /reason === "AUTHORIZATION"[\s\S]*visual\/ 目录的读写权限/);
+  assert.match(helper, /retryable: true/);
+});

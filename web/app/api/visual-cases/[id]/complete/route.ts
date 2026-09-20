@@ -6,6 +6,7 @@ import { isVisualFeatureEnabled } from "@/lib/visual-contract";
 import { isVisualDerivativeCiMode, runVisualDerivativesForCase } from "@/lib/visual-derivatives";
 import { visualFeatureDisabledResponse, VisualServiceError } from "@/lib/visual-model";
 import { completeVisualCase, VisualCompleteIncompleteError } from "@/lib/visual-server";
+import { visualStorageFailureResponse } from "@/lib/visual-storage-failure";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   if (!isVisualFeatureEnabled()) return visualFeatureDisabledResponse();
@@ -27,6 +28,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     return Response.json(result);
   } catch (error) {
+    const storageFailure = visualStorageFailureResponse("complete", error);
+    if (storageFailure) return storageFailure;
     if (error instanceof VisualCompleteIncompleteError) {
       return Response.json(
         { error: error.message, status: "UPLOADING", missing: error.missing },
