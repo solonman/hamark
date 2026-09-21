@@ -327,7 +327,7 @@ export default function VisualLibrary({
             只看我收藏的
           </button>
           <label className={`${v04.librarySearch} ${styles.toolbarSearch}`}>
-            <span aria-hidden>⌕</span>
+            <span aria-hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="7.2" cy="7.2" r="4.6"/><path d="M10.6 10.6 14 14"/></svg></span>
             <input
               aria-label="搜索案例"
               value={query}

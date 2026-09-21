@@ -122,7 +122,10 @@
 .libraryToolbar > div h2, .analysisToolbar h2 { margin: 0; font-size: 22px; letter-spacing: -.04em; }
 .libraryCount { color: var(--v04-muted); font-weight: 800; }
 .librarySearch { position: relative; }
-.librarySearch > span { position: absolute; left: 0; bottom: 13px; color: var(--v04-muted); font-size: 18px; }
+/* 放大镜画成矢量图标：原来用的 ⌕（U+2315）这个字符在多数字体里本身就画得很小，
+   调字号只会更虚；与站里的心形、外观图标同一做法。 */
+.librarySearch > span { position: absolute; left: 0; bottom: 14px; display: block; color: var(--v04-muted); }
+.librarySearch > span svg { display: block; width: 18px; height: 18px; }
 /* 给左边那个 ⌕ 留位。要写成 (0,2,1)：下面 `.libraryToolbar input` 的简写 padding 与单类名同级、
    又排在后面，会把这条左边距冲掉，图标就压在占位文字上（三个库都这样）。 */
 .libraryToolbar .librarySearch input { padding-left: 28px; }

@@ -504,7 +504,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
               顺序已变 · 重新排序
             </button>
           ) : null}
-          <label className={styles.librarySearch}><span aria-hidden>⌕</span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label>
+          <label className={styles.librarySearch}><span aria-hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><circle cx="7.2" cy="7.2" r="4.6"/><path d="M10.6 10.6 14 14"/></svg></span><input aria-label="搜索案例" value={query} onCompositionStart={() => setComposing(true)} onCompositionEnd={(event) => { setComposing(false); setQuery(event.currentTarget.value); setCommittedQuery(event.currentTarget.value); }} onChange={(event) => { setQuery(event.target.value); if (!composing) setCommittedQuery(event.target.value); }} placeholder="搜索片名、品牌或标签" /></label>
         </div>
       </section>
       {loading ? <section className={styles.emptyState}><h2>正在读取案例库…</h2></section>
