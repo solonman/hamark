@@ -19,6 +19,9 @@ export type AgentListQuery = {
   hasAnalysis: boolean;
 };
 
+/** 签名 URL 有效期：够 Agent 下载完一条视频，又不至于长期可转发。 */
+export const AGENT_MEDIA_URL_TTL_SECONDS = 60 * 60;
+
 export const AGENT_LIST_DEFAULT_LIMIT = 50;
 export const AGENT_LIST_MAX_LIMIT = 200;
 

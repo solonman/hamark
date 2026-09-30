@@ -8,6 +8,7 @@ import { loadReportFinalVersion } from "@/lib/report-final-version";
 import { resolveReportDefaultVersion } from "@/lib/report-version-chain";
 import type { ReportAnnotation } from "@/lib/report-structure";
 import {
+  AGENT_MEDIA_URL_TTL_SECONDS,
   AgentApiError,
   isoOrNull,
   likePattern,
@@ -17,7 +18,6 @@ import {
   type AgentVersionSelector,
 } from "./params";
 import { toReadableReportAnalysis } from "./readable";
-import { AGENT_MEDIA_URL_TTL_SECONDS } from "./video-read";
 
 // 与报告库同一口径：未删除、转换完成。
 const VISIBLE_REPORT_WHERE = `r.deleted_at IS NULL AND r.status = 'READY'`;

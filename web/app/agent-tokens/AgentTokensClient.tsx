@@ -7,6 +7,7 @@ import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { LibraryToastStack, useLibraryToast } from "@/components/shared/LibraryToast";
 import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import v04 from "@/components/v04/V04Surface.module.css";
+import { AGENT_API_PATH, buildAgentGuideMarkdown } from "@/lib/agent-api/guide";
 import { formatShortDateTime } from "@/lib/date-format";
 import styles from "./AgentTokens.module.css";
 
@@ -18,8 +19,6 @@ type TokenView = {
   lastUsedAt: string | null;
   revokedAt: string | null;
 };
-
-const API_BASE = "/api/agent/v1";
 
 async function readJson(response: Response) {
   return (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -38,6 +37,7 @@ export default function AgentTokensClient({ user }: { user: UserMenuUser }) {
   const [revokePending, setRevokePending] = useState(false);
   const [revokeError, setRevokeError] = useState("");
   const [origin, setOrigin] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/agent-tokens", { cache: "no-store" });
@@ -103,7 +103,9 @@ export default function AgentTokensClient({ user }: { user: UserMenuUser }) {
     await load();
   }
 
-  const example = `curl -H "Authorization: Bearer ${fresh?.token ?? "<令牌>"}" \\\n  "${origin}${API_BASE}/videos?hasAnalysis=true"`;
+  const example = `curl -H "Authorization: Bearer ${fresh?.token ?? "<令牌>"}" \\\n  "${origin}${AGENT_API_PATH}/videos?hasAnalysis=true"`;
+  // 说明里的令牌始终是占位符：这段话常被整段贴进 Agent 的提示词，令牌应另外配置。
+  const guide = buildAgentGuideMarkdown(origin);
 
   return (
     <main className={v04.surface}>
@@ -175,14 +177,29 @@ export default function AgentTokensClient({ user }: { user: UserMenuUser }) {
         <section className={styles.panel}>
           <h2>怎么用</h2>
           <p className={styles.muted}>
-            请求头带上 <code>Authorization: Bearer 令牌</code>。入口 <code>{API_BASE}</code> 会列出全部端点和参数；
-            视频：<code>/videos</code>、<code>/videos/&#123;id&#125;</code>、<code>/videos/&#123;id&#125;/analysis</code>；
-            报告：<code>/reports</code>、<code>/reports/&#123;id&#125;</code>、<code>/reports/&#123;id&#125;/analysis</code>。
+            先用下面这条命令确认令牌能用；能返回案例列表就说明通了，「我的令牌」里的最近使用时间也会更新。
           </p>
           <div className={styles.tokenLine}>
             <code className={styles.example}>{example}</code>
             <button type="button" onClick={() => copy(example)}>复制</button>
           </div>
+          <div className={styles.guideHead}>
+            <div>
+              <b>接入说明</b>
+              <span>
+                把整段说明贴进 Agent 的系统提示词或工具说明，它就知道怎么调用：端点、参数、返回结构、错误码都在里面。
+                说明里的 <code>&lt;令牌&gt;</code> 是占位符，令牌请另外配置给 Agent（例如环境变量）。
+                接口入口 <code>{AGENT_API_PATH}</code> 也会返回同一份说明。
+              </span>
+            </div>
+            <div className={styles.guideActions}>
+              <button type="button" aria-expanded={guideOpen} onClick={() => setGuideOpen((value) => !value)}>
+                {guideOpen ? "收起" : "展开查看"}
+              </button>
+              <button type="button" onClick={() => copy(guide)}>复制接入说明</button>
+            </div>
+          </div>
+          {guideOpen ? <pre className={styles.guide}>{guide}</pre> : null}
         </section>
       </div>
 

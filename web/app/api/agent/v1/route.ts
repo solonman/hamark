@@ -2,11 +2,12 @@
 // 规格见 docs/23_外部Agent只读API_V0.1.md。
 import { agentRoute } from "@/lib/agent-api/route";
 import { AGENT_LIST_DEFAULT_LIMIT, AGENT_LIST_MAX_LIMIT } from "@/lib/agent-api/params";
+import { buildAgentGuideMarkdown } from "@/lib/agent-api/guide";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  return agentRoute(request, {}, async ({ agent, owner }) => ({
+  return agentRoute(request, {}, async ({ agent, owner, url }) => ({
     name: "hamark 案例只读接口",
     version: "v1",
     agent,
@@ -32,5 +33,7 @@ export async function GET(request: Request) {
       { method: "GET", path: "/api/agent/v1/reports/{id}", description: "报告详情：元数据、逐页页图签名链接与文字摘录、相关资料、版本列表、集成版状态" },
       { method: "GET", path: "/api/agent/v1/reports/{id}/analysis", description: "报告逆向拆解内容（背景、策略、模块／单元结构、逐页组块）" },
     ],
+    // 完整接入说明（Markdown），与站内令牌页「复制接入说明」是同一份。
+    guideMarkdown: buildAgentGuideMarkdown(url.origin),
   }));
 }

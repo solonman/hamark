@@ -15,6 +15,7 @@ import {
 } from "@/lib/v19-version-chain";
 import { loadFinalVersion } from "@/lib/final-version";
 import {
+  AGENT_MEDIA_URL_TTL_SECONDS,
   AgentApiError,
   isoOrNull,
   likePattern,
@@ -25,8 +26,6 @@ import {
 } from "./params";
 import { toReadableVideoAnalysis } from "./readable";
 
-/** 签名 URL 有效期：够 Agent 下载完一条视频，又不至于长期可转发。 */
-export const AGENT_MEDIA_URL_TTL_SECONDS = 60 * 60;
 
 // 与站内案例库同一口径：业务数据、未删除、不在回收站、资产完好、已上传完成。
 const VISIBLE_VIDEO_WHERE = `v.deleted_at IS NULL

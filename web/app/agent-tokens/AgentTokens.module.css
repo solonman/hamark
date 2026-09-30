@@ -38,6 +38,22 @@
 }
 .panel .tokenLine button:hover, .panel .list button:hover { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
 
+.guideHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-top: 14px; border-top: 1px solid var(--v04-line); }
+.guideHead > div:first-child { display: grid; gap: 6px; }
+.guideHead b { font-size: 13px; }
+.guideHead span { color: var(--v04-muted); font-size: 12.5px; line-height: 1.8; }
+.guideActions { display: flex; flex-shrink: 0; gap: 8px; }
+.panel .guideActions button {
+  border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink);
+  padding: 7px 14px; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.panel .guideActions button:hover { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.panel .guideActions button:last-child { border-color: rgb(var(--v04-accent-rgb) / .55); color: var(--v04-accent); }
+.guide {
+  max-height: 560px; margin: 0; overflow: auto; padding: 16px 18px; border: 1px solid var(--v04-line); border-radius: 12px;
+  background: var(--v04-raised-2); color: var(--v04-ink); font-size: 12px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
 .list { display: grid; margin: 0; padding: 0; list-style: none; }
 .list li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto 92px; align-items: center; gap: 18px;
@@ -54,5 +70,8 @@
 @media (max-width: 720px) {
   .page { width: calc(100% - 32px); margin-top: 28px; }
   .list li { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
+  .list li > div { grid-column: 1 / -1; }
+  .list li > em { text-align: left; }
   .createRow { flex-direction: column; }
+  .guideHead { flex-direction: column; }
 }

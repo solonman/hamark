@@ -372,3 +372,48 @@ test("only allowlisted members see the menu entry and can open the page", async 
   const page = codeOnly(await source("../app/agent-tokens/page.tsx"));
   assert.match(page, /if \(!canManageAgentTokens\(user\.displayName\)\)/);
 });
+
+// ---------------------------------------------------------------------------
+// 接入说明（lib/agent-api/guide.ts）必须跟实现对得上
+// ---------------------------------------------------------------------------
+
+import { buildAgentGuideMarkdown } from "../lib/agent-api/guide";
+
+test("the agent guide uses the given origin, keeps the token a placeholder, and states the real limits", () => {
+  const guide = buildAgentGuideMarkdown("https://hamark.example");
+  assert.match(guide, /`https:\/\/hamark\.example\/api\/agent\/v1`/);
+  assert.match(guide, /Authorization: Bearer <令牌>/);
+  assert.doesNotMatch(guide, /hmk_agent_[A-Za-z0-9_-]{20,}/);
+  assert.match(guide, /默认 50，最大 200/);
+  assert.match(guide, /60 分钟内有效/);
+});
+
+test("the agent guide names every list/analysis parameter and every readable key the API actually returns", () => {
+  const guide = buildAgentGuideMarkdown("");
+  for (const param of [...Object.keys(parseAgentListQuery(new URLSearchParams())), "version", "format", "final", "latest", "readable", "raw", "both", "contentHash", "total"]) {
+    assert.ok(guide.includes(`\`${param}\``), `guide must mention ${param}`);
+  }
+  const video = toReadableVideoAnalysis(emptyV04DraftPayload());
+  const report = toReadableReportAnalysis({
+    background: { city: "", developer: "", projectBackground: "", businessBackground: "" },
+    strategy: { narrative: "", model: "" }, modules: [], units: [], pages: [],
+  });
+  const keys = [
+    ...Object.keys(video),
+    ...Object.keys(video["第一模块｜全片事实与核心判断"]),
+    ...Object.keys(video["第三模块｜主导感知类型发生路径与整体评价"]),
+    ...Object.keys(report), ...Object.keys(report.案例背景), ...Object.keys(report.报告策略),
+  ];
+  for (const key of keys) assert.ok(guide.includes(key), `guide must mention readable key ${key}`);
+});
+
+test("the agent guide lists every error code the agent API can return", async () => {
+  const guide = buildAgentGuideMarkdown("");
+  const sources = await Promise.all(
+    ["route.ts", "params.ts", "auth.ts", "video-read.ts", "report-read.ts"].map((file) => source(`../lib/agent-api/${file}`)),
+  );
+  const codes = new Set<string>();
+  for (const code of sources.join("\n").matchAll(/(?:code: |AgentApiError\(\d+, |errorResponse\(\d+, )"([A-Z_]+)"/g)) codes.add(code[1]);
+  assert.ok(codes.size >= 8, `found ${[...codes]}`);
+  for (const code of codes) assert.ok(guide.includes(`\`${code}\``), `guide must list ${code}`);
+});
