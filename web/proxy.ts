@@ -11,7 +11,8 @@ const publicExact = new Set([
   "/og.png",
 ]);
 
-const publicPrefixes = ["/_next/"];
+// /api/agent/ 不靠会话 Cookie，由 lib/agent-api/route.ts 逐请求校验 Bearer 令牌。
+const publicPrefixes = ["/_next/", "/api/agent/"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

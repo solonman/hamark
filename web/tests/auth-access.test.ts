@@ -131,7 +131,9 @@ test("proxy public routes are exact unless explicitly prefix-based", async () =>
   const source = await readProjectFile("proxy.ts");
 
   assert.match(source, /const publicExact = new Set/);
-  assert.match(source, /const publicPrefixes = \["\/_next\/"\]/);
+  // /api/agent/ skips the session cookie on purpose: every route under it checks
+  // a Bearer token itself (lib/agent-api/route.ts, docs/23).
+  assert.match(source, /const publicPrefixes = \["\/_next\/", "\/api\/agent\/"\]/);
 });
 
 test("legacy demo identity fallback is removed", async () => {
