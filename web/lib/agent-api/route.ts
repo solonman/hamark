@@ -7,8 +7,14 @@ import { ReportVersionError } from "@/lib/report-version-chain";
 import { V04ServiceError } from "@/lib/v04-errors";
 import { authenticateAgentRequest } from "./auth";
 import { AgentApiError } from "./params";
+import {
+  findActiveAgentToken,
+  isMissingTokenTable,
+  MISSING_TOKEN_TABLE_MESSAGE,
+  touchAgentToken,
+} from "./tokens";
 
-export type AgentRouteContext = { agent: string; db: DbClient; url: URL };
+export type AgentRouteContext = { agent: string; owner: string; db: DbClient; url: URL };
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -40,15 +46,20 @@ export async function agentRoute(
   options: { requireReportFeature?: boolean },
   op: (ctx: AgentRouteContext) => Promise<unknown>,
 ): Promise<Response> {
-  const auth = authenticateAgentRequest(request);
-  if (!auth.ok) {
-    return errorResponse(
-      auth.status,
-      auth.code,
-      auth.error,
-      auth.status === 401 ? { "WWW-Authenticate": 'Bearer realm="hamark-agent"' } : {},
-    );
+  const db = getDbClient();
+  let auth: Awaited<ReturnType<typeof authenticateAgentRequest>>;
+  try {
+    auth = await authenticateAgentRequest(request, (hash) => findActiveAgentToken(db, hash));
+  } catch (error) {
+    if (isMissingTokenTable(error)) return errorResponse(503, "AGENT_API_NOT_READY", MISSING_TOKEN_TABLE_MESSAGE);
+    return agentErrorResponse(error);
   }
+  if (!auth.ok) {
+    return errorResponse(auth.status, auth.code, auth.error, { "WWW-Authenticate": 'Bearer realm="hamark-agent"' });
+  }
+  // 记使用时间只是给主人看的旁注，写不进去也不耽误这次读取。要 await：
+  // Vercel 函数在响应发出后可能直接被冻结，不等的话这笔写入会丢。
+  await touchAgentToken(db, auth.tokenId).catch((error) => console.error("[agent-api] 记录令牌使用时间失败", error));
   const url = new URL(request.url);
   // 报告库总开关关着时，报告数据对 Agent 同样不存在（与站内 /api/reports 一致）。
   if (options.requireReportFeature && !isReportFeatureEnabled()) {
@@ -57,13 +68,13 @@ export async function agentRoute(
   const started = Date.now();
   let status = 200;
   try {
-    const body = await op({ agent: auth.agent, db: getDbClient(), url });
+    const body = await op({ agent: auth.tokenName, owner: auth.ownerName, db, url });
     return Response.json(body, { headers: NO_STORE });
   } catch (error) {
     const response = agentErrorResponse(error);
     status = response.status;
     return response;
   } finally {
-    console.info(`[agent-api] agent=${auth.agent} GET ${url.pathname}${url.search} ${status} ${Date.now() - started}ms`);
+    console.info(`[agent-api] token=${auth.tokenId} agent=${JSON.stringify(auth.tokenName)} owner=${auth.ownerName} GET ${url.pathname}${url.search} ${status} ${Date.now() - started}ms`);
   }
 }

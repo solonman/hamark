@@ -2,12 +2,13 @@
 
 日期：2026-09-30
 范围：给站外 Agent（研究助手、文案助手等）读取案例库里的视频逆向拆解作业与报告逆向拆解作业。
-代码：`web/app/api/agent/v1/**`、`web/lib/agent-api/*`、测试 `web/tests/agent-api.test.ts`。
+代码：`web/app/api/agent/v1/**`、`web/lib/agent-api/*`、令牌管理 `web/app/agent-tokens/*` + `web/app/api/agent-tokens/**`、测试 `web/tests/agent-api.test.ts`。
+迁移：`web/db/migrations/2026-09-30-agent-api-tokens.sql`（生产在 Supabase SQL 编辑器整段执行；未执行前令牌页与接口都会提示"请先执行迁移"，不影响站内其他功能）。
 
 ## 一、原则
 
-1. **只读**：路由只导出 `GET`，其他方法由框架直接回 405；服务层只有 `SELECT`，另外只复用两个本来就不写库的读路径 `loadFinalVersion` / `loadReportFinalVersion`（没有集成版行时在内存里算虚拟版，不落库）。站内报告库的 `listReports` / `loadReportDetail` 会顺手向数据万象轮询并写库，这里刻意不用。
-2. **默认关闭**：没有配置 `AGENT_API_KEYS` 时整组接口回 404。
+1. **只读**：路由只导出 `GET`，其他方法由框架直接回 405；读取服务只有 `SELECT`，另外只复用两个本来就不写库的读路径 `loadFinalVersion` / `loadReportFinalVersion`（没有集成版行时在内存里算虚拟版，不落库）。站内报告库的 `listReports` / `loadReportDetail` 会顺手向数据万象轮询并写库，这里刻意不用。唯一的写入是鉴权旁注：令牌的"最近使用时间"，五分钟内不重复写。
+2. **只对指定成员开放**：只有名单内成员（`web/lib/agent-api/access.ts` 的 `AGENT_TOKEN_OWNER_NAMES`，当前为老孙、晏恩华）能生成令牌；没有令牌就调不了接口。
 3. **与站内同口径的可见范围**：
    - 视频：`deleted_at IS NULL`、`data_scope = BUSINESS`、`deletion_state = ACTIVE`（空值按 ACTIVE）、`status = READY`。TEST_ONLY 灰度数据、回收站、已清理资产一律不可见。
    - 报告：`deleted_at IS NULL`、`status = READY`；相关资料排除已软删除的。报告库总开关 `REPORT_LIBRARY_UI_ENABLED` 关着时，报告接口回 404。
@@ -18,11 +19,12 @@
 
 请求头 `Authorization: Bearer <token>`。
 
-- 令牌由 `npm run agent:key -- <agent名称>`（在 `web/` 下）生成，格式 `hmk_agent_<43位base64url>`。明文只打印一次，交给 Agent 使用方保存。
-- 服务器只保存 SHA-256：Vercel Production 环境变量 `AGENT_API_KEYS="名称:哈希,名称:哈希"`。改完要重新部署才生效。
-- 停用某个 Agent：从 `AGENT_API_KEYS` 删掉它那一条，再重新部署。
-- 每次调用在服务端日志里记一行 `[agent-api] agent=<名称> GET <路径> <状态码> <耗时>`，可在 Vercel 日志按 agent 名称检索。
-- `web/proxy.ts` 把 `/api/agent/` 列为免会话前缀（外部 Agent 没有登录 Cookie），鉴权由每个路由自己做。
+- **谁能生成**：名单内成员（老孙、晏恩华）登录站内后，头像菜单里有「外部 Agent 令牌」入口（`/agent-tokens`）；其他人看不到入口，直接打开页面只见"只对指定成员开放"，管理接口回 403。
+- **生成**：填一个名字（给哪个 Agent 用，≤40 字）→ 令牌明文（`hmk_agent_<43位base64url>`）只在这一刻显示一次，页面上可复制。库里（`agent_api_tokens`）只存 SHA-256 和末 4 位提示。每人同时有效最多 10 枚，每人只看得到、只停得了自己生成的。
+- **停用**：列表里点「停用」→ 共享确认弹窗（默认焦点在「取消」）→ 立即失效，行保留为"已停用"，不删除。
+- **每次调用都复核主人**：令牌主人必须仍是 ACTIVE 且仍在名单里。把某人移出名单（或企微账号停用），他生成的令牌立即全部失效。
+- 每次调用在服务端日志记一行 `[agent-api] token=<id> agent="<令牌名>" owner=<主人> GET <路径> <状态码> <耗时>`。
+- `web/proxy.ts` 把 `/api/agent/`（带斜杠）列为免会话前缀，鉴权由每个路由自己做；令牌管理接口 `/api/agent-tokens` 仍走企微会话，写操作先过同源校验。
 
 ## 三、接口
 
@@ -30,7 +32,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/` | 自描述：端点、参数、当前令牌对应的 agent 名称 |
+| GET | `/` | 自描述：端点、参数、当前令牌的名字与主人 |
 | GET | `/videos` | 视频案例列表，带拆解进度摘要 |
 | GET | `/videos/{id}` | 视频详情：元数据、视频与封面签名链接、版本列表、集成版状态 |
 | GET | `/videos/{id}/analysis` | 视频拆解内容 |
@@ -96,8 +98,8 @@
 | 状态 | code | 含义 |
 |---|---|---|
 | 400 | `INVALID_PARAM` | 参数格式不对 |
-| 401 | `AUTH_REQUIRED` / `INVALID_TOKEN` | 没带令牌 / 令牌无效或已停用（带 `WWW-Authenticate: Bearer`） |
-| 404 | `AGENT_API_DISABLED` | 服务器没配置任何令牌 |
+| 401 | `AUTH_REQUIRED` / `INVALID_TOKEN` | 没带令牌 / 令牌无效、已停用，或主人已不在名单内（带 `WWW-Authenticate: Bearer`） |
+| 503 | `AGENT_API_NOT_READY` | 生产库还没执行令牌表迁移 |
 | 404 | `CASE_NOT_FOUND` / `REPORT_NOT_FOUND` | 不存在、已删除、未就绪或不在可见范围 |
 | 404 | `VERSION_NOT_FOUND` | 版本 id 不属于该案例 |
 | 404 | `NO_ANALYSIS` | 还没有拆解内容 |
@@ -117,6 +119,7 @@ curl -H "Authorization: Bearer $HAMARK_AGENT_TOKEN" \
 
 ## 六、本期不做
 
-- 限流：目前靠令牌数量少、每个令牌可单独停用；需要时再加。
+- 限流：目前靠名单只有两人、每人最多 10 枚、每枚可单独停用；需要时再加。
+- 名单管理界面：名单写在代码常量里，改名单走一次代码提交。
 - 溯源（集成版每处的来源与被覆盖的旧写法）、评论、评分：不对外。
 - 写入：不提供任何写接口。

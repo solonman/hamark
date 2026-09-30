@@ -74,6 +74,8 @@
 .productHeader :global(.user-menu-popover button), .siteHeader :global(.user-menu-popover button) {
   background: var(--v04-accent-fill); color: var(--v04-on-accent);
 }
+.productHeader :global(.user-menu-popover a), .siteHeader :global(.user-menu-popover a) { border-color: var(--v04-line); color: var(--v04-ink); }
+.productHeader :global(.user-menu-popover a:hover), .siteHeader :global(.user-menu-popover a:hover) { border-color: rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
 .wordmark { font-weight: 900; letter-spacing: -.03em; }
 .wordmark small { margin-left: 8px; color: var(--v04-muted); font-size: 10px; }
 .saveCluster span { color: var(--v04-muted); font-size: 11px; }

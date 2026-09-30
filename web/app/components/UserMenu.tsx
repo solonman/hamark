@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { canManageAgentTokens } from "@/lib/agent-api/access";
 
 export type UserMenuUser = {
   displayName: string;
@@ -39,6 +41,8 @@ export default function UserMenu({ user }: { user: UserMenuUser }) {
       {open ? (
         <div className="user-menu-popover">
           <p>{user.departmentName ?? "企业微信成员"}</p>
+          {/* 外部 Agent 令牌只对名单内成员开放（lib/agent-api/access.ts），其他人看不到这个入口。 */}
+          {canManageAgentTokens(user.displayName) ? <Link href="/agent-tokens">外部 Agent 令牌</Link> : null}
           <button type="button" onClick={logout} disabled={pending}>
             退出登录
           </button>

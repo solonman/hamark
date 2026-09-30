@@ -6,11 +6,12 @@ import { AGENT_LIST_DEFAULT_LIMIT, AGENT_LIST_MAX_LIMIT } from "@/lib/agent-api/
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  return agentRoute(request, {}, async ({ agent }) => ({
+  return agentRoute(request, {}, async ({ agent, owner }) => ({
     name: "hamark 案例只读接口",
     version: "v1",
     agent,
-    auth: "Authorization: Bearer <token>",
+    owner,
+    auth: "Authorization: Bearer <token>（令牌在站内 /agent-tokens 生成）",
     readOnly: true,
     listParams: {
       limit: `每页条数，默认 ${AGENT_LIST_DEFAULT_LIMIT}，最大 ${AGENT_LIST_MAX_LIMIT}`,

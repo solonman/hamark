@@ -487,6 +487,19 @@ a {
   font-size: 12px;
 }
 
+.user-menu-popover a {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .user-menu-popover button {
   height: 34px;
   border: 0;

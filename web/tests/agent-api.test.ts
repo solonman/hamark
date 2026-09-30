@@ -4,12 +4,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { AGENT_TOKEN_OWNER_NAMES, canManageAgentTokens } from "../lib/agent-api/access";
 import {
   authenticateAgentRequest,
   hashAgentToken,
   mintAgentToken,
-  parseAgentApiKeys,
+  type AgentTokenRecord,
 } from "../lib/agent-api/auth";
+import { isMissingTokenTable, normalizeAgentTokenName } from "../lib/agent-api/tokens";
+import { AGENT_TOKEN_SCHEMA_STATEMENTS } from "../db/agent-token-schema";
 import {
   AgentApiError,
   isoOrNull,
@@ -33,50 +36,90 @@ const withAuth = (value?: string) =>
 // 鉴权
 // ---------------------------------------------------------------------------
 
-test("parseAgentApiKeys keeps well-formed name:sha256 entries and drops everything else", () => {
-  const good = "a".repeat(64);
-  const keys = parseAgentApiKeys(` bot-1:${good} ,\nbad name:${good},short:abc,:${good},bot_2:${"B".repeat(64)}`);
-  assert.deepEqual(keys, [
-    { name: "bot-1", hash: good },
-    { name: "bot_2", hash: "b".repeat(64) },
-  ]);
-  assert.deepEqual(parseAgentApiKeys(undefined), []);
-  assert.deepEqual(parseAgentApiKeys(""), []);
+test("token owners are exactly 老孙 and 晏恩华, matched on the trimmed display name", () => {
+  assert.deepEqual([...AGENT_TOKEN_OWNER_NAMES], ["老孙", "晏恩华"]);
+  assert.equal(canManageAgentTokens(" 老孙 "), true);
+  assert.equal(canManageAgentTokens("晏恩华"), true);
+  for (const name of ["演示同事", "", null, undefined, "老孙2"]) assert.equal(canManageAgentTokens(name), false);
 });
 
-test("the API is invisible (404) until at least one key is configured", () => {
-  const result = authenticateAgentRequest(withAuth("Bearer anything"), "");
-  assert.deepEqual(result.ok ? null : [result.status, result.code], [404, "AGENT_API_DISABLED"]);
+test("mintAgentToken returns a prefixed token, its sha256, and a 4-char hint that never reveals the rest", () => {
+  const { token, hash, hint } = mintAgentToken();
+  assert.match(token, /^hmk_agent_[A-Za-z0-9_-]{43}$/);
+  assert.equal(hash, hashAgentToken(token));
+  assert.equal(hint, `hmk_agent_…${token.slice(-4)}`);
+  assert.notEqual(mintAgentToken().token, token);
 });
 
-test("a minted token authenticates as its agent; missing, malformed or wrong tokens get 401", () => {
-  const { token, entry } = mintAgentToken("research-bot");
-  assert.ok(token.startsWith("hmk_agent_"));
-  assert.equal(entry, `research-bot:${hashAgentToken(token)}`);
-  const other = mintAgentToken("copy-bot");
-  const keys = `${other.entry},${entry}`;
+function lookupFor(records: Record<string, AgentTokenRecord>) {
+  const seen: string[] = [];
+  const lookup = async (tokenHash: string) => {
+    seen.push(tokenHash);
+    return records[tokenHash] ?? null;
+  };
+  return { lookup, seen };
+}
 
-  assert.deepEqual(authenticateAgentRequest(withAuth(`Bearer ${token}`), keys), { ok: true, agent: "research-bot" });
-  assert.deepEqual(authenticateAgentRequest(withAuth(`bearer ${other.token}`), keys), { ok: true, agent: "copy-bot" });
+test("a live token owned by an allowlisted, ACTIVE member authenticates; the lookup only ever sees the hash", async () => {
+  const { token, hash } = mintAgentToken();
+  const { lookup, seen } = lookupFor({ [hash]: { id: "t1", name: "研究助手", ownerName: "晏恩华", ownerStatus: "ACTIVE" } });
+  assert.deepEqual(await authenticateAgentRequest(withAuth(`Bearer ${token}`), lookup), {
+    ok: true, tokenId: "t1", tokenName: "研究助手", ownerName: "晏恩华",
+  });
+  assert.deepEqual(seen, [hash]);
+});
 
-  for (const header of [undefined, token, `Basic ${token}`, `Bearer ${token}x`, "Bearer "]) {
-    const result = authenticateAgentRequest(withAuth(header), keys);
+test("missing, malformed, unknown or revoked tokens get 401 — malformed ones without touching the database", async () => {
+  const { token } = mintAgentToken();
+  const { lookup, seen } = lookupFor({});
+  for (const header of [undefined, token, `Basic ${token}`, "Bearer ", "Bearer not-our-format", `Bearer hmk_agent_${"x".repeat(300)}`]) {
+    const result = await authenticateAgentRequest(withAuth(header), lookup);
     assert.equal(result.ok, false, `header ${header} must be refused`);
     if (!result.ok) assert.equal(result.status, 401);
   }
+  assert.deepEqual(seen, []);
+  const unknown = await authenticateAgentRequest(withAuth(`Bearer ${token}`), lookup);
+  assert.equal(unknown.ok, false);
 });
 
-test("mintAgentToken refuses names that could not be parsed back out of AGENT_API_KEYS", () => {
-  assert.throws(() => mintAgentToken("has space"));
-  assert.throws(() => mintAgentToken("a:b"));
-  assert.throws(() => mintAgentToken(""));
+test("a token stops working as soon as its owner leaves the allowlist or is deactivated", async () => {
+  const { token, hash } = mintAgentToken();
+  for (const record of [
+    { id: "t1", name: "x", ownerName: "演示同事", ownerStatus: "ACTIVE" },
+    { id: "t1", name: "x", ownerName: "老孙", ownerStatus: "DISABLED" },
+  ]) {
+    const { lookup } = lookupFor({ [hash]: record });
+    const result = await authenticateAgentRequest(withAuth(`Bearer ${token}`), lookup);
+    assert.equal(result.ok, false, JSON.stringify(record));
+  }
 });
 
-test("the env only ever stores hashes: a stored hash used as a token does not authenticate", () => {
-  const { entry } = mintAgentToken("bot");
-  const storedHash = entry.split(":")[1];
-  const result = authenticateAgentRequest(withAuth(`Bearer ${storedHash}`), entry);
-  assert.equal(result.ok, false);
+test("token names are trimmed, required and capped at 40 characters", () => {
+  assert.equal(normalizeAgentTokenName("  研究   助手 "), "研究 助手");
+  assert.throws(() => normalizeAgentTokenName("   "), AgentApiError);
+  assert.throws(() => normalizeAgentTokenName(undefined), AgentApiError);
+  assert.equal(normalizeAgentTokenName("字".repeat(40)), "字".repeat(40));
+  assert.throws(() => normalizeAgentTokenName("字".repeat(41)), AgentApiError);
+});
+
+test("a missing agent_api_tokens table is recognised so callers can say 'run the migration' instead of 500", () => {
+  assert.equal(isMissingTokenTable({ code: "42P01", message: 'relation "agent_api_tokens" does not exist' }), true);
+  assert.equal(isMissingTokenTable({ code: "42P01", message: 'relation "videos" does not exist' }), false);
+  assert.equal(isMissingTokenTable(new Error("boom")), false);
+});
+
+test("the token table stores only hashes, soft-revokes, is RLS-closed, and the migration file mirrors the schema module", async () => {
+  const schema = AGENT_TOKEN_SCHEMA_STATEMENTS.join("\n");
+  assert.match(schema, /token_hash TEXT NOT NULL UNIQUE/);
+  assert.match(schema, /revoked_at TIMESTAMPTZ/);
+  assert.doesNotMatch(schema, /\btoken TEXT/);
+  assert.match(schema, /ALTER TABLE agent_api_tokens ENABLE ROW LEVEL SECURITY/);
+  const migration = await source("../db/migrations/2026-09-30-agent-api-tokens.sql");
+  for (const fragment of ["token_hash TEXT NOT NULL UNIQUE", "token_hint TEXT NOT NULL", "owner_user_id TEXT NOT NULL REFERENCES users(id)", "agent_api_tokens_owner_idx", "ENABLE ROW LEVEL SECURITY", "REVOKE ALL ON TABLE agent_api_tokens FROM anon"]) {
+    assert.ok(migration.includes(fragment), fragment);
+  }
+  const bootstrap = await source("../db/bootstrap.ts");
+  assert.match(bootstrap, /\.\.\.AGENT_TOKEN_SCHEMA_STATEMENTS/);
 });
 
 // ---------------------------------------------------------------------------
@@ -280,4 +323,52 @@ test("agent visibility filters match the site's libraries (business data only, n
 test("proxy lets /api/agent/ through without a session cookie so the route can check the Bearer token", async () => {
   const proxy = codeOnly(await source("../proxy.ts"));
   assert.match(proxy, /publicPrefixes = \[[^\]]*"\/api\/agent\/"/);
+});
+
+// ---------------------------------------------------------------------------
+// 站内令牌管理（/api/agent-tokens）：企微登录 + 名单，写操作先过同源
+// ---------------------------------------------------------------------------
+
+test("token management routes: GET/POST on the collection, DELETE (soft revoke) on one token, all through agentTokenRoute", async () => {
+  const collection = codeOnly(await source("../app/api/agent-tokens/route.ts"));
+  const single = codeOnly(await source("../app/api/agent-tokens/[id]/route.ts"));
+  const methods = (code: string) => [...code.matchAll(/^export async function (\w+)/gm)].map((m) => m[1]);
+  assert.deepEqual(methods(collection), ["GET", "POST"]);
+  assert.deepEqual(methods(single), ["DELETE"]);
+  assert.match(collection, /GET\(request: Request\) \{\s*return agentTokenRoute\(request, \{ mutation: false \}/);
+  assert.match(collection, /POST\(request: Request\) \{\s*return agentTokenRoute\(request, \{ mutation: true \}/);
+  assert.match(single, /return agentTokenRoute\(request, \{ mutation: true \}[\s\S]*revokeAgentToken\(db, user\.id, id\)/);
+  assert.match(collection, /listAgentTokens\(db, user\.id\)/);
+  assert.match(collection, /createAgentToken\(db, user\.id, body\.name\)/);
+});
+
+test("agentTokenRoute checks same-origin before the session, then the allowlist, before doing anything", async () => {
+  const wrapper = codeOnly(await source("../lib/agent-api/token-route.ts"));
+  const origin = wrapper.indexOf("requireSameOriginMutation(request)");
+  const login = wrapper.indexOf("requireApiUser(request)");
+  const allow = wrapper.indexOf("canManageAgentTokens(user.displayName)");
+  const op = wrapper.indexOf("await op(");
+  assert.ok(origin > 0 && origin < login && login < allow && allow < op);
+});
+
+test("token service scopes every read and write to the owner, and revoke never deletes rows", async () => {
+  const code = codeOnly(await source("../lib/agent-api/tokens.ts"));
+  assert.match(code, /FROM agent_api_tokens WHERE owner_user_id = \?/);
+  assert.match(code, /WHERE id = \? AND owner_user_id = \?/);
+  assert.doesNotMatch(code, /DELETE FROM/);
+  assert.match(code, /WHERE t\.token_hash = \? AND t\.revoked_at IS NULL/);
+});
+
+test("/api/agent-tokens stays behind the session cookie — only /api/agent/ (with the slash) is public", async () => {
+  const proxy = codeOnly(await source("../proxy.ts"));
+  assert.match(proxy, /"\/api\/agent\/"/);
+  assert.doesNotMatch(proxy, /"\/api\/agent"[,\]]/);
+  assert.equal("/api/agent-tokens".startsWith("/api/agent/"), false);
+});
+
+test("only allowlisted members see the menu entry and can open the page", async () => {
+  const menu = codeOnly(await source("../app/components/UserMenu.tsx"));
+  assert.match(menu, /canManageAgentTokens\(user\.displayName\) \? <Link href="\/agent-tokens">/);
+  const page = codeOnly(await source("../app/agent-tokens/page.tsx"));
+  assert.match(page, /if \(!canManageAgentTokens\(user\.displayName\)\)/);
 });

@@ -38,7 +38,8 @@ test("DeleteConfirmDialog is an alertdialog labelled by the caller-supplied head
   assert.match(dialog, /aria-modal="true"/);
   assert.match(dialog, /aria-labelledby=\{titleId\}/);
   assert.match(dialog, /<b id=\{titleId\}>\{heading\}<\/b>/);
-  assert.match(dialog, /<b>把《\{title\}》移入回收站？<\/b>/);
+  // 默认措辞仍是「把《…》移入回收站？」；`question` 只给停用 Agent 令牌这类非删除确认换话。
+  assert.match(dialog, /<b>\{question \?\? `把《\$\{title\}》移入回收站？`\}<\/b>/);
   assert.match(dialog, /lines\.map\(\(line, index\) => <span key=\{index\} className=\{styles\.deleteDialogLine\}>\{line\}<\/span>\)/);
   assert.match(dialog, /\{error \? <p className=\{styles\.formError\} role="alert">\{error\}<\/p> : null\}/);
 });
@@ -55,8 +56,10 @@ test("DeleteConfirmDialog: confirm button carries the accent class and both butt
   assert.match(dialog, /<button type="button" ref=\{cancelRef\} disabled=\{pending\} onClick=\{onCancel\}>取消<\/button>/);
   assert.match(
     dialog,
-    /<button type="button" className=\{styles\.deleteDialogConfirm\} disabled=\{pending\} onClick=\{onConfirm\}>\s*\n\s*\{pending \? "正在移入回收站…" : "确认移入回收站"\}/,
+    /<button type="button" className=\{styles\.deleteDialogConfirm\} disabled=\{pending\} onClick=\{onConfirm\}>\s*\n\s*\{pending \? pendingLabel : confirmLabel\}/,
   );
+  assert.match(dialog, /confirmLabel = "确认移入回收站"/);
+  assert.match(dialog, /pendingLabel = "正在移入回收站…"/);
 });
 
 test("DeleteConfirmDialog locks body scroll while open and focuses the Cancel button on open", async () => {

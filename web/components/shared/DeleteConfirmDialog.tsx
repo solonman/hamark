@@ -36,6 +36,10 @@ export default function DeleteConfirmDialog({
   pending,
   onConfirm,
   onCancel,
+  eyebrow = "DELETE",
+  question,
+  confirmLabel = "确认移入回收站",
+  pendingLabel = "正在移入回收站…",
 }: {
   open: boolean;
   /** 弹窗标题，如"删除报告"/"删除案例"。 */
@@ -49,6 +53,11 @@ export default function DeleteConfirmDialog({
   pending: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** 以下四项给「不是移入回收站」的确认（如停用 Agent 令牌）换措辞；不传就是原来的删除文案。 */
+  eyebrow?: string;
+  question?: string;
+  confirmLabel?: string;
+  pendingLabel?: string;
 }) {
   const titleId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -102,21 +111,21 @@ export default function DeleteConfirmDialog({
         aria-labelledby={titleId}
       >
         <div className={styles.uploadHead}>
-          <div><small>DELETE</small><b id={titleId}>{heading}</b></div>
+          <div><small>{eyebrow}</small><b id={titleId}>{heading}</b></div>
           {/* 提交阶段整个不渲染关闭按钮，不是留着但点不动。 */}
           {pending ? null : (
             <button type="button" className={styles.uploadClose} onClick={onCancel} aria-label="关闭删除确认窗口">×</button>
           )}
         </div>
         <div className={styles.uploadBody}>
-          <b>把《{title}》移入回收站？</b>
+          <b>{question ?? `把《${title}》移入回收站？`}</b>
           {lines.map((line, index) => <span key={index} className={styles.deleteDialogLine}>{line}</span>)}
           {error ? <p className={styles.formError} role="alert">{error}</p> : null}
         </div>
         <div className={styles.uploadFooter}>
           <button type="button" ref={cancelRef} disabled={pending} onClick={onCancel}>取消</button>
           <button type="button" className={styles.deleteDialogConfirm} disabled={pending} onClick={onConfirm}>
-            {pending ? "正在移入回收站…" : "确认移入回收站"}
+            {pending ? pendingLabel : confirmLabel}
           </button>
         </div>
       </section>
