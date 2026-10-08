@@ -154,6 +154,9 @@ test("只读成果页收起播放器时原地留出占位，工作稿页仍是�
   assert.match(player, /slot\.style\.height = next \|\| video\.minimized \? `\$\{heroHeight\}px` : ""/);
   // 脱离文档流后量到的是浮窗或胶囊的高度，不能拿它去覆盖展示位的基准高度。
   assert.match(player, /if \(!slot\.style\.height && !video\.minimized\)/);
+  // 滚回展示位必须撤掉最小化，否则胶囊留在右下角、顶部只剩空占位。
+  assert.match(player, /const backToHero = !next && video\.minimized && \(dockedRef\.current \|\| chrome === "studio"\)/);
+  assert.match(player, /if \(backToHero\) updateVideo\(\{ minimized: false \}\)/);
   assert.match(player, /addEventListener\("scroll", schedule, \{ passive: true \}\)/);
   assert.match(player, /addEventListener\("resize", schedule\)/);
   assert.match(player, /removeEventListener\("scroll", schedule\)/);

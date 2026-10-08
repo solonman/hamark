@@ -24,6 +24,8 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
   const dragPositionRef = useRef<PlayerPosition | null>(null);
   // 正在进行中的拖动：记录指针相对浮窗左上角的偏移，拖动结束即清空。
   const dragOffsetRef = useRef<{ dx: number; dy: number } | null>(null);
+  // 上一次滚动判定的收起结果，用来认出"从右下角滚回顶部展示位"这一下。
+  const dockedRef = useRef(false);
   const [docked, setDocked] = useState(false);
   const { video, updateVideo } = useV04VideoSession();
   const active = video.caseId === caseId;
@@ -37,6 +39,7 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
   useEffect(() => {
     const slot = slotRef.current;
     if (!dockable || !slot) {
+      dockedRef.current = false;
       setDocked(false);
       if (slot) slot.style.height = "";
       return;
@@ -58,7 +61,13 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
       // 最小化同样让 shell 脱离文档流，所以它也要撑住占位，否则从顶部大屏
       // 直接最小化会把正文整体上提一个视频的高度。
       slot.style.height = next || video.minimized ? `${heroHeight}px` : "";
+      // 滚回顶部展示位一定恢复成完整大屏（docs/demos/2026-08-24 定稿），否则胶囊留在右下角、
+      // 展示位只剩一块空占位。legacy 只认"从收起滚回来"这一下，免得展示位上自带的最小化按钮
+      // 一按就被弹回；studio 的大屏态没有最小化入口，停在展示位就一定还原，包括从别的案例带过来的。
+      const backToHero = !next && video.minimized && (dockedRef.current || chrome === "studio");
+      dockedRef.current = next;
       setDocked(next);
+      if (backToHero) updateVideo({ minimized: false });
     };
     const schedule = () => { if (!frame) frame = window.requestAnimationFrame(sync); };
     sync();
@@ -70,7 +79,7 @@ export default function V04VideoPlayer({ caseId, title, surface, media, onDurati
       if (frame) window.cancelAnimationFrame(frame);
       slot.style.height = "";
     };
-  }, [dockable, video.minimized]);
+  }, [chrome, dockable, updateVideo, video.minimized]);
   const floating = surface === "workspace" || video.floating || docked;
   function toggleFloating() {
     if (docked) {
