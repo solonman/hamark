@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type JSX, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from "react";
 import { normalizeThinkingChainText } from "@/lib/thinking-chain";
 import V19ThinkingChainEditor from "./V19ThinkingChainEditor";
 import V19ThinkingChainFlow from "./V19ThinkingChainFlow";
@@ -39,6 +39,17 @@ export default function V19ThinkingChainField({
   onCommit: (next: string) => void;
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
+  // 收起编辑器时用最新的值和提交函数；给编辑器的回调保持不变，页面滚动引起的重新渲染就不会波及编辑器
+  const latest = useRef({ value, onCommit });
+  useLayoutEffect(() => {
+    latest.current = { value, onCommit };
+  });
+  const onDone = useCallback((text: string | null) => {
+    setEditing(false);
+    if (text == null) return;
+    const next = normalizeThinkingChainText(text);
+    if (next !== normalizeThinkingChainText(latest.current.value)) latest.current.onCommit(next);
+  }, []);
 
   const startEditing = () => {
     if (editing) return;
@@ -59,16 +70,7 @@ export default function V19ThinkingChainField({
     return (
       <>
         <div className={styles.field}>
-          <V19ThinkingChainEditor
-            initialText={value}
-            caseTitle={caseTitle}
-            onDone={(text) => {
-              setEditing(false);
-              if (text == null) return;
-              const next = normalizeThinkingChainText(text);
-              if (next !== normalizeThinkingChainText(value)) onCommit(next);
-            }}
-          />
+          <V19ThinkingChainEditor initialText={value} caseTitle={caseTitle} onDone={onDone} />
         </div>
         {diffMarkup}
         {after}

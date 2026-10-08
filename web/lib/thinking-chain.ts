@@ -74,6 +74,19 @@ export function parseThinkingChains(text: string): ThinkingChain[] {
   return roots.map((root) => ({ ...root, implicit: false }));
 }
 
+/**
+ * 进编辑器时的大纲行。旧写法（多行、全无缩进）在图上是默认中心下的一条链，进编辑器也换成同样的
+ * 结构——中心一行、每行一步——保存即为新格式（docs/24 第三节）。没改就关上不算修改，由编辑器判断。
+ */
+export function thinkingChainEditorRows(text: string, centre: string): ThinkingChainRow[] {
+  const rows = parseThinkingChainRows(text);
+  if (!rows.length) return [{ level: 0, text: "" }];
+  if (rows.length > 1 && rows.every((row) => row.level === 0)) {
+    return [{ level: 0, text: centre }, ...rows.map((row) => ({ level: 1, text: row.text }))];
+  }
+  return rows;
+}
+
 /** 「短标题：说明」：冒号前 1–16 字、不含句读时，短标题单独加粗显示。 */
 export function splitThinkingChainTitle(text: string): { title: string; detail: string } {
   const match = text.match(/^([^：:。？！?!，,]{1,16})[：:]\s*([\s\S]+)$/);

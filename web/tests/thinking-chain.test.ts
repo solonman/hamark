@@ -21,6 +21,7 @@ import {
   placeThinkingChainFlowItem,
   splitThinkingChainTitle,
   stripThinkingChainStepNumber,
+  thinkingChainEditorRows,
   thinkingChainFlowConnectors,
   thinkingChainRowsToText,
   type ThinkingChainRow,
@@ -91,6 +92,15 @@ test("legacy text with no indentation becomes one implicit chain, one step per l
   assert.equal(single[0].implicit, false);
   assert.equal(single[0].kids.length, 0);
   assert.deepEqual(parseThinkingChains("   "), []);
+});
+
+test("legacy text opens in the editor as one chain: the default centre plus one step per line", () => {
+  assert.deepEqual(thinkingChainEditorRows(LEGACY, "捉迷藏").map((row) => `${row.level}:${row.text.slice(0, 2)}`), ["0:捉迷", "1:1）", "1:2）", "1:3）"]);
+  assert.equal(thinkingChainRowsToText(thinkingChainEditorRows(LEGACY, "捉迷藏")).split("\n")[1], "  - 1）如何打破一贯的传统时尚广告高冷?");
+  // new-format text, a single line and an empty field are left as they are
+  assert.deepEqual(thinkingChainEditorRows(SAMPLE, "捉迷藏"), parseThinkingChainRows(SAMPLE));
+  assert.deepEqual(thinkingChainEditorRows("只有一句", "捉迷藏"), [{ level: 0, text: "只有一句" }]);
+  assert.deepEqual(thinkingChainEditorRows("", "捉迷藏"), [{ level: 0, text: "" }]);
 });
 
 test("short titles before a colon are split out; long or punctuated ones are not", () => {

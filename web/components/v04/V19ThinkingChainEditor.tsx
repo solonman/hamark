@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -26,7 +27,7 @@ import {
   outlineSelectionRange,
   outlineShiftRange,
   outlineSplit,
-  parseThinkingChainRows,
+  thinkingChainEditorRows,
   thinkingChainRowsToText,
   type OutlineEdit,
   type OutlineFocus,
@@ -80,9 +81,26 @@ const REDO_ICON = (
   </svg>
 );
 
-function autosize(node: HTMLTextAreaElement): void {
-  node.style.height = "28px";
-  node.style.height = `${Math.max(28, node.scrollHeight)}px`;
+/** 支持 `field-sizing: content` 的浏览器由 CSS 让文本框随内容撑高，不用脚本量。 */
+function cssSizesTextareas(): boolean {
+  return typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("field-sizing", "content");
+}
+
+/**
+ * 不支持的浏览器用脚本把文本框撑到内容高度。量的时候文本框要先缩回一行，大纲框（有最大高度、
+ * 框里可滚动）的内容会跟着变短，浏览器会把框里的滚动位置往回推、撑开后也不回来——页面一滚、
+ * 大纲就跳。所以量之前先把大纲框钉住高度、记下滚动位置，量完再放开、还原。
+ */
+function autosizeRows(outline: HTMLElement, nodes: readonly HTMLTextAreaElement[]): void {
+  if (!nodes.length || cssSizesTextareas()) return;
+  const top = outline.scrollTop;
+  outline.style.minHeight = `${outline.offsetHeight}px`;
+  for (const node of nodes) {
+    node.style.height = "28px";
+    node.style.height = `${Math.max(28, node.scrollHeight)}px`;
+  }
+  outline.style.minHeight = "";
+  outline.scrollTop = top;
 }
 
 /** 写剪贴板：优先用剪贴板接口；不可用时退回临时文本框＋复制命令，焦点随后回到大纲。 */
@@ -101,7 +119,10 @@ function writeClipboard(text: string, host: HTMLElement, refocus: HTMLElement): 
   refocus.focus({ preventScroll: true });
 }
 
-export default function V19ThinkingChainEditor({
+// 工作台在页面滚动时会整页重新渲染（目录高亮、回顶按钮）；编辑器的输入不变就不必跟着重来
+export default memo(V19ThinkingChainEditor);
+
+function V19ThinkingChainEditor({
   initialText,
   caseTitle,
   onDone,
@@ -111,10 +132,9 @@ export default function V19ThinkingChainEditor({
   /** 保存并收起时给规范化后的文字；放弃时给 null。 */
   onDone: (text: string | null) => void;
 }): JSX.Element {
-  const [rows, setRows] = useState<ThinkingChainRow[]>(() => {
-    const parsed = parseThinkingChainRows(initialText);
-    return parsed.length ? parsed : [{ level: 0, text: "" }];
-  });
+  const [rows, setRows] = useState<ThinkingChainRow[]>(() => thinkingChainEditorRows(initialText, caseTitle?.trim() || "创意思维链"));
+  // 打开时的样子（旧写法已换成中心＋每行一步）；关上时与它相同就算没改
+  const [openedText] = useState(() => thinkingChainRowsToText(rows));
   const [selection, setSelection] = useState<OutlineSelection | null>(null);
   const [historySize, setHistorySize] = useState({ undo: 0, redo: 0 });
 
@@ -134,8 +154,8 @@ export default function V19ThinkingChainEditor({
   const finish = useCallback((text: string | null) => {
     if (doneRef.current) return;
     doneRef.current = true;
-    onDone(text);
-  }, [onDone]);
+    onDone(text === openedText ? null : text);
+  }, [onDone, openedText]);
 
   // ---------- 焦点 ----------
   const focusRow = useCallback((index: number, caret: number | "end") => {
@@ -154,8 +174,38 @@ export default function V19ThinkingChainEditor({
     selectionRef.current = selection;
   });
 
+  // 只量内容或宽度变了的文本框；宽度变化（窗口、侧栏）由下面的 ResizeObserver 触发重量
+  const measuredRef = useRef(new WeakMap<HTMLTextAreaElement, string>());
+  const measureRows = useCallback(() => {
+    const outline = outlineRef.current;
+    if (!outline) return;
+    const stale = Array.from(outline.querySelectorAll<HTMLTextAreaElement>("textarea[data-row]")).filter((node) => {
+      const key = `${node.clientWidth}|${node.value}`;
+      if (measuredRef.current.get(node) === key) return false;
+      measuredRef.current.set(node, key);
+      return true;
+    });
+    autosizeRows(outline, stale);
+  }, []);
+
   useLayoutEffect(() => {
-    outlineRef.current?.querySelectorAll<HTMLTextAreaElement>("textarea[data-row]").forEach(autosize);
+    measureRows();
+  }, [rows, measureRows]);
+
+  useEffect(() => {
+    const outline = outlineRef.current;
+    if (!outline || typeof ResizeObserver === "undefined" || cssSizesTextareas()) return;
+    let width = outline.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (outline.clientWidth === width) return;
+      width = outline.clientWidth;
+      measureRows();
+    });
+    observer.observe(outline);
+    return () => observer.disconnect();
+  }, [measureRows]);
+
+  useLayoutEffect(() => {
     const pending = pendingFocusRef.current;
     if (!pending) return;
     pendingFocusRef.current = null;
@@ -385,7 +435,6 @@ export default function V19ThinkingChainEditor({
     }
     typingRef.current = { row: index, at: now };
     setRows(list.map((row, i) => (i === index ? { ...row, text: value } : row)));
-    autosize(node);
   };
 
   const onPasteRow = (index: number, event: ReactClipboardEvent<HTMLTextAreaElement>) => {

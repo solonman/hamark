@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from "react";
 import {
   computeThinkingChainFlowColumns,
   parseThinkingChains,
@@ -19,7 +19,10 @@ import styles from "./V19ThinkingChain.module.css";
  * 步骤依次往后排，蛇形折行，连线一笔到底；分叉从步骤框底下画成分支图。
  * 只读、无交互——点哪里进入编辑由外层 `V19ThinkingChainField` 管。
  */
-export default function V19ThinkingChainFlow({ text, caseTitle }: { text: string; caseTitle?: string }): JSX.Element {
+// 只随文字和标题变化重画；工作台滚动时的整页重新渲染不必波及
+export default memo(V19ThinkingChainFlow);
+
+function V19ThinkingChainFlow({ text, caseTitle }: { text: string; caseTitle?: string }): JSX.Element {
   const chains = useMemo(() => parseThinkingChains(text), [text]);
   if (!chains.length) return <span className={styles.flowEmpty}>—</span>;
   return (

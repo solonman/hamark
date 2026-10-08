@@ -115,6 +115,10 @@
   flex: 1; min-width: 0; height: 28px; border: 0; background: transparent; color: var(--v04-ink);
   padding: 4px 0; font-size: 13.5px; line-height: 20px; resize: none; overflow: hidden;
 }
+/* 支持的浏览器由 CSS 让文本框随内容撑高；不支持的由编辑器脚本量（见 autosizeRows） */
+@supports (field-sizing: content) {
+  .outline .olText { field-sizing: content; height: auto; min-height: 28px; }
+}
 .outline .olText:focus, .outline .olText:focus-visible { outline: none; }
 .outline .olText::placeholder { color: var(--v04-faint); }
 .outline .lv0 .olText { font-size: 14px; font-weight: 800; }
