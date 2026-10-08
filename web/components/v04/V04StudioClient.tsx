@@ -1618,8 +1618,8 @@ export default function V04StudioClient({
           <div
             key={toast.id}
             style={{
-              background: "rgba(31,25,20,.97)", color: "var(--v04-ink)", border: "1px solid var(--v04-line)",
-              borderRadius: 12, padding: "10px 16px", fontSize: 12, boxShadow: "0 16px 42px rgba(0,0,0,.38)",
+              background: "var(--v04-warn-surface)", color: "var(--v04-ink)", border: "1px solid var(--v04-line)",
+              borderRadius: 12, padding: "10px 16px", fontSize: 12, boxShadow: "0 16px 42px rgb(var(--v04-shadow-rgb) / calc(.38 * var(--v04-shadow-strength)))",
               maxWidth: "80vw", lineHeight: 1.55,
             }}
           >

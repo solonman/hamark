@@ -134,6 +134,18 @@ test("themed stylesheets only use colour tokens outside the always-dark media ar
   }
 });
 
+// 工作台的浮出提示是内联 style 写的，上面那条只扫样式表，扫不到。原来写死了
+// 深色底 rgba(31,25,20,.97) 却用 var(--v04-ink) 当字色：浅色下字也是深色，看不见。
+test("workbench toasts take their colours from tokens, so the text stays readable in light mode", async () => {
+  for (const path of ["components/v04/V04StudioClient.tsx", "components/report/studio/ReportStudioClient.tsx"]) {
+    const source = await read(path);
+    const toast = source.match(/\{toasts\.map\(\(toast\) => \(([\s\S]*?)\)\)\}/);
+    assert(toast, `${path}: toast markup is missing`);
+    const literals = toast[1].match(/#[0-9a-fA-F]{3,8}\b|rgba?\(\s*\d/g);
+    assert.equal(literals, null, `${path}: toast hardcodes ${literals?.join(", ")} — use a --v04-* token`);
+  }
+});
+
 test("media areas are marked as dark islands so their tokens resolve to the dark palette", async () => {
   const [card, player, library, pageModal, reader, deckCss] = await Promise.all([
     read("components/report/library/ReportCard.tsx"),
