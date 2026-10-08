@@ -1,0 +1,135 @@
+/* 创意思维链：阅读态横向流程图、编辑态项目符号大纲（docs/24、docs/demos/2026-10-08-创意思维链流程图demo.html）。
+   配色只用 --v04-*，深浅两套主题都靠 app/globals.css 切换；不写死颜色（tests/theme.test.ts 会查）。
+   放在 .surface 里，按钮／文本框的字号等规则要写到 (0,2,0) 以上，否则会被
+   `.surface button, .surface textarea { font: inherit }`（0,1,1）压回去。 */
+
+/* ---------- 阅读态：横向流程图 ---------- */
+/* 列宽用 minmax(0,1fr)：否则网格会被里面上一次排好的格子撑宽，窗口变窄时缩不回来 */
+.flowForest { display: grid; grid-template-columns: minmax(0, 1fr); }
+.flowChain + .flowChain { border-top: 1px dashed var(--v04-line); }
+.flowTree { position: relative; padding: 12px 4px 16px 24px; }
+.flowLinks { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.flowLine { fill: none; stroke: var(--v04-subject); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.flowTip { fill: var(--v04-subject); }
+/* 列数、格宽、每格落在哪一格都由 V19ThinkingChainFlow 按实际宽度写进 style */
+.flowGrid { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: start; align-items: start; gap: 26px 34px; margin: 0; padding: 0; list-style: none; }
+.flowHead {
+  position: relative; z-index: 1; min-width: 0; border-radius: 12px;
+  background: var(--v04-accent-fill); color: var(--v04-on-accent);
+  padding: 9px 15px; font-size: 14.5px; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere;
+  box-shadow: 0 6px 18px rgb(var(--v04-shadow-rgb) / calc(.18 * var(--v04-shadow-strength)));
+}
+.flowHead b { font-weight: 800; }
+.flowHeadSub { display: block; font-size: 10px; font-weight: 600; opacity: .7; }
+.flowStep { position: relative; z-index: 1; min-width: 0; }
+.stepBox {
+  display: flex; align-items: flex-start; gap: 7px; border: 1px solid var(--v04-line); border-radius: 10px;
+  background: var(--v04-panel-alt); color: var(--v04-ink); padding: 8px 10px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere;
+}
+.stepBox > span:last-child { min-width: 0; }
+.stepNo {
+  flex: none; display: grid; place-items: center; width: 17px; height: 17px; margin-top: 2px;
+  border: 1px solid rgb(var(--v04-subject-rgb) / .8); border-radius: 50%; color: var(--v04-subject);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 9.5px; font-weight: 800; line-height: 1;
+}
+/* 分叉画成图，不画成列表（列表是编辑态的样子）：从步骤框底部、序号圈正下方伸出主干线，用圆角折线
+   分到每个分叉标签；分叉下面再分叉，就从那个标签底下接着伸。 */
+.forkTree, .forkTree ul { list-style: none; margin: 0; padding: 0; }
+.forkTree { position: relative; margin: 10px 0 0 19px; }
+.forkTree::before { content: ""; position: absolute; left: 0; top: -10px; height: 10px; border-left: 1.5px solid rgb(var(--v04-subject-rgb) / .55); }
+.forkTree li { position: relative; padding: 6px 0 0 20px; }
+.forkTree li::before {
+  content: ""; position: absolute; left: 0; top: 0; width: 15px; height: 19px;
+  border-left: 1.5px solid rgb(var(--v04-subject-rgb) / .55); border-bottom: 1.5px solid rgb(var(--v04-subject-rgb) / .55);
+  border-bottom-left-radius: 9px;
+}
+.forkTree li::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1.5px solid rgb(var(--v04-subject-rgb) / .55); }
+.forkTree li:last-child::after { display: none; }
+.forkTree ul { position: relative; margin: 4px 0 0 13px; }
+.forkTree ul::before { content: ""; position: absolute; left: 0; top: -4px; height: 4px; border-left: 1.5px solid rgb(var(--v04-subject-rgb) / .55); }
+.forkNode {
+  display: inline-block; max-width: 100%; border: 1px solid rgb(var(--v04-subject-rgb) / .3); border-radius: 8px;
+  background: var(--v04-panel); padding: 3px 9px; color: var(--v04-ink-dim); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere;
+  box-shadow: 0 1px 2px rgb(var(--v04-shadow-rgb) / calc(.06 * var(--v04-shadow-strength)));
+}
+.forkNode b { color: var(--v04-ink-soft); }
+.forkTree ul .forkNode { border-color: var(--v04-line); background: transparent; box-shadow: none; color: var(--v04-muted); font-size: 11.5px; }
+.flowEmpty { color: var(--v04-muted); }
+
+/* ---------- 字段外框：可编辑时整块可点（同 .editable 的悬停语言） ---------- */
+.field { position: relative; container-type: inline-size; margin: 0 -8px; padding: 4px 8px; border-radius: 10px; }
+.fieldEditable { cursor: text; transition: background .12s, box-shadow .12s; }
+.fieldEditable:hover { background: rgb(var(--v04-accent-rgb) / .05); box-shadow: inset 0 0 0 1px rgb(var(--v04-accent-rgb) / .3); }
+.fieldEditable:focus-visible { outline: 2px solid var(--v04-accent); outline-offset: 2px; }
+/* 集成版锁定：看起来还能点，悬停转琥珀色提示点了也没用（与 .editableLocked 同一套语言） */
+.fieldLocked { cursor: not-allowed; }
+.fieldLocked:hover { background: rgb(var(--v04-warn-rgb) / .06); box-shadow: inset 0 0 0 1px rgb(var(--v04-warn-rgb) / .45); }
+.editHint {
+  position: absolute; top: 6px; right: 8px; z-index: 3; border: 1px solid var(--v04-line); border-radius: 999px;
+  background: var(--v04-panel); color: var(--v04-muted); padding: 1px 8px; font-size: 10px; opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+.fieldEditable:hover .editHint, .fieldEditable:focus-visible .editHint { opacity: 1; }
+.fieldDiffBase { white-space: pre-wrap; }
+
+/* ---------- 编辑态：左边项目符号大纲，右边实时预览 ---------- */
+.editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@container (min-width: 820px) {
+  .editor { grid-template-columns: minmax(340px, 40%) minmax(0, 1fr); align-items: start; }
+}
+.olPanel { min-width: 0; }
+.olTools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.editor .olTools button {
+  display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--v04-line); border-radius: 999px;
+  background: var(--v04-panel); color: var(--v04-muted); padding: 4px 10px; font-size: 11px; line-height: 1.4; white-space: nowrap; cursor: pointer;
+}
+.editor .olTools button:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.editor .olTools button:disabled { cursor: default; opacity: .4; }
+.olTools kbd { margin-left: 2px; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 9.5px; opacity: .75; }
+.olSep { width: 1px; align-self: stretch; margin: 2px; background: var(--v04-line); }
+.outline {
+  max-height: 64vh; overflow: auto; border: 1px solid rgb(var(--v04-accent-rgb) / .4); border-radius: 9px;
+  background: var(--v04-sunken); padding: 8px 10px 10px;
+}
+.outline:focus { outline: none; }
+/* 跨节点选择：选中的几行整体高亮，焦点落在大纲容器上，不显示文字光标 */
+.outlineBlock { user-select: none; caret-color: transparent; }
+.olRow { position: relative; display: flex; align-items: flex-start; gap: 6px; min-height: 28px; padding-left: calc(var(--lv) * 22px); border-radius: 6px; }
+.olRow:focus-within { background: rgb(var(--v04-accent-rgb) / .07); }
+.outline .olSelected { background: rgb(var(--v04-accent-rgb) / .16); }
+.outlineBlock:focus .olSelected { box-shadow: inset 2px 0 0 var(--v04-accent); }
+.olRoot:not(:first-child) { margin-top: 10px; }
+.olRoot:not(:first-child)::before { content: ""; position: absolute; left: 0; right: 0; top: -6px; border-top: 1px dashed var(--v04-line); }
+/* 竖向引导线：每一级祖先一条，相邻行接起来就是一根连到上级记号的竖线 */
+.olGuide { position: absolute; top: 0; bottom: 0; left: calc(var(--g) * 22px + 8px); width: 1px; background: var(--v04-line-strong); }
+.olBullet { flex: none; display: grid; place-items: center; width: 17px; height: 28px; }
+.olBullet i { display: grid; place-items: center; font-style: normal; }
+.lv0 .olBullet i { width: 11px; height: 11px; border-radius: 3px; background: var(--v04-accent-fill); box-shadow: 0 0 0 1px rgb(var(--v04-accent-rgb) / .6); }
+/* 第一层＝步骤，有先后：记号直接写顺序号；更深层＝分叉，并列：圆点 */
+.lv1 .olBullet i {
+  width: 17px; height: 17px; border: 1px solid rgb(var(--v04-subject-rgb) / .8); border-radius: 50%; background: var(--v04-panel);
+  color: var(--v04-subject); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 9.5px; font-weight: 800; line-height: 1;
+}
+.lv2 .olBullet i { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--v04-subject); }
+.lv3 .olBullet i { width: 5px; height: 5px; border-radius: 50%; background: var(--v04-muted); }
+.outline .olText {
+  flex: 1; min-width: 0; height: 28px; border: 0; background: transparent; color: var(--v04-ink);
+  padding: 4px 0; font-size: 13.5px; line-height: 20px; resize: none; overflow: hidden;
+}
+.outline .olText:focus, .outline .olText:focus-visible { outline: none; }
+.outline .olText::placeholder { color: var(--v04-faint); }
+.outline .lv0 .olText { font-size: 14px; font-weight: 800; }
+.outline .lv1 .olText { font-weight: 600; }
+.outline .lv2 .olText, .outline .lv3 .olText { color: var(--v04-ink-soft); font-size: 13px; }
+.olChainTag { flex: none; align-self: center; border: 1px solid var(--v04-line); border-radius: 999px; color: var(--v04-muted); padding: 0 7px; font-size: 9.5px; line-height: 16px; }
+.olKeys { margin-top: 6px; color: var(--v04-muted); font-size: 10.5px; line-height: 1.6; }
+.olKeys b { color: var(--v04-accent); }
+.olKeys kbd { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 10px; border: 1px solid var(--v04-line); border-radius: 4px; padding: 0 4px; background: var(--v04-panel); }
+.olStore { margin-top: 8px; color: var(--v04-muted); font-size: 10.5px; }
+.olStore summary { cursor: pointer; }
+.olStore pre {
+  margin: 6px 0 0; max-height: 220px; overflow: auto; border: 1px solid var(--v04-line); border-radius: 7px; background: var(--v04-panel-deep);
+  padding: 8px 10px; color: var(--v04-ink-dim); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap;
+}
+/* 预览只看不点：点它＝点外面，保存并收起 */
+.preview { min-width: 0; border: 1px dashed var(--v04-line); border-radius: 10px; padding: 6px; pointer-events: none; }
+.previewLabel { display: block; margin: 2px 6px 0; color: var(--v04-muted); font-size: 10px; }

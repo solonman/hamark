@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>反写工作台 · 创意思维链流程图</title>
+<style>
+/* 配色只用 --v04-*，两套值照抄 web/app/globals.css（深色 :root、浅色 [data-theme=light]） */
+:root{
+  --v04-scheme:dark;
+  --v04-gutter:#090a08; --v04-sunken:#0f100e; --v04-bg:#10110f;
+  --v04-panel-deep:#151612; --v04-panel:#171815; --v04-panel-rgb:23 24 21; --v04-panel-alt:#1c1d19;
+  --v04-raised:#20211d; --v04-raised-2:#2e302a;
+  --v04-ink:#e6e7df; --v04-ink-soft:#d4d6cd; --v04-ink-dim:#b9bbb2; --v04-muted:#92958b; --v04-faint:#8b8e83;
+  --v04-subject:#c7aa72; --v04-subject-rgb:199 170 114;
+  --v04-line:rgba(255,255,255,.12); --v04-line-strong:#36382f; --v04-fg-rgb:255 255 255;
+  --v04-accent:#dfff4f; --v04-accent-rgb:223 255 79; --v04-accent-fill:#dfff4f; --v04-on-accent:#10110f; --v04-accent-surface:#202219;
+  --v04-shadow-rgb:0 0 0; --v04-shadow-strength:1;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+:root[data-theme="light"]{
+  --v04-scheme:light;
+  --v04-gutter:#e9e5da; --v04-sunken:#ffffff; --v04-bg:#f3f0e8;
+  --v04-panel-deep:#f7f5ef; --v04-panel:#fbfaf6; --v04-panel-rgb:251 250 246; --v04-panel-alt:#f4f1ea;
+  --v04-raised:#ece8de; --v04-raised-2:#e0dccf;
+  --v04-ink:#1a1b16; --v04-ink-soft:#2e3029; --v04-ink-dim:#484a42; --v04-muted:#63655c; --v04-faint:#6d6e67;
+  --v04-subject:#7d5f24; --v04-subject-rgb:125 95 36;
+  --v04-line:rgba(26,27,22,.13); --v04-line-strong:#d3cfc3; --v04-fg-rgb:26 27 22;
+  --v04-accent:#536118; --v04-accent-rgb:83 97 24; --v04-accent-fill:#dfff4f; --v04-on-accent:#10110f; --v04-accent-surface:#f1f4dd;
+  --v04-shadow-rgb:38 32 18; --v04-shadow-strength:.32;
+}
+*{box-sizing:border-box}
+html{color-scheme:var(--v04-scheme)}
+body{margin:0;background:var(--v04-bg);color:var(--v04-ink);font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased}
+button,input,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--v04-accent);outline-offset:3px}
+
+/* ---------- 顶栏（示意，与线上工作台同一排布） ---------- */
+.topbar{position:sticky;top:0;z-index:40;border-bottom:1px solid var(--v04-line);background:rgb(var(--v04-panel-rgb) / .96);backdrop-filter:blur(18px)}
+.topbar-in{max-width:1440px;margin:0 auto;min-height:64px;padding:8px clamp(16px,3vw,40px);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:inline-flex;align-items:baseline;gap:6px;white-space:nowrap}
+.brand b{color:var(--v04-accent);font-size:22px;letter-spacing:-.08em}
+.brand span{font-weight:900;letter-spacing:-.05em}
+.brand small{color:var(--v04-muted);font-size:9px;letter-spacing:.15em}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--v04-line);border-radius:999px;padding:6px 12px;font-size:12px;white-space:nowrap}
+.case-title{display:flex;align-items:baseline;gap:12px;margin:0 auto;min-width:0}
+.case-title b{font-size:17px}
+.case-title small{color:var(--v04-muted);font-size:11px;white-space:nowrap}
+.ver{color:var(--v04-subject);font-weight:800}
+.ver-state{font-style:normal;font-size:10px;border:1px solid currentColor;border-radius:999px;padding:1px 7px;color:var(--v04-muted)}
+.theme-btn{border:1px solid var(--v04-line);border-radius:999px;padding:6px 12px;font-size:11px;color:var(--v04-muted)}
+.historyControl{display:inline-flex;flex:none;align-items:center;gap:2px;padding:3px;border:1px solid var(--v04-line);border-radius:999px;background:var(--v04-panel)}
+.historyControl[hidden]{display:none}
+.historyControl button{display:inline-flex;flex:none;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:999px;background:transparent;color:var(--v04-ink);font-size:11px;white-space:nowrap}
+.historyControl button:hover:not(:disabled){background:rgb(var(--v04-accent-rgb) / .12);color:var(--v04-accent)}
+.historyControl button:disabled{cursor:default;color:var(--v04-muted);opacity:.45}
+.historyDivider{width:1px;height:16px;background:var(--v04-line)}
+.theme-btn:hover{border-color:rgb(var(--v04-accent-rgb) / .5);color:var(--v04-accent)}
+
+/* ---------- 版面 ---------- */
+.app{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:238px minmax(0,1fr);gap:0 22px;padding:20px clamp(16px,3vw,40px) 100px;align-items:start}
+@media (max-width:960px){.app{grid-template-columns:minmax(0,1fr)}.nav{display:none}}
+.nav{position:sticky;top:84px;border:1px solid var(--v04-line);border-radius:16px;background:var(--v04-panel);padding:12px 10px;font-size:12px}
+.nav b{display:block;padding:6px 10px 0;font-size:13px}
+.nav .sub{display:block;padding:0 10px 8px;color:var(--v04-muted);font-size:10px}
+.nav a{display:block;padding:5px 10px 5px 21px;border-radius:7px;color:var(--v04-muted);font-size:11px;text-decoration:none}
+.nav a.on{background:rgb(var(--v04-accent-rgb) / .08);color:var(--v04-accent)}
+.main{min-width:0}
+
+/* ---------- demo 说明与开关 ---------- */
+.notice{border:1px solid rgb(var(--v04-accent-rgb) / .38);border-radius:14px;background:var(--v04-accent-surface);padding:14px 18px;margin-bottom:22px}
+.notice h3{margin:0 0 8px;font-size:13px}
+.notice ul{margin:0 0 12px;padding-left:18px;color:var(--v04-muted);font-size:12px;line-height:1.85}
+.notice b{color:var(--v04-ink)}
+.notice code,.notice kbd{font-family:var(--mono);font-size:11px;background:var(--v04-raised);border-radius:4px;padding:1px 5px;color:var(--v04-ink)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center}
+.ctl{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--v04-muted)}
+.seg{display:inline-flex;border:1px solid var(--v04-line);border-radius:999px;padding:3px;background:var(--v04-panel)}
+.seg button{border-radius:999px;padding:5px 12px;font-size:11.5px;color:var(--v04-muted);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--v04-raised);color:var(--v04-ink);font-weight:700}
+.seg button:not([aria-pressed="true"]):hover{color:var(--v04-accent)}
+
+/* ---------- 阅读模块（同 V04Surface readingModule / readingCore） ---------- */
+.readingModule{margin:0 0 22px;border:1px solid var(--v04-line);border-radius:18px;background:var(--v04-panel)}
+.readingModule>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--v04-line)}
+.readingModule>header small{display:block;margin-bottom:2px;color:var(--v04-ink);font-size:12px;letter-spacing:.02em}
+.readingModule>header h2{margin:0;color:var(--v04-subject);font-size:18px;font-weight:500}
+.readingModule>header button{border:1px solid var(--v04-line);border-radius:999px;color:var(--v04-ink);padding:7px 11px}
+.readingCore{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.readingCore>div{min-width:0;padding:18px 22px;border-bottom:1px solid var(--v04-line)}
+.readingCore>div:nth-child(even){border-left:1px solid var(--v04-line)}
+.readingCore>div.wide{grid-column:1/-1;border-left:0}
+.readingCore small.label{display:flex;align-items:center;gap:8px;margin-bottom:6px;color:var(--v04-subject);font-size:10px;font-weight:800}
+.readingCore p.text{margin:0;color:var(--v04-ink-soft);line-height:1.65;overflow-wrap:anywhere}
+/* 方案 A：故事参照类型、创意机制、创意手法三张选项卡并成一行三栏 */
+.choiceRow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.choiceRow>div{min-width:0;padding:0 18px}
+.choiceRow>div:first-child{padding-left:0}
+.choiceRow>div:last-child{padding-right:0}
+.choiceRow>div+div{border-left:1px solid var(--v04-line)}
+@media (max-width:760px){.readingCore,.choiceRow{grid-template-columns:1fr}.readingCore>div:nth-child(even),.choiceRow>div+div{border-left:0}.choiceRow>div{padding:0 0 14px}}
+.choiceBox{display:grid;gap:8px;padding:14px;border:1px solid var(--v04-line);border-radius:12px}
+.choiceBox>span{color:var(--v04-subject);font-size:11px;font-weight:800}
+.choiceTrigger{display:flex;min-height:42px;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--v04-line);border-radius:9px;background:var(--v04-sunken);padding:8px 10px}
+.choiceTrigger span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.choiceTrigger b{flex:none;color:var(--v04-accent);font-size:10px}
+.finalTraceCurrent{margin-top:6px;color:var(--v04-muted);font-size:10.5px;line-height:1.4}
+
+/* ---------- 图的外框：点空白处编辑（同 .editable 的悬停语言） ---------- */
+.mapFrame{position:relative;container-type:inline-size;margin:0 -8px;padding:6px 8px;border-radius:10px;cursor:text;transition:background .12s,box-shadow .12s}
+.mapFrame:hover{background:rgb(var(--v04-accent-rgb) / .05);box-shadow:inset 0 0 0 1px rgb(var(--v04-accent-rgb) / .3)}
+.mapFrame.editing{cursor:auto;background:none;box-shadow:none}
+.editHint{position:absolute;top:6px;right:8px;z-index:3;border:1px solid var(--v04-line);border-radius:999px;background:var(--v04-panel);color:var(--v04-muted);padding:1px 8px;font-size:10px;opacity:0;pointer-events:none;transition:opacity .12s}
+.mapFrame:hover .editHint{opacity:1}
+.mapFrame.editing .editHint{display:none}
+.mapEmpty{margin:0;color:var(--v04-muted)}
+
+/* ---------- 编辑态：左边项目符号大纲，右边实时看图 ---------- */
+.mmEditor{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+@container (min-width:820px){.mmEditor{grid-template-columns:minmax(340px,40%) minmax(0,1fr);align-items:start}}
+.olTools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.olTools button{border:1px solid var(--v04-line);border-radius:999px;background:var(--v04-panel);color:var(--v04-muted);padding:4px 10px;font-size:11px;white-space:nowrap}
+.olTools button:hover{border-color:rgb(var(--v04-accent-rgb) / .5);color:var(--v04-accent)}
+.olTools kbd{margin-left:4px;font-family:var(--mono);font-size:9.5px;opacity:.75}
+.olTools button{display:inline-flex;align-items:center;gap:4px}
+.olTools button:disabled{cursor:default;opacity:.4}
+.olTools button:disabled:hover{border-color:var(--v04-line);color:var(--v04-muted)}
+.olTools .olSep{width:1px;align-self:stretch;margin:2px 2px;background:var(--v04-line)}
+.outline{max-height:64vh;overflow:auto;border:1px solid rgb(var(--v04-accent-rgb) / .4);border-radius:9px;background:var(--v04-sunken);padding:8px 10px 10px}
+.olRow{position:relative;display:flex;align-items:flex-start;gap:6px;min-height:28px;padding-left:calc(var(--lv) * 22px);border-radius:6px}
+.olRow:focus-within{background:rgb(var(--v04-accent-rgb) / .07)}
+.olRow.root:not(:first-child){margin-top:10px}
+.olRow.root:not(:first-child)::before{content:"";position:absolute;left:0;right:0;top:-6px;border-top:1px dashed var(--v04-line)}
+/* 竖向引导线：每一级祖先一条，相邻行接起来就是一根连到上级记号的竖线 */
+.olGuide{position:absolute;top:0;bottom:0;left:calc(var(--g) * 22px + 8px);width:1px;background:var(--v04-line-strong)}
+.olBullet{flex:none;display:grid;place-items:center;width:17px;height:28px}
+.olBullet i{display:grid;place-items:center;font-style:normal}
+.lv0 .olBullet i{width:11px;height:11px;border-radius:3px;background:var(--v04-accent-fill);box-shadow:0 0 0 1px rgb(var(--v04-accent-rgb) / .6)}
+/* 第一层＝步骤，有先后：记号直接写顺序号；更深层＝分叉，并列：圆点 */
+.lv1 .olBullet i{width:17px;height:17px;border:1px solid rgb(var(--v04-subject-rgb) / .8);border-radius:50%;background:var(--v04-panel);color:var(--v04-subject);font-family:var(--mono);font-size:9.5px;font-weight:800;line-height:1}
+.lv2 .olBullet i{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--v04-subject)}
+.lv3 .olBullet i{width:5px;height:5px;border-radius:50%;background:var(--v04-muted)}
+.olText{flex:1;min-width:0;height:28px;border:0;background:transparent;color:var(--v04-ink);padding:4px 0;font-size:13.5px;line-height:20px;resize:none;overflow:hidden}
+.olText:focus{outline:none}
+.olText::placeholder{color:var(--v04-faint)}
+.lv0 .olText{font-size:14px;font-weight:800}
+.lv1 .olText{font-weight:600}
+.lv2 .olText,.lv3 .olText{color:var(--v04-ink-soft);font-size:13px}
+.olTreeTag{flex:none;align-self:center;border:1px solid var(--v04-line);border-radius:999px;color:var(--v04-muted);padding:0 7px;font-size:9.5px;line-height:16px}
+.olKeys{margin:6px 0 0;color:var(--v04-muted);font-size:10.5px;line-height:1.6}
+.olKeys b{color:var(--v04-accent)}
+/* 跨节点选择：选中的几行整体高亮，焦点落在大纲容器上，不显示文字光标 */
+.outline:focus{outline:none}
+.outline.blockMode{user-select:none;caret-color:transparent}
+.outline .olRow.olSelected{background:rgb(var(--v04-accent-rgb) / .16)}
+.outline.blockMode:focus .olRow.olSelected{box-shadow:inset 2px 0 0 var(--v04-accent)}
+.olKeys kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--v04-line);border-radius:4px;padding:0 4px;background:var(--v04-panel)}
+.olStore{margin-top:8px;color:var(--v04-muted);font-size:10.5px}
+.olStore summary{cursor:pointer}
+.olStore pre{margin:6px 0 0;max-height:220px;overflow:auto;border:1px solid var(--v04-line);border-radius:7px;background:var(--v04-panel-deep);padding:8px 10px;color:var(--v04-ink-dim);font-family:var(--mono);font-size:11px;line-height:1.55;white-space:pre-wrap}
+.mmEditorPreview{min-width:0;overflow:hidden;border:1px dashed var(--v04-line);border-radius:10px;padding:6px;pointer-events:none}
+.mmEditorPreview>small{display:block;margin:2px 6px 4px;color:var(--v04-muted);font-size:10px}
+
+/* ---------- 思维链：几条上下排、虚线隔开，彼此不连线 ---------- */
+/* 列宽用 minmax(0,1fr)：否则网格会被里面上一次排好的格子撑宽，窗口变窄时缩不回来 */
+.forest{display:grid;grid-template-columns:minmax(0,1fr)}
+.treeScroll+.treeScroll{border-top:1px dashed var(--v04-line)}
+.stepNo{flex:none;display:grid;place-items:center;width:17px;height:17px;margin-top:2px;border:1px solid rgb(var(--v04-subject-rgb) / .8);border-radius:50%;color:var(--v04-subject);font-family:var(--mono);font-size:9.5px;font-weight:800;line-height:1}
+.stepBox{display:flex;align-items:flex-start;gap:7px;border:1px solid var(--v04-line);border-radius:10px;background:var(--v04-panel-alt);color:var(--v04-ink);padding:8px 10px;font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.stepBox>span:last-child{min-width:0}
+.treeHead{border-radius:12px;background:var(--v04-accent-fill);color:var(--v04-on-accent);padding:9px 15px;font-size:14.5px;font-weight:800;line-height:1.4;overflow-wrap:anywhere;box-shadow:0 6px 18px rgb(var(--v04-shadow-rgb) / calc(.18 * var(--v04-shadow-strength)))}
+.treeHead.implicit{display:grid;justify-items:center;gap:1px;white-space:nowrap}
+.treeHead.implicit small{font-size:10px;font-weight:600;opacity:.7}
+
+/* ---------- 横向流程（蛇形）：中心 → 第 1 步 → 第 2 步 …；分叉挂在每一步下面 ----------
+   一行放不下就折到下一行，方向来回交替：第一行从左往右，第二行从右往左，第三行再从左往右。
+   行与行之间用 U 形弯在外侧接上，整条连线不断。每行放几步、每步落在哪一格、所有连线
+   都由脚本按实际宽度算（见 layoutFlow），窗口宽度一变就重排。 */
+.hfTree{position:relative;padding:12px 4px 16px 24px}
+/* 中心和步骤框同宽，占满自己那一格：第一列上下对齐，箭头长度一致 */
+.hfHead{position:relative;z-index:1}
+.hfSteps{display:grid;justify-content:start;align-items:start;gap:26px 34px}
+.hfStep{position:relative;z-index:1;min-width:0}
+/* 分叉画成图，不画成列表（列表是编辑态的样子）：从步骤卡片底部伸出主干线，用圆角折线分到
+   每个分叉标签；分叉下面再分叉，就从那个标签底下接着伸。连线用主色，节点是带边框的小标签。 */
+.forkTree,.forkTree ul{list-style:none;margin:0;padding:0}
+.forkTree{position:relative;margin:10px 0 0 19px}
+.forkTree::before{content:"";position:absolute;left:0;top:-10px;height:10px;border-left:1.5px solid rgb(var(--v04-subject-rgb) / .55)}
+.forkTree li{position:relative;padding:6px 0 0 20px}
+.forkTree li::before{content:"";position:absolute;left:0;top:0;width:15px;height:19px;border-left:1.5px solid rgb(var(--v04-subject-rgb) / .55);border-bottom:1.5px solid rgb(var(--v04-subject-rgb) / .55);border-bottom-left-radius:9px}
+.forkTree li::after{content:"";position:absolute;left:0;top:0;bottom:0;border-left:1.5px solid rgb(var(--v04-subject-rgb) / .55)}
+.forkTree li:last-child::after{display:none}
+.forkTree ul{position:relative;margin:4px 0 0 13px}
+.forkTree ul::before{content:"";position:absolute;left:0;top:-4px;height:4px;border-left:1.5px solid rgb(var(--v04-subject-rgb) / .55)}
+.forkNode{display:inline-block;max-width:100%;border:1px solid rgb(var(--v04-subject-rgb) / .3);border-radius:8px;background:var(--v04-panel);padding:3px 9px;color:var(--v04-ink-dim);font-size:12px;line-height:1.55;overflow-wrap:anywhere;box-shadow:0 1px 2px rgb(var(--v04-shadow-rgb) / calc(.06 * var(--v04-shadow-strength)))}
+.forkNode b{color:var(--v04-ink-soft)}
+.forkTree ul .forkNode{border-color:var(--v04-line);background:transparent;box-shadow:none;color:var(--v04-muted);font-size:11.5px}
+.hfLinks{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:0}
+.hfLinks .flow{fill:none;stroke:var(--v04-subject);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hfLinks .tip{fill:var(--v04-subject)}
+</style>
+
+<div class="topbar"><div class="topbar-in">
+  <span class="brand"><b>R:</b><span>RE:VERSE</span><small>反写</small></span>
+  <span class="pill">≡ 目录</span>
+  <span class="case-title"><b>捉迷藏</b><small>刘梦娜 上传 · 2026-10-07</small></span>
+  <span class="pill"><span class="ver">集成版</span><i class="ver-state">● 未定稿</i></span>
+  <div class="historyControl" id="pageHistory" role="group" aria-label="撤销与重做" hidden>
+    <button type="button" id="pageUndo" title="撤销上一步（⌘/Ctrl+Z）" aria-label="撤销上一步"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 6.6h6.3a3.3 3.3 0 0 1 0 6.6H6.1"/><path d="M5.8 3.6 3 6.6l2.8 3"/></svg><span>撤销</span></button>
+    <i class="historyDivider"></i>
+    <button type="button" id="pageRedo" title="重做（⌘/Ctrl+Shift+Z）" aria-label="重做"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.8 6.6H6.5a3.3 3.3 0 0 0 0 6.6h3.4"/><path d="M10.2 3.6 13 6.6l-2.8 3"/></svg><span>重做</span></button>
+  </div>
+  <button class="theme-btn" id="themeBtn" type="button">切到深色</button>
+</div></div>
+
+<div class="app">
+  <nav class="nav" aria-label="目录（示意）">
+    <b>第一模块</b><span class="sub">全片事实与核心判断</span>
+    <a>商业意图</a><a>故事梗概</a><a>创意母题</a><a>张力按钮</a><a class="on">创意思维链</a><a>故事参照类型</a><a>主导机制</a><a>辅助机制</a>
+  </nav>
+
+  <main class="main">
+    <section class="notice">
+      <h3>创意思维链 · 横向流程图（定稿 demo，规格见 docs/24）</h3>
+      <ul>
+        <li><b>第一层节点有先后</b>：中心 → 第 1 步 → 第 2 步 …… 从左往右排，箭头连着；<b>某个节点的下级是它的并列分叉</b>，挂在这一步下面，可以一层层往下分。</li>
+        <li>一行放不下时<b>蛇形折行</b>：第一行从左往右，第二行从右往左，第三行再从左往右；行与行之间用 U 形弯在外侧接上，<b>连线一笔到底不断开</b>。切到「长链（8 步）」能看到折成三行，「作者原文」是 5 步长文字；把窗口拉窄会折成三行、四行，手机宽度一步一行。</li>
+        <li>顶格的行各是一条思维链，思维链之间不连线，上下排开；编辑时用「＋ 新思维链」再起一条。</li>
+        <li>点图的空白处进入编辑：左边是带项目符号的大纲（第一层显示序号，更深层是圆点），右边实时预览。<kbd>回车</kbd> 同级新节点，<kbd>Tab</kbd>/<kbd>Shift+Tab</kbd> 下一级/上一级，<kbd>Alt+Shift+↑↓</kbd> 整枝移动，点外面保存，<kbd>Esc</kbd> 放弃。</li>
+        <li><b>跨节点选择</b>：一个节点里照常选文字；鼠标拖过两个以上节点、在行首/行尾按 <kbd>Shift+↑↓</kbd>、<kbd>Shift+点击</kbd>，或连按两次 <kbd>⌘A</kbd>，就整节点选中（连同它们的下级）。选中后可以 <kbd>⌘C</kbd>/<kbd>⌘X</kbd>/<kbd>⌘V</kbd> 复制、剪切、粘贴替换，<kbd>⌫</kbd> 删除，<kbd>Tab</kbd>/<kbd>Shift+Tab</kbd> 一起调层级，<kbd>Alt+Shift+↑↓</kbd> 一起移动，<kbd>Esc</kbd> 取消选择。复制出来的是带缩进的大纲文字，可以直接粘到别的条目或文档里。</li>
+        <li><b>撤销分两层</b>：编辑器开着时，<kbd>⌘Z</kbd>/<kbd>⇧⌘Z</kbd>（或大纲上方的撤销、重做）撤的是编辑器里的每一步——连续打字算一步，回车、调层级、移动、删除、粘贴各算一步；关上编辑器后，<b>这一整次修改算工作台顶栏「撤销」里的一步</b>，跟其他条目一样，点一下就回到打开编辑前的样子。</li>
+        <li>存进库里的仍是一段文字（Markdown 列表）。版面按方案 A：思维链通栏，下面三张选项卡一行三栏。「示例」「长链」是我改写的示意，不是作者原文。</li>
+      </ul>
+      <div class="controls">
+        <span class="ctl">底稿 <span class="seg" data-ctl="source"><button type="button" data-v="forest">示例（三条思维链）</button><button type="button" data-v="long">长链（8 步）</button><button type="button" data-v="original">作者原文（旧写法）</button></span></span>
+      </div>
+    </section>
+
+    <section class="readingModule">
+      <header><div><small>MODULE 01</small><h2>第一模块｜全片事实与核心判断</h2></div><button type="button">收起</button></header>
+      <div class="readingCore">
+        <div><small class="label">创意母题</small><p class="text">让日常城市生活绽放活力美好</p></div>
+        <div><small class="label">张力按钮</small><p class="text">将喧嚣严肃的纽约大都市瞬间转变为充满童趣的游乐场。</p></div>
+        <div class="wide">
+          <small class="label">创意思维链</small>
+          <div class="mapFrame" id="frame"></div>
+          <div class="finalTraceCurrent">当前采用 · v1 刘梦娜 原稿</div>
+        </div>
+        <div class="wide choiceRow">
+          <div><small class="label">故事参照类型</small>
+            <div class="choiceBox"><span>故事参照类型</span><div class="choiceTrigger"><span>日常生活喜剧片</span><b>选择</b></div><span>自定义故事参照类型</span><div class="choiceTrigger"><span>城市游戏化概念片</span></div></div>
+          </div>
+          <div><small class="label">创意机制</small>
+            <div class="choiceBox"><span>主导机制</span><div class="choiceTrigger"><span>形式游戏</span><b>选择</b></div><span>辅助机制</span><div class="choiceTrigger"><span>洞察共鸣</span><b>选择</b></div></div>
+          </div>
+          <div><small class="label">创意手法</small>
+            <div class="choiceBox"><span>主导手法</span><div class="choiceTrigger"><span>情境游戏化</span></div><span>辅助手法</span><div class="choiceTrigger"><span>情绪感染与节奏推进</span></div></div>
+          </div>
+        </div>
+        <div><small class="label">创意承重载体</small><p class="text">（下面各行与现在一致，略）</p></div>
+        <div><small class="label">创意承重载体具体说明</small><p class="text">（略）</p></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+// 存库格式：中心顶格；下级「- 」开头，每深一级多两格缩进（与 Markdown 嵌套列表一致）
+const SOURCES = {
+  forest: `商业问题与洞察
+  - 问题：如何打破传统时尚广告高冷、堆砌模特画报的冰冷感？
+  - 品牌：Kate Spade
+    - 理念：乐观、俏皮与“可及的奢华”
+    - 基因：美式复古和趣味
+  - 客群：20–40 岁女性
+    - 买包不仅仅是为了装东西，更是为了“取悦自己”
+    - 偏好：色彩明快、设计有巧思的单品
+      - 食物、花卉、童趣主题
+  - 结论：以体验为核心、产品为载体，展示品牌理念和产品
+创意主张
+  - 快乐并不遥远，只要放慢脚步，就能发现
+  - 从客群出发：寻找快乐、取悦自己，打造经济上行的美
+游戏载体：捉迷藏（Hide and Seek）
+  - 为什么是它：具有普世共鸣与童趣互动
+  - 场景：纽约繁华街头变成巨大的捉迷藏游戏场
+    - 餐厅
+    - 出租车
+    - 花店
+    - 车厢
+    - 橱窗
+  - 行动：女主穿梭其中，寻找躲藏在城市各个角落的朋友们
+  - 品牌落点：只要保持好奇与热情，日常生活的每一刻都能“绽放美好”`,
+  long: `捉迷藏 · 完整推导
+  - 商业问题：如何打破传统时尚广告高冷、堆砌模特画报的冰冷感？
+  - 品牌：Kate Spade，乐观、俏皮与“可及的奢华”
+  - 客群：20–40 岁女性，买包是为了“取悦自己”
+  - 洞察：快乐并不遥远，只要放慢脚步，就能发现
+  - 载体：捉迷藏（Hide and Seek）
+    - 普世共鸣
+    - 童趣互动
+  - 场景：纽约繁华街头变成巨大的游戏场
+    - 餐厅、出租车、花店、车厢、橱窗
+  - 行动：女主穿梭其中，寻找躲藏在城市各个角落的朋友们
+  - 品牌落点：只要保持好奇与热情，日常生活的每一刻都能“绽放美好”`,
+  original: `1）如何打破一贯的传统时尚广告高冷、堆砌模特画报的冰冷感?
+2）Kate Spade 品牌理念：乐观、俏皮与“可及的奢华”，美式复古和趣味的基因，客群为20-40的女性，她们买包不仅仅是为了装东西，更是为了“取悦自己”。喜欢色彩明快、设计有巧思（比如食物、花卉、童趣主题）的单品，所以，要做一个以体验为核心、产品为载体"的东西，展示品牌理念和产品。
+3）从客群出发，寻找快乐、取悦自己，打造经济上行的美，我们可以传递快乐并不遥远，只要放慢脚步，就能发现。
+4）寻找一个具有普世共鸣与童趣互动的游戏载体——“捉迷藏（Hide and Seek）”将纽约繁华街头（餐厅、出租车、花店、车厢、橱窗）变成巨大的捉迷藏游戏场 女主穿梭其中寻找躲藏在城市各个角落的朋友们
+5）终极落脚：只要保持好奇与热情，日常生活的每一刻都能“绽放美好”。`,
+};
+
+const state = { source: "forest", texts: { ...SOURCES }, editing: false };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------- 文字 ⇄ 行 ⇄ 森林 ----------
+// 缩进比上一层深就是它的下级（Tab、全角空格都记作两格），行首的「- 」只是记号。
+function parseRows(text) {
+  const rows = [];
+  const stack = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const lead = line.match(/^[ \t　]*/)[0];
+    let indent = 0;
+    for (const ch of lead) indent += ch === " " ? 1 : 2;
+    while (stack.length && stack[stack.length - 1] >= indent) stack.pop();
+    rows.push({ level: stack.length, text: line.trim().replace(/^[-–·•*]\s+/, "") });
+    stack.push(indent);
+  }
+  return rows;
+}
+function rowsToText(rows) {
+  return rows.filter((r) => r.text.trim()).map((r) => (r.level ? `${"  ".repeat(r.level)}- ${r.text.trim()}` : r.text.trim())).join("\n");
+}
+// 全文只有顶格行（没有任何下级）时按旧写法处理：挂到默认中心下，每行一步，老案例原样可读。
+function parseForest(text) {
+  const rows = parseRows(text);
+  const roots = [];
+  const stack = [];
+  for (const r of rows) {
+    const node = { text: r.text, kids: [] };
+    stack.length = r.level;
+    if (r.level && stack[r.level - 1]) stack[r.level - 1].kids.push(node);
+    else roots.push(node);
+    stack[r.level] = node;
+  }
+  const flat = rows.length > 1 && rows.every((r) => r.level === 0);
+  return flat ? [{ text: "", implicit: true, kids: roots }] : roots;
+}
+function inner(raw) {
+  const m = raw.match(/^([^：:。？！?!，,]{1,16})[：:]\s*([\s\S]+)$/);
+  return m ? `<b>${esc(m[1].trim())}</b>：${esc(m[2].trim())}` : esc(raw);
+}
+
+// ---------- 横向流程 ----------
+// 步骤框圆圈里已经写了顺序号，文字开头若是同一个「1）」就不再重复显示（库里原文不动）
+const headHTML = (tree) => (tree.implicit
+  ? `<div class="treeHead hfHead implicit">捉迷藏<small>创意思维链</small></div>`
+  : `<div class="treeHead hfHead">${inner(tree.text)}</div>`);
+const stepText = (text, n) => text.replace(new RegExp(`^${n}\\s*[）)．.、]\\s*`), "");
+const stepHTML = (step, n) => `<div class="stepBox"><span class="stepNo">${n}</span><span>${inner(stepText(step.text, n))}</span></div>`;
+
+const forkTreeHTML = (kids, top) => `<ul${top ? ' class="forkTree"' : ""}>${kids.map((k) => `<li><span class="forkNode">${inner(k.text)}</span>${k.kids.length ? forkTreeHTML(k.kids, false) : ""}</li>`).join("")}</ul>`;
+function treeHTML(tree) {
+  const steps = tree.kids.map((st, si) => `<div class="hfStep">${stepHTML(st, si + 1)}${st.kids.length ? forkTreeHTML(st.kids, true) : ""}</div>`).join("");
+  return `<div class="treeScroll"><div class="hfTree"><svg class="hfLinks" aria-hidden="true"></svg><div class="hfSteps">${headHTML(tree)}${steps}</div></div></div>`;
+}
+function forestHTML(forest) {
+  if (!forest.length) return `<p class="mapEmpty">—</p>`;
+  return `<div class="forest">${forest.map(treeHTML).join("")}</div>`;
+}
+// 蛇形排布：先按可用宽度算每行几步，偶数行（第 2、4…行）倒着排，再画连线。
+// 同一行相邻两步之间是直箭头；换行处从上一行最后一步的外侧绕一个 U 形弯，接进下一行第一步。
+// stepEm：一格最窄多宽，用来算每行放几格；maxEm：一格最宽多宽，步骤很少时不至于拉成一长条
+const FLOW = { gap: 34, stepEm: 13.5, maxEm: 30, bulge: 18, radius: 10, reserve: 24 };
+function layoutFlow(root) {
+  root.querySelectorAll(".hfTree").forEach((tree) => {
+    const grid = tree.querySelector(".hfSteps");
+    const svg = tree.querySelector(".hfLinks");
+    const items = [...grid.children]; // 第 0 格是中心，后面依次是第 1、2、3 … 步
+    const fs = parseFloat(getComputedStyle(grid).fontSize);
+    const base = FLOW.stepEm * fs;
+    const room = grid.clientWidth - FLOW.reserve; // 留出外侧 U 形弯的位置
+    const n = Math.max(1, Math.min(items.length, Math.floor((room + FLOW.gap) / (base + FLOW.gap))));
+    // 先按最窄宽度算出每行几格，再把这一行的剩余宽度平分给各格，右边不留大片空白
+    const colW = Math.max(110, Math.min(FLOW.maxEm * fs, (room - (n - 1) * FLOW.gap) / n));
+    grid.style.gridTemplateColumns = `repeat(${n}, ${colW}px)`;
+    // 只有一列时不分方向，换行都从右侧绕下来
+    const ltrRow = (row) => n === 1 || row % 2 === 0;
+    items.forEach((el, i) => {
+      const row = Math.floor(i / n);
+      const k = i % n;
+      el.style.gridRow = String(row + 1);
+      el.style.gridColumn = String(ltrRow(row) ? k + 1 : n - k);
+    });
+
+    const box = tree.getBoundingClientRect();
+    const rect = (el) => {
+      const r = el.getBoundingClientRect();
+      return { l: r.left - box.left, r: r.right - box.left, t: r.top - box.top, b: r.bottom - box.top };
+    };
+    const anchor = (r) => r.t + Math.min(17, (r.b - r.t) / 2); // 连线对准第一行文字
+    const out = [];
+    const line = (d) => out.push(`<path class="flow" d="${d}"/>`);
+    const tip = (x, y, dir) => out.push(`<path class="tip" d="M${x},${y} l${-8 * dir},-5 v10 z"/>`); // dir 1 朝右，-1 朝左
+    const boxes = items.map((el) => rect(el.querySelector(".stepBox") || el)); // 连线接在步骤框上，不算下面挂的分叉
+    const { bulge: g, radius: rd } = FLOW;
+    for (let i = 1; i < items.length; i++) {
+      const a = boxes[i - 1];
+      const b = boxes[i];
+      const rowA = Math.floor((i - 1) / n);
+      const yb = anchor(b);
+      const ya = i === 1 ? yb : anchor(a); // 中心和第 1 步同行，线对准第 1 步
+      if (rowA === Math.floor(i / n)) {
+        if (ltrRow(rowA)) { line(`M${a.r},${ya} H${b.l - 7}`); tip(b.l, yb, 1); }
+        else { line(`M${a.l},${ya} H${b.r + 7}`); tip(b.r, yb, -1); }
+      } else if (ltrRow(rowA)) {
+        // 上一行从左往右，结束在最右：从右侧绕下来，从右边接进下一行
+        const x = Math.max(a.r, b.r) + g;
+        line(`M${a.r},${ya} H${x - rd} Q${x},${ya} ${x},${ya + rd} V${yb - rd} Q${x},${yb} ${x - rd},${yb} H${b.r + 7}`);
+        tip(b.r, yb, -1);
+      } else {
+        // 上一行从右往左，结束在最左：从左侧绕下来，从左边接进下一行
+        const x = Math.min(a.l, b.l) - g;
+        line(`M${a.l},${ya} H${x + rd} Q${x},${ya} ${x},${ya + rd} V${yb - rd} Q${x},${yb} ${x + rd},${yb} H${b.l - 7}`);
+        tip(b.l, yb, 1);
+      }
+    }
+    svg.innerHTML = out.join("");
+  });
+}
+
+// ---------- 阅读态 ----------
+const frame = document.getElementById("frame");
+const currentText = () => state.texts[state.source];
+function render() {
+  if (state.editing) return;
+  const forest = parseForest(currentText());
+  frame.innerHTML = `<span class="editHint">点空白处编辑大纲</span>${forestHTML(forest)}`;
+  layoutFlow(frame);
+  if (typeof syncPageHistory === "function") syncPageHistory();
+}
+
+// ---------- 编辑态：项目符号大纲（与 V3 相同，第一层记号显示顺序号） ----------
+let rows = [];
+let lastRow = 0;
+let before = "";
+let olEl, previewEl, storeEl, editorEl, keysEl;
+let sel = null; // 跨节点选择：{ anchor, focus } 两端的行号；只在一个节点里选文字时为 null
+let drag = null; // 鼠标按下时所在的行，拖到别的行就切成跨节点选择
+// 编辑器自己的撤销：浏览器自带的撤销只认单个输入框里的打字，拆节点、调层级、移动、删除都撤不回，
+// 所以每一步改动前记一份大纲快照。连续在同一个节点里打字合成一步（停顿超过 1.2 秒另起一步）。
+const outlineHistory = { undo: [], redo: [] };
+let typing = null;
+const ROW_TIPS = "<kbd>回车</kbd> 同级新节点　<kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> 下一级 / 上一级　<kbd>Alt+Shift+↑↓</kbd> 整枝移动　拖过几行或 <kbd>Shift+↑↓</kbd> 跨节点选择　点外面保存　<kbd>Esc</kbd> 放弃";
+const BLOCK_TIPS = (n) => `<b>已选中 ${n} 个节点（含下级）</b>　<kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> 一起调层级　<kbd>Alt+Shift+↑↓</kbd> 一起移动　<kbd>⌘C</kbd> / <kbd>⌘X</kbd> / <kbd>⌘V</kbd> 复制 / 剪切 / 粘贴替换　<kbd>⌫</kbd> 删除　<kbd>Esc</kbd> 取消选择`;
+
+function blockEnd(i) {
+  let j = i + 1;
+  while (j < rows.length && rows[j].level > rows[i].level) j++;
+  return j;
+}
+function grow(ta) { ta.style.height = "28px"; ta.style.height = `${Math.max(28, ta.scrollHeight)}px`; }
+function syncPreview() {
+  const text = rowsToText(rows);
+  state.texts[state.source] = text;
+  const forest = parseForest(text);
+  previewEl.innerHTML = `<small>预览</small>${forestHTML(forest)}`;
+  layoutFlow(previewEl);
+  storeEl.textContent = text || "（空）";
+}
+function renderOutline(focus, caret) {
+  let tree = 0;
+  let step = 0;
+  olEl.innerHTML = rows.map((r, i) => {
+    if (r.level === 0) { tree++; step = 0; }
+    if (r.level === 1) step++;
+    const guides = Array.from({ length: r.level }, (_, g) => `<span class="olGuide" style="--g:${g}"></span>`).join("");
+    const mark = r.level === 1 ? step : "";
+    return `<div class="olRow lv${Math.min(r.level, 3)}${r.level === 0 ? " root" : ""}" style="--lv:${r.level}" data-row="${i}">
+      ${guides}<span class="olBullet" aria-hidden="true"><i>${mark}</i></span>
+      <textarea class="olText" rows="1" data-i="${i}" spellcheck="false" placeholder="${r.level === 0 ? "这条思维链的中心" : r.level === 1 ? "下一步" : "分叉"}" aria-label="${r.level === 0 ? `思维链 ${tree} 的中心` : r.level === 1 ? `第 ${step} 步` : `第 ${r.level} 层分叉`}">${esc(r.text)}</textarea>
+      ${r.level === 0 ? `<span class="olTreeTag">思维链 ${tree}</span>` : ""}
+    </div>`;
+  }).join("");
+  olEl.querySelectorAll(".olText").forEach(grow);
+  syncPreview();
+  paintSelection();
+  if (focus != null) focusRow(focus, caret);
+}
+
+// ---------- 编辑器内撤销 ----------
+const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r.level === b[i].level && r.text === b[i].text);
+function snapshot() {
+  const ta = document.activeElement?.classList?.contains("olText") ? document.activeElement : null;
+  return { rows: rows.map((r) => ({ ...r })), sel: sel && { ...sel }, row: ta ? Number(ta.dataset.i) : lastRow, caret: ta ? ta.selectionStart : null };
+}
+function pushUndo(snap) {
+  outlineHistory.undo.push(snap);
+  if (outlineHistory.undo.length > 100) outlineHistory.undo.shift();
+  outlineHistory.redo = [];
+  syncOutlineHistory();
+}
+// 改结构的操作都从这里过：前后大纲有变化才记一步
+function mutate(fn) {
+  const before = snapshot();
+  const result = fn();
+  if (!sameRows(before.rows, rows)) pushUndo(before);
+  typing = null;
+  return result;
+}
+function restore(snap) {
+  rows = snap.rows.map((r) => ({ ...r }));
+  sel = snap.sel;
+  typing = null;
+  renderOutline();
+  if (sel) olEl.focus({ preventScroll: true });
+  else focusRow(snap.row, snap.caret ?? Infinity);
+}
+function undoOutline() {
+  const snap = outlineHistory.undo.pop();
+  if (!snap) return;
+  outlineHistory.redo.push(snapshot());
+  restore(snap);
+  syncOutlineHistory();
+}
+function redoOutline() {
+  const snap = outlineHistory.redo.pop();
+  if (!snap) return;
+  outlineHistory.undo.push(snapshot());
+  restore(snap);
+  syncOutlineHistory();
+}
+function syncOutlineHistory() {
+  if (!editorEl) return;
+  editorEl.querySelector('[data-act="undo"]').disabled = !outlineHistory.undo.length;
+  editorEl.querySelector('[data-act="redo"]').disabled = !outlineHistory.redo.length;
+}
+
+// ---------- 跨节点选择 ----------
+// 选中范围总是连同最后一个节点的下级一起算，不把一个节点和它的下级拆开。
+const selStart = () => Math.min(sel.anchor, sel.focus);
+function selEnd() {
+  const a = selStart();
+  const b = Math.max(sel.anchor, sel.focus);
+  let end = b + 1;
+  for (let i = a; i <= b; i++) end = Math.max(end, blockEnd(i));
+  return end; // 不含
+}
+function paintSelection() {
+  const a = sel ? selStart() : -1;
+  const end = sel ? selEnd() : -1;
+  olEl.querySelectorAll(".olRow").forEach((row, i) => row.classList.toggle("olSelected", i >= a && i < end));
+  olEl.classList.toggle("blockMode", Boolean(sel));
+  olEl.tabIndex = sel ? 0 : -1;
+  keysEl.innerHTML = sel ? BLOCK_TIPS(end - a) : ROW_TIPS;
+}
+function enterBlock(anchor, focus) {
+  sel = { anchor, focus: Math.max(0, Math.min(focus, rows.length - 1)) };
+  paintSelection();
+  olEl.focus({ preventScroll: true }); // 焦点移到大纲容器上，按键由它接
+}
+function exitBlock(row, caret) {
+  sel = null;
+  paintSelection();
+  if (row != null) focusRow(row, caret);
+}
+function normalizeLevels() {
+  rows.forEach((r, i) => { r.level = i ? Math.max(0, Math.min(r.level, rows[i - 1].level + 1)) : 0; });
+}
+function blockText() {
+  const part = rows.slice(selStart(), selEnd());
+  const base = Math.min(...part.map((r) => r.level));
+  return rowsToText(part.map((r) => ({ level: r.level - base, text: r.text })));
+}
+function blockDelete() {
+  const a = selStart();
+  rows.splice(a, selEnd() - a);
+  if (!rows.length) rows = [{ level: 0, text: "" }];
+  normalizeLevels();
+  sel = null;
+  renderOutline(Math.max(0, a - 1), Infinity);
+}
+function blockPaste(text) {
+  const pasted = parseRows(text);
+  if (!pasted.length) return;
+  const a = selStart();
+  const base = rows[a].level - pasted[0].level;
+  rows.splice(a, selEnd() - a, ...pasted.map((q) => ({ level: Math.max(0, q.level + base), text: q.text })));
+  normalizeLevels();
+  sel = null;
+  renderOutline(a + pasted.length - 1, Infinity);
+}
+function blockShift(delta) {
+  const a = selStart();
+  const end = selEnd();
+  if (delta > 0 && (a === 0 || rows[a].level > rows[a - 1].level)) return; // 第一行最多比上一行深一级
+  if (delta < 0 && Math.min(...rows.slice(a, end).map((r) => r.level)) === 0) return;
+  for (let k = a; k < end; k++) rows[k].level += delta;
+  renderOutline();
+  olEl.focus({ preventScroll: true });
+}
+function blockMove(dir) {
+  const a = selStart();
+  const end = selEnd();
+  const L = rows[a].level;
+  if (rows.slice(a, end).some((r) => r.level < L)) return; // 选区里有比第一行更浅的节点，整体移动没有意义
+  if (dir < 0) {
+    let k = a - 1;
+    while (k >= 0 && rows[k].level > L) k--;
+    if (k < 0 || rows[k].level !== L) return;
+    const group = rows.splice(a, end - a);
+    rows.splice(k, 0, ...group);
+    sel = { anchor: k, focus: k + group.length - 1 };
+  } else {
+    if (end >= rows.length || rows[end].level !== L) return;
+    let end2 = end + 1;
+    while (end2 < rows.length && rows[end2].level > L) end2++;
+    const next = rows.splice(end, end2 - end);
+    rows.splice(a, 0, ...next);
+    sel = { anchor: a + next.length, focus: a + next.length + (end - a) - 1 };
+  }
+  renderOutline();
+  olEl.focus({ preventScroll: true });
+}
+// 写剪贴板：优先用剪贴板接口，不可用时退回到临时文本框 + 复制命令（焦点随后回到大纲）
+function writeClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    return;
+  }
+  const tmp = document.createElement("textarea");
+  tmp.value = text;
+  tmp.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+  editorEl.appendChild(tmp);
+  tmp.select();
+  document.execCommand("copy");
+  tmp.remove();
+  olEl.focus({ preventScroll: true });
+}
+function blockKey(e) {
+  const mod = e.metaKey || e.ctrlKey;
+  const up = e.key === "ArrowUp";
+  // ⌘C / ⌘X 在按键这一步就处理：焦点在大纲容器上时，有的浏览器不会再派发复制事件
+  if (mod && !e.shiftKey && (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "x")) {
+    e.preventDefault();
+    writeClipboard(blockText());
+    if (e.key.toLowerCase() === "x") mutate(blockDelete);
+    return;
+  }
+  if (e.key === "Escape") { e.preventDefault(); exitBlock(sel.focus, Infinity); return; }
+  if (e.key === "Tab") { e.preventDefault(); mutate(() => blockShift(e.shiftKey ? -1 : 1)); return; }
+  if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); mutate(blockDelete); return; }
+  if (e.altKey && e.shiftKey && (up || e.key === "ArrowDown")) { e.preventDefault(); mutate(() => blockMove(up ? -1 : 1)); return; }
+  if (e.shiftKey && (up || e.key === "ArrowDown")) {
+    e.preventDefault();
+    sel.focus = Math.max(0, Math.min(rows.length - 1, sel.focus + (up ? -1 : 1)));
+    paintSelection();
+    return;
+  }
+  if (up || e.key === "ArrowDown") { e.preventDefault(); exitBlock(up ? selStart() : selEnd() - 1, up ? 0 : Infinity); return; }
+  if (e.key === "Enter") { e.preventDefault(); exitBlock(selEnd() - 1, Infinity); return; }
+  if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); sel = { anchor: 0, focus: rows.length - 1 }; paintSelection(); }
+}
+// 复制、剪切、粘贴在整节点选择时接管；只在一个节点里选文字时照常走浏览器
+document.addEventListener("copy", (e) => {
+  if (!state.editing || !sel) return;
+  e.preventDefault();
+  e.clipboardData.setData("text/plain", blockText());
+});
+document.addEventListener("cut", (e) => {
+  if (!state.editing || !sel) return;
+  e.preventDefault();
+  e.clipboardData.setData("text/plain", blockText());
+  mutate(blockDelete);
+});
+document.addEventListener("paste", (e) => {
+  if (!state.editing || !sel) return;
+  e.preventDefault();
+  const text = e.clipboardData?.getData("text/plain") || "";
+  mutate(() => blockPaste(text));
+});
+document.addEventListener("mousemove", (e) => {
+  if (!drag || !(e.buttons & 1) || !state.editing) return;
+  const row = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".olRow");
+  if (!row || !olEl.contains(row)) return;
+  const i = Number(row.dataset.row);
+  if (!sel) { if (i !== drag.anchor) enterBlock(drag.anchor, i); return; }
+  if (sel.focus !== i) { sel.focus = i; paintSelection(); }
+});
+document.addEventListener("mouseup", () => { drag = null; });
+function focusRow(i, caret) {
+  const ta = olEl.querySelector(`.olText[data-i="${Math.max(0, Math.min(i, rows.length - 1))}"]`);
+  if (!ta) return;
+  ta.focus();
+  const c = caret == null || caret === Infinity ? ta.value.length : Math.min(caret, ta.value.length);
+  ta.setSelectionRange(c, c);
+}
+function shiftBlock(i, delta) {
+  const end = blockEnd(i);
+  for (let k = i; k < end; k++) rows[k].level += delta;
+}
+function indent(i, caret) {
+  if (i === 0 || rows[i].level > rows[i - 1].level) return; // 最多比上一行深一级
+  shiftBlock(i, 1);
+  renderOutline(i, caret);
+}
+function outdent(i, caret) {
+  if (rows[i].level === 0) return;
+  shiftBlock(i, -1);
+  renderOutline(i, caret);
+}
+function enter(i, s, e) {
+  const r = rows[i];
+  if (!r.text.trim() && r.level > 0) { outdent(i, 0); return; } // 空节点回车 = 回到上一级
+  const after = r.text.slice(e);
+  r.text = r.text.slice(0, s);
+  const hasKids = i + 1 < rows.length && rows[i + 1].level > r.level;
+  const level = after === "" && hasKids ? r.level + 1 : r.level; // 在有下级的节点末尾回车 = 新建第一个下级
+  rows.splice(i + 1, 0, { level, text: after });
+  renderOutline(i + 1, 0);
+}
+function backspace(i) {
+  const r = rows[i];
+  if (r.text === "") {
+    if (rows.length === 1) return false;
+    const end = blockEnd(i);
+    for (let k = i + 1; k < end; k++) rows[k].level -= 1; // 下级上提一级，接到原来的位置
+    rows.splice(i, 1);
+    if (rows[0] && rows[0].level > 0) rows[0].level = 0;
+    renderOutline(Math.max(0, i - 1), Infinity);
+    return true;
+  }
+  if (r.level > 0) { outdent(i, 0); return true; }
+  if (i === 0) return false;
+  const join = rows[i - 1].text.length;
+  rows[i - 1].text += r.text;
+  rows.splice(i, 1);
+  renderOutline(i - 1, join);
+  return true;
+}
+function move(i, dir) {
+  const L = rows[i].level;
+  const end = blockEnd(i);
+  if (dir < 0) {
+    let k = i - 1;
+    while (k >= 0 && rows[k].level > L) k--;
+    if (k < 0 || rows[k].level !== L) return;
+    const block = rows.slice(i, end);
+    rows.splice(i, end - i);
+    rows.splice(k, 0, ...block);
+    renderOutline(k);
+  } else {
+    if (end >= rows.length || rows[end].level !== L) return;
+    let end2 = end + 1;
+    while (end2 < rows.length && rows[end2].level > L) end2++;
+    const next = rows.slice(end, end2);
+    rows.splice(end, end2 - end);
+    rows.splice(i, 0, ...next);
+    renderOutline(i + next.length);
+  }
+}
+function pasteLines(i, s, e, text) {
+  const pasted = parseRows(text);
+  if (!pasted.length) return;
+  const r = rows[i];
+  const tail = r.text.slice(e);
+  const head = r.text.slice(0, s);
+  const base = r.level - pasted[0].level;
+  r.text = head + pasted[0].text;
+  const extra = pasted.slice(1).map((p) => ({ level: Math.max(0, p.level + base), text: p.text }));
+  rows.splice(i + 1, 0, ...extra);
+  for (let k = i + 1; k <= i + extra.length; k++) rows[k].level = Math.min(rows[k].level, rows[k - 1].level + 1);
+  const last = i + extra.length;
+  const caret = rows[last].text.length;
+  rows[last].text += tail;
+  renderOutline(last, caret);
+}
+
+function startEdit() {
+  if (state.editing) return;
+  state.editing = true;
+  before = currentText();
+  rows = parseRows(before);
+  if (!rows.length) rows = [{ level: 0, text: "" }];
+  frame.classList.add("editing");
+  frame.innerHTML = `<div class="mmEditor">
+    <div class="olPanel">
+      <div class="olTools" role="toolbar" aria-label="大纲操作">
+        <button type="button" data-act="outdent">← 上一级<kbd>⇧Tab</kbd></button>
+        <button type="button" data-act="indent">→ 下一级<kbd>Tab</kbd></button>
+        <button type="button" data-act="up">↑ 上移</button>
+        <button type="button" data-act="down">↓ 下移</button>
+        <button type="button" data-act="tree">＋ 新思维链</button>
+        <i class="olSep" aria-hidden="true"></i>
+        <button type="button" data-act="undo" title="撤销（⌘/Ctrl+Z）"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.2 6.6h6.3a3.3 3.3 0 0 1 0 6.6H6.1"/><path d="M5.8 3.6 3 6.6l2.8 3"/></svg>撤销</button>
+        <button type="button" data-act="redo" title="重做（⌘/Ctrl+Shift+Z）"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.8 6.6H6.5a3.3 3.3 0 0 0 0 6.6h3.4"/><path d="M10.2 3.6 13 6.6l-2.8 3"/></svg>重做</button>
+      </div>
+      <div class="outline" role="tree" aria-label="创意思维链大纲"></div>
+      <p class="olKeys"></p>
+      <details class="olStore"><summary>存进库里的文字</summary><pre></pre></details>
+    </div>
+    <div class="mmEditorPreview"></div>
+  </div>`;
+  editorEl = frame.querySelector(".mmEditor");
+  olEl = frame.querySelector(".outline");
+  previewEl = frame.querySelector(".mmEditorPreview");
+  storeEl = frame.querySelector(".olStore pre");
+  keysEl = frame.querySelector(".olKeys");
+  sel = null;
+  drag = null;
+  typing = null;
+  outlineHistory.undo = [];
+  outlineHistory.redo = [];
+  syncOutlineHistory();
+  renderOutline(rows.length - 1, Infinity);
+
+  olEl.addEventListener("mousedown", (e) => {
+    const row = e.target.closest(".olRow");
+    if (!row) return;
+    const i = Number(row.dataset.row);
+    if (e.shiftKey) { e.preventDefault(); enterBlock(sel ? sel.anchor : lastRow, i); return; } // Shift+点击：从当前行选到这一行
+    if (sel) exitBlock(); // 单击某一行：退出整节点选择，照常放光标
+    if (!e.target.closest(".olText")) { e.preventDefault(); focusRow(i, Infinity); } // 点在圆点、引导线上也落到这一行
+    drag = { anchor: i };
+  });
+  // 左栏（工具栏、大纲、提示、存库文字）里的空白处不算「点外面」，按下时不让焦点离开；
+  // 点右边的预览或两栏之间，照常算点外面：保存并收起编辑
+  editorEl.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".olPanel") && !e.target.closest("textarea, button, summary, .outline")) e.preventDefault();
+  });
+
+  olEl.addEventListener("focusin", (e) => { const ta = e.target.closest(".olText"); if (ta) lastRow = Number(ta.dataset.i); });
+  olEl.addEventListener("input", (e) => {
+    const ta = e.target.closest(".olText");
+    if (!ta) return;
+    if (ta.value.includes("\n")) ta.value = ta.value.replace(/\n/g, " ");
+    const i = Number(ta.dataset.i);
+    const now = Date.now();
+    if (!typing || typing.row !== i || now - typing.at > 1200) {
+      const caret = Math.max(0, ta.selectionStart - (ta.value.length - rows[i].text.length));
+      pushUndo({ rows: rows.map((r) => ({ ...r })), sel: null, row: i, caret });
+    }
+    typing = { row: i, at: now };
+    rows[i].text = ta.value;
+    grow(ta);
+    syncPreview();
+  });
+  olEl.addEventListener("keydown", (e) => {
+    // ⌘Z / ⇧⌘Z / Ctrl+Y：编辑器开着时撤的是编辑器里的步骤，不往外传给工作台
+    const k = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === "z" || k === "y") && !e.isComposing) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (k === "y" || e.shiftKey) redoOutline(); else undoOutline();
+      return;
+    }
+    if (sel && e.target === olEl) { blockKey(e); return; }
+    const ta = e.target.closest(".olText");
+    if (!ta || e.isComposing || e.keyCode === 229) return; // 输入法组字时的回车是上屏，不接管
+    const i = Number(ta.dataset.i);
+    const s = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (e.key === "Escape") { e.preventDefault(); cancelEdit(); return; }
+    // 选到节点边上再往外扩，就切成整节点选择；整行文字已全选时再按 ⌘A 选中全部节点
+    if (e.shiftKey && !e.altKey && e.key === "ArrowUp" && s === 0 && i > 0) { e.preventDefault(); enterBlock(i, i - 1); return; }
+    if (e.shiftKey && !e.altKey && e.key === "ArrowDown" && end === ta.value.length && i < rows.length - 1) { e.preventDefault(); enterBlock(i, i + 1); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a" && s === 0 && end === ta.value.length) { e.preventDefault(); enterBlock(0, rows.length - 1); return; }
+    if (e.key === "Tab") { e.preventDefault(); mutate(() => (e.shiftKey ? outdent(i, s) : indent(i, s))); return; }
+    if (e.key === "Enter") { e.preventDefault(); mutate(() => enter(i, s, end)); return; }
+    if (e.key === "Backspace" && s === 0 && end === 0) { if (mutate(() => backspace(i))) e.preventDefault(); return; }
+    if (e.altKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); mutate(() => move(i, e.key === "ArrowUp" ? -1 : 1)); return; }
+    if (e.key === "ArrowUp" && s === 0 && end === 0 && i > 0) { e.preventDefault(); focusRow(i - 1, Infinity); return; }
+    if (e.key === "ArrowDown" && s === ta.value.length && end === s && i < rows.length - 1) { e.preventDefault(); focusRow(i + 1, 0); }
+  });
+  olEl.addEventListener("paste", (e) => {
+    if (sel) return; // 整节点选择时由文档级的粘贴处理
+    const ta = e.target.closest(".olText");
+    const text = e.clipboardData?.getData("text/plain") || "";
+    if (!ta || !/\r?\n/.test(text.trim())) return; // 单行照常粘贴
+    e.preventDefault();
+    mutate(() => pasteLines(Number(ta.dataset.i), ta.selectionStart, ta.selectionEnd, text));
+  });
+  const tools = frame.querySelector(".olTools");
+  tools.addEventListener("mousedown", (e) => e.preventDefault()); // 保住当前行的焦点
+  tools.addEventListener("click", (e) => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (!act) return;
+    if (act === "undo") { undoOutline(); return; }
+    if (act === "redo") { redoOutline(); return; }
+    if (sel && act !== "tree") { // 整节点选择时，按钮作用于整个选区
+      mutate(() => {
+        if (act === "indent") blockShift(1);
+        if (act === "outdent") blockShift(-1);
+        if (act === "up") blockMove(-1);
+        if (act === "down") blockMove(1);
+      });
+      return;
+    }
+    if (sel) exitBlock();
+    const i = Math.min(lastRow, rows.length - 1);
+    mutate(() => {
+      if (act === "indent") indent(i);
+      if (act === "outdent") outdent(i);
+      if (act === "up") move(i, -1);
+      if (act === "down") move(i, 1);
+      if (act === "tree") { rows.push({ level: 0, text: "" }); renderOutline(rows.length - 1); }
+    });
+  });
+  // 焦点离开整个编辑区才算「点外面」；大纲重排时焦点会在同一轮里落回新的行
+  editorEl.addEventListener("focusout", () => {
+    setTimeout(() => { if (state.editing && !editorEl.contains(document.activeElement)) finishEdit(); }, 0);
+  });
+}
+function finishEdit() {
+  sel = null;
+  const text = rowsToText(rows);
+  if (text !== before) { // 整次编辑在工作台的撤销里只记一步
+    pageHistory.undo.push({ source: state.source, text: before });
+    pageHistory.redo = [];
+  }
+  state.texts[state.source] = text;
+  state.editing = false;
+  frame.classList.remove("editing");
+  render();
+}
+function cancelEdit() {
+  sel = null;
+  rows = parseRows(before);
+  state.texts[state.source] = before;
+  state.editing = false;
+  frame.classList.remove("editing");
+  render();
+}
+frame.addEventListener("click", () => { if (!state.editing) startEdit(); });
+
+// ---------- 工作台顶栏的撤销 / 重做（示意：只记这个条目；线上沿用工作台现有的那一套） ----------
+const pageHistory = { undo: [], redo: [] };
+function stepPage(from, to) {
+  if (state.editing) finishEdit(); // 点顶栏按钮时编辑器先按「点外面」收起保存
+  const entry = from.pop();
+  if (!entry) return;
+  to.push({ source: entry.source, text: state.texts[entry.source] });
+  state.texts[entry.source] = entry.text;
+  if (state.source !== entry.source) {
+    state.source = entry.source;
+    document.querySelectorAll('.seg[data-ctl="source"] button').forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === state.source)));
+  }
+  render();
+}
+const pageUndo = () => stepPage(pageHistory.undo, pageHistory.redo);
+const pageRedo = () => stepPage(pageHistory.redo, pageHistory.undo);
+function syncPageHistory() {
+  const box = document.getElementById("pageHistory");
+  box.hidden = !(pageHistory.undo.length || pageHistory.redo.length);
+  document.getElementById("pageUndo").disabled = !pageHistory.undo.length;
+  document.getElementById("pageRedo").disabled = !pageHistory.redo.length;
+}
+document.getElementById("pageUndo").addEventListener("click", pageUndo);
+document.getElementById("pageRedo").addEventListener("click", pageRedo);
+// 编辑器外的 ⌘Z 归工作台；输入框里交给浏览器（与 V04StudioClient 现有规则一致）
+window.addEventListener("keydown", (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || state.editing) return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  e.preventDefault();
+  if (e.shiftKey) pageRedo(); else pageUndo();
+});
+
+// ---------- 开关 ----------
+document.querySelectorAll(".seg").forEach((seg) => {
+  const sync = () => seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === state[seg.dataset.ctl])));
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-v]");
+    if (!b) return;
+    state[seg.dataset.ctl] = b.dataset.v;
+    sync();
+    render();
+  });
+  sync();
+});
+const themeBtn = document.getElementById("themeBtn");
+function syncTheme() { themeBtn.textContent = document.documentElement.dataset.theme === "light" ? "切到深色" : "切到浅色"; }
+themeBtn.addEventListener("click", () => {
+  document.documentElement.dataset.theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  syncTheme();
+});
+// 只在宽度变化时重排：重排会改变高度，按高度触发会来回打转
+let lastWidth = 0;
+new ResizeObserver(([entry]) => {
+  const w = Math.round(entry.contentRect.width);
+  if (w === lastWidth) return;
+  lastWidth = w;
+  layoutFlow(frame);
+}).observe(frame);
+
+syncTheme();
+render();
+</script>
+</html>

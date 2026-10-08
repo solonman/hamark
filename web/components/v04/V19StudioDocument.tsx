@@ -25,6 +25,7 @@ import {
 import type { V04VocabularyFieldKey } from "@/lib/v04-vocabulary";
 import V19EditableValue, { V19SystemValue } from "./V19EditableValue";
 import V19ReviewComment from "./V19ReviewComment";
+import V19ThinkingChainField from "./V19ThinkingChainField";
 import V04ChoiceField, { V04ChoiceAdvancedRow, V04ChoiceCustomRow, V04ChoiceOptionsRow } from "./V04ChoiceField";
 import styles from "./V04Surface.module.css";
 
@@ -107,6 +108,8 @@ export type V19StudioDocumentProps = {
   review?: V19StudioReview;
   /** 缺省即不渲染任何集成版专属的锁定／来源展示（只读页与测试用例据此保持原样）。 */
   final?: V19StudioFinalContext;
+  /** 案例标题：旧写法的创意思维链没有中心，流程图用它当默认中心（docs/24 第三节）。 */
+  caseTitle?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -362,6 +365,7 @@ export default function V19StudioDocument({
   onBeforeEdit,
   review,
   final,
+  caseTitle,
 }: V19StudioDocumentProps): JSX.Element {
   const setFactText = (key: "commercialIntent" | "storySummary" | "creativeMotif" | "tensionButton" | "creativeThinkingChain" | "carrierExplanation" | "creativeContract" | "gradeReason") =>
     (value: string) => onChange((next) => { next[key] = value; });
@@ -568,7 +572,14 @@ export default function V19StudioDocument({
     return (
       <section className={styles.readingModule} id="module-1">
         {moduleHeader(1, "MODULE 01", "第一模块｜全片事实与核心判断")}
+        {/*
+          第一模块拆成四段 readingCore（docs/24 第六节，版面方案 A）：创意思维链改成流程图后
+          要通栏，故事参照类型、创意机制、创意手法三张选项卡并成一行三栏，其余各行不动。
+          分段而不是在一个网格里跨列：readingCore 用 nth-child(even) 画中间竖线，
+          中间插一个通栏格子会让后面每一格的左右都错位。
+        */}
         {!collapsed && (
+          <>
           <div className={styles.readingCore}>
             <div id={V04_WORKSPACE_TARGETS.commercialIntent}>
               {labelWithComment("商业意图", V19_FIELD_TARGET_KEYS.facts.commercialIntent)}
@@ -598,13 +609,18 @@ export default function V19StudioDocument({
                 {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.tensionButton)}
                 onCommit={setFactText("tensionButton")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
-            <div id={V04_WORKSPACE_TARGETS.creativeThinkingChain}>
+          </div>
+          <div className={styles.readingCore}>
+            <div id={V04_WORKSPACE_TARGETS.creativeThinkingChain} className={styles.readingWide}>
               {labelWithComment("创意思维链", V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
-              <V19EditableValue kind="textarea" block ariaLabel="创意思维链" value={draft.creativeThinkingChain} readOnly={readOnly}
+              <V19ThinkingChainField ariaLabel="创意思维链" value={draft.creativeThinkingChain} caseTitle={caseTitle} readOnly={readOnly}
                 baseValue={factBaseText(diff, V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
                 {...finalFieldExtras(V19_FIELD_TARGET_KEYS.facts.creativeThinkingChain)}
-                onCommit={setFactText("creativeThinkingChain")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
+                onCommit={setFactText("creativeThinkingChain")} onBeforeEdit={onBeforeEdit} />
             </div>
+          </div>
+          <div className={styles.readingCore}>
+            <div className={`${styles.readingWide} ${styles.readingChoiceRow}`}>
             <div id={V04_WORKSPACE_TARGETS.storyReference}>
               <small>故事参照类型</small>
               <V04ChoiceField label="故事参照类型" value={draft.storyReference} options={V04_UI_STORY_OPTIONS}
@@ -649,6 +665,9 @@ export default function V19StudioDocument({
                 <V04ChoiceCustomRow label="辅助手法" asField value={draft.auxiliaryMechanism} readOnly={readOnly} onChange={setAuxiliaryMechanism} />
               </section>
             </div>
+            </div>
+          </div>
+          <div className={styles.readingCore}>
             <div id={V04_WORKSPACE_TARGETS.carriers}>
               <small>创意承重载体</small>
               {/* 固定三选项的多选，不是自由文本：契约限定最多 3 项且不重复，放开输入
@@ -686,6 +705,7 @@ export default function V19StudioDocument({
                 onCommit={setFactText("creativeContract")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
           </div>
+          </>
         )}
       </section>
     );

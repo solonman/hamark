@@ -245,6 +245,19 @@
 .readingCore { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .readingCore > div { min-width: 0; padding: 18px 22px; border-bottom: 1px solid var(--v04-line); }
 .readingCore > div:nth-child(even) { border-left: 1px solid var(--v04-line); }
+/* 通栏格子（docs/24 版面方案 A）：放在单独一段 readingCore 里，免得打乱 nth-child 的左右竖线 */
+.readingCore > div.readingWide { grid-column: 1 / -1; border-left: 0; }
+/* 故事参照类型｜创意机制｜创意手法三张选项卡并成一行三栏 */
+.readingChoiceRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.readingChoiceRow > div { min-width: 0; padding: 0 18px; }
+.readingChoiceRow > div:first-child { padding-left: 0; }
+.readingChoiceRow > div:last-child { padding-right: 0; }
+.readingChoiceRow > div + div { border-left: 1px solid var(--v04-line); }
+@media (max-width: 920px) {
+  .readingChoiceRow { grid-template-columns: minmax(0, 1fr); }
+  .readingChoiceRow > div { padding: 0; }
+  .readingChoiceRow > div + div { margin-top: 16px; border-left: 0; }
+}
 .cornerTool { position: fixed; z-index: 22; right: 24px; bottom: 24px; border: 1px solid var(--v04-line); border-radius: 999px; background: var(--v04-raised); color: var(--v04-ink); padding: 11px 15px; }
 
 .workspaceStatus { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px clamp(18px, 3vw, 48px); border-bottom: 1px solid var(--v04-line); background: var(--v04-panel-deep); }

@@ -1553,6 +1553,7 @@ export default function V04StudioClient({
           )}
           <V19StudioDocument
             draft={draft}
+            caseTitle={model.case.title}
             diff={diffOn ? diff : null}
             readOnly={readOnly}
             collapsedModules={collapsedModules}

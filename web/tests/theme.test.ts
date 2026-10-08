@@ -92,6 +92,7 @@ test("light palette text colors stay readable on the light page and panel backgr
 test("the V0.4 shell no longer declares its own colours — a local declaration would pin it to dark", async () => {
   for (const path of [
     "components/v04/V04Surface.module.css",
+    "components/v04/V19ThinkingChain.module.css",
     "components/report/library/ReportLibrary.module.css",
     "components/report/studio/ReportStudio.module.css",
     "components/report/studio/deck/ReportDeck.module.css",
@@ -110,6 +111,7 @@ test("the V0.4 shell no longer declares its own colours — a local declaration 
 const ALLOWED_LITERAL_SELECTORS: Record<string, RegExp> = {
   "components/v04/V04Surface.module.css":
     /^\.(existing(CardProjection|WorkStatus|ExpertGrade|CardActions)|poster|posterFallback|posterBrand|videoShell|videoPlaceholder)\b|^\.videoFloating\.videoMinimized \.videoMinButton/,
+  "components/v04/V19ThinkingChain.module.css": /^$/,
   "components/report/library/ReportLibrary.module.css": /^\.cover/,
   "components/report/studio/ReportStudio.module.css": /^$/,
   "components/report/studio/deck/ReportDeck.module.css": /^\.(ovstage|ovbOn|stripCell\w*|readerBody)\b/,

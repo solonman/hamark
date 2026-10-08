@@ -13,6 +13,7 @@ import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V04HistoryDrawer from "./V04HistoryDrawer";
 import V04CommentDrawer from "./V04CommentDrawer";
+import V19ThinkingChainFlow from "./V19ThinkingChainFlow";
 import styles from "./V04Surface.module.css";
 
 const shotGroups: Array<{ className: "readingThree" | "readingTwo" | "readingOne"; keys: Array<keyof V04UiShot> }> = [
@@ -59,13 +60,21 @@ function ReadonlyShots({ draft }: { draft: V04UiDraft }) {
   })}</>;
 }
 
-function ReadonlyCore({ draft }: { draft: V04UiDraft }) {
-  const rows: Array<[string, string, string]> = [
+function ReadonlyCore({ draft, caseTitle }: { draft: V04UiDraft; caseTitle?: string }) {
+  const head: Array<[string, string, string]> = [
     [V04_WORKSPACE_TARGETS.commercialIntent, "商业意图", draft.commercialIntent], [V04_WORKSPACE_TARGETS.storySummary, "故事梗概", draft.storySummary], [V04_WORKSPACE_TARGETS.creativeMotif, "创意母题", draft.creativeMotif], [V04_WORKSPACE_TARGETS.tensionButton, "张力按钮", draft.tensionButton],
-    [V04_WORKSPACE_TARGETS.primaryMechanism, "创意主导手法及机制", choiceText(draft.primaryMechanism, mechanismLabels)], [V04_WORKSPACE_TARGETS.auxiliaryMechanism, "创意辅助手法及机制", choiceText(draft.auxiliaryMechanism, mechanismLabels)], [V04_WORKSPACE_TARGETS.creativeThinkingChain, "创意思维链", draft.creativeThinkingChain], [V04_WORKSPACE_TARGETS.storyReference, "故事参照类型", choiceText(draft.storyReference, storyLabels)],
+  ];
+  const rest: Array<[string, string, string]> = [
+    [V04_WORKSPACE_TARGETS.primaryMechanism, "创意主导手法及机制", choiceText(draft.primaryMechanism, mechanismLabels)], [V04_WORKSPACE_TARGETS.auxiliaryMechanism, "创意辅助手法及机制", choiceText(draft.auxiliaryMechanism, mechanismLabels)], [V04_WORKSPACE_TARGETS.storyReference, "故事参照类型", choiceText(draft.storyReference, storyLabels)],
     [V04_WORKSPACE_TARGETS.carriers, "创意承重载体", draft.carriers.join("、")], [V04_WORKSPACE_TARGETS.carrierExplanation, "创意承重载体具体说明", draft.carrierExplanation], [V04_WORKSPACE_TARGETS.creativeContract, "创意成立契约（隐含情理）", draft.creativeContract], [V04_WORKSPACE_TARGETS.overallGrade, "整体创意评价", draft.overallGrade], [V04_WORKSPACE_TARGETS.gradeReason, "评价理由", draft.gradeReason],
   ];
-  return <div className={styles.readingCore}>{rows.map(([id, label, value]) => <div key={id} id={id}><small>{label}</small><p>{value || "—"}</p></div>)}</div>;
+  const cells = (rows: Array<[string, string, string]>) => rows.map(([id, label, value]) => <div key={id} id={id}><small>{label}</small><p>{value || "—"}</p></div>);
+  // 创意思维链是流程图，要通栏（docs/24 第六节）；单独一段 readingCore，免得打乱左右两格的竖线
+  return <>
+    <div className={styles.readingCore}>{cells(head)}</div>
+    <div className={styles.readingCore}><div id={V04_WORKSPACE_TARGETS.creativeThinkingChain} className={styles.readingWide}><small>创意思维链</small><V19ThinkingChainFlow text={draft.creativeThinkingChain} caseTitle={caseTitle} /></div></div>
+    <div className={styles.readingCore}>{cells(rest)}</div>
+  </>;
 }
 
 export type V04DetailNavigation = { libraryHref: string; detailHref: string; workspaceHref: string; detailLabel?: string; workspaceLabel?: string; compatibilityLinks?: Array<{ href: string; label: string }>; managementHref?: string };
@@ -132,7 +141,7 @@ export default function V04DetailClient({ videoId, viewerName, embedded = false,
     {model.latestSubmission ? <section className={styles.versionContext}><div><small>当前阅读</small><strong>{selectedSubmission ? `提交版 V${selectedSubmission.submissionNumber}` : "—"}</strong><span>{selectedSubmission ? `${selectedSubmission.submittedByName} · ${selectedSubmission.submittedAt}` : ""}</span></div>{model.expertPreferredSubmission && <div className={styles.versionSwitch}><button onClick={() => setVersionView("LATEST")} disabled={versionView === "LATEST"}>最新提交 V{model.latestSubmission.submissionNumber}</button><button onClick={() => setVersionView("EXPERT")} disabled={versionView === "EXPERT"}>专家优选 V{model.expertPreferredSubmission.submissionNumber}</button></div>}</section> : null}
     {!draft ? <section className={styles.emptyState}><p>NO SUBMITTED ANALYSIS</p><h2>尚无已提交成果</h2><p>这个案例还没有公开提交版。可以进入公共工作稿，从脚本反写开始填写。</p><Link href={navigation.workspaceHref}>开始公共工作稿</Link></section> : <div className={styles.readingBody} data-v04-readonly-layout="3-2-1-2-2-2">
       <section className={styles.readingModule}><header><div><small>MODULE 01</small><h2>第一模块｜脚本反写</h2></div><button onClick={() => toggle(1)}>{collapsed.has(1) ? "展开" : "收起"}</button></header>{!collapsed.has(1) && <ReadonlyShots draft={draft} />}</section>
-      <section className={styles.readingModule}><header><div><small>MODULE 02</small><h2>第二模块｜全片事实与核心判断</h2></div><button onClick={() => toggle(2)}>{collapsed.has(2) ? "展开" : "收起"}</button></header>{!collapsed.has(2) && <ReadonlyCore draft={draft} />}</section>
+      <section className={styles.readingModule}><header><div><small>MODULE 02</small><h2>第二模块｜全片事实与核心判断</h2></div><button onClick={() => toggle(2)}>{collapsed.has(2) ? "展开" : "收起"}</button></header>{!collapsed.has(2) && <ReadonlyCore draft={draft} caseTitle={item.title} />}</section>
       <section className={styles.readingModule}><header><div><small>MODULE 03</small><h2>第三模块｜主导感知类型发生路径</h2></div><button onClick={() => toggle(3)}>{collapsed.has(3) ? "展开" : "收起"}</button></header>{!collapsed.has(3) && <div className={styles.readingCore}><div><small>主导路径</small><p>{pathLabels[draft.primaryPath]}</p></div>{draft.primaryPathAnswers[draft.primaryPath].map((value, index) => <div key={index}><small>{V04_UI_PATHS.find((path) => path.id === draft.primaryPath)?.fields[index]}</small><p>{value || "—"}</p></div>)}{draft.auxiliaryPaths.map((path) => <div key={path}><small>辅助路径｜{pathLabels[path]}</small><p>{[draft.auxiliaryPathDetails[path]?.description, draft.auxiliaryPathDetails[path]?.role].filter(Boolean).join(" ｜ ") || "—"}</p></div>)}</div>}</section>
       <section className={styles.readingModule}><header><div><small>MODULE 04</small><h2>第四模块｜提交</h2></div></header><div className={styles.readingCore}><div><small>当前提交版</small><p>{selectedSubmission ? `V${selectedSubmission.submissionNumber} · ${selectedSubmission.submittedAt}` : "—"}</p></div><div><small>工作状态</small><p>{V04_UI_STATE_LABELS[item.workState]}</p></div></div></section>
     </div>}
