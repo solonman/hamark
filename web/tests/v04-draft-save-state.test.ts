@@ -146,17 +146,20 @@ test("SERVER_MATCHES cleanup is fail-closed and keeps the record when removeItem
     setItem: (candidate: string, value: string) => { values.set(candidate, value); },
     removeItem: () => { throw new Error("blocked"); },
   };
+  // 恢复副本 7 天过期：判定时刻要跟记录时间钉在一起，不能跟着真实时钟走。
+  const now = new Date("2026-08-22T12:01:00.000Z");
   const discovered = discoverV04Recoveries(storage, [{
     userId: identity.userId,
     workspaceId: identity.workspaceId,
     roundId: identity.roundId,
     payloadSchemaVersion: identity.payloadSchemaVersion,
-  }], new Date("2026-08-22T12:01:00.000Z"));
+  }], now);
   const resolution = resolveV04InitialRecoveryState({
     discovered,
     server: { revision: 5, hash: "server-5" },
     clearRecord: (candidate) => clearV04Recovery(storage, candidate.identity),
     restoreRecord: (candidate) => writeV04Recovery(storage, candidate),
+    now,
   });
   assert.equal(resolution.kind, "INTEGRITY_BLOCKED");
   assert.equal(resolution.kind === "INTEGRITY_BLOCKED" ? resolution.reason : "", "RECOVERY_CLEANUP_FAILED");
@@ -181,6 +184,7 @@ test("SERVER_MATCHES cleanup permits SAVED only after the final record is remove
     server: { revision: 5, hash: "server-5" },
     clearRecord: () => { values.delete(key); return true; },
     restoreRecord: () => true,
+    now: new Date("2026-08-22T12:01:00.000Z"),
   });
   assert.deepEqual(resolution, { kind: "CLEAN" });
   assert.equal(values.has(key), false);

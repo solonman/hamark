@@ -341,6 +341,7 @@ export function resolveV04InitialRecoveryState<TPayload, TBasePayload = unknown>
   server: { revision: number; hash: string };
   clearRecord: (record: V04RecoveryRecord<TPayload, TBasePayload>) => boolean;
   restoreRecord: (record: V04RecoveryRecord<TPayload, TBasePayload>) => boolean;
+  now?: Date;
 }): V04InitialRecoveryResolution<TPayload, TBasePayload> {
   if (!input.discovered.available) {
     return { kind: "INTEGRITY_BLOCKED", reason: "RECOVERY_STORAGE_UNAVAILABLE", records: [] };
@@ -348,7 +349,7 @@ export function resolveV04InitialRecoveryState<TPayload, TBasePayload = unknown>
   const matching: V04RecoveryRecord<TPayload, TBasePayload>[] = [];
   const pending: Array<{ record: V04RecoveryRecord<TPayload, TBasePayload>; conflict: boolean }> = [];
   for (const record of input.discovered.records) {
-    const decision = decideV04Recovery(record, input.server);
+    const decision = decideV04Recovery(record, input.server, input.now);
     if (decision.kind === "SERVER_MATCHES") matching.push(record);
     else if (decision.kind === "RESTORE_AVAILABLE" || decision.kind === "CONFLICT") {
       pending.push({ record: decision.record, conflict: decision.kind === "CONFLICT" });
