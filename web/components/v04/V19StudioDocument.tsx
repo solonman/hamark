@@ -11,16 +11,26 @@ import { CASE_REVIEW_TARGETS, type CaseReviewComment } from "@/lib/case-review";
 import { cascadeV19Timeline, parseV19TimecodeInput } from "@/lib/v19-timeline";
 import { formatShortDateTime } from "@/lib/date-format";
 import type { V19FinalIntake } from "@/lib/v19-ui-model";
+import type { V19ReviewCandidate } from "@/lib/audio-review-model";
+import type { V19ReviewBasisEntry } from "@/lib/audio-review-ui";
 import {
   deriveV19AuxiliaryPathTrace,
   deriveV19CarrierTrace,
   deriveV19ChoiceFieldTrace,
   deriveV19FinalFieldTrace,
   deriveV19PrimaryDetailTrace,
+  deriveV19ReviewAuxiliaryPathRows,
+  deriveV19ReviewCandidateRows,
+  deriveV19ReviewCarrierRows,
+  deriveV19ReviewChoiceRows,
+  deriveV19ReviewPrimaryDetailRows,
   describeV19FinalTraceHoverSource,
   describeV19FinalTraceRowLabel,
+  describeV19ReviewCandidateLabel,
   firstLineV19TraceValue,
+  isV19ReviewSource,
   type V19FinalTraceHistoryRow,
+  type V19ReviewCandidateRow,
 } from "@/lib/v19-final-trace";
 import type { V04VocabularyFieldKey } from "@/lib/v04-vocabulary";
 import V19EditableValue, { V19SystemValue } from "./V19EditableValue";
@@ -78,6 +88,21 @@ export type V19StudioFinalContext = {
   onAdopt: (intakeId: string) => void;
   /** v1（原稿）的 ownerName — 溯源列表原稿行的「谁写的」，见 V19FinalTraceRows。 */
   originOwnerName: string;
+  /**
+   * 点评版候选（docs/25 六）：溯源视图里按条目挂在「未纳入」之后，一行
+   * 「点评版 vN · 老孙录音点评 · 时间」＋完整写法＋老孙可见的「采纳」。缺省即没有。
+   * 不计入「N 处未纳入」，「全部采纳」也不处理它们。
+   */
+  reviewCandidates?: readonly V19ReviewCandidate[];
+  /** 老孙点「采纳」：把点评版这一处（FIELD 键）的写法写进集成版。 */
+  onAdoptReview?: (reviewVersionId: string, targetKey: string) => void;
+  /** 点评版 id → 点评人显示名，拼进「老孙录音点评」。缺省按「老孙」。 */
+  reviewerNames?: ReadonlyMap<string, string>;
+  /**
+   * 点评版的编号：汇入记录不带版本类型，按编号认出「从点评版采纳来的」写法，
+   * 当前采用、旧写法、hover 来源都写成「v3 老孙录音点评」。
+   */
+  reviewVersionNumbers?: ReadonlySet<number>;
 };
 
 export type V19StudioDocumentProps = {
@@ -110,6 +135,14 @@ export type V19StudioDocumentProps = {
   final?: V19StudioFinalContext;
   /** 案例标题：旧写法的创意思维链没有中心，流程图用它当默认中心（docs/24 第三节）。 */
   caseTitle?: string;
+  /**
+   * 点评版视角下比较开启时传入（docs/25 七、6）：键是提案的细粒度键（普通条目就是
+   * targetKey，主导路径细项是 `path.primaryDetails.<sub>`，辅助路径是
+   * `path.auxiliaryTypes.<TYPE>.description|creativeRole`）。差异标记旁画「依据 意见 N」，
+   * `title` 是意见摘要；当前值已不是提案写法的另标「老孙已手改」。有差异却不在
+   * 提案里的处，只可能是生成后手改出来的，同样标「老孙已手改」。缺省即普通版本的样子。
+   */
+  reviewBasis?: ReadonlyMap<string, V19ReviewBasisEntry>;
 };
 
 // ---------------------------------------------------------------------------
@@ -233,13 +266,14 @@ function carriersBaseText(diff: V19BaseDiff | null, targetKey: string): string |
   return raw.map((item) => CARRIER_LABELS[String(item)] ?? String(item)).join("、");
 }
 
-function ChoiceDiffNote({ diff, targetKey, labels, block = false }: { diff: V19BaseDiff | null; targetKey: string; labels: Record<string, string>; /** 直接放进 `.choiceField` 的 grid 里时置 true：包一层让这一对标签算一个格子，否则那颗 inline-flex 的胶囊会被拉成整行宽。 */ block?: boolean }): JSX.Element | null {
+function ChoiceDiffNote({ diff, targetKey, labels, block = false, badges }: { diff: V19BaseDiff | null; targetKey: string; labels: Record<string, string>; /** 直接放进 `.choiceField` 的 grid 里时置 true：包一层让这一对标签算一个格子，否则那颗 inline-flex 的胶囊会被拉成整行宽。 */ block?: boolean; /** 点评版的「依据 意见 N」，紧跟「已修改」。 */ badges?: ReactNode }): JSX.Element | null {
   if (!diff || !diff.changedFields.has(targetKey)) return null;
   const raw = diff.changedFields.get(targetKey);
   const label = raw && typeof raw === "object" ? choiceValueLabel(raw as V04ChoiceValue, labels) : "";
   const body = (
     <>
       <span className={styles.diffTag} data-v19-diff="changed">已修改</span>
+      {badges}
       <span className={styles.diffBase}>基版：{label || "—"}</span>
     </>
   );
@@ -257,7 +291,7 @@ function formatV19TraceValue(value: unknown): string {
  * 省略号截断），点开换成跟未纳入一样的整段正文。展开状态是这一行自己的本地
  * state——每个摘要行独立记，收起来不影响别的行，也不用往上层传。
  */
-function V19FinalTraceSummaryRow({ row }: { row: V19FinalTraceHistoryRow }): JSX.Element {
+function V19FinalTraceSummaryRow({ row, reviewVersionNumbers }: { row: V19FinalTraceHistoryRow; reviewVersionNumbers?: ReadonlySet<number> }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   return (
     <button
@@ -266,7 +300,7 @@ function V19FinalTraceSummaryRow({ row }: { row: V19FinalTraceHistoryRow }): JSX
       aria-expanded={expanded}
       onClick={() => setExpanded((current) => !current)}
     >
-      <span className={styles.finalTraceSummaryLabel}>{describeV19FinalTraceRowLabel(row)}</span>
+      <span className={styles.finalTraceSummaryLabel}>{describeV19FinalTraceRowLabel(row, reviewVersionNumbers)}</span>
       <span className={styles.finalTraceSummaryPreview}>
         {expanded ? formatV19TraceValue(row.value) : firstLineV19TraceValue(row.value)}
       </span>
@@ -289,21 +323,34 @@ function V19FinalTraceRows({
   pending,
   canAdopt,
   onAdopt,
+  reviewRows = [],
+  onAdoptReview,
+  reviewerNames,
+  reviewVersionNumbers,
 }: {
   currentSourceLabel: string | null;
   overridden: readonly V19FinalTraceHistoryRow[];
   pending: readonly V19FinalTraceHistoryRow[];
   canAdopt: boolean;
   onAdopt: (intakeId: string) => void;
+  /** 点评版候选（docs/25 六），排在未纳入之后。 */
+  reviewRows?: readonly V19ReviewCandidateRow[];
+  onAdoptReview?: (reviewVersionId: string, targetKey: string) => void;
+  reviewerNames?: ReadonlyMap<string, string>;
+  reviewVersionNumbers?: ReadonlySet<number>;
 }): JSX.Element {
   return (
     <div className={styles.finalTrace}>
       {currentSourceLabel && <div className={styles.finalTraceCurrent}>{currentSourceLabel}</div>}
-      {overridden.map((row) => <V19FinalTraceSummaryRow key={row.key} row={row} />)}
+      {overridden.map((row) => <V19FinalTraceSummaryRow key={row.key} row={row} reviewVersionNumbers={reviewVersionNumbers} />)}
       {pending.map((row) => {
         // 未纳入照旧：版本/谁写的/时间/全文/采纳按钮，跟简化前完全一样的拼法。
         const versionTag = row.isOrigin ? "v1" : row.source === "FINAL_DIRECT" ? "集成版" : `v${row.sourceVersionNumber ?? "?"}`;
-        const who = row.isOrigin ? (row.actorName || "原稿") : row.source === "FINAL_DIRECT" ? `${row.actorName}·直接修改` : row.actorName;
+        const who = row.isOrigin
+          ? (row.actorName || "原稿")
+          : row.source === "FINAL_DIRECT"
+            ? `${row.actorName}·直接修改`
+            : isV19ReviewSource(row, reviewVersionNumbers) ? `${row.actorName}录音点评` : row.actorName;
         return (
           <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowPending}`}>
             <span className={styles.finalTraceVersion}>{versionTag}</span>
@@ -314,6 +361,29 @@ function V19FinalTraceRows({
             {canAdopt && row.intakeId && (
               <button type="button" className={styles.finalTraceAdopt} onClick={() => onAdopt(row.intakeId as string)}>
                 采纳这一版
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {reviewRows.map((row) => {
+        const reviewer = reviewerNames?.get(row.reviewVersionId) || "老孙";
+        // 主导路径细项、辅助路径在集成版里是整组一个键：采纳会把这一组都换成点评版的写法。
+        const wholeGroup = row.targetKey === "path.primaryDetails" || row.targetKey === "path.auxiliaryTypes";
+        return (
+          <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowReview}`} data-v19-review-candidate>
+            <span className={styles.finalTraceVersion}>点评版 v{row.reviewVersionNumber}</span>
+            <span className={styles.finalTraceWho}>{reviewer}录音点评</span>
+            {row.updatedAt && <span className={styles.finalTraceTime}>{formatShortDateTime(row.updatedAt)}</span>}
+            <div className={styles.finalTraceValue}>{formatV19TraceValue(row.value)}</div>
+            {canAdopt && onAdoptReview && (
+              <button
+                type="button"
+                className={`${styles.finalTraceAdopt} ${styles.finalTraceAdoptReview}`}
+                title={`把${describeV19ReviewCandidateLabel(row, reviewer)}的写法写进集成版${wholeGroup ? "（这一组细项整组采用）" : ""}`}
+                onClick={() => onAdoptReview(row.reviewVersionId, row.targetKey)}
+              >
+                采纳
               </button>
             )}
           </div>
@@ -366,6 +436,7 @@ export default function V19StudioDocument({
   review,
   final,
   caseTitle,
+  reviewBasis,
 }: V19StudioDocumentProps): JSX.Element {
   const setFactText = (key: "commercialIntent" | "storySummary" | "creativeMotif" | "tensionButton" | "creativeThinkingChain" | "carrierExplanation" | "creativeContract" | "gradeReason") =>
     (value: string) => onChange((next) => { next[key] = value; });
@@ -479,23 +550,51 @@ export default function V19StudioDocument({
       current: V19FinalTraceHistoryRow | null;
     },
     ctx: V19StudioFinalContext,
+    reviewRows: readonly V19ReviewCandidateRow[] = [],
   ): { sourceHint?: string; after?: ReactNode } {
     // 简化规则 4: nothing changed at all — render nothing, same as a plain field.
-    if (!trace.hasTrace) return {};
+    // 点评版候选（docs/25 六）只在溯源视图里出现，有候选时照样要挂出来。
+    if (!trace.hasTrace && !(ctx.traceMode && reviewRows.length > 0)) return {};
     if (ctx.traceMode) {
       return {
         after: (
           <V19FinalTraceRows
-            currentSourceLabel={trace.currentSourceLabel}
+            currentSourceLabel={ctx.reviewVersionNumbers?.size && trace.current
+              ? `当前采用 · ${describeV19FinalTraceRowLabel(trace.current, ctx.reviewVersionNumbers)}`
+              : trace.currentSourceLabel}
             overridden={trace.overridden}
             pending={trace.pending}
             canAdopt={ctx.canAdopt}
             onAdopt={ctx.onAdopt}
+            reviewRows={reviewRows}
+            onAdoptReview={ctx.onAdoptReview}
+            reviewerNames={ctx.reviewerNames}
+            reviewVersionNumbers={ctx.reviewVersionNumbers}
           />
         ),
       };
     }
-    return { sourceHint: describeV19FinalTraceHoverSource(trace.current) };
+    return { sourceHint: describeV19FinalTraceHoverSource(trace.current, ctx.reviewVersionNumbers) };
+  }
+
+  /**
+   * 点评版视角、比较开启时紧跟「已修改」的标记（docs/25 七、6）。`keys` 依次去
+   * `reviewBasis` 里找（细项先找 `path.primaryDetails.<sub>` 再找整组键）；
+   * `changed` 为 false（这一格其实和基版一样）时什么都不画。
+   */
+  function basisBadges(keys: readonly string[], changed = true): ReactNode {
+    if (!reviewBasis || !diff || !changed) return undefined;
+    const entry = keys.map((key) => reviewBasis.get(key)).find((item): item is V19ReviewBasisEntry => Boolean(item));
+    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>老孙已手改</span>;
+    if (!entry) return handEdited;
+    return (
+      <>
+        <span className={styles.reviewBasisTag} title={entry.tip} data-v19-basis={entry.numbers.join(" ")}>
+          依据 意见 {entry.numbers.join("、")}
+        </span>
+        {entry.handEdited && handEdited}
+      </>
+    );
   }
 
   /**
@@ -503,35 +602,45 @@ export default function V19StudioDocument({
    * `final` 时返回 `{}`，正文行为与普通版本完全一样。锁定态（非老孙）两种
    * 视图都要传，让字段始终看得出「这里能点，但点了会被拦下」。
    */
-  function finalFieldExtras(targetKey: string): { locked?: boolean; sourceHint?: string; after?: ReactNode } {
+  function finalFieldExtras(
+    targetKey: string,
+    /** 点评版候选值换成显示值（主导路径类型 id → 中文名）；缺省原样。 */
+    projectReview?: (value: unknown) => unknown,
+  ): { locked?: boolean; sourceHint?: string; after?: ReactNode; diffBadges?: ReactNode } {
+    // 点评版视角的「依据 意见 N」也从这里带出去——与集成版视角互斥，两者不会同时出现。
+    const diffBadges = basisBadges([targetKey]);
     // `locked` must apply purely from being on the final version as a
     // non-老孙 viewer — it must never depend on `finalTrace` having loaded
     // (本机走查 bug fix: that response field is optional server-side, and a
     // missing/slow one must still lock the field, just without a source
     // chain or hover hint to show).
-    if (!final) return {};
+    if (!final) return { diffBadges };
     if (!final.originPayload) return { locked: final.locked };
     const trace = deriveV19FinalFieldTrace(final.originPayload, final.intakes, targetKey, final.originOwnerName);
-    return { locked: final.locked, ...finalTraceRenderProps(trace, final) };
+    const reviewRows = deriveV19ReviewCandidateRows(final.reviewCandidates, targetKey, projectReview);
+    return { locked: final.locked, ...finalTraceRenderProps(trace, final, reviewRows) };
   }
 
   /** 主导路径细项 (spec 五、18 补充): `path.primaryDetails.<detailKey>` — see `deriveV19PrimaryDetailTrace`. */
-  function finalPrimaryDetailExtras(detailKey: string): { locked?: boolean; sourceHint?: string; after?: ReactNode } {
+  function finalPrimaryDetailExtras(detailKey: string, currentValue: string): { locked?: boolean; sourceHint?: string; after?: ReactNode } {
     if (!final) return {};
     if (!final.originPayload) return { locked: final.locked };
     const trace = deriveV19PrimaryDetailTrace(final.originPayload, final.intakes, detailKey, final.originOwnerName);
-    return { locked: final.locked, ...finalTraceRenderProps(trace, final) };
+    const reviewRows = deriveV19ReviewPrimaryDetailRows(final.reviewCandidates, detailKey, currentValue);
+    return { locked: final.locked, ...finalTraceRenderProps(trace, final, reviewRows) };
   }
 
   /** 辅助路径描述／创意作用 (spec 五、18 补充): `path.auxiliaryTypes[type].<field>` — see `deriveV19AuxiliaryPathTrace`. */
   function finalAuxiliaryPathExtras(
     auxType: string,
     field: "description" | "creativeRole",
+    currentValue: string,
   ): { locked?: boolean; sourceHint?: string; after?: ReactNode } {
     if (!final) return {};
     if (!final.originPayload) return { locked: final.locked };
     const trace = deriveV19AuxiliaryPathTrace(final.originPayload, final.intakes, auxType, field, final.originOwnerName);
-    return { locked: final.locked, ...finalTraceRenderProps(trace, final) };
+    const reviewRows = deriveV19ReviewAuxiliaryPathRows(final.reviewCandidates, auxType, field, currentValue);
+    return { locked: final.locked, ...finalTraceRenderProps(trace, final, reviewRows) };
   }
 
   /** 固定选项字段 (spec 五、18 补充): V04ChoiceField 支持的 `after`/`sourceHint` 插槽 — see `deriveV19ChoiceFieldTrace`. */
@@ -542,7 +651,8 @@ export default function V19StudioDocument({
     if (!final) return {};
     if (!final.originPayload) return { locked: final.locked };
     const trace = deriveV19ChoiceFieldTrace(final.originPayload, final.intakes, targetKey, vocabularyField, final.originOwnerName);
-    return { locked: final.locked, ...finalTraceRenderProps(trace, final) };
+    const reviewRows = deriveV19ReviewChoiceRows(final.reviewCandidates, targetKey, vocabularyField);
+    return { locked: final.locked, ...finalTraceRenderProps(trace, final, reviewRows) };
   }
 
   /**
@@ -555,7 +665,7 @@ export default function V19StudioDocument({
   function finalCarrierExtras(): ReactNode {
     if (!final || !final.originPayload) return null;
     const trace = deriveV19CarrierTrace(final.originPayload, final.intakes, final.originOwnerName);
-    return finalTraceRenderProps(trace, final).after ?? null;
+    return finalTraceRenderProps(trace, final, deriveV19ReviewCarrierRows(final.reviewCandidates)).after ?? null;
   }
 
   function moduleHeader(number: number, eyebrow: string, title: string): ReactNode {
@@ -626,7 +736,8 @@ export default function V19StudioDocument({
               <V04ChoiceField label="故事参照类型" value={draft.storyReference} options={V04_UI_STORY_OPTIONS}
                 customLabel="自定义故事参照类型" readOnly={readOnly} onChange={setStoryReference}
                 {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.storyReference, "storyReferenceType")} />
-              <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.storyReference} labels={storyLabels} />
+              <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.storyReference} labels={storyLabels}
+                badges={basisBadges([V19_FIELD_TARGET_KEYS.facts.storyReference])} />
             </div>
             {/*
               「创意机制」与「创意手法」两张卡：底下仍是 primaryMechanism /
@@ -647,7 +758,8 @@ export default function V19StudioDocument({
                   <V04ChoiceAdvancedRow value={draft.primaryMechanism} readOnly={readOnly}
                     targetId={V04_WORKSPACE_TARGETS.primaryMechanismAdvanced} onChange={setPrimaryMechanism} />
                 )}
-                <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.primaryMechanism} labels={mechanismLabels} />
+                <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.primaryMechanism} labels={mechanismLabels}
+                  badges={basisBadges([V19_FIELD_TARGET_KEYS.facts.primaryMechanism])} />
                 <V04ChoiceOptionsRow label="辅助机制" value={draft.auxiliaryMechanism} options={V04_UI_MECHANISM_OPTIONS} multiple
                   triggerId={V04_WORKSPACE_TARGETS.auxiliaryMechanism} readOnly={readOnly} onChange={setAuxiliaryMechanism}
                   {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism, "generalMechanism")} />
@@ -655,7 +767,8 @@ export default function V19StudioDocument({
                   <V04ChoiceAdvancedRow value={draft.auxiliaryMechanism} readOnly={readOnly}
                     targetId={V04_WORKSPACE_TARGETS.auxiliaryMechanismAdvanced} onChange={setAuxiliaryMechanism} />
                 )}
-                <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism} labels={mechanismLabels} />
+                <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism} labels={mechanismLabels}
+                  badges={basisBadges([V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism])} />
               </section>
             </div>
             <div>
@@ -683,6 +796,7 @@ export default function V19StudioDocument({
               {carriersBaseText(diff, V19_FIELD_TARGET_KEYS.facts.carriers) === undefined ? null : (
                 <>
                   <span className={styles.diffTag}>已修改</span>
+                  {basisBadges([V19_FIELD_TARGET_KEYS.facts.carriers])}
                   <span className={styles.diffBase}>
                     基版：{carriersBaseText(diff, V19_FIELD_TARGET_KEYS.facts.carriers) || "—"}
                   </span>
@@ -769,11 +883,13 @@ export default function V19StudioDocument({
             <V04ChoiceField label="桥段主创意作用" value={group.primaryRole} options={V04_UI_BRIDGE_OPTIONS}
               customLabel="自定义主创意作用" readOnly={readOnly} onChange={setBridgePrimaryRole(group.id)}
               {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole"), "bridgeCreativeRole")} />
-            <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole")} labels={bridgeRoleLabels} />
+            <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole")} labels={bridgeRoleLabels}
+              badges={basisBadges([V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole")])} />
             <V04ChoiceField label="桥段辅助创意作用" value={group.auxiliaryRole} options={V04_UI_BRIDGE_OPTIONS} multiple max={3}
               customLabel="自定义辅助创意作用" readOnly={readOnly} onChange={setBridgeAuxiliaryRole(group.id)}
               {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "auxiliaryCreativeRole"), "bridgeCreativeRole")} />
-            <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "auxiliaryCreativeRole")} labels={bridgeRoleLabels} />
+            <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "auxiliaryCreativeRole")} labels={bridgeRoleLabels}
+              badges={basisBadges([V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "auxiliaryCreativeRole")])} />
           </div>
           <div>
             <small>本桥段关键创意描述</small>
@@ -892,27 +1008,41 @@ export default function V19StudioDocument({
                   const raw = diff.changedFields.get(V19_FIELD_TARGET_KEYS.path.primaryType);
                   return raw == null ? "" : pathLabels[String(raw)] ?? String(raw);
                 })()}
-                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.path.primaryType)}
+                {...finalFieldExtras(V19_FIELD_TARGET_KEYS.path.primaryType, (raw) => pathLabels[String(raw)] ?? raw)}
                 onCommit={setPrimaryPath} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
             </div>
-            {draft.primaryPathAnswers[path].map((value, index) => (
-              <div key={index}>
-                <small>
-                  {pathFieldLabels[index]}
-                  {commentAnchor(CASE_REVIEW_TARGETS.primaryPathDetail(path, index), pathFieldLabels[index] ?? "主导路径细项")}
-                </small>
-                {/* 后端把这一路径下全部细项合并存成一条 path.primaryDetails 汇入记录
-                    （值是 { <detailKey>: string }），deriveV19PrimaryDetailTrace
-                    按 detailKey 从每条记录里单独抽一次再走通用的合并/展示规则。 */}
-                <V19EditableValue kind="textarea" block ariaLabel={pathFieldLabels[index] ?? "主导路径细项"} value={value} readOnly={readOnly}
-                  baseValue={basePrimaryDetails ? (basePrimaryDetails[PRIMARY_PATH_DETAIL_KEYS[path][index]] ?? "") : undefined}
-                  {...finalPrimaryDetailExtras(PRIMARY_PATH_DETAIL_KEYS[path][index])}
-                  onCommit={setPrimaryPathAnswer(path, index)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
-              </div>
-            ))}
+            {draft.primaryPathAnswers[path].map((value, index) => {
+              const detailKey = PRIMARY_PATH_DETAIL_KEYS[path][index];
+              // 细项合并存成一个 path.primaryDetails：整组有差异时只标真正变了的那几格，
+              // 没变的格子不挂「已修改」（否则比较的计数会把没动过的细项也算进去）。
+              const detailBase = basePrimaryDetails ? (basePrimaryDetails[detailKey] ?? "") : undefined;
+              const detailChanged = detailBase !== undefined && detailBase.trim() !== value.trim();
+              return (
+                <div key={index}>
+                  <small>
+                    {pathFieldLabels[index]}
+                    {commentAnchor(CASE_REVIEW_TARGETS.primaryPathDetail(path, index), pathFieldLabels[index] ?? "主导路径细项")}
+                  </small>
+                  {/* 后端把这一路径下全部细项合并存成一条 path.primaryDetails 汇入记录
+                      （值是 { <detailKey>: string }），deriveV19PrimaryDetailTrace
+                      按 detailKey 从每条记录里单独抽一次再走通用的合并/展示规则。 */}
+                  <V19EditableValue kind="textarea" block ariaLabel={pathFieldLabels[index] ?? "主导路径细项"} value={value} readOnly={readOnly}
+                    baseValue={detailChanged ? detailBase : undefined}
+                    diffBadges={basisBadges([`${V19_FIELD_TARGET_KEYS.path.primaryDetails}.${detailKey}`, V19_FIELD_TARGET_KEYS.path.primaryDetails], detailChanged)}
+                    {...finalPrimaryDetailExtras(detailKey, value)}
+                    onCommit={setPrimaryPathAnswer(path, index)} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
+                </div>
+              );
+            })}
             {draft.auxiliaryPaths.map((auxPath) => {
               const detail = draft.auxiliaryPathDetails[auxPath] ?? { description: "", role: "" };
               const baseEntry = baseAuxiliaryTypes?.find((item) => item.type === auxPath);
+              // 同细项：辅助路径整张表是一个键，只标真正变了的那一格。
+              const baseDescription = baseAuxiliaryTypes ? (baseEntry?.description ?? "") : undefined;
+              const baseRole = baseAuxiliaryTypes ? (baseEntry?.creativeRole ?? "") : undefined;
+              const descriptionChanged = baseDescription !== undefined && baseDescription.trim() !== detail.description.trim();
+              const roleChanged = baseRole !== undefined && baseRole.trim() !== detail.role.trim();
+              const auxKey = V19_FIELD_TARGET_KEYS.path.auxiliaryTypes;
               return (
                 <div key={auxPath}>
                   <small>
@@ -922,12 +1052,14 @@ export default function V19StudioDocument({
                   {/* 同上：path.auxiliaryTypes 是一条合并的结构记录（[{type, description,
                       creativeRole}]），deriveV19AuxiliaryPathTrace 按 (type, 字段) 单独抽一次。 */}
                   <V19EditableValue kind="textarea" block ariaLabel={`辅助路径描述｜${pathLabels[auxPath]}`} value={detail.description} readOnly={readOnly}
-                    baseValue={baseAuxiliaryTypes ? (baseEntry?.description ?? "") : undefined}
-                    {...finalAuxiliaryPathExtras(auxPath, "description")}
+                    baseValue={descriptionChanged ? baseDescription : undefined}
+                    diffBadges={basisBadges([`${auxKey}.${auxPath}.description`, auxKey], descriptionChanged)}
+                    {...finalAuxiliaryPathExtras(auxPath, "description", detail.description)}
                     onCommit={setAuxiliaryPathDetail(auxPath, "description")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
                   <V19EditableValue kind="textarea" block ariaLabel={`辅助路径创意作用｜${pathLabels[auxPath]}`} value={detail.role} readOnly={readOnly}
-                    baseValue={baseAuxiliaryTypes ? (baseEntry?.creativeRole ?? "") : undefined}
-                    {...finalAuxiliaryPathExtras(auxPath, "creativeRole")}
+                    baseValue={roleChanged ? baseRole : undefined}
+                    diffBadges={basisBadges([`${auxKey}.${auxPath}.creativeRole`, auxKey], roleChanged)}
+                    {...finalAuxiliaryPathExtras(auxPath, "creativeRole", detail.role)}
                     onCommit={setAuxiliaryPathDetail(auxPath, "role")} onInvalid={onInvalid} onBeforeEdit={onBeforeEdit} />
                 </div>
               );

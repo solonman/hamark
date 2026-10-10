@@ -140,7 +140,7 @@ test("source: finalContext's trace fields degrade to null/empty instead of requi
 
 test("source: interceptForeignEdit toasts the exact spec 五、16 message for a blocked final-version edit, and never redirects it", () => {
   const guardMatch = source.match(
-    /const interceptForeignEdit = useCallback\(\(\): boolean => \{([\s\S]*?)\n {2}\}, \[switchToVersion, pushToast\]\);/,
+    /const interceptForeignEdit = useCallback\(\(\): boolean => \{([\s\S]*?)\n {2}\}, \[switchToVersion, pushToast, viewerUserId\]\);/,
   );
   assert.ok(guardMatch, "expected to find interceptForeignEdit");
   const body = guardMatch[1];
@@ -501,4 +501,85 @@ test("style: the studio header's grid yields its middle (title) column first, so
     cssSource,
     /\.surface\[data-v04-page="studio"\] \[data-v04-fixed-header\] \{\s*\n\s*grid-template-columns: auto minmax\(0, 1fr\) auto;\s*\n\s*\}/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// 录音点评改写（docs/25 五、3 / 二、5 / 二、8 / 七）
+// ---------------------------------------------------------------------------
+
+type GuardCurrent = Parameters<typeof resolveV19EditGuard>[0];
+const reviewVersion: GuardCurrent = { isMine: false, kind: "AUDIO_REVIEW", ownerUserId: "u-sun" };
+
+test("resolveV19EditGuard：点评版的归属人（老孙）直接编辑点评版本身，即使他另有个人版本也不被切走", () => {
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, null, true, "u-sun"), { action: "PROCEED" });
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-sun-personal", true, "u-sun"), { action: "PROCEED" });
+});
+
+test("resolveV19EditGuard：其他人在点评版上动手照改别人版本的规则——有自己的版本就切回，没有就照常编辑（服务端以点评版为底新建）", () => {
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-wang", true, "u-wang"), { action: "SWITCH_TO_OWN", versionId: "ver-wang" });
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, null, true, "u-chen"), { action: "PROCEED" });
+  // 没传看的人是谁（旧调用）：不会误认成归属人
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-wang"), { action: "SWITCH_TO_OWN", versionId: "ver-wang" });
+});
+
+test("resolveV19EditGuard：个人版本的规则不受点评版分支影响", () => {
+  assert.deepEqual(resolveV19EditGuard({ isMine: false, kind: "PERSONAL", ownerUserId: "u-sun" }, "ver-sun", true, "u-sun"),
+    { action: "SWITCH_TO_OWN", versionId: "ver-sun" }, "个人版本仍以 isMine 为准，ownerUserId 不参与");
+});
+
+test("buildV19VersionTree：点评版挂在被点评版本下面，同一层里排在其他派生版本前面", () => {
+  const summary = (id: string, number: number, baseNumber: number | null, kind: "PERSONAL" | "AUDIO_REVIEW" = "PERSONAL") => ({
+    id, number, ownerUserId: "u", ownerName: "x", baseNumber, createdAt: "", updatedAt: "", isMine: false, isVirtual: false,
+    baseIsFinal: false, kind, audioReviewId: kind === "AUDIO_REVIEW" ? "arv" : null,
+  });
+  const rows = buildV19VersionTree([
+    summary("v1", 1, null), summary("v2", 2, 1), summary("v3", 3, 1, "AUDIO_REVIEW"), summary("v4", 4, 3),
+  ]);
+  assert.deepEqual(rows.map((row) => [row.version.id, row.depth]), [["v1", 0], ["v3", 1], ["v4", 2], ["v2", 1]]);
+});
+
+test("source: 写进点评版的保存不把 current 改成「我的版本」、不动 myVersionId、不弹集成版汇入提示", () => {
+  assert.match(source, /const savedIntoReview = !isFinalSave && \(response\.versionKind === "AUDIO_REVIEW"/);
+  const reviewBranch = source.match(/: savedIntoReview \? \{([\s\S]*?)\n {8}\}\n {8}: \{/);
+  assert.ok(reviewBranch, "expected a dedicated savedIntoReview branch for nextCurrent");
+  assert.match(reviewBranch[1], /isMine: false,/);
+  assert.match(reviewBranch[1], /kind: "AUDIO_REVIEW",/);
+  assert.match(source, /myVersionId: isFinalSave \|\| savedIntoReview \? latest\.myVersionId : \(latest\.myVersionId \?\? response\.versionId\),/);
+  assert.match(source, /if \(savedIntoReview\) \{[\s\S]*?\} else if \(!isFinalSave\) \{\s*\n\s*if \(createdVersion\) \{/,
+    "the createdVersion and finalIntake toasts live only in the personal-version branch");
+  // 从点评版上动手的其他人新建的是个人版本：current 的类型要换回 PERSONAL
+  assert.match(source, /kind: "PERSONAL",\s*\n\s*audioReviewId: null,/);
+});
+
+test("source: 点评版与集成版一样不渲染评分组件", () => {
+  assert.match(source, /\{!isFinalVersionView && !isReviewVersionView && review\.canRate && \(/);
+});
+
+test("source: 「最新修改」不含点评版", () => {
+  assert.match(source, /model\.versions\.filter\(\(version\) => version\.kind !== "AUDIO_REVIEW"\)/);
+});
+
+test("source: 点评录音入口在页头里、版本胶囊之前", () => {
+  const utilitiesBlock = source.slice(
+    source.indexOf("<div className={styles.siteUtilities}>"),
+    source.indexOf("<div className={styles.versionSplit}>"),
+  );
+  assert.match(utilitiesBlock, /<V19AudioReviewEntry/);
+});
+
+test("source: 从入口、提示条、生成后、版本菜单进入点评版都打开比较", () => {
+  assert.match(source, /void switchToVersion\(reviewVersionId, \{ compare: true \}\);/, "入口与提示条（openAudioReviewVersion）");
+  assert.match(source, /if \(reviewVersionId\) await switchToVersion\(reviewVersionId, \{ compare: true \}\);/, "生成之后");
+  assert.match(source, /void switchToVersion\(versionId, \{ compare: entering\?\.kind === "AUDIO_REVIEW" \}\);/, "版本菜单");
+});
+
+test("source: 集成版溯源的点评版候选从 finalTrace 带进正文，采纳走 ADOPT_REVIEW、一次一处", () => {
+  assert.match(source, /reviewCandidates: model\.finalTrace\?\.reviewCandidates \?\? \[\],/);
+  assert.match(source, /runFinalAction\(\{ action: "ADOPT_REVIEW", reviewVersionId, targetKeys: \[targetKey\] \}\)/);
+});
+
+test("style: 点评相关的按钮都挂在 .surface 下（(0,2,0)），不被 .surface button{font:inherit} 压回 14px", () => {
+  for (const name of ["reviewGhostButton", "reviewPrimaryButton", "reviewEntryButton", "reviewEntryChip", "reviewAudioPlay", "reviewTime", "reviewJump", "reviewDrawerClose", "finalTraceAdoptReview"]) {
+    assert.match(cssSource, new RegExp(`\\.surface \\.${name}[ ,{:]`), `${name} must be scoped under .surface`);
+  }
 });

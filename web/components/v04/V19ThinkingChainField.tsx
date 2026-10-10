@@ -23,6 +23,7 @@ export default function V19ThinkingChainField({
   locked = false,
   sourceHint,
   after,
+  diffBadges,
   baseValue,
   onBeforeEdit,
   onCommit,
@@ -34,6 +35,8 @@ export default function V19ThinkingChainField({
   locked?: boolean;
   sourceHint?: string;
   after?: ReactNode;
+  /** 「已修改」旁的附加标记（点评版的「依据 意见 N」），同 V19EditableValue。 */
+  diffBadges?: ReactNode;
   baseValue?: string | null;
   onBeforeEdit?: () => boolean;
   onCommit: (next: string) => void;
@@ -62,6 +65,7 @@ export default function V19ThinkingChainField({
   const diffMarkup = baseValue == null ? null : (
     <>
       <span className={surface.diffTag} data-v19-diff="changed">已修改</span>
+      {diffBadges}
       <span className={`${surface.diffBase} ${styles.fieldDiffBase}`}>基版：{baseValue.trim() || "—"}</span>
     </>
   );

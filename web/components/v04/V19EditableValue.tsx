@@ -37,6 +37,11 @@ export type V19EditableProps = {
   sourceHint?: string;
   /** Rendered after the value/diff markup — the 溯源 view's per-field source chain (spec 五、18). */
   after?: ReactNode;
+  /**
+   * Extra badges drawn right after the 「已修改」 diff tag, only while that tag
+   * is shown — the review version's 「依据 意见 N」/「老孙已手改」 (docs/25 七、6).
+   */
+  diffBadges?: ReactNode;
   /** Vetoes opening the editor. Returning false leaves the value untouched. */
   onBeforeEdit?: () => boolean;
   ariaLabel: string;
@@ -111,6 +116,7 @@ export default function V19EditableValue({
   locked = false,
   sourceHint,
   after,
+  diffBadges,
   onBeforeEdit,
   ariaLabel,
   id,
@@ -183,6 +189,7 @@ export default function V19EditableValue({
     return (
       <>
         <span className={styles.diffTag} data-v19-diff="changed">已修改</span>
+        {diffBadges}
         <span className={styles.diffBase}>基版：{baseDisplay}</span>
       </>
     );

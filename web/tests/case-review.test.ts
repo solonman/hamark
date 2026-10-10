@@ -170,11 +170,11 @@ test("the studio anchors both the rating and the comments to the version being v
   // guards it below — the label expression is shared/tested for correctness
   // regardless, per the local walkthrough that flagged every such spot).
   assert.match(studio, /<V19AssignmentRating[\s\S]*versionLabel=\{`\$\{formatV19CurrentVersionShortLabel\(model\.current\)\} · \$\{model\.current\.ownerName\}`\}/);
-  // 评分摆在正文之后：读完整份作业才谈得上给分。集成版不评分——`isFinalVersionView`
-  // 与 `review.canRate` 任一为假都不渲染评分组件。
+  // 评分摆在正文之后：读完整份作业才谈得上给分。集成版、点评版（docs/25 二、8）不评分——
+  // `isFinalVersionView`、`isReviewVersionView` 与 `review.canRate` 任一不满足都不渲染评分组件。
   assert.match(
     studio,
-    /<V19StudioDocument[\s\S]*\/>\s*\{\/\*[\s\S]*?\*\/\}\s*\{!isFinalVersionView && review\.canRate && \(\s*<V19AssignmentRating/,
+    /<V19StudioDocument[\s\S]*\/>\s*\{\/\*[\s\S]*?\*\/\}\s*\{!isFinalVersionView && !isReviewVersionView && review\.canRate && \(\s*<V19AssignmentRating/,
   );
   // 不能评分、又还没有评分时，整条评分栏不该出现——一排空星星对读者只是噪音。
   assert.match(rating, /if \(!canReview && stars == null\) return null;/);
