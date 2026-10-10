@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>反写工作台 · 录音点评改写</title>
+<style>
+/* 配色只用 --v04-*，两套值照抄 web/app/globals.css（深色 :root、浅色 [data-theme=light]） */
+:root{
+  --v04-scheme:dark;
+  --v04-gutter:#090a08; --v04-sunken:#0f100e; --v04-bg:#10110f;
+  --v04-panel-deep:#151612; --v04-panel:#171815; --v04-panel-rgb:23 24 21; --v04-panel-alt:#1c1d19;
+  --v04-raised:#20211d; --v04-raised-2:#2e302a;
+  --v04-ink:#e6e7df; --v04-ink-soft:#d4d6cd; --v04-ink-dim:#b9bbb2; --v04-muted:#92958b; --v04-faint:#8b8e83;
+  --v04-subject:#c7aa72; --v04-subject-rgb:199 170 114;
+  --v04-line:rgba(255,255,255,.12); --v04-line-strong:#36382f; --v04-fg-rgb:255 255 255;
+  --v04-accent:#dfff4f; --v04-accent-rgb:223 255 79; --v04-accent-fill:#dfff4f; --v04-on-accent:#10110f; --v04-accent-surface:#202219;
+  --v04-warn:#ffae78; --v04-warn-rgb:255 174 120; --v04-danger:#ff9a9a; --v04-danger-rgb:255 122 122;
+  --v04-scrim:rgba(6,7,6,.86);
+  --v04-shadow-rgb:0 0 0; --v04-shadow-strength:1;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+:root[data-theme="light"]{
+  --v04-scheme:light;
+  --v04-gutter:#e9e5da; --v04-sunken:#ffffff; --v04-bg:#f3f0e8;
+  --v04-panel-deep:#f7f5ef; --v04-panel:#fbfaf6; --v04-panel-rgb:251 250 246; --v04-panel-alt:#f4f1ea;
+  --v04-raised:#ece8de; --v04-raised-2:#e0dccf;
+  --v04-ink:#1a1b16; --v04-ink-soft:#2e3029; --v04-ink-dim:#484a42; --v04-muted:#63655c; --v04-faint:#6d6e67;
+  --v04-subject:#7d5f24; --v04-subject-rgb:125 95 36;
+  --v04-line:rgba(26,27,22,.13); --v04-line-strong:#d3cfc3; --v04-fg-rgb:26 27 22;
+  --v04-accent:#536118; --v04-accent-rgb:83 97 24; --v04-accent-fill:#dfff4f; --v04-on-accent:#10110f; --v04-accent-surface:#f1f4dd;
+  --v04-warn:#ab4f1a; --v04-warn-rgb:171 79 26; --v04-danger:#b3261e; --v04-danger-rgb:179 38 30;
+  --v04-scrim:rgba(33,31,24,.42);
+  --v04-shadow-rgb:38 32 18; --v04-shadow-strength:.32;
+}
+*{box-sizing:border-box}
+html{color-scheme:var(--v04-scheme)}
+body{margin:0;background:var(--v04-bg);color:var(--v04-ink);font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased}
+body.locked{overflow:hidden}
+button,input,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:disabled{cursor:default}
+:focus-visible{outline:2px solid var(--v04-accent);outline-offset:3px}
+.mono{font-family:var(--mono)}
+
+/* ---------- 顶栏（示意，与线上工作台同一排布） ---------- */
+.topbar{position:sticky;top:0;z-index:40;border-bottom:1px solid var(--v04-line);background:rgb(var(--v04-panel-rgb) / .96);backdrop-filter:blur(18px)}
+.topbar-in{max-width:1440px;margin:0 auto;min-height:64px;padding:8px clamp(16px,3vw,40px);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{display:inline-flex;align-items:baseline;gap:6px;white-space:nowrap}
+.brand b{color:var(--v04-accent);font-size:22px;letter-spacing:-.08em}
+.brand span{font-weight:900;letter-spacing:-.05em}
+.brand small{color:var(--v04-muted);font-size:9px;letter-spacing:.15em}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--v04-line);border-radius:999px;padding:6px 12px;font-size:12px;white-space:nowrap}
+.case-title{display:flex;align-items:baseline;gap:12px;margin-right:auto;min-width:0}
+.case-title b{font-size:17px}
+.case-title small{color:var(--v04-muted);font-size:11px;white-space:nowrap}
+.utils{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.theme-btn{border:1px solid var(--v04-line);border-radius:999px;padding:6px 12px;font-size:11px;color:var(--v04-muted)}
+.theme-btn:hover{border-color:rgb(var(--v04-accent-rgb) / .5);color:var(--v04-accent)}
+
+/* 版本胶囊 + 比较（同 V04Surface .versionSplit / .versionSegment / .compareSegment） */
+.versionSplit{display:inline-flex;flex:none;align-items:stretch;border:1px solid var(--v04-line);border-radius:999px;background:var(--v04-panel)}
+.versionSplitAnchor{position:relative;display:inline-flex}
+.versionSplitDivider{width:1px;align-self:stretch;margin:6px 0;background:var(--v04-line)}
+.versionSegment{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 9px 0 14px;border-radius:999px 0 0 999px;color:var(--v04-ink);white-space:nowrap}
+.versionSplit>.versionSplitAnchor:last-child .versionSegment{padding-right:14px;border-radius:999px}
+.versionSegment:hover{background:rgb(var(--v04-accent-rgb) / .08)}
+.versionNum{color:var(--v04-accent);font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:-.02em}
+.versionOwner{color:var(--v04-ink);font-size:11.5px}
+.versionBase{color:var(--v04-muted);font-family:var(--mono);font-size:10.5px}
+.versionCaret{color:var(--v04-muted);font-size:9px}
+.compareSegment{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:0 999px 999px 0;color:var(--v04-muted);font-size:11.5px;white-space:nowrap}
+.compareSegment:hover{color:var(--v04-accent);background:rgb(var(--v04-accent-rgb) / .08)}
+.compareSegment.on{background:rgb(var(--v04-accent-rgb) / .14);color:var(--v04-accent)}
+.diffNav{display:inline-flex;flex:none;align-items:center;gap:1px;padding-right:5px}
+.diffNav button{display:grid;width:24px;height:34px;place-items:center;border-radius:999px;color:var(--v04-muted);font-size:15px;line-height:1}
+.diffNav button:hover{color:var(--v04-accent);background:rgb(var(--v04-accent-rgb) / .1)}
+.diffCount{min-width:34px;color:var(--v04-accent);font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums;text-align:center}
+.versionPanel{position:absolute;right:0;top:calc(100% + 10px);z-index:60;width:450px;max-width:92vw;padding:16px;border:1px solid var(--v04-line);border-radius:14px;background:var(--v04-panel);box-shadow:0 20px 70px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)))}
+.versionPanel h4{margin:0 0 10px;color:var(--v04-muted);font-size:11px;font-weight:500;line-height:1.6}
+.versionRow{display:flex;align-items:center;gap:9px;padding:8px;border-radius:9px;cursor:pointer}
+.versionRow:hover{background:var(--v04-raised)}
+.versionRowCurrent{background:rgb(var(--v04-accent-rgb) / .08)}
+.versionNumber{flex:none;color:var(--v04-accent);font-family:var(--mono);font-weight:700}
+.versionMeta{overflow:hidden;min-width:0;color:var(--v04-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.versionTime{flex:none;margin-left:auto;color:var(--v04-muted);font-family:var(--mono);font-size:10px}
+.versionMine{flex:none;border-radius:999px;padding:2px 7px;color:var(--v04-ink);background:var(--v04-raised-2);font-size:9px;font-weight:800}
+.versionLatest{flex:none;border:1px solid rgb(var(--v04-accent-rgb) / .4);border-radius:999px;padding:1px 7px;color:var(--v04-accent);font-size:9px;font-weight:800}
+.versionDesc{display:block;flex-basis:100%;color:var(--v04-muted);font-size:10px;line-height:1.6}
+.versionRowWrap{flex-wrap:wrap}
+.versionNote{margin:10px 0 0;color:var(--v04-muted);font-size:10px;line-height:1.7;opacity:.8}
+.finalStatusPill{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--v04-line);border-radius:999px;padding:1px 8px;color:var(--v04-muted);font-size:9.5px}
+.finalStatusPill i{width:6px;height:6px;border-radius:50%;background:var(--v04-muted)}
+/* 点评版的专属标记：用主题色描边小胶囊，和「我的」「最新修改」同一套尺寸 */
+.reviewTag{flex:none;display:inline-flex;align-items:center;gap:4px;border:1px solid rgb(var(--v04-subject-rgb) / .6);border-radius:999px;padding:1px 7px;color:var(--v04-subject);font-size:9.5px;font-weight:800;white-space:nowrap}
+.reviewTag svg{width:10px;height:10px}
+
+/* ---------- 新增：老孙的点评录音入口（页头右侧，版本胶囊之前） ---------- */
+.reviewBtn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1px solid rgb(var(--v04-accent-rgb) / .45);border-radius:999px;color:var(--v04-accent);font-size:12px;white-space:nowrap}
+.reviewBtn:hover{background:rgb(var(--v04-accent-rgb) / .1)}
+.reviewBtn svg,.reviewChip svg{width:15px;height:15px;flex:none}
+.reviewWrap{position:relative;display:inline-flex}
+.reviewChip{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border:1px solid var(--v04-line);border-radius:999px;color:var(--v04-ink-dim);font-size:12px;white-space:nowrap}
+.reviewChip:hover{border-color:rgb(var(--v04-accent-rgb) / .45)}
+.reviewChip.pending{border-color:transparent;background:var(--v04-accent-fill);color:var(--v04-on-accent);font-weight:700}
+.reviewChip.pending:hover{filter:brightness(1.05)}
+.reviewChip.failed{border-color:rgb(var(--v04-warn-rgb) / .55);color:var(--v04-warn)}
+.reviewChip b{font-family:var(--mono);font-weight:700}
+.spin{width:13px;height:13px;flex:none;border:2px solid rgb(var(--v04-accent-rgb) / .25);border-top-color:var(--v04-accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.reviewPop{position:absolute;right:0;top:calc(100% + 10px);z-index:60;width:330px;max-width:92vw;padding:14px 16px;border:1px solid var(--v04-line);border-radius:14px;background:var(--v04-panel);box-shadow:0 20px 70px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)));font-size:12px}
+.reviewPop h4{margin:0 0 4px;font-size:12.5px}
+.reviewPop p{margin:0 0 10px;color:var(--v04-muted);font-size:11px;line-height:1.6}
+.steps{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:7px}
+.steps li{display:flex;align-items:center;gap:9px;color:var(--v04-muted)}
+.steps li i{display:grid;place-items:center;width:16px;height:16px;flex:none;border:1px solid var(--v04-line);border-radius:50%;font-style:normal;font-size:9px}
+.steps li.done{color:var(--v04-ink-soft)}
+.steps li.done i{border-color:transparent;background:rgb(var(--v04-accent-rgb) / .18);color:var(--v04-accent)}
+.steps li.doing{color:var(--v04-ink);font-weight:700}
+.steps li.doing i{border:2px solid rgb(var(--v04-accent-rgb) / .25);border-top-color:var(--v04-accent);animation:spin .8s linear infinite}
+.steps li.fail{color:var(--v04-warn);font-weight:700}
+.steps li.fail i{border-color:rgb(var(--v04-warn-rgb) / .6);color:var(--v04-warn)}
+.steps small{margin-left:auto;color:var(--v04-muted);font-family:var(--mono);font-size:10px;font-weight:400}
+.popActions{display:flex;justify-content:flex-end;gap:8px}
+.ghostBtn{border:1px solid var(--v04-line);border-radius:999px;padding:6px 13px;color:var(--v04-ink);font-size:11.5px;white-space:nowrap}
+.ghostBtn:hover{border-color:rgb(var(--v04-accent-rgb) / .5);color:var(--v04-accent)}
+.ghostBtn.danger:hover{border-color:rgb(var(--v04-danger-rgb) / .6);color:var(--v04-danger)}
+.primaryBtn{border-radius:999px;padding:7px 16px;background:var(--v04-accent-fill);color:var(--v04-on-accent);font-size:12px;font-weight:800;white-space:nowrap}
+.primaryBtn:hover:not(:disabled){filter:brightness(1.05)}
+.primaryBtn:disabled{opacity:.4}
+
+/* ---------- 版面 ---------- */
+.app{max-width:1440px;margin:0 auto;display:grid;grid-template-columns:220px minmax(0,1fr);gap:0 22px;padding:20px clamp(16px,3vw,40px) 120px;align-items:start}
+@media (max-width:960px){.app{grid-template-columns:minmax(0,1fr)}.nav{display:none}}
+.nav{position:sticky;top:84px;border:1px solid var(--v04-line);border-radius:16px;background:var(--v04-panel);padding:12px 10px;font-size:12px}
+.nav a{display:block;padding:6px 10px;border-radius:7px;color:var(--v04-muted);font-size:12px;text-decoration:none}
+.nav a:hover{color:var(--v04-accent)}
+.nav a.sub{padding-left:21px;font-size:11px}
+.main{min-width:0}
+
+/* ---------- demo 说明与开关 ---------- */
+.notice{border:1px solid rgb(var(--v04-accent-rgb) / .38);border-radius:14px;background:var(--v04-accent-surface);padding:14px 18px;margin-bottom:22px}
+.notice h3{margin:0 0 8px;font-size:13px}
+.notice ul{margin:0 0 12px;padding-left:18px;color:var(--v04-muted);font-size:12px;line-height:1.85}
+.notice b{color:var(--v04-ink)}
+.notice details{margin:-4px 0 12px;color:var(--v04-muted);font-size:12px}
+.notice summary{cursor:pointer;color:var(--v04-ink-dim)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center}
+.ctl{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--v04-muted);flex-wrap:wrap}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--v04-line);border-radius:18px;padding:3px;background:var(--v04-panel)}
+.seg button{border-radius:999px;padding:5px 12px;font-size:11.5px;color:var(--v04-muted);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--v04-raised);color:var(--v04-ink);font-weight:700}
+.seg button:not([aria-pressed="true"]):hover{color:var(--v04-accent)}
+
+/* 视频区：深色岛（示意） */
+.video{display:grid;place-items:center;height:220px;margin-bottom:18px;border-radius:18px;background:#0b0c0a;color:#8b8e83;font-size:12px;letter-spacing:.1em}
+
+/* 原版本页上的提示条：这一版有点评版 */
+.hasReview{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-4px 0 18px;padding:10px 16px;border:1px solid rgb(var(--v04-subject-rgb) / .4);border-radius:12px;background:var(--v04-panel);font-size:12.5px}
+.hasReview svg{width:16px;height:16px;flex:none;color:var(--v04-subject)}
+.hasReview span{color:var(--v04-ink-dim)}
+.hasReview button{margin-left:auto}
+
+/* ---------- 阅读模块（同 V04Surface readingModule / readingCore） ---------- */
+.readingModule{margin:0 0 22px;border:1px solid var(--v04-line);border-radius:18px;background:var(--v04-panel);scroll-margin-top:84px}
+.readingModule>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--v04-line)}
+.readingModule>header small{display:block;margin-bottom:2px;color:var(--v04-ink);font-size:12px;letter-spacing:.02em}
+.readingModule>header h2{margin:0;color:var(--v04-subject);font-size:18px;font-weight:500}
+.readingCore{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.readingCore>div{min-width:0;padding:18px 22px;border-bottom:1px solid var(--v04-line)}
+.readingCore>div:nth-child(even){border-left:1px solid var(--v04-line)}
+.readingCore>div.wide{grid-column:1/-1;border-left:0}
+@media (max-width:760px){.readingCore{grid-template-columns:1fr}.readingCore>div:nth-child(even){border-left:0}}
+.label{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px;color:var(--v04-subject);font-size:10px;font-weight:800}
+.text{margin:0;color:var(--v04-ink-soft);line-height:1.65;overflow-wrap:anywhere;white-space:pre-line}
+.ed{border-radius:6px;transition:background .12s,box-shadow .12s}
+.canEdit .ed{cursor:text}
+.canEdit .ed:hover{background:rgb(var(--v04-accent-rgb) / .05);box-shadow:0 0 0 4px rgb(var(--v04-accent-rgb) / .05)}
+.edBox{width:100%;min-height:64px;border:1px solid rgb(var(--v04-accent-rgb) / .45);border-radius:8px;background:var(--v04-sunken);padding:7px 9px;line-height:1.6;resize:vertical}
+.edBox:focus{outline:none}
+.chipLine{display:flex;gap:6px;flex-wrap:wrap}
+.chipLine span{border:1px solid var(--v04-line);border-radius:999px;padding:1px 9px;font-size:12px;color:var(--v04-ink-soft)}
+/* 差异（同 V04Surface .diffTag / .diffBase），再加一枚「依据」 */
+.diffTag{display:inline-flex;border:1px solid rgb(var(--v04-accent-rgb) / .4);border-radius:999px;padding:0 6px;color:var(--v04-accent);font-size:9px;font-weight:800;white-space:nowrap}
+.basisTag{display:inline-flex;align-items:center;gap:3px;border:1px solid rgb(var(--v04-subject-rgb) / .5);border-radius:999px;padding:0 7px;color:var(--v04-subject);font-size:9px;font-weight:800;white-space:nowrap;cursor:help}
+.diffBase{display:block;margin-top:5px;padding:3px 10px;border-left:2px solid rgb(var(--v04-accent-rgb) / .4);color:var(--v04-muted);font-size:11px;line-height:1.6;overflow-wrap:anywhere;white-space:pre-line}
+.diffBase b{display:inline-block;margin-right:8px;color:var(--v04-subject);font-size:9px;font-weight:800}
+.diffFocus{animation:flash 1.2s ease-out}
+@keyframes flash{0%{box-shadow:0 0 0 3px rgb(var(--v04-accent-rgb) / .55)}100%{box-shadow:0 0 0 3px rgb(var(--v04-accent-rgb) / 0)}}
+.changed{border-radius:8px}
+
+/* 第二模块：桥段 / 镜头（简化示意） */
+.group{padding:18px 22px;border-bottom:1px solid var(--v04-line)}
+.group:last-child{border-bottom:0}
+.groupHead{display:flex;gap:14px;align-items:flex-start;margin-bottom:10px}
+.sys{flex:none;border:1px solid var(--v04-line);border-radius:999px;padding:2px 9px;color:var(--v04-muted);font-family:var(--mono);font-size:10.5px;white-space:nowrap}
+.groupHead h3{margin:0;font-size:16px;font-weight:700}
+.groupGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:14px 22px;margin-bottom:12px}
+@media (max-width:760px){.groupGrid{grid-template-columns:1fr}}
+.shots{display:grid;gap:8px}
+.shot{display:grid;grid-template-columns:52px 120px minmax(0,1fr);gap:4px 12px;padding:10px 12px;border:1px solid var(--v04-line);border-radius:10px;background:var(--v04-panel-alt);font-size:12.5px}
+@media (max-width:760px){.shot{grid-template-columns:44px minmax(0,1fr)}.shot .meta{grid-column:2}.shot .body{grid-column:1/-1}}
+.shot .no{color:var(--v04-muted);font-family:var(--mono);font-size:11px}
+.shot .meta{color:var(--v04-muted);font-size:11px}
+.shot .meta .mono{color:var(--v04-ink-dim)}
+.shot .body small{display:block;color:var(--v04-subject);font-size:9.5px;font-weight:800}
+.shot .body .text{font-size:12.5px}
+.shot .body>div+div{margin-top:6px}
+
+/* ---------- 点评录音卡（只在点评版顶部） ---------- */
+.reviewCard{margin:0 0 22px;border:1px solid rgb(var(--v04-subject-rgb) / .45);border-radius:18px;background:var(--v04-panel);scroll-margin-top:84px}
+.reviewCard>header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 22px;border-bottom:1px solid var(--v04-line)}
+.reviewCard>header h2{margin:0;color:var(--v04-subject);font-size:17px;font-weight:500}
+.reviewCard>header small{color:var(--v04-muted);font-size:11px}
+.reviewCard .cardBody{padding:16px 22px 18px;display:grid;gap:14px}
+.opList{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.opList li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:baseline;font-size:13px}
+.opList .n{color:var(--v04-muted);font-family:var(--mono);font-size:11px}
+.opList button{color:var(--v04-accent);font-size:11px;white-space:nowrap}
+.opList button:hover{text-decoration:underline}
+.kind{display:inline-flex;margin-right:6px;border-radius:999px;padding:0 7px;font-size:9.5px;font-weight:800;vertical-align:1px;white-space:nowrap}
+.kind.general{background:rgb(var(--v04-subject-rgb) / .18);color:var(--v04-subject)}
+.kind.specific{background:var(--v04-raised-2);color:var(--v04-ink-dim)}
+.cardNote{margin:0;color:var(--v04-muted);font-size:11px;line-height:1.7}
+
+/* 音频条 */
+.audio{display:flex;align-items:center;gap:12px;padding:8px 12px;border:1px solid var(--v04-line);border-radius:12px;background:var(--v04-panel-alt)}
+.audio .play{display:grid;place-items:center;width:30px;height:30px;flex:none;border-radius:50%;background:var(--v04-accent-fill);color:var(--v04-on-accent)}
+.audio .play svg{width:12px;height:12px}
+.audio .name{min-width:0;overflow:hidden;color:var(--v04-ink-dim);font-size:12px;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.audio .bar{position:relative;flex:1;min-width:60px;height:4px;border-radius:2px;background:var(--v04-raised-2);cursor:pointer}
+.audio .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--v04-accent)}
+.audio .bar b{position:absolute;top:-4px;width:2px;height:12px;background:var(--v04-subject);opacity:.7}
+.audio .clock{flex:none;color:var(--v04-muted);font-family:var(--mono);font-size:11px}
+
+/* 文字稿 */
+.transcript{border:1px solid var(--v04-line);border-radius:12px;background:var(--v04-panel-alt)}
+.transcript>summary{padding:9px 14px;color:var(--v04-ink-dim);font-size:12px;cursor:pointer}
+.transcript>div{max-height:340px;overflow:auto;padding:0 14px 12px}
+.line{display:grid;grid-template-columns:44px 52px minmax(0,1fr);gap:8px;padding:5px 6px;border-radius:7px;font-size:12.5px;line-height:1.6}
+.line .t{color:var(--v04-accent);font-family:var(--mono);font-size:11px;cursor:pointer}
+.line .t:hover{text-decoration:underline}
+.line .who{color:var(--v04-muted);font-size:11.5px}
+.line.sun .who{color:var(--v04-subject);font-weight:800}
+.line.playing{background:rgb(var(--v04-accent-rgb) / .1)}
+.fix{border-bottom:1px dashed var(--v04-subject);cursor:help}
+
+/* ---------- 弹层：上传 + 确认抽屉 ---------- */
+.scrim{position:fixed;inset:0;z-index:80;background:var(--v04-scrim)}
+.dialog{position:fixed;left:50%;top:50%;z-index:90;width:min(520px,calc(100vw - 32px));transform:translate(-50%,-50%);padding:22px;border:1px solid var(--v04-line);border-radius:18px;background:var(--v04-panel);box-shadow:0 30px 90px rgb(var(--v04-shadow-rgb) / calc(.6 * var(--v04-shadow-strength)))}
+.dialog small.eyebrow{color:var(--v04-muted);font-size:11px}
+.dialog h3{margin:2px 0 14px;font-size:17px}
+.drop{display:grid;place-items:center;gap:6px;padding:28px 16px;border:1.5px dashed rgb(var(--v04-accent-rgb) / .45);border-radius:14px;background:var(--v04-sunken);text-align:center}
+.drop svg{width:26px;height:26px;color:var(--v04-accent)}
+.drop p{margin:0;color:var(--v04-muted);font-size:12px}
+.dialog ul{margin:14px 0 18px;padding-left:18px;color:var(--v04-muted);font-size:11.5px;line-height:1.8}
+.dialog .actions{display:flex;justify-content:flex-end;gap:8px}
+
+.drawer{position:fixed;top:0;right:0;bottom:0;z-index:90;display:flex;flex-direction:column;width:min(780px,100vw);border-left:1px solid var(--v04-line);background:var(--v04-panel);box-shadow:-30px 0 90px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)))}
+.drawer>header{display:flex;align-items:flex-start;gap:12px;padding:18px 22px 14px;border-bottom:1px solid var(--v04-line)}
+.drawer>header h3{margin:0;font-size:17px}
+.drawer>header small{color:var(--v04-muted);font-size:11.5px}
+.drawer>header .x{margin-left:auto;display:grid;place-items:center;width:30px;height:30px;flex:none;border:1px solid var(--v04-line);border-radius:50%;color:var(--v04-muted)}
+.drawer>header .x:hover{color:var(--v04-accent);border-color:rgb(var(--v04-accent-rgb) / .5)}
+.drawerBody{flex:1;overflow:auto;padding:16px 22px 24px;display:grid;gap:14px;align-content:start}
+.drawer>footer{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 22px;border-top:1px solid var(--v04-line);background:var(--v04-panel-deep)}
+.drawer>footer .count{margin-right:auto;color:var(--v04-muted);font-size:12px}
+.drawer>footer .count b{color:var(--v04-ink);font-family:var(--mono)}
+.summary{margin:0;color:var(--v04-ink-dim);font-size:12.5px;line-height:1.7}
+.summary b{color:var(--v04-ink)}
+.hint{margin:0;color:var(--v04-muted);font-size:11px;line-height:1.7}
+
+.op{border:1px solid var(--v04-line);border-radius:14px;background:var(--v04-panel-alt);scroll-margin-top:12px}
+.op.off{opacity:.55}
+.opHead{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 10px}
+.opHead h4{margin:0;font-size:13.5px;line-height:1.55}
+.opHead .n{flex:none;color:var(--v04-muted);font-family:var(--mono);font-size:11px;padding-top:2px}
+.opHead label{margin-left:auto;display:inline-flex;align-items:center;gap:5px;flex:none;color:var(--v04-muted);font-size:11px;white-space:nowrap;cursor:pointer}
+.quotes{display:grid;gap:4px;padding:0 14px 10px 40px}
+.quote{color:var(--v04-ink-dim);font-size:12px;line-height:1.6}
+.quote button{margin-right:6px;color:var(--v04-accent);font-family:var(--mono);font-size:10.5px}
+.quote button:hover{text-decoration:underline}
+.opWhy{margin:0 14px 10px 40px;color:var(--v04-muted);font-size:11px;line-height:1.6}
+.changes{border-top:1px solid var(--v04-line);padding:6px 6px 8px}
+.change{display:grid;grid-template-columns:22px minmax(0,1fr);gap:4px 6px;padding:8px;border-radius:9px;cursor:pointer}
+.change:hover{background:var(--v04-raised)}
+.change input{margin:3px 0 0;accent-color:var(--v04-accent)}
+.change .where{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:var(--v04-subject);font-size:10.5px;font-weight:800}
+.change .also{color:var(--v04-muted);font-weight:500}
+.change .before,.change .after{grid-column:2;display:grid;grid-template-columns:20px minmax(0,1fr);line-height:1.6;white-space:pre-line}
+.change .before{color:var(--v04-muted);font-size:11.5px}
+.change .before span{text-decoration:line-through;text-decoration-color:rgb(var(--v04-fg-rgb) / .3)}
+.change .after{color:var(--v04-ink);font-size:12.5px}
+.change i{color:var(--v04-muted);font-size:10px;font-style:normal;line-height:1.9}
+.change .after i{color:var(--v04-accent)}
+.change.off .after span{color:var(--v04-muted);text-decoration:line-through}
+.unaddressed{border:1px solid var(--v04-line);border-radius:12px}
+.unaddressed>summary{padding:9px 14px;color:var(--v04-ink-dim);font-size:12px;cursor:pointer}
+.unaddressed ul{margin:0;padding:0 14px 12px;list-style:none;display:grid;gap:8px}
+.unaddressed li{font-size:12px;color:var(--v04-ink-dim);line-height:1.6}
+.unaddressed li em{display:block;color:var(--v04-muted);font-size:11px;font-style:normal}
+.unaddressed li button{margin-right:6px;color:var(--v04-accent);font-family:var(--mono);font-size:10.5px}
+
+/* 共用 toast（同工作台：出现在视线里，不是页首横幅） */
+.toast{position:fixed;left:50%;bottom:32px;z-index:120;max-width:min(560px,calc(100vw - 32px));transform:translateX(-50%);padding:11px 18px;border:1px solid var(--v04-line);border-radius:12px;background:var(--v04-raised);color:var(--v04-ink);font-size:13px;line-height:1.55;box-shadow:0 18px 60px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)));transition:opacity .2s, transform .2s}
+.toast[hidden]{display:block;opacity:0;pointer-events:none;transform:translate(-50%,8px)}
+</style>
+
+<div class="topbar"><div class="topbar-in" id="topbar"></div></div>
+
+<div class="app">
+  <nav class="nav" id="nav" aria-label="目录（示意）"></nav>
+  <main class="main">
+    <section class="notice">
+      <h3>录音点评改写 · 交互 demo（待确认）</h3>
+      <ul>
+        <li><b>入口只给老孙</b>：看别人的普通版本时，页头右侧多一个「上传点评录音」。一份作业（一个版本）只会有一个点评版：生成前可以重新上传或放弃；<b>生成之后这一版的入口就变成「查看点评版」，不能再传</b>。</li>
+        <li><b>处理在后台跑</b>：上传后依次转写、理解点评、拟定改动（真实约一两分钟，demo 加速）。期间页面照常用，离开再回来也接得上；好了用 toast 提示，入口变成「点评改动待确认」。</li>
+        <li><b>先确认再生成</b>：确认面板按「意见」组织。老孙在分享会上说的话可能是<b>总体性</b>的（如“关键创意描述都在复述画面”），AI 要把它落实到所有受影响的条目，所以一条总体意见下面会挂好几处改动；具体意见（如“井盖里钻出来的是警察”）只落到那一处。每处改动可单独取消，整条意见也可整条取消。<b>没落到条目的话</b>（夸奖、闲聊、别人的提问、做法建议）单独列出并说明为什么没改，不会悄悄丢掉。</li>
+        <li><b>生成的点评版</b>：编号接着排（这里是 v3），不占任何人的版本名额，标签写「老孙录音点评 · 基于 v1」。打开时默认开着「比较」，每处改动除了 v1 原文，还多一枚「依据」，悬停可见对应的意见。顶部是点评录音卡：录音、意见清单、完整文字稿，<b>全站可见</b>。</li>
+        <li><b>点评版不汇入集成版</b>；老孙可以在集成版溯源里逐条采纳（沿用现有「采纳」）。</li>
+        <li><b>编辑按普通版本的规则</b>：老孙是点评版的归属人，可以直接改（任何内容，自动保存，改过的地方标「老孙已手改」）；其他人在点评版上动手，和改别人的版本一样——改动进自己的版本，还没有版本的人以点评版当时的内容为底新建一个。点评版本身只有老孙改得动。点评版不打分（它不是谁的作业，同集成版）。</li>
+      </ul>
+      <details><summary>AI 只读文字，看不到视频：所以它能做什么、不能做什么</summary>
+        <ul>
+          <li>能：按点评改写文字条目；在词表内换固定选项（如辅助机制、桥段作用）；改整体创意评价；补写老孙口头说出的画面信息（如“钻出来的是警察”）。</li>
+          <li>不能：新增或删除镜头、改时间码、凭空补画面细节。点评里要求补镜头时，只记进「没落到条目的话」，提醒人工补。</li>
+        </ul>
+      </details>
+      <div class="controls">
+        <span class="ctl">身份 <span class="seg" data-ctl="who"><button type="button" data-v="sun">老孙</button><button type="button" data-v="liu">刘梦娜（被点评人）</button><button type="button" data-v="wang">王一凡（有 v2）</button><button type="button" data-v="chen">陈雨（还没有版本）</button></span></span>
+        <span class="ctl">跳到阶段 <span class="seg" data-ctl="phase"><button type="button" data-v="idle">还没上传</button><button type="button" data-v="processing">处理中</button><button type="button" data-v="failed">处理失败</button><button type="button" data-v="pending">待确认</button><button type="button" data-v="done">已生成</button></span></span>
+      </div>
+    </section>
+
+    <div class="video" id="video">视频（示意 · 深色岛）</div>
+    <div id="doc"></div>
+  </main>
+</div>
+
+<div id="layer"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+/* ======================= 数据（示意内容，不是作者原文） ======================= */
+const ICON = {
+  mic:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.75" width="5" height="8" rx="2.5"/><path d="M3.1 7.6a4.9 4.9 0 0 0 9.8 0M8 12.5v1.9"/></svg>',
+  play:'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.8v8.4L10 6z" fill="currentColor"/></svg>',
+  pause:'<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2h2v8H3zM7 2h2v8H7z" fill="currentColor"/></svg>',
+  upload:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>',
+  compare:'<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.75" y="3.25" width="12.5" height="9.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 3.25v9.5" stroke="currentColor" stroke-width="1.4"/><path d="M3.6 6.4h2.8M3.6 9.6h2.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".65"/></svg>',
+};
+
+const BASE = {
+  commercialIntent:'传递品牌“让运动回到日常”的态度，拉近品牌与城市年轻人的距离。',
+  storySynopsis:'纽约街头，一个小女孩对着墙数数，路人们纷纷躲进邮筒后、报亭里、井盖下；越来越多的大人加入，整座城市变成了捉迷藏的游乐场。女孩数完回头，街上空无一人，只剩藏不住的笑声。',
+  creativeMotif:'让日常城市生活绽放活力美好',
+  tensionButton:'将喧嚣严肃的纽约大都市瞬间转变为充满童趣的游乐场。',
+  thinkingChain:'城市日常\n→ 放进一个孩子的游戏\n→ 游戏规则扩散到所有人\n→ 城市变成游乐场',
+  storyReference:'日常生活喜剧片 ＋ 自定义：城市游戏化概念片',
+  mainMech:'形式游戏｜情境游戏化',
+  auxMech:'洞察共鸣｜情绪感染与节奏推进',
+  carriers:'故事、视听规则',
+  carrierNote:'画面中城市各处的人躲藏的镜头不断叠加，配合轻快的音乐，营造出欢乐的氛围。',
+  contract:'观众接受城市里的陌生人会愿意放下手头的事，陪一个孩子玩。',
+  'b1.name':'女孩开始数数','b1.role':'建立场景／处境','b1.desc':'小女孩在街角对着墙数数，周围是匆忙的上班族。',
+  'b2.name':'城市变游乐场','b2.role':'升级视听规则','b2.desc':'路人纷纷躲进邮筒后、报亭里、井盖下，镜头快速切换，节奏越来越快。',
+  'b3.name':'女孩回头','b3.role':'收束创意母题','b3.desc':'女孩数完回头，街道空无一人，只听到笑声。',
+  's1-1.visual':'繁忙的纽约街口，车流人流交错。','s1-2.visual':'小女孩双手捂眼，额头抵着墙数数。','s1-2.line':'台词：“一、二、三……”',
+  's2-1.visual':'穿西装的上班族一个侧身，蹲到邮筒后面。','s2-2.visual':'报亭老板把自己藏进摊开的报纸后面。','s2-3.visual':'井盖被顶起，一个人探出头。',
+  's3-1.visual':'女孩松开手，转身。','s3-2.visual':'空荡荡的街道，远处传来压低的笑声；品牌标语浮现。',
+  pathType:'有趣／预期',
+  'p.expect':'纽约是匆忙、严肃的大都市，没人有空停下来。',
+  'p.deviate':'路人一个接一个开始躲藏。',
+  'p.reveal':'女孩回头，街上的人全都不见了。',
+  'p.rethink':'城市也可以很好玩。',
+  'p.carrier':'躲藏的路人',
+  rating:'S',
+  reason:'创意新颖，画面有趣，节奏轻快，看完很开心。',
+};
+const V2_DIFF = { storySynopsis:'纽约街头，小女孩对墙数数，整座城市的大人陪她玩起捉迷藏；她回头时，街上只剩笑声。' };
+
+const LABEL = {
+  creativeMotif:'第一模块 · 创意母题', tensionButton:'第一模块 · 张力按钮', thinkingChain:'第一模块 · 创意思维链',
+  contract:'第一模块 · 创意成立契约', carrierNote:'第一模块 · 创意承重载体具体说明', auxMech:'第一模块 · 创意辅助手法及机制',
+  'b1.desc':'第二模块 · 桥段 01 · 本桥段关键创意描述', 'b2.desc':'第二模块 · 桥段 02 · 本桥段关键创意描述', 'b3.desc':'第二模块 · 桥段 03 · 本桥段关键创意描述',
+  'b2.name':'第二模块 · 桥段 02 · 桥段名称', 'b2.role':'第二模块 · 桥段 02 · 桥段主创意作用', 's2-3.visual':'第二模块 · 镜头 2-3 · 画面内容',
+  'p.deviate':'第三模块 · 主导路径细项 · 偏离／异常', 'p.reveal':'第三模块 · 主导路径细项 · 揭示／反转', 'p.rethink':'第三模块 · 主导路径细项 · 重新理解', 'p.carrier':'第三模块 · 主导路径细项 · 主要承重元素',
+  rating:'第三模块 · 整体创意评价', reason:'第三模块 · 评价理由',
+};
+
+/* 意见：按在录音里第一次出现的时间排。kind=general 总体 / specific 具体 */
+const OPINIONS = [
+  { n:1, kind:'general', title:'母题看浅了：片子说的不是“城市变游乐场”，而是“最体面的大人被允许重新当一回孩子”',
+    quotes:[[112,'你这个母题写的是“让日常城市生活绽放活力美好”，这个太虚了，换十条片子都能这么写。'],[134,'……这些平时最体面、最正经的大人，突然被允许当一回小孩。张力在这儿，不在“城市变游乐场”。'],[192,'它的反转是“原来全城都在陪一个孩子玩”……不是城市好玩，是大人心里一直想玩。']],
+    why:'总体意见：改变了对全片的核心判断，AI 逐个检查了全部条目，凡是建立在旧判断上的都跟着改。',
+    changes:['creativeMotif','tensionButton','thinkingChain','contract','p.deviate','p.reveal','p.rethink','p.carrier'] },
+  { n:2, kind:'specific', title:'第二桥段的作用不是“升级视听规则”，而是同一个“躲”的动作重复、躲的人一个比一个不该躲；井盖里钻出来的是警察',
+    quotes:[[260,'第二段你叫“城市变游乐场”，作用选的是升级视听规则。其实它是同一个“躲”的动作一直重复，但躲的人一个比一个不该躲……'],[298,'井盖那个镜头，钻出来的是个警察，你写成“一个人”，这个信息很关键，要写出来。']],
+    why:'具体意见：只落到桥段 02 和镜头 2-3。',
+    changes:['b2.name','b2.role','s2-3.visual'] },
+  { n:3, kind:'general', title:'关键创意描述都在复述画面，要写“这一段为什么成立、在机制上做了什么”',
+    quotes:[[340,'关键创意描述全在复述画面，邮筒后面躲一个人、报亭躲一个人，这个我看片子就知道了。要写的是这一段为什么成立，它在机制上干了什么。']],
+    why:'总体意见：老孙说的是“很多人的通病”，这里只落实到本作业——三个桥段的关键创意描述和承重载体说明都按“写机制、不写画面”重写。',
+    changes:['b1.desc','b2.desc','b3.desc','carrierNote'] },
+  { n:4, kind:'specific', title:'主导机制“形式游戏”没错，辅助机制应是“对置生义”而不是“洞察共鸣”',
+    quotes:[[422,'（王一凡问：那它主导机制还算形式游戏吗？）'],[429,'形式游戏没错。但辅助不是洞察共鸣，是对置生义——体面和幼稚放在一起，才生出意思来。']],
+    why:'具体意见，来自问答：问题是王一凡提的，以老孙的回答为准；“对置生义”在词表内。',
+    changes:['auxMech'] },
+  { n:5, kind:'specific', title:'整体创意评价给 S 偏高，应为 A：结尾“回头街上没人”处理常见，收得软',
+    quotes:[[495,'梦娜你给 S，我觉得高了，我给 A。前面两段都很好，问题在结尾：回头一看街上没人，这个处理太常见了，收得软。']],
+    why:'具体意见：改评价和评价理由。',
+    changes:['rating','reason'] },
+];
+const ALSO = { 'b2.desc':[2] }; // 同一处同时依据别的意见
+
+const AFTER = {
+  creativeMotif:'让最体面的大人被允许重新当一回孩子',
+  tensionButton:'西装革履的上班族、报亭老板、执勤的警察——城市里最“不该玩”的人，一个接一个蹲下、钻进、缩起来，陪一个孩子躲猫猫。',
+  thinkingChain:'体面的大人平时不被允许玩\n→ 借一个孩子的数数，给所有人一个“合法”的理由\n→ 越正经的身份越要躲，荒唐感逐级放大\n→ 大人重新当了一回孩子',
+  contract:'观众相信“孩子发起的游戏”是一张通行证：只要是陪孩子玩，再体面的大人放下身份也不丢人。',
+  'p.deviate':'越来越体面的大人一个接一个躲起来，连警察也加入了。',
+  'p.reveal':'原来全城的大人都在陪一个孩子捉迷藏，而且一个比一个认真。',
+  'p.rethink':'不是城市好玩，是大人心里一直想玩，只差一个被允许的理由。',
+  'p.carrier':'躲藏者的身份递进（上班族 → 报亭老板 → 警察）',
+  'b2.name':'越正经的人越要躲',
+  'b2.role':'重复并改变意义',
+  's2-3.visual':'井盖被顶起，一名执勤的警察探出头张望，又缩了回去。',
+  'b1.desc':'先把规则交给一个孩子：她只负责数数，城市的反应全在她背后发生。匆忙的上班族作背景，立住“这座城市本来没空陪你玩”的原始预期。',
+  'b2.desc':'同一个“躲”的动作反复出现，但躲的人一次比一次“不该躲”——上班族、报亭老板、警察。动作不变、身份递进，意义随之改变，荒唐感逐级累加。',
+  'b3.desc':'用“空街＋笑声”兑现：看不见人，却听得见大人藏不住的开心，把母题落在“大人也在玩”上。',
+  carrierNote:'故事上靠躲藏者的身份递进制造荒唐感；视听上让同一个“躲”的动作反复出现、节奏逐次收紧，观众开始预判下一个会是谁。',
+  auxMech:'对置生义｜身份与行为对置：越体面的人做越幼稚的事',
+  rating:'A',
+  reason:'前两个桥段把“体面的大人被允许玩”做得很足，身份递进清楚；但结尾“回头街上空无一人”的处理较常见，收得偏软，没有把母题再推一步，因此给 A。',
+};
+
+const UNADDRESSED = [
+  [31,'老孙','先说好的，镜头拆得很细，时间码也准，这个基本功是到位的。','肯定的部分，不需要改。'],
+  [185,'刘梦娜','我当时觉得结尾大家都不见了，算是一个反转。','被点评人的解释，只用来理解上下文（老孙随后的回答已并入意见 1）。'],
+  [570,'老孙','这条片子的导演之前那条洗衣液也是这个路子，有空可以找来看看。','背景信息，不对应作业条目。'],
+  [612,'老孙','下次拆之前先完整看三遍再动笔，别边看边写。','做法建议，不对应作业条目。'],
+];
+
+const TRANSCRIPT = [
+  [8,'老孙','好，下一个，梦娜的《捉迷藏》。片子大家都看过了，我直接说。'],
+  [31,'老孙','先说好的，镜头拆得很细，时间码也准，这个基本功是到位的。'],
+  [112,'老孙','问题出在判断上。你这个母题写的是“让日常城市生活绽放活力美好”，这个太虚了，换十条片子都能这么写。'],
+  [134,'老孙','这片子真正好的地方是什么？是那些穿西装的、开报亭的、还有最后那个警察，这些平时最体面、最正经的大人，突然被允许当一回小孩。张力在这儿，不在“城市变游乐场”。'],
+  [185,'刘梦娜','我当时觉得结尾大家都不见了，算是一个反转。'],
+  [192,'老孙','那个是结果，不是反转。它的反转是“原来全城都在陪一个孩子玩”，而且一个比一个认真。重新理解那一栏也要跟着改，不是城市好玩，是大人心里一直想玩。'],
+  [260,'老孙','第二段你叫“城市变游乐场”，作用选的是升级视听规则。其实它是同一个“躲”的动作一直重复，但躲的人一个比一个不该躲——上班族、报亭老板、警察，意思是一层层变的。'],
+  [298,'老孙','对了，井盖那个镜头，钻出来的是个警察，你写成“一个人”，这个信息很关键，要写出来。'],
+  [340,'老孙','还有一个通病啊，不光是梦娜，你们很多人都这样：关键创意描述全在复述画面，邮筒后面躲一个人、报亭躲一个人，这个我看片子就知道了。要写的是这一段为什么成立，它在机制上干了什么。'],
+  [422,'王一凡','孙老师，那它主导机制还算形式游戏吗？'],
+  [429,'老孙','形式游戏没错。但辅助不是洞察共鸣，是<span class="fix" title="转写原文为“对质生意”，按词表校正为“对置生义”">对置生义</span>——体面和幼稚放在一起，才生出意思来。'],
+  [495,'老孙','最后说分。梦娜你给 S，我觉得高了，我给 A。前面两段都很好，问题在结尾：回头一看街上没人，这个处理太常见了，收得软。'],
+  [570,'老孙','这条片子的导演之前那条洗衣液也是这个路子，有空可以找来看看。'],
+  [612,'老孙','最后一个建议，下次拆之前先完整看三遍再动笔，别边看边写。'],
+  [648,'老孙','好，梦娜这条就到这儿。'],
+];
+const DURATION = 684; // 11:24
+const FILE = '捉迷藏点评-1009.m4a';
+
+const PEOPLE = { sun:'老孙', liu:'刘梦娜', wang:'王一凡', chen:'陈雨' };
+const STEPS = ['上传录音','转写成文字','理解点评','拟定改动'];
+
+/* ======================= 状态 ======================= */
+const S = {
+  who:'sun', phase:'idle', step:0, view:'v1', diff:true, diffIdx:0,
+  menu:false, pop:false, upload:false, drawer:false,
+  sel:new Set(Object.keys(AFTER)), applied:null, edits:{},
+  playing:false, t:0, editing:null,
+};
+const allChangeIds = () => OPINIONS.flatMap(o => o.changes);
+
+/* ======================= 工具 ======================= */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clock = s => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+let toastTimer;
+function toast(text){ const el = document.getElementById('toast'); el.textContent = text; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 4200); }
+const isSun = () => S.who === 'sun';
+const hasReview = () => S.phase === 'done';
+const opOf = key => OPINIONS.find(o => o.changes.includes(key));
+
+function value(key){
+  if (S.view === 'v2' && key in V2_DIFF) return V2_DIFF[key];
+  if (S.view === 'v3') {
+    if (key in S.edits) return S.edits[key];
+    if (S.applied && S.applied.has(key)) return AFTER[key];
+  }
+  return BASE[key];
+}
+function isChanged(key){ return S.view === 'v3' && value(key) !== BASE[key]; }
+function changedKeys(){ return S.view === 'v3' ? ORDER.filter(isChanged) : []; }
+/* 文档顺序：用于「比较」的逐处跳转 */
+const ORDER = ['creativeMotif','tensionButton','thinkingChain','auxMech','carrierNote','contract','b1.desc','b2.name','b2.role','b2.desc','s2-3.visual','b3.desc','p.deviate','p.reveal','p.rethink','p.carrier','rating','reason'];
+
+/* ======================= 页头 ======================= */
+function versionPill(){
+  if (S.view === 'v3') return `<span class="versionNum">v3</span><span class="versionOwner">老孙录音点评</span><span class="versionBase">基于 v1</span>`;
+  if (S.view === 'v2') return `<span class="versionNum">v2</span><span class="versionOwner">王一凡</span><span class="versionBase">基于 v1</span>`;
+  return `<span class="versionNum">v1</span><span class="versionOwner">刘梦娜</span>`;
+}
+function reviewEntry(){
+  if (!isSun()) return '';
+  if (S.view === 'v3') return '';
+  if (S.view === 'v2') return `<button class="reviewBtn" data-act="upload-v2">${ICON.mic}上传点评录音</button>`;
+  if (S.phase === 'idle') return `<button class="reviewBtn" data-act="open-upload">${ICON.mic}上传点评录音</button>`;
+  if (S.phase === 'processing') return `<span class="reviewWrap"><button class="reviewChip" data-act="toggle-pop" aria-expanded="${S.pop}"><span class="spin"></span>点评录音处理中 · ${STEPS[S.step]} <b>${S.step+1}/4</b></button>${S.pop ? popHTML() : ''}</span>`;
+  if (S.phase === 'failed') return `<span class="reviewWrap"><button class="reviewChip failed" data-act="toggle-pop" aria-expanded="${S.pop}">${ICON.mic}点评录音处理失败</button>${S.pop ? popHTML() : ''}</span>`;
+  if (S.phase === 'pending') return `<button class="reviewChip pending" data-act="open-drawer">${ICON.mic}点评改动待确认 · <b>${allChangeIds().length}</b> 处</button>`;
+  return `<button class="reviewBtn" data-act="goto-v3">${ICON.mic}查看点评版 v3</button>`;
+}
+function popHTML(){
+  const failed = S.phase === 'failed';
+  const steps = STEPS.map((s,i) => {
+    let cls = i < S.step ? 'done' : i === S.step ? (failed ? 'fail' : 'doing') : '';
+    let mark = i < S.step ? '✓' : (failed && i === S.step) ? '!' : '';
+    let note = i === 0 && S.step > 0 ? `<small>${FILE.replace('.m4a','')} · 11:24</small>` : '';
+    return `<li class="${cls}"><i>${mark}</i>${s}${note}</li>`;
+  }).join('');
+  return `<div class="reviewPop" role="dialog" aria-label="点评录音处理进度">
+    <h4>${failed ? '转写失败' : '正在处理点评录音'}</h4>
+    <p>${failed ? '转写服务没能识别出人声（示意原因）。可以直接重试；如果传错了文件，重新上传。' : '点评对象：v1 刘梦娜。可以离开页面，好了会在这里提示，回来也接得上。'}</p>
+    <ol class="steps">${steps}</ol>
+    <div class="popActions">${failed
+      ? `<button class="ghostBtn" data-act="reupload">重新上传</button><button class="primaryBtn" data-act="retry">重试</button>`
+      : `<button class="ghostBtn danger" data-act="abandon">放弃这次上传</button>`}</div>
+  </div>`;
+}
+function versionMenu(){
+  const mine = S.who === 'liu' ? 'v1' : S.who === 'wang' ? 'v2' : null;
+  const row = (id, num, meta, extra = '', indent = 0) => `<div class="versionRow ${S.view === id ? 'versionRowCurrent' : ''} ${extra.includes('versionDesc') ? 'versionRowWrap' : ''}" role="button" tabindex="0" data-act="view" data-v="${id}" style="padding-left:${8 + indent*14}px">
+      <span class="versionNumber">${num}</span><span class="versionMeta">${meta}</span>${mine === id ? '<span class="versionMine">我的</span>' : ''}${extra}</div>`;
+  return `<div class="versionPanel" role="dialog" aria-label="版本链">
+    <h4>版本链：集成版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖${hasReview() ? '；点评版由老孙的录音点评生成，挂在被点评的版本下面' : ''}</h4>
+    <div class="versionRow" data-act="final-demo"><span class="versionNumber">集成版</span><span class="finalStatusPill"><i></i>未定稿</span><span class="versionTime">10-08 21:40</span></div>
+    ${row('v1','v1','初始版本，刘梦娜','<span class="versionTime">10-07 18:02</span>')}
+    ${hasReview() ? row('v3','v3','老孙录音点评，基于 v1',`<span class="reviewTag">${ICON.mic}点评版</span><span class="versionTime">10-10 15:26</span><span class="versionDesc">据 10-09 分享会录音改写 v1，${S.applied ? S.applied.size : 0} 处改动；不占个人版本名额，不汇入集成版。</span>`,1) : ''}
+    ${row('v2','v2','基于 v1，王一凡','<span class="versionTime">10-08 21:40</span>',1)}
+    <p class="versionNote">进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本。${hasReview() ? '点评版只有老孙可以直接改；其他人在上面编辑，改动进自己的版本。' : ''}</p>
+  </div>`;
+}
+function renderTop(){
+  const keys = changedKeys();
+  const canCompare = S.view !== 'v1';
+  const diffCount = S.view === 'v3' ? keys.length : 1;
+  document.getElementById('topbar').innerHTML = `
+    <span class="brand"><b>R:</b><span>RE:VERSE</span><small>反写</small></span>
+    <span class="pill">≡ 目录</span>
+    <span class="case-title"><b>捉迷藏</b><small>刘梦娜 上传 · 2026-10-07</small></span>
+    <div class="utils">
+      ${reviewEntry()}
+      <div class="versionSplit">
+        <div class="versionSplitAnchor">
+          <button class="versionSegment" data-act="toggle-menu" aria-expanded="${S.menu}" aria-haspopup="true">${versionPill()}<span class="versionCaret">▾</span></button>
+          ${S.menu ? versionMenu() : ''}
+        </div>
+        ${canCompare ? `<i class="versionSplitDivider"></i><button class="compareSegment ${S.diff ? 'on' : ''}" data-act="toggle-diff" aria-pressed="${S.diff}">${ICON.compare}<span>比较</span></button>
+          ${S.diff && diffCount ? `<i class="versionSplitDivider"></i><span class="diffNav"><button data-act="diff-prev" aria-label="上一处差异">‹</button><span class="diffCount">${Math.min(S.diffIdx+1, diffCount)}/${diffCount}</span><button data-act="diff-next" aria-label="下一处差异">›</button></span>` : ''}` : ''}
+      </div>
+      <button class="theme-btn" data-act="theme">${document.documentElement.dataset.theme === 'light' ? '切到深色' : '切到浅色'}</button>
+    </div>`;
+}
+
+/* ======================= 正文 ======================= */
+function basis(key){
+  const op = opOf(key); if (!op) return '';
+  const also = (ALSO[key] || []).map(n => `意见 ${n}`).join('、');
+  const tip = `意见 ${op.n}（${op.kind === 'general' ? '总体' : '具体'}）：${op.title}${also ? `\n同时依据 ${also}` : ''}`;
+  return `<span class="basisTag" title="${esc(tip)}">依据 意见 ${op.n}${also ? '、' + ALSO[key].join('、') : ''}</span>`;
+}
+function marks(key){
+  if (!(S.diff && isChanged(key))) return '';
+  const hand = key in S.edits ? '<span class="diffTag">老孙已手改</span>' : '';
+  return `<span class="diffTag">已修改</span>${basis(key)}${hand}`;
+}
+function baseLine(key){
+  if (!(S.diff && isChanged(key))) return '';
+  return `<span class="diffBase"><b>v1 原文</b>${esc(BASE[key])}</span>`;
+}
+function textOf(key){
+  if (S.editing === key) return `<textarea class="edBox" data-edit="${key}">${esc(value(key))}</textarea>`;
+  return `<p class="text ed" data-key="${key}">${esc(value(key))}</p>`;
+}
+function field(key, label, wide){
+  return `<div class="${wide ? 'wide ' : ''}changed" data-anchor="${key}">
+    <small class="label">${label}${marks(key)}</small>${textOf(key)}${baseLine(key)}</div>`;
+}
+function staticField(label, html, wide){ return `<div class="${wide ? 'wide' : ''}"><small class="label">${label}</small>${html}</div>`; }
+
+function reviewCardHTML(){
+  const applied = S.applied || new Set();
+  const ops = OPINIONS.map(o => {
+    const n = o.changes.filter(k => applied.has(k)).length;
+    return `<li><span class="n">意见 ${o.n}</span><span><span class="kind ${o.kind}">${o.kind === 'general' ? '总体' : '具体'}</span>${esc(o.title)}</span>${n ? `<button data-act="jump-op" data-op="${o.n}">落实 ${n} 处 ↓</button>` : '<span class="cardNote">未采用</span>'}</li>`;
+  }).join('');
+  return `<section class="reviewCard" id="sec-review">
+    <header><span class="reviewTag">${ICON.mic}点评版</span><h2>老孙的录音点评</h2><small>2026-10-09 分享会 · 11:24 · 老孙 10-10 15:26 确认生成</small></header>
+    <div class="cardBody">
+      ${audioHTML()}
+      <ol class="opList">${ops}</ol>
+      ${transcriptHTML()}
+      <p class="cardNote">这一版是据点评改写 v1 得到的；v1 本身保持原样。点评版不汇入集成版，老孙可在集成版溯源里逐条采纳。</p>
+    </div>
+  </section>`;
+}
+function audioHTML(){
+  const marks = OPINIONS.flatMap(o => o.quotes.map(q => `<b style="left:${q[0]/DURATION*100}%" title="意见 ${o.n}"></b>`)).join('');
+  return `<div class="audio"><button class="play" data-act="play" aria-label="${S.playing ? '暂停' : '播放'}">${S.playing ? ICON.pause : ICON.play}</button>
+    <span class="name">${FILE}</span><span class="bar" data-act="seek-bar"><i style="width:${S.t/DURATION*100}%"></i>${marks}</span>
+    <span class="clock">${clock(S.t)} / ${clock(DURATION)}</span></div>`;
+}
+function transcriptHTML(open){
+  const cur = [...TRANSCRIPT].reverse().find(l => l[0] <= S.t);
+  return `<details class="transcript" ${open ? 'open' : ''} data-transcript><summary>完整文字稿（${TRANSCRIPT.length} 段 · 说话人自动区分 · 虚线下划线＝按词表校正过的听写）</summary><div>${
+    TRANSCRIPT.map(l => `<div class="line ${l[1] === '老孙' ? 'sun' : ''} ${S.playing && cur === l ? 'playing' : ''}"><span class="t" data-act="seek" data-t="${l[0]}">${clock(l[0])}</span><span class="who">${l[1]}</span><span>${l[2]}</span></div>`).join('')
+  }</div></details>`;
+}
+
+function renderDoc(){
+  const v3 = S.view === 'v3';
+  const editable = v3 && isSun();
+  let html = '';
+  if (S.view === 'v1' && hasReview()) {
+    html += `<div class="hasReview">${ICON.mic}<span><b>老孙对这一版做了录音点评</b>，据此生成了点评版 v3（${S.applied.size} 处改动）。这一版保持原样。</span><button class="ghostBtn" data-act="goto-v3">去看点评版</button></div>`;
+  }
+  if (v3) html += reviewCardHTML();
+  html += `<div class="${editable ? 'canEdit' : ''}" data-doc>`;
+  html += `<section class="readingModule" id="sec-m1"><header><div><small>MODULE 01</small><h2>第一模块｜全片事实与核心判断</h2></div></header><div class="readingCore">
+    ${staticField('商业意图', `<p class="text">${esc(value('commercialIntent'))}</p>`)}
+    ${S.view === 'v2' ? `<div class="changed"><small class="label">故事梗概${S.diff ? '<span class="diffTag">已修改</span>' : ''}</small><p class="text">${esc(value('storySynopsis'))}</p>${S.diff ? `<span class="diffBase"><b>v1 原文</b>${esc(BASE.storySynopsis)}</span>` : ''}</div>` : staticField('故事梗概', `<p class="text">${esc(value('storySynopsis'))}</p>`)}
+    ${field('creativeMotif','创意母题')}
+    ${field('tensionButton','张力按钮')}
+    ${field('thinkingChain','创意思维链（实际为流程图，这里用文字示意）',true)}
+    ${staticField('故事参照类型', `<p class="text">${esc(value('storyReference'))}</p>`)}
+    ${staticField('创意主导手法及机制', `<p class="text">${esc(value('mainMech'))}</p>`)}
+    ${field('auxMech','创意辅助手法及机制')}
+    ${staticField('创意承重载体', `<div class="chipLine">${value('carriers').split('、').map(c => `<span>${c}</span>`).join('')}</div>`)}
+    ${field('carrierNote','创意承重载体具体说明',true)}
+    ${field('contract','创意成立契约（隐含情理）',true)}
+  </div></section>`;
+
+  const shot = (no, time, meta, key, lineKey) => `<div class="shot changed" data-anchor="${key}"><span class="no">${no}</span><span class="meta"><span class="mono">${time}</span><br>${meta}</span><div class="body"><div><small>画面内容${marks(key)}</small>${textOf(key)}${baseLine(key)}</div>${lineKey ? `<div><small>台词</small><p class="text">${esc(value(lineKey))}</p></div>` : ''}</div></div>`;
+  const group = (i, shots) => {
+    const b = `b${i}`;
+    return `<div class="group">
+      <div class="groupHead changed" data-anchor="${b}.name"><span class="sys">桥段 0${i}</span><div><small class="label">桥段名称${marks(b+'.name')}</small><h3 class="ed" data-key="${b}.name">${S.editing === b+'.name' ? '' : esc(value(b+'.name'))}</h3>${S.editing === b+'.name' ? textOf(b+'.name') : ''}${baseLine(b+'.name')}</div></div>
+      <div class="groupGrid">
+        <div class="changed" data-anchor="${b}.role"><small class="label">桥段主创意作用${marks(b+'.role')}</small><div class="chipLine"><span>${esc(value(b+'.role'))}</span></div>${baseLine(b+'.role')}</div>
+        <div class="changed" data-anchor="${b}.desc"><small class="label">本桥段关键创意描述${marks(b+'.desc')}</small>${textOf(b+'.desc')}${baseLine(b+'.desc')}</div>
+      </div>
+      <div class="shots">${shots}</div></div>`;
+  };
+  html += `<section class="readingModule" id="sec-m2"><header><div><small>MODULE 02</small><h2>第二模块｜脚本反写</h2></div></header>
+    ${group(1, shot('1-1','00:00–00:03','全景 · 俯拍','s1-1.visual') + shot('1-2','00:04–00:06','近景 · 平视','s1-2.visual','s1-2.line'))}
+    ${group(2, shot('2-1','00:07–00:09','中景 · 平视','s2-1.visual') + shot('2-2','00:10–00:11','特写 · 平视','s2-2.visual') + shot('2-3','00:12–00:14','全景 · 俯拍','s2-3.visual'))}
+    ${group(3, shot('3-1','00:15–00:18','近景 · 平视','s3-1.visual') + shot('3-2','00:19–00:22','全景 · 平视','s3-2.visual'))}
+  </section>`;
+
+  html += `<section class="readingModule" id="sec-m3"><header><div><small>MODULE 03</small><h2>第三模块｜主导感知类型发生路径与整体评价</h2></div></header><div class="readingCore">
+    ${staticField('主导路径', `<div class="chipLine"><span>${value('pathType')}</span></div>`, true)}
+    ${staticField('原始预期', `<p class="text">${esc(value('p.expect'))}</p>`)}
+    ${field('p.deviate','偏离／异常')}
+    ${field('p.reveal','揭示／反转')}
+    ${field('p.rethink','重新理解')}
+    ${field('p.carrier','主要承重元素',true)}
+    <div class="changed" data-anchor="rating"><small class="label">整体创意评价${marks('rating')}</small><div class="chipLine"><span class="mono">${value('rating')}</span></div>${baseLine('rating')}</div>
+    ${field('reason','评价理由')}
+  </div></section></div>`;
+  document.getElementById('doc').innerHTML = html;
+  if (S.editing) { const ta = document.querySelector('.edBox'); if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+}
+
+function renderNav(){
+  document.getElementById('nav').innerHTML = `${S.view === 'v3' ? '<a href="#sec-review">老孙的录音点评</a>' : ''}
+    <a href="#sec-m1">第一模块｜全片事实与核心判断</a><a href="#sec-m2">第二模块｜脚本反写</a><a href="#sec-m3">第三模块｜感知路径与整体评价</a>`;
+}
+
+/* ======================= 弹层 ======================= */
+function uploadHTML(){
+  return `<div class="scrim" data-act="close-upload"></div><div class="dialog" role="dialog" aria-label="上传点评录音">
+    <small class="eyebrow">点评对象：v1 刘梦娜 · 捉迷藏</small><h3>上传点评录音</h3>
+    <div class="drop">${ICON.upload}<b>把录音拖到这里，或</b><button class="primaryBtn" data-act="pick">选择录音文件</button><p>m4a / mp3 / wav / aac，最长 3 小时</p></div>
+    <ul>
+      <li>一段录音对应这一份作业。录音里有别人的提问也没关系，系统会区分说话人，以老孙的意见为准。</li>
+      <li>处理完先给你确认，再生成点评版；生成前可以重新上传或放弃，<b>生成后这一版不能再传</b>。</li>
+      <li>生成后，点评版、录音和文字稿全站可见。</li>
+    </ul>
+    <div class="actions"><button class="ghostBtn" data-act="close-upload">取消</button></div>
+  </div>`;
+}
+function drawerHTML(){
+  const ids = allChangeIds();
+  const nGeneral = OPINIONS.filter(o => o.kind === 'general').length;
+  const ops = OPINIONS.map(o => {
+    const on = o.changes.filter(k => S.sel.has(k)).length;
+    const all = on === o.changes.length;
+    const changes = o.changes.map(k => `<label class="change ${S.sel.has(k) ? '' : 'off'}">
+        <input type="checkbox" data-act="sel" data-k="${k}" ${S.sel.has(k) ? 'checked' : ''}>
+        <span class="where">${LABEL[k]}${ALSO[k] ? `<span class="also">同时依据 意见 ${ALSO[k].join('、')}</span>` : ''}</span>
+        <span class="before"><i>原</i><span>${esc(BASE[k])}</span></span><span class="after"><i>改</i><span>${esc(AFTER[k])}</span></span></label>`).join('');
+    return `<article class="op ${on ? '' : 'off'}" id="op-${o.n}">
+      <div class="opHead"><span class="n">${o.n}</span><h4><span class="kind ${o.kind}">${o.kind === 'general' ? '总体意见' : '具体意见'}</span>${esc(o.title)}</h4>
+        <label><input type="checkbox" data-act="sel-op" data-op="${o.n}" ${all ? 'checked' : ''} ${on && !all ? 'data-indet="1"' : ''}> 落实 ${on}/${o.changes.length} 处</label></div>
+      <div class="quotes">${o.quotes.map(q => `<div class="quote"><button data-act="seek" data-t="${q[0]}">${clock(q[0])}</button>${esc(q[1])}</div>`).join('')}</div>
+      <p class="opWhy">${esc(o.why)}</p>
+      <div class="changes">${changes}</div>
+    </article>`;
+  }).join('');
+  return `<div class="scrim" data-act="close-drawer"></div><aside class="drawer" role="dialog" aria-label="确认点评改动">
+    <header><div><h3>确认点评改动</h3><small>据老孙录音点评改写 v1 刘梦娜 · 确认后生成点评版 v3</small></div><button class="x" data-act="close-drawer" aria-label="关闭">✕</button></header>
+    <div class="drawerBody">
+      ${audioHTML()}
+      <p class="summary">听出 <b>${OPINIONS.length} 条意见</b>（${nGeneral} 条总体、${OPINIONS.length - nGeneral} 条具体），落实为 <b>${ids.length} 处改动</b>；另有 ${UNADDRESSED.length} 段话没有落到条目，列在最后。</p>
+      <p class="hint">逐处核对“原 → 改”。理解错了的取消勾选即可；改写措辞不满意，也可以先生成，再在点评版里直接改。</p>
+      ${ops}
+      <details class="unaddressed"><summary>没有落到条目的话（${UNADDRESSED.length} 段）</summary><ul>${
+        UNADDRESSED.map(u => `<li><button data-act="seek" data-t="${u[0]}">${clock(u[0])}</button>${u[1]}：${esc(u[2])}<em>${esc(u[3])}</em></li>`).join('')
+      }</ul></details>
+      ${transcriptHTML()}
+    </div>
+    <footer><span class="count">已选 <b>${S.sel.size}</b> / ${ids.length} 处</span>
+      <button class="ghostBtn danger" data-act="abandon">放弃这次点评</button>
+      <button class="ghostBtn" data-act="reupload">重新上传</button>
+      <button class="primaryBtn" data-act="generate" ${S.sel.size ? '' : 'disabled'}>生成点评版</button></footer>
+  </aside>`;
+}
+function renderLayer(){
+  const el = document.getElementById('layer');
+  const keepScroll = el.querySelector('.drawerBody')?.scrollTop;
+  const openDetails = [...el.querySelectorAll('details')].map(d => d.open);
+  el.innerHTML = S.upload ? uploadHTML() : S.drawer ? drawerHTML() : '';
+  if (S.drawer) {
+    el.querySelectorAll('[data-indet]').forEach(i => { i.indeterminate = true; });
+    const body = el.querySelector('.drawerBody'); if (body && keepScroll) body.scrollTop = keepScroll;
+    el.querySelectorAll('details').forEach((d,i) => { if (openDetails[i]) d.open = true; });
+  }
+  document.body.classList.toggle('locked', S.upload || S.drawer);
+}
+
+function renderControls(){
+  document.querySelectorAll('[data-ctl]').forEach(seg => {
+    const key = seg.dataset.ctl;
+    seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(S[key] === b.dataset.v)));
+  });
+}
+function render(){
+  const docDetails = document.querySelector('#doc [data-transcript]')?.open;
+  renderControls(); renderTop(); renderNav(); renderDoc(); renderLayer();
+  if (docDetails) { const d = document.querySelector('#doc [data-transcript]'); if (d) d.open = true; }
+}
+
+/* ======================= 流程 ======================= */
+let procTimer;
+function startProcessing(fromStep = 0){
+  clearTimeout(procTimer);
+  S.phase = 'processing'; S.step = fromStep; render();
+  const tick = () => {
+    if (S.phase !== 'processing') return;
+    if (S.step < 3) { S.step++; render(); procTimer = setTimeout(tick, 1400); }
+    else {
+      S.phase = 'pending'; S.pop = false; render();
+      if (isSun()) toast(`点评改动已拟好：${OPINIONS.length} 条意见、${allChangeIds().length} 处改动，点页头的「点评改动待确认」核对`);
+    }
+  };
+  procTimer = setTimeout(tick, 1400);
+}
+function setPhase(p){
+  clearTimeout(procTimer);
+  S.pop = false; S.drawer = false; S.upload = false; S.menu = false;
+  if (p === 'idle') { S.phase = 'idle'; S.applied = null; S.edits = {}; if (S.view === 'v3') S.view = 'v1'; }
+  if (p === 'processing') { S.applied = null; if (S.view === 'v3') S.view = 'v1'; startProcessing(1); return; }
+  if (p === 'failed') { S.phase = 'failed'; S.step = 1; S.applied = null; if (S.view === 'v3') S.view = 'v1'; }
+  if (p === 'pending') { S.phase = 'pending'; S.applied = null; S.sel = new Set(allChangeIds()); if (S.view === 'v3') S.view = 'v1'; }
+  if (p === 'done') { S.phase = 'done'; if (!S.applied) S.applied = new Set(allChangeIds()); }
+  render();
+}
+function gotoView(v){
+  S.view = v; S.menu = false; S.editing = null; S.diffIdx = 0;
+  if (v === 'v3') S.diff = true;
+  render(); window.scrollTo({ top: 0 });
+}
+function stepDiff(dir){
+  const keys = changedKeys(); if (!keys.length) return;
+  S.diffIdx = (S.diffIdx + dir + keys.length) % keys.length;
+  renderTop();
+  const el = document.querySelector(`[data-anchor="${CSS.escape(keys[S.diffIdx])}"]`);
+  if (el) { el.scrollIntoView({ behavior:'smooth', block:'center' }); el.classList.remove('diffFocus'); void el.offsetWidth; el.classList.add('diffFocus'); }
+}
+
+/* 录音播放（示意：不真的出声，进度条走） */
+let playTimer;
+function setPlaying(on){
+  S.playing = on; clearInterval(playTimer);
+  if (on) playTimer = setInterval(() => { S.t = Math.min(DURATION, S.t + 1); if (S.t >= DURATION) setPlaying(false); refreshAudio(); }, 1000);
+  refreshAudio();
+}
+function refreshAudio(){
+  document.querySelectorAll('.audio').forEach(a => { a.outerHTML = audioHTML(); });
+  const cur = [...TRANSCRIPT].reverse().find(l => l[0] <= S.t);
+  document.querySelectorAll('.transcript .line').forEach((el, i) => el.classList.toggle('playing', S.playing && TRANSCRIPT[i] === cur));
+}
+
+/* ======================= 事件 ======================= */
+document.addEventListener('click', e => {
+  const seg = e.target.closest('[data-ctl] button');
+  if (seg) {
+    const key = seg.closest('[data-ctl]').dataset.ctl;
+    if (key === 'who') { S.who = seg.dataset.v; S.editing = null; S.menu = false; S.pop = false; S.drawer = false; S.upload = false; render(); }
+    else setPhase(seg.dataset.v);
+    return;
+  }
+  const t = e.target.closest('[data-act]');
+  if (!t) {
+    // 点外面收起菜单 / 进度气泡
+    if ((S.menu && !e.target.closest('.versionPanel')) || (S.pop && !e.target.closest('.reviewPop'))) { S.menu = false; S.pop = false; renderTop(); }
+    // 点评版：老孙点文字就地编辑；其他人被拦下
+    const ed = e.target.closest('.ed[data-key]');
+    if (ed && S.view === 'v3') {
+      if (isSun()) { S.editing = ed.dataset.key; renderDoc(); }
+      else toast({
+        liu:'你已经有 v1：在点评版上的修改会保存到你的 v1，点评版本身不变（同改别人的版本）。',
+        wang:'你已经有 v2：在点评版上的修改会保存到你的 v2，点评版本身不变（同改别人的版本）。',
+        chen:'你还没有版本：将以点评版当时的内容为底，创建你自己的 v4，修改保存在 v4（demo 不演示创建）。',
+      }[S.who]);
+    }
+    return;
+  }
+  const act = t.dataset.act;
+  if (act === 'toggle-menu') { S.menu = !S.menu; S.pop = false; renderTop(); }
+  else if (act === 'view') gotoView(t.dataset.v);
+  else if (act === 'final-demo') toast('集成版不在本 demo 范围内：点评版不会自动汇入，老孙可在集成版溯源里逐条采纳。');
+  else if (act === 'toggle-diff') { S.diff = !S.diff; S.diffIdx = 0; render(); }
+  else if (act === 'diff-prev') stepDiff(-1);
+  else if (act === 'diff-next') stepDiff(1);
+  else if (act === 'theme') { const light = document.documentElement.dataset.theme === 'light'; document.documentElement.dataset.theme = light ? 'dark' : 'light'; renderTop(); }
+  else if (act === 'open-upload') { S.upload = true; renderLayer(); }
+  else if (act === 'upload-v2') toast('demo 只演 v1 的点评流程；v2 王一凡的作业同样可以有自己的点评版。');
+  else if (act === 'close-upload') { S.upload = false; renderLayer(); }
+  else if (act === 'pick') { S.upload = false; S.drawer = false; renderLayer(); toast(`已选择「${FILE}」（11:24），正在上传。处理大约需要一两分钟，可以先做别的。`); startProcessing(0); }
+  else if (act === 'toggle-pop') { S.pop = !S.pop; S.menu = false; renderTop(); }
+  else if (act === 'retry') { S.pop = false; startProcessing(1); }
+  else if (act === 'reupload') { clearTimeout(procTimer); S.phase = 'idle'; S.pop = false; S.drawer = false; S.upload = true; render(); }
+  else if (act === 'abandon') {
+    if (confirm('放弃这次点评？已上传的录音和拟定的改动都会丢弃，可以重新上传。')) { clearTimeout(procTimer); S.phase = 'idle'; S.pop = false; S.drawer = false; setPlaying(false); S.t = 0; render(); toast('已放弃这次点评录音'); }
+  }
+  else if (act === 'open-drawer') { S.drawer = true; renderLayer(); }
+  else if (act === 'close-drawer') { S.drawer = false; setPlaying(false); renderLayer(); }
+  else if (act === 'generate') {
+    S.applied = new Set(S.sel); S.edits = {}; S.phase = 'done'; S.drawer = false; setPlaying(false); S.t = 0;
+    gotoView('v3');
+    toast(`点评版 v3 已生成：${S.applied.size} 处改动，比较已打开；v1 保持原样`);
+  }
+  else if (act === 'goto-v3') gotoView('v3');
+  else if (act === 'jump-op') {
+    const op = OPINIONS.find(o => o.n === Number(t.dataset.op));
+    const key = op.changes.find(k => isChanged(k));
+    if (!S.diff) { S.diff = true; render(); }
+    const keys = changedKeys(); S.diffIdx = Math.max(0, keys.indexOf(key)); renderTop();
+    const el = document.querySelector(`[data-anchor="${CSS.escape(key)}"]`);
+    if (el) { el.scrollIntoView({ behavior:'smooth', block:'center' }); el.classList.remove('diffFocus'); void el.offsetWidth; el.classList.add('diffFocus'); }
+  }
+  else if (act === 'play') setPlaying(!S.playing);
+  else if (act === 'seek') { S.t = Number(t.dataset.t); setPlaying(true); }
+  else if (act === 'seek-bar') { const r = t.getBoundingClientRect(); S.t = Math.round((e.clientX - r.left) / r.width * DURATION); refreshAudio(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.act === 'sel') { t.checked ? S.sel.add(t.dataset.k) : S.sel.delete(t.dataset.k); renderLayer(); }
+  if (t.dataset.act === 'sel-op') { const op = OPINIONS.find(o => o.n === Number(t.dataset.op)); op.changes.forEach(k => t.checked ? S.sel.add(k) : S.sel.delete(k)); renderLayer(); }
+});
+function commitEdit(ta){
+  const key = ta.dataset.edit, v = ta.value.trim();
+  if (v && v !== value(key)) { S.edits[key] = v; toast('已自动保存至点评版 v3'); }
+  S.editing = null; renderTop(); renderDoc();
+}
+document.addEventListener('focusout', e => { const ta = e.target.closest?.('.edBox'); if (ta && ta.isConnected) commitEdit(ta); });
+// 失焦之外再兜一层：点到编辑框以外的地方也算提交
+document.addEventListener('pointerdown', e => { const ta = document.querySelector('.edBox'); if (ta && !e.target.closest('.edBox')) commitEdit(ta); }, true);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (S.editing) { S.editing = null; renderDoc(); return; }
+    if (S.upload || S.drawer) { S.upload = false; S.drawer = false; setPlaying(false); renderLayer(); return; }
+    if (S.menu || S.pop) { S.menu = false; S.pop = false; renderTop(); }
+  }
+  if (e.key === 'Enter' && e.target.matches('.versionRow')) e.target.click();
+});
+
+render();
+</script>
