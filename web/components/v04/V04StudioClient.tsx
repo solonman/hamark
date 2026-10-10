@@ -251,8 +251,13 @@ function emptyV19ChoiceValue(): V04ChoiceValue {
 // keeps the dependency at the granularity of the whole `model` object.
 function computeV19Diff(model: V19StudioModel | null, draft: V04UiDraft): V19BaseDiff | null {
   if (!model || model.current.baseNumber === null) return null;
-  const payload = v04UiDraftToPayload(draft, model.current.payload);
-  return diffV19AgainstBase(payload, model.current.basePayload);
+  return diffV19AgainstBase(draftAsSavedPayload(model, draft), model.current.basePayload);
+}
+
+// 草稿表达不了「主导感知类型未选择」（界面把未选当成 LOVE 显示），直接转回 payload 会凭空多出一个
+// 主导路径，跟基版一比就成了「已修改」。比较和依据标记都按保存时的同一规则还原，看到的才是真正存下的内容。
+function draftAsSavedPayload(model: V19StudioModel, draft: V04UiDraft) {
+  return preserveV19UntouchedPerceptionPath(v04UiDraftToPayload(draft, model.current.payload), model.current.payload);
 }
 
 // 点评版视角下正文的「依据 意见 N」「老孙已手改」（docs/25 七、6）。和 computeV19Diff
@@ -263,7 +268,7 @@ function computeV19ReviewBasis(
   review: { id: string; view: AudioReviewView } | null,
 ): ReadonlyMap<string, V19ReviewBasisEntry> | undefined {
   if (!model || model.current.kind !== "AUDIO_REVIEW" || !review || review.id !== model.current.audioReviewId) return undefined;
-  return buildV19ReviewBasis(review.view, v04UiDraftToPayload(draft, model.current.payload));
+  return buildV19ReviewBasis(review.view, draftAsSavedPayload(model, draft));
 }
 
 function computeV19DefaultBaseId(model: V19StudioModel | null): string {
