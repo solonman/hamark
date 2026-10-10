@@ -157,12 +157,34 @@ test("the worked example is self-consistent: keys exist in its homework excerpt,
     assert.ok(example.示例文字稿.find((segment) => segment.id === correction.segmentId)!.text.includes(correction.from));
   }
   assert.ok(example.示例输出.unaddressed.some((entry) => entry.reason.startsWith("需要人工补／删镜头")));
-  // 每段老孙的话要么被意见引用、要么进了 unaddressed。
+  // 示例故意让说话人标签全是 S0，靠内容认出同事的提问。
+  assert.deepEqual([...new Set(example.示例文字稿.map((segment) => segment.speaker))], ["S0"]);
+  assert.deepEqual(example.示例输出.speakers.others, [{ segmentId: 3, speaker: "其他同事" }]);
+  // 每段老孙的话（没列进 others 的）要么被意见引用、要么进了 unaddressed。
+  const others = new Set(example.示例输出.speakers.others.map((entry) => entry.segmentId));
   const covered = new Set([
     ...example.示例输出.opinions.flatMap((opinion) => opinion.segmentIds),
     ...example.示例输出.unaddressed.flatMap((entry) => entry.segmentIds),
   ]);
-  for (const segment of example.示例文字稿.filter((item) => item.speaker === "S0")) assert.ok(covered.has(segment.id), String(segment.id));
+  for (const segment of example.示例文字稿.filter((item) => !others.has(item.id))) assert.ok(covered.has(segment.id), String(segment.id));
+});
+
+test("the prompt does not trust speaker labels and insists on restoring homophones from the vocabulary", () => {
+  for (const rule of [
+    "不要相信说话人标签",
+    "经常全部相同",
+    "speakers.others",
+    "没列进 others 的段落一律视为老孙说的",
+    "「时间码」听成「时间瓦」",
+    "「对置生义」听成「对质生利」",
+    "必须与原文一字不差",
+    "听不清，无法判断",
+  ]) {
+    assert.ok(AUDIO_REVIEW_SYSTEM_PROMPT.includes(rule), rule);
+  }
+  const task = buildAudioReviewUserPayload(context).任务;
+  assert.match(task.说明, /说话人标签可能全部相同或分错/);
+  assert.match(task.说明, /错别字可能很多/);
 });
 
 test("the input hash is stable and covers model and messages", () => {

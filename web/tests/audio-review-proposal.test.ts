@@ -9,10 +9,13 @@ import {
   buildAudioReviewChangeSet,
   checkAudioReviewChanges,
   formatAudioReviewValue,
+  isReviewerSegment,
   normalizeAudioReviewProposal,
   normalizeModelThinkingChain,
   type StoredAudioReviewProposal,
 } from "../lib/audio-review/proposal";
+import { interpretTaskStatus } from "../lib/audio-review/tencent-asr";
+import { toAudioReviewView } from "../lib/audio-review/view";
 import type { AudioReviewTranscriptSegment } from "../lib/audio-review/transcript";
 import type { V04DraftPayloadV1 } from "../lib/v04-contract";
 import { assertV04PayloadContract } from "../lib/v04-domain";
@@ -407,7 +410,69 @@ test("speakers: an unknown reviewer id falls back to the dominant speaker; label
   const proposal = run(output([{ key: "facts.creativeMotif", value: "新母题", opinionIds: ["o1"] }], {
     speakers: { reviewer: "S9", labels: { S0: "老孙", S1: "刘梦娜", S7: "幽灵", S2: "" } },
   }));
-  assert.deepEqual(proposal.speakers, { reviewer: "S0", labels: { S1: "刘梦娜" } });
+  assert.deepEqual(proposal.speakers, { reviewer: "S0", labels: { S1: "刘梦娜" }, others: null });
+});
+
+test("speakers judged by content on a real 16k_zh transcript (all labelled S0): others drive coverage and the view", () => {
+  const data = JSON.parse(readFileSync(new URL("./fixtures/audio-review-asr-16k_zh.json", import.meta.url), "utf8")) as Record<string, unknown>;
+  const asr = interpretTaskStatus(data);
+  assert.equal(asr.kind, "SUCCESS");
+  const realSegments = asr.kind === "SUCCESS" ? asr.segments : [];
+  const raw = {
+    speakers: {
+      reviewer: "S0",
+      labels: {},
+      others: [
+        { segmentId: 11, speaker: "其他同事" },
+        { segmentId: 6, speaker: "刘梦娜" },
+        { segmentId: 6, speaker: "重复的" },
+        { segmentId: 3, speaker: "老孙" },
+        { segmentId: 99, speaker: "不存在" },
+        { segmentId: 7 },
+      ],
+    },
+    opinions: [{ id: "o1", kind: "GENERAL", summary: "母题看浅了", segmentIds: [3, 4, 5] }],
+    changes: [{ key: "facts.creativeMotif", value: "让最体面的大人被允许重新当一回孩子", opinionIds: ["o1"] }],
+    unaddressed: [{ segmentIds: [2], reason: "肯定的部分，不需要改。" }],
+    corrections: [
+      { segmentId: 2, from: "时间瓦", to: "时间码" },
+      { segmentId: 12, from: "对质生利", to: "对置生义" },
+      { segmentId: 5, from: "张韵，在这儿", to: "张力在这儿" },
+    ],
+  };
+  const proposal = normalizeAudioReviewProposal(raw, { snapshot: snapshot(), segments: realSegments, reviewerName: "老孙" });
+  assert.deepEqual(proposal.speakers.others, [
+    { segmentId: 6, speaker: "刘梦娜" },
+    { segmentId: 7, speaker: "其他同事" },
+    { segmentId: 11, speaker: "其他同事" },
+  ]);
+  assert.equal(isReviewerSegment(realSegments[5], proposal.speakers), false);
+  assert.equal(isReviewerSegment(realSegments[0], proposal.speakers), true);
+  // 系统补列只补老孙的话：第 6、7、11 段不是老孙说的，不补。
+  const fallback = proposal.unaddressed.filter((entry) => entry.reason === UNADDRESSED_FALLBACK_REASON).map((entry) => entry.segmentIds[0]);
+  assert.ok(!fallback.includes(6) && !fallback.includes(7) && !fallback.includes(11));
+  assert.ok(fallback.includes(8));
+  assert.equal(proposal.corrections.length, 3);
+
+  const view = toAudioReviewView({
+    id: "arv_1", workspace_id: "ws", video_id: "video-1", base_version_id: "v1", base_version_number: 1, base_owner_name: "刘梦娜",
+    base_payload_json: snapshot(), reviewer_user_id: "u", reviewer_name: "老孙", status: "PENDING_CONFIRM", failed_step: null,
+    fail_reason: null, audio_object_key: "k", audio_file_name: "review.m4a", audio_content_type: "audio/mp4", audio_size_bytes: "1103513",
+    audio_duration_ms: 143488, asr_engine: "16k_zh", asr_task_id: "1", asr_submitted_at: null, asr_checked_at: null,
+    transcript_json: { segments: realSegments, durationMs: 143488, engine: "16k_zh" }, llm_model: "m", prompt_version: "p",
+    llm_attempts: 1, llm_started_at: null, llm_finished_at: null, llm_usage_json: null, input_content_hash: null,
+    proposal_json: proposal, selected_change_ids: null, review_version_id: null, lease_until: null,
+    created_at: "2026-10-10T08:00:00.000Z", updated_at: "2026-10-10T08:00:00.000Z", uploaded_at: null, proposed_at: null,
+    confirmed_at: null, abandoned_at: null,
+  }, { viewerDisplayName: "老孙" });
+  const segmentsView = view.transcript!.segments;
+  assert.deepEqual(segmentsView.filter((segment) => !segment.isReviewer).map((segment) => [segment.id, segment.speaker]), [
+    [6, "刘梦娜"], [7, "其他同事"], [11, "其他同事"],
+  ]);
+  assert.equal(segmentsView[0].speaker, "老孙");
+  assert.match(segmentsView[1].text, /时间码也准/);
+  assert.deepEqual(segmentsView[1].corrections, [{ from: "时间瓦", to: "时间码" }]);
+  assert.match(segmentsView[4].text, /^张力在这儿不在城市变游乐场/);
 });
 
 test("garbage input yields an empty proposal rather than throwing", () => {

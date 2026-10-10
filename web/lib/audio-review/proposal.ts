@@ -48,8 +48,19 @@ import { dominantSpeaker, type AudioReviewTranscriptSegment } from "./transcript
 
 export const AUDIO_REVIEW_TEXT_MAX_LENGTH = 5000;
 
+/**
+ * 说话人判断。转写给的标签（S0、S1…）不可靠：通用引擎 16k_zh 基本不做说话人分离，三个人的话
+ * 全标成 S0。所以以模型按内容逐段的判断为准：`others` 列出不是老孙说的每一段（谁说的），
+ * 没列进去的都算老孙。模型没给 `others`（null）时才退回按标签：`reviewer` 那个标签是老孙。
+ */
+export type AudioReviewSpeakerJudgement = {
+  reviewer: string;
+  labels: Record<string, string>;
+  others: { segmentId: number; speaker: string }[] | null;
+};
+
 export type StoredAudioReviewProposal = {
-  speakers: { reviewer: string; labels: Record<string, string> };
+  speakers: AudioReviewSpeakerJudgement;
   opinions: AudioReviewOpinion[];
   changes: AudioReviewChange[];
   unaddressed: { segmentIds: number[]; reason: string }[];
@@ -60,7 +71,18 @@ export type StoredAudioReviewProposal = {
 export type ProposalContext = {
   snapshot: V04DraftPayloadV1;
   segments: readonly AudioReviewTranscriptSegment[];
+  /** 录音者的显示名（老孙）；模型把老孙自己的话写进 others 时据此剔除。 */
+  reviewerName?: string;
 };
+
+/** 这一段是不是老孙说的：有逐段判断就按判断，否则按标签。 */
+export function isReviewerSegment(
+  segment: Pick<AudioReviewTranscriptSegment, "id" | "speakerId">,
+  speakers: Pick<AudioReviewSpeakerJudgement, "reviewer" | "others">,
+) {
+  if (speakers.others) return !speakers.others.some((entry) => entry.segmentId === segment.id);
+  return segment.speakerId === speakers.reviewer;
+}
 
 /** 主导路径切换的取值：路径类型连同新路径的全部细项，作为一处改动整体确认或整体取消。 */
 export type PrimaryPathValue = { primaryType: V04PerceptionType | ""; primaryDetails: Record<string, string> };
@@ -518,6 +540,22 @@ export function normalizeAudioReviewProposal(raw: unknown, context: ProposalCont
       if (speakerIds.has(speaker) && speaker !== reviewer && name) labels[speaker] = name;
     }
   }
+  // 逐段判断：不是老孙说的段落。写成老孙本人的、编号不存在的、重复的都去掉。
+  let others: AudioReviewSpeakerJudgement["others"] = null;
+  if (Array.isArray(rawSpeakers.others)) {
+    others = [];
+    const reviewerName = context.reviewerName?.trim();
+    for (const entry of rawSpeakers.others) {
+      if (!isRecord(entry)) continue;
+      const segmentId = Number(entry.segmentId);
+      const speaker = text(entry.speaker).slice(0, 20) || "其他同事";
+      if (!validSegmentIds.has(segmentId) || others.some((item) => item.segmentId === segmentId)) continue;
+      if (reviewerName && speaker === reviewerName) continue;
+      others.push({ segmentId, speaker });
+    }
+    others.sort((left, right) => left.segmentId - right.segmentId);
+  }
+  const speakerJudgement: AudioReviewSpeakerJudgement = { reviewer, labels, others };
 
   // 意见：按引用片段的最早时间排序，编号 1…N，id 统一换成 o1…oN。
   const rawOpinions = Array.isArray(input.opinions) ? input.opinions : [];
@@ -774,7 +812,7 @@ export function normalizeAudioReviewProposal(raw: unknown, context: ProposalCont
     ...unaddressed.flatMap((entry) => entry.segmentIds),
   ]);
   for (const segment of segments) {
-    if (segment.speakerId !== reviewer || covered.has(segment.id)) continue;
+    if (!isReviewerSegment(segment, speakerJudgement) || covered.has(segment.id)) continue;
     if (substantiveLength(segment.text) < SUBSTANTIVE_SEGMENT_MIN_CHARS) continue;
     unaddressed.push({ segmentIds: [segment.id], reason: UNADDRESSED_FALLBACK_REASON });
   }
@@ -793,7 +831,7 @@ export function normalizeAudioReviewProposal(raw: unknown, context: ProposalCont
     corrections.push({ segmentId, from, to });
   }
 
-  return { speakers: { reviewer, labels }, opinions, changes, unaddressed, corrections, dropped };
+  return { speakers: speakerJudgement, opinions, changes, unaddressed, corrections, dropped };
 }
 
 /** 存库的 proposal_json → 结构（读库时用；坏数据返回 null）。 */
@@ -805,8 +843,9 @@ export function parseStoredProposal(value: unknown): StoredAudioReviewProposal |
       ? {
         reviewer: typeof raw.speakers.reviewer === "string" ? raw.speakers.reviewer : "S0",
         labels: isRecord(raw.speakers.labels) ? raw.speakers.labels as Record<string, string> : {},
+        others: Array.isArray(raw.speakers.others) ? raw.speakers.others as AudioReviewSpeakerJudgement["others"] : null,
       }
-      : { reviewer: "S0", labels: {} },
+      : { reviewer: "S0", labels: {}, others: null },
     opinions: raw.opinions as AudioReviewOpinion[],
     changes: raw.changes as AudioReviewChange[],
     unaddressed: Array.isArray(raw.unaddressed) ? raw.unaddressed as StoredAudioReviewProposal["unaddressed"] : [],

@@ -115,7 +115,11 @@ test("fake understanding uses the snapshot's real ids and covers general, specif
   assert.ok(proposal.changes.some((change) => change.opinionIds.length === 2));
   assert.ok(proposal.unaddressed.length >= 4);
   assert.deepEqual(proposal.corrections, [{ segmentId: 11, from: "对质生意", to: "对置生义" }]);
-  assert.deepEqual(proposal.speakers, { reviewer: "S0", labels: { S1: "刘梦娜", S2: "王一凡" } });
+  assert.deepEqual(proposal.speakers, {
+    reviewer: "S0",
+    labels: { S1: "刘梦娜", S2: "王一凡" },
+    others: [{ segmentId: 5, speaker: "刘梦娜" }, { segmentId: 10, speaker: "王一凡" }],
+  });
   const { payload } = buildAudioReviewChangeSet(sample.snapshot, proposal.changes);
   assertV04PayloadContract(payload);
 });

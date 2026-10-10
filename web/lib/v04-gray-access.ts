@@ -310,7 +310,10 @@ export function v04GrayVideoIdFromRequest(request: Request) {
   // The V1.9 studio routes live under /analysis/v19 and are gated by exactly the
   // same access rules; a path this cannot read is refused as an unidentifiable
   // object, so a new surface must be named here or it can never be reached.
-  const match = new URL(request.url).pathname.match(/^\/api\/videos\/([^/]+)\/analysis\/(?:v04|v19)(?:\/|$)/);
+  // 录音点评（docs/25 4.2）挂在 /audio-reviews 下，与工作台同一套访问规则。
+  const match = new URL(request.url).pathname.match(
+    /^\/api\/videos\/([^/]+)\/(?:analysis\/(?:v04|v19)|audio-reviews)(?:\/|$)/,
+  );
   if (!match) return undefined;
   try {
     return decodeURIComponent(match[1]);

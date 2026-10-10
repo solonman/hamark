@@ -1,6 +1,7 @@
 // 腾讯云录音文件识别：TC3-HMAC-SHA256 签名（对照官方文档的固定向量）、请求构造、热词、
 // 结果解析与错误码映射。传输层全部是假的，不打腾讯云。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { signTc3Request, tc3Date } from "../lib/audio-review/tc3";
 import {
@@ -152,7 +153,7 @@ const options = (fetchImpl: AsrFetch) => ({
 test("CreateRecTask posts a signed JSON request to asr.tencentcloudapi.com and returns the task id", async () => {
   const { calls, fetchImpl } = fakeTencent([{ Response: { Data: { TaskId: 1234567 }, RequestId: "r1" } }]);
   const outcome = await createRecTask({ engine: "16k_zh_en_2.0", audioUrl: "https://cos/a.m4a", hotwordList: "老孙|10" }, options(fetchImpl));
-  assert.deepEqual(outcome, { ok: true, taskId: "1234567", usedHotwords: true });
+  assert.deepEqual(outcome, { ok: true, taskId: "1234567", usedHotwords: true, engine: "16k_zh_en_2.0" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, `https://${TENCENT_ASR_HOST}/`);
   assert.equal(calls[0].init.method, "POST");
@@ -171,13 +172,47 @@ test("an invalid hotword parameter is retried once without hotwords", async () =
     { Response: { Data: { TaskId: 99 }, RequestId: "r2" } },
   ]);
   const outcome = await createRecTask({ engine: "e", audioUrl: "u", hotwordList: "坏词|10" }, options(fetchImpl));
-  assert.deepEqual(outcome, { ok: true, taskId: "99", usedHotwords: false });
+  assert.deepEqual(outcome, { ok: true, taskId: "99", usedHotwords: false, engine: "e" });
   assert.equal(calls.length, 2);
   assert.equal(calls[0].body.HotwordList, "坏词|10");
   assert.equal("HotwordList" in calls[1].body, false);
   assert.equal(isHotwordParameterError("InvalidParameter", "热词格式错误"), true);
   assert.equal(isHotwordParameterError("InvalidParameter", "Url invalid"), false);
   assert.equal(isHotwordParameterError("AuthFailure", "hotword"), false);
+});
+
+const NO_AMOUNT = {
+  Response: { Error: { Code: "FailedOperation.UserHasNoAmount", Message: "Resource pack exhausted! Please purchase resource packs！" }, RequestId: "r" },
+};
+
+test("an exhausted large-model resource pack falls back to the general 16k_zh engine and reports the engine used", async () => {
+  const { calls, fetchImpl } = fakeTencent([NO_AMOUNT, { Response: { Data: { TaskId: 17044704621 }, RequestId: "r2" } }]);
+  const outcome = await createRecTask({ engine: "16k_zh_en_2.0", audioUrl: "u", hotwordList: "老孙|10" }, options(fetchImpl));
+  assert.deepEqual(outcome, { ok: true, taskId: "17044704621", usedHotwords: true, engine: "16k_zh" });
+  assert.deepEqual(calls.map((call) => call.body.EngineModelType), ["16k_zh_en_2.0", "16k_zh"]);
+  assert.equal(calls[1].body.HotwordList, "老孙|10");
+});
+
+test("both fallbacks can apply in turn: hotwords dropped first, then the engine switched", async () => {
+  const { calls, fetchImpl } = fakeTencent([
+    { Response: { Error: { Code: "InvalidParameter", Message: "HotwordList invalid" }, RequestId: "r1" } },
+    NO_AMOUNT,
+    { Response: { Data: { TaskId: 7 }, RequestId: "r3" } },
+  ]);
+  const outcome = await createRecTask({ engine: "16k_zh_en", audioUrl: "u", hotwordList: "坏词|10" }, options(fetchImpl));
+  assert.deepEqual(outcome, { ok: true, taskId: "7", usedHotwords: false, engine: "16k_zh" });
+  assert.deepEqual(calls.map((call) => [call.body.EngineModelType, "HotwordList" in call.body]), [
+    ["16k_zh_en", true],
+    ["16k_zh_en", false],
+    ["16k_zh", false],
+  ]);
+});
+
+test("no fallback when the general engine itself has no quota left", async () => {
+  const { calls, fetchImpl } = fakeTencent([NO_AMOUNT]);
+  const outcome = await createRecTask({ engine: "16k_zh", audioUrl: "u", hotwordList: "" }, options(fetchImpl));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(outcome, { ok: false, reason: "腾讯云语音识别额度不足（大模型资源包已用完）。", transient: false, code: "FailedOperation.UserHasNoAmount" });
 });
 
 test("other submission errors are not retried and come back in Chinese", async () => {
@@ -208,7 +243,10 @@ test("error codes map to Chinese reasons: auth, arrears, rate limit, download, i
   assert.match(auth.reason, /鉴权失败/);
   assert.equal(auth.transient, false);
   assert.match(describeTencentAsrError("AuthFailure.UnauthorizedOperation", "no permission").reason, /没有权限/);
-  const arrears = describeTencentAsrError("FailedOperation.UserHasNoAmount", "欠费");
+  const noAmount = describeTencentAsrError("FailedOperation.UserHasNoAmount", "Resource pack exhausted! Please purchase resource packs！");
+  assert.equal(noAmount.reason, "腾讯云语音识别额度不足（大模型资源包已用完）。");
+  assert.equal(noAmount.transient, false);
+  const arrears = describeTencentAsrError("FailedOperation.UserHasNoFreeAmount", "欠费");
   assert.match(arrears.reason, /欠费/);
   assert.equal(arrears.transient, false);
   assert.match(describeTencentAsrError("ResourceUnavailable.InArrears", null).reason, /欠费/);
@@ -283,4 +321,33 @@ test("DescribeTaskStatus sends the numeric TaskId and surfaces transient query e
   const limited = await describeTaskStatus("42", options(fetchImpl));
   assert.equal(limited.kind, "ERROR");
   if (limited.kind === "ERROR") assert.equal(limited.transient, true);
+});
+
+// ---------------------------------------------------------------------------
+// 真实返回（2026-10-10 总负责用真实账号、通用引擎 16k_zh、合成的三人点评录音跑出来的 Data 全文）。
+// 通用引擎不做说话人分离：三个人全标成 SpeakerId 0；错字很多（时间瓦、对质生利、张韵……）。
+// ---------------------------------------------------------------------------
+
+test("a real 16k_zh DescribeTaskStatus result parses into segments in ms with every speaker labelled S0", () => {
+  const data = JSON.parse(readFileSync(new URL("./fixtures/audio-review-asr-16k_zh.json", import.meta.url), "utf8")) as Record<string, unknown>;
+  const outcome = interpretTaskStatus(data);
+  assert.equal(outcome.kind, "SUCCESS");
+  if (outcome.kind !== "SUCCESS") return;
+  assert.equal(outcome.durationMs, 143488);
+  assert.equal(outcome.segments.length, 15);
+  assert.deepEqual(outcome.segments[0], {
+    id: 1, startMs: 390, endMs: 5680, speakerId: "S0", text: "好，下一个问那个捉迷藏天子在家就看过了，我直接说。",
+  });
+  assert.deepEqual([...new Set(outcome.segments.map((segment) => segment.speakerId))], ["S0"]);
+  assert.match(outcome.segments[1].text, /时间瓦/);
+  assert.match(outcome.segments[11].text, /对质生利/);
+  for (let index = 1; index < outcome.segments.length; index += 1) {
+    assert.ok(outcome.segments[index].startMs >= outcome.segments[index - 1].endMs);
+  }
+  // 退回解析 Result 文本得到同样的起止时间。
+  const fromText = parseTencentAsrSegments({ Result: data.Result });
+  assert.deepEqual(
+    fromText.map((segment) => [segment.startMs, segment.endMs]),
+    outcome.segments.map((segment) => [segment.startMs, segment.endMs]),
+  );
 });

@@ -17,6 +17,14 @@ export const TENCENT_ASR_SERVICE = "asr";
 export const TENCENT_ASR_VERSION = "2019-06-14";
 export const TENCENT_ASR_HOTWORD_WEIGHT = 10;
 export const TENCENT_ASR_HOTWORD_LIMIT = 128;
+/**
+ * 大模型引擎（16k_zh_en_2.0 / 16k_zh_en）要单独购买资源包；没买或用完时提交返回
+ * FailedOperation.UserHasNoAmount。此时自动改用通用引擎 16k_zh 再提交一次，功能不至于完全不可用。
+ * 通用引擎几乎不做说话人分离、错字也多，提示词按「标签不可信、按内容判断」写（见 prompt.ts）。
+ * 2026-10-10 总负责用真实账号核对：大模型引擎返回资源包耗尽，16k_zh 可用、热词被接受。
+ */
+export const TENCENT_ASR_FALLBACK_ENGINE = "16k_zh";
+export const TENCENT_ASR_NO_AMOUNT_CODE = "FailedOperation.UserHasNoAmount";
 
 export type AsrFetch = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -30,7 +38,8 @@ export type TencentAsrOptions = {
 export type AsrErrorInfo = { reason: string; transient: boolean; code: string | null };
 
 export type AsrSubmitOutcome =
-  | { ok: true; taskId: string; usedHotwords: boolean }
+  /** engine 是实际用上的引擎（大模型额度不足时会是 16k_zh），写进 asr_engine。 */
+  | { ok: true; taskId: string; usedHotwords: boolean; engine: string }
   | ({ ok: false } & AsrErrorInfo);
 
 export type AsrDescribeOutcome =
@@ -128,6 +137,9 @@ export function describeTencentAsrError(code: string | null, message: string | n
   }
   if (c.startsWith("AuthFailure")) {
     return { reason: `腾讯云转写鉴权失败。${AUTH_HINT}`, transient: false, code: c };
+  }
+  if (c === TENCENT_ASR_NO_AMOUNT_CODE) {
+    return { reason: "腾讯云语音识别额度不足（大模型资源包已用完）。", transient: false, code: c };
   }
   if (/InArrears|Arrears|NoAmount|NoFreeAmount|ServiceIsolate|UserNotRegistered|ResourceInsufficient|OutOfQuota/i.test(c) ||
     /欠费|余额不足|未开通|已隔离/.test(text)) {
@@ -246,19 +258,30 @@ export async function callTencentAsr(
   return { ok: true, data: data as Record<string, unknown> };
 }
 
+/**
+ * 提交转写。最多三次：热词参数被拒就去掉热词重提；大模型引擎额度不足（UserHasNoAmount）就改用
+ * 通用引擎 16k_zh 重提。两种退路可以先后都用上。
+ */
 export async function createRecTask(input: CreateRecTaskInput, options: TencentAsrOptions): Promise<AsrSubmitOutcome> {
-  let usedHotwords = Boolean(input.hotwordList);
-  let outcome = await callTencentAsr("CreateRecTask", buildCreateRecTaskParams(input), options);
-  if (!outcome.ok && usedHotwords && isHotwordParameterError(outcome.code, outcome.message)) {
-    usedHotwords = false;
-    outcome = await callTencentAsr("CreateRecTask", buildCreateRecTaskParams({ ...input, hotwordList: "" }), options);
+  let engine = input.engine;
+  let hotwordList = input.hotwordList;
+  let outcome = await callTencentAsr("CreateRecTask", buildCreateRecTaskParams({ ...input, engine, hotwordList }), options);
+  for (let retry = 0; retry < 2 && !outcome.ok; retry += 1) {
+    if (hotwordList && isHotwordParameterError(outcome.code, outcome.message)) {
+      hotwordList = "";
+    } else if (engine !== TENCENT_ASR_FALLBACK_ENGINE && outcome.code === TENCENT_ASR_NO_AMOUNT_CODE) {
+      engine = TENCENT_ASR_FALLBACK_ENGINE;
+    } else {
+      break;
+    }
+    outcome = await callTencentAsr("CreateRecTask", buildCreateRecTaskParams({ ...input, engine, hotwordList }), options);
   }
   if (!outcome.ok) return { ok: false, reason: outcome.reason, transient: outcome.transient, code: outcome.code };
   const taskId = outcome.data.TaskId;
   if (typeof taskId !== "number" && typeof taskId !== "string") {
     return { ok: false, reason: "腾讯云没有返回转写任务编号。", transient: true, code: null };
   }
-  return { ok: true, taskId: String(taskId), usedHotwords };
+  return { ok: true, taskId: String(taskId), usedHotwords: Boolean(hotwordList), engine };
 }
 
 export async function describeTaskStatus(taskId: string, options: TencentAsrOptions): Promise<AsrDescribeOutcome> {

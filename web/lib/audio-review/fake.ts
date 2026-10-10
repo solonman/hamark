@@ -52,7 +52,7 @@ export function createFakeAsr(clock: () => number = Date.now) {
     engine: FAKE_ASR_ENGINE,
     pollIntervalMs: FAKE_ASR_POLL_INTERVAL_MS,
     async submit(): Promise<AsrSubmitOutcome> {
-      return { ok: true, taskId: `fake-${clock()}`, usedHotwords: true };
+      return { ok: true, taskId: `fake-${clock()}`, usedHotwords: true, engine: FAKE_ASR_ENGINE };
     },
     async describe(taskId: string): Promise<AsrDescribeOutcome> {
       const submittedAt = Number(taskId.replace(/^fake-/, ""));
@@ -193,7 +193,15 @@ export function buildFakeModelOutput(context: Pick<AudioReviewPromptContext, "sn
   );
 
   return {
-    speakers: { reviewer: "S0", labels: { S1: context.revieweeName || "被点评人", S2: "王一凡" } },
+    speakers: {
+      reviewer: "S0",
+      labels: { S1: context.revieweeName || "被点评人", S2: "王一凡" },
+      // 按内容逐段判断（真实转写的说话人标签常常全是 S0）：第 5 段是被点评人的自述，第 10 段是同事提问。
+      others: [
+        { segmentId: 5, speaker: context.revieweeName || "被点评人" },
+        { segmentId: 10, speaker: "王一凡" },
+      ],
+    },
     opinions: [
       {
         id: "o1", kind: "GENERAL",
