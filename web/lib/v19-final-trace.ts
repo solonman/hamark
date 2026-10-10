@@ -227,10 +227,25 @@ function dedupeAdjacentV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19Fi
  * `deriveV19*Trace` function below) and each 旧写法摘要行's "版本、作者、时间"
  * column (used as-is by the renderer, exported so it doesn't get re-derived).
  */
-export function describeV19FinalTraceRowLabel(row: V19FinalTraceHistoryRow): string {
+export function describeV19FinalTraceRowLabel(
+  row: V19FinalTraceHistoryRow,
+  /** 点评版的编号（docs/25 六）：从点评版采纳来的写法记作「v3 老孙录音点评」。汇入记录本身不带版本类型。 */
+  reviewVersionNumbers?: ReadonlySet<number>,
+): string {
   if (row.isOrigin) return `v1 ${row.actorName} 原稿`;
   if (row.source === "FINAL_DIRECT") return `集成版 ${row.actorName} 直接修改 ${formatShortDateTime(row.createdAt)}`;
+  if (isV19ReviewSource(row, reviewVersionNumbers)) {
+    return `v${row.sourceVersionNumber} ${row.actorName}录音点评 ${formatShortDateTime(row.createdAt)}`;
+  }
   return `v${row.sourceVersionNumber ?? "?"} ${row.actorName} ${formatShortDateTime(row.createdAt)}`;
+}
+
+/** 这条来源是不是点评版：只有 VERSION 来源、且编号落在点评版编号里才算。 */
+export function isV19ReviewSource(
+  row: { source: string; sourceVersionNumber: number | null },
+  reviewVersionNumbers?: ReadonlySet<number>,
+): boolean {
+  return row.source === "VERSION" && row.sourceVersionNumber !== null && Boolean(reviewVersionNumbers?.has(row.sourceVersionNumber));
 }
 
 /**
@@ -264,9 +279,16 @@ function reduceV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19FinalField
  * when there's nothing to attribute, or the current row is 原稿 itself — an
  * unchanged field's hover carries no source suffix, same as before.
  */
-export function describeV19FinalTraceHoverSource(row: V19FinalTraceHistoryRow | null): string | undefined {
+export function describeV19FinalTraceHoverSource(
+  row: V19FinalTraceHistoryRow | null,
+  reviewVersionNumbers?: ReadonlySet<number>,
+): string | undefined {
   if (!row || row.isOrigin) return undefined;
-  const who = row.source === "FINAL_DIRECT" ? "集成版·直接修改" : `v${row.sourceVersionNumber ?? "?"}·${row.actorName}`;
+  const who = row.source === "FINAL_DIRECT"
+    ? "集成版·直接修改"
+    : isV19ReviewSource(row, reviewVersionNumbers)
+      ? `v${row.sourceVersionNumber}·${row.actorName}录音点评`
+      : `v${row.sourceVersionNumber ?? "?"}·${row.actorName}`;
   return `${who} ${formatShortDateTime(row.createdAt)}`;
 }
 
@@ -532,4 +554,105 @@ export function describeV19StructuralIntake(intake: V19FinalIntake, currentPaylo
     ? `集成版·直接修改 ${intake.actorName}`
     : `v${intake.sourceVersionNumber ?? "?"} ${intake.actorName}`;
   return `${actor} ${describeV19StructuralVerb(intake, currentPayload)}`;
+}
+
+// ---------------------------------------------------------------------------
+// 点评版候选（docs/25 六）：集成版溯源里，每个条目在「未纳入」之后多一行
+// 「点评版 vN · 老孙录音点评 · 时间」。服务端已经按 FIELD 键挑好了候选
+// （点评版改过、集成版里存在、集成版当前值和它不一样）；这里只按条目取出来，
+// 把合并存的那几类键（主导路径细项、辅助路径）拆到具体的那一格，并换成跟
+// 旧写法、未纳入同一种显示形状。不计入「N 处未纳入」，「全部采纳」也不处理它们。
+// ---------------------------------------------------------------------------
+
+export type V19ReviewCandidateRow = {
+  /** React key. */
+  key: string;
+  reviewVersionId: string;
+  reviewVersionNumber: number;
+  /** 采纳时传回服务端的 FIELD 键（细项也是整组 `path.primaryDetails`）。 */
+  targetKey: string;
+  /** 已经换成显示用的写法（选项变中文标签、细项取出那一格）。 */
+  value: unknown;
+  updatedAt: string;
+};
+
+type V19ReviewCandidateLike = {
+  reviewVersionId: string;
+  reviewVersionNumber: number;
+  targetKey: string;
+  value: unknown;
+  updatedAt: string;
+};
+
+/**
+ * 一个条目的点评版候选，按点评版编号升序。`project` 把候选值换成这一格的显示值；
+ * 给了 `currentValue`（这一格在集成版里的当前显示值）时，换完以后和它相同的
+ * 候选不列——整组键里这一格点评版没动过，列出来只会让人以为它有不同写法。
+ */
+export function deriveV19ReviewCandidateRows(
+  candidates: readonly V19ReviewCandidateLike[] | undefined,
+  targetKey: string,
+  project: (value: unknown) => unknown = (value) => value,
+  currentValue?: unknown,
+): V19ReviewCandidateRow[] {
+  if (!candidates?.length) return [];
+  return candidates
+    .filter((candidate) => candidate.targetKey === targetKey)
+    .map((candidate) => ({
+      key: `review-${candidate.reviewVersionId}-${targetKey}`,
+      reviewVersionId: candidate.reviewVersionId,
+      reviewVersionNumber: candidate.reviewVersionNumber,
+      targetKey,
+      value: project(candidate.value),
+      updatedAt: candidate.updatedAt,
+    }))
+    .filter((row) => currentValue === undefined || !jsonEqual(row.value, currentValue))
+    .sort((left, right) => left.reviewVersionNumber - right.reviewVersionNumber);
+}
+
+/** 主导路径细项：候选值是整组 `{ <detailKey>: string }`，取出这一格。 */
+export function deriveV19ReviewPrimaryDetailRows(
+  candidates: readonly V19ReviewCandidateLike[] | undefined,
+  detailKey: string,
+  currentValue: string,
+): V19ReviewCandidateRow[] {
+  return deriveV19ReviewCandidateRows(candidates, "path.primaryDetails", (value) => {
+    const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    const extracted = record[detailKey];
+    return typeof extracted === "string" ? extracted : "";
+  }, currentValue);
+}
+
+/** 辅助路径描述／创意作用：候选值是整张 `[{ type, description, creativeRole }]`，取出这一格。 */
+export function deriveV19ReviewAuxiliaryPathRows(
+  candidates: readonly V19ReviewCandidateLike[] | undefined,
+  auxType: string,
+  field: "description" | "creativeRole",
+  currentValue: string,
+): V19ReviewCandidateRow[] {
+  return deriveV19ReviewCandidateRows(candidates, "path.auxiliaryTypes", (value) => {
+    const list = Array.isArray(value) ? value as Array<Record<string, unknown>> : [];
+    const extracted = list.find((item) => item.type === auxType)?.[field];
+    return typeof extracted === "string" ? extracted : "";
+  }, currentValue);
+}
+
+/** 固定选项字段：候选值换成中文标签，和旧写法、未纳入一样显示。 */
+export function deriveV19ReviewChoiceRows(
+  candidates: readonly V19ReviewCandidateLike[] | undefined,
+  targetKey: string,
+  vocabularyField: V04VocabularyFieldKey,
+): V19ReviewCandidateRow[] {
+  return deriveV19ReviewCandidateRows(candidates, targetKey, (value) => describeV19ChoiceValue(value, vocabularyField));
+}
+
+/** 创意承重载体：候选值换成「故事、视听规则」。 */
+export function deriveV19ReviewCarrierRows(candidates: readonly V19ReviewCandidateLike[] | undefined): V19ReviewCandidateRow[] {
+  return deriveV19ReviewCandidateRows(candidates, "facts.creativeCarriers", describeV19CarrierListValue);
+}
+
+/** `点评版 v3 · 老孙录音点评 · 10-10 15:26`。 */
+export function describeV19ReviewCandidateLabel(row: V19ReviewCandidateRow, reviewerName = "老孙"): string {
+  const time = row.updatedAt ? ` · ${formatShortDateTime(row.updatedAt)}` : "";
+  return `点评版 v${row.reviewVersionNumber} · ${reviewerName || "老孙"}录音点评${time}`;
 }

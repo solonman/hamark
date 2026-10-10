@@ -13,8 +13,15 @@ import {
   describeV19FinalIntakeSource,
   describeV19FinalTraceHoverSource,
   describeV19FinalTraceRowLabel,
+  describeV19ReviewCandidateLabel,
   describeV19StructuralIntake,
+  deriveV19ReviewAuxiliaryPathRows,
+  deriveV19ReviewCandidateRows,
+  deriveV19ReviewCarrierRows,
+  deriveV19ReviewChoiceRows,
+  deriveV19ReviewPrimaryDetailRows,
   firstLineV19TraceValue,
+  isV19ReviewSource,
   latestAppliedV19FinalIntake,
   pendingV19StructuralIntakes,
   v19FinalTraceTargetExists,
@@ -790,4 +797,84 @@ test("deriveV19CarrierTrace: 假原稿行兜底 also applies here — a v1 recor
   const trace = deriveV19CarrierTrace(origin, intakes, "赵雅诗");
   assert.equal(trace.currentSourceLabel, `当前采用 · v1 赵雅诗 ${formatShortDateTime("2026-08-26T09:35:00.000Z")}`);
   assert.deepEqual(trace.overridden.map((row) => row.key), ["i1"]);
+});
+
+// ---------------------------------------------------------------------------
+// 点评版候选（docs/25 六）：按条目取出、拆到具体那一格、换成显示用的写法；
+// 从点评版采纳来的来源写成「vN 老孙录音点评」。
+// ---------------------------------------------------------------------------
+
+const reviewCandidate = (overrides: Record<string, unknown>) => ({
+  reviewVersionId: "ver-3",
+  reviewVersionNumber: 3,
+  targetKey: "facts.creativeMotif",
+  value: "让最体面的大人被允许重新当一回孩子" as unknown,
+  updatedAt: "2026-10-10T07:26:00.000Z",
+  ...overrides,
+});
+
+test("deriveV19ReviewCandidateRows：只取这一条目的候选，按点评版编号升序；没有候选时为空", () => {
+  const candidates = [
+    reviewCandidate({ reviewVersionId: "ver-7", reviewVersionNumber: 7, value: "第二个点评版的写法" }),
+    reviewCandidate({}),
+    reviewCandidate({ targetKey: "facts.tensionButton", value: "别的条目" }),
+  ];
+  const rows = deriveV19ReviewCandidateRows(candidates, "facts.creativeMotif");
+  assert.deepEqual(rows.map((row) => [row.reviewVersionNumber, row.value]), [[3, "让最体面的大人被允许重新当一回孩子"], [7, "第二个点评版的写法"]]);
+  assert.equal(rows[0].targetKey, "facts.creativeMotif");
+  assert.deepEqual(deriveV19ReviewCandidateRows(undefined, "facts.creativeMotif"), []);
+  assert.deepEqual(deriveV19ReviewCandidateRows([], "facts.creativeMotif"), []);
+});
+
+test("deriveV19ReviewPrimaryDetailRows：整组细项里取这一格；和集成版当前这一格一样就不列，采纳仍用整组键", () => {
+  const candidates = [reviewCandidate({
+    targetKey: "path.primaryDetails",
+    value: { reveal: "原来全城的大人都在陪一个孩子玩", deviation: "大人一个个躲起来" },
+  })];
+  const reveal = deriveV19ReviewPrimaryDetailRows(candidates, "reveal", "女孩回头，街上的人全都不见了。");
+  assert.deepEqual(reveal.map((row) => [row.value, row.targetKey]), [["原来全城的大人都在陪一个孩子玩", "path.primaryDetails"]]);
+  assert.deepEqual(deriveV19ReviewPrimaryDetailRows(candidates, "deviation", "大人一个个躲起来"), [], "这一格点评版没动过");
+  assert.deepEqual(deriveV19ReviewPrimaryDetailRows(candidates, "payoff", ""), [], "点评版里没有这一格、集成版里也是空：不列");
+});
+
+test("deriveV19ReviewAuxiliaryPathRows：按 (类型, 字段) 取出那一格", () => {
+  const candidates = [reviewCandidate({
+    targetKey: "path.auxiliaryTypes",
+    value: [{ type: "LOVE", description: "亲子之间的托底", creativeRole: "托底" }],
+  })];
+  assert.deepEqual(deriveV19ReviewAuxiliaryPathRows(candidates, "LOVE", "description", "亲子").map((row) => row.value), ["亲子之间的托底"]);
+  assert.deepEqual(deriveV19ReviewAuxiliaryPathRows(candidates, "LOVE", "creativeRole", "托底"), []);
+});
+
+test("deriveV19ReviewChoiceRows / deriveV19ReviewCarrierRows：换成中文标签显示", () => {
+  const choice = deriveV19ReviewChoiceRows([reviewCandidate({
+    targetKey: "facts.storyReference",
+    value: { selectedOptionIds: ["FAMILY_AFFECTION"], customText: "城市游戏化", advancedText: "", vocabularyVersion: "AD_VIDEO_VOCAB_V1" },
+  })], "facts.storyReference", "storyReferenceType");
+  assert.equal(choice[0]?.value, "家庭亲情片 ｜ 城市游戏化");
+  const carriers = deriveV19ReviewCarrierRows([reviewCandidate({ targetKey: "facts.creativeCarriers", value: ["STORY", "AUDIOVISUAL_RULE"] })]);
+  assert.equal(carriers[0]?.value, "故事、视听规则");
+});
+
+test("describeV19ReviewCandidateLabel：「点评版 v3 · 老孙录音点评 · 时间」", () => {
+  const [row] = deriveV19ReviewCandidateRows([reviewCandidate({})], "facts.creativeMotif");
+  assert.equal(describeV19ReviewCandidateLabel(row), `点评版 v3 · 老孙录音点评 · ${formatShortDateTime("2026-10-10T07:26:00.000Z")}`);
+  assert.equal(describeV19ReviewCandidateLabel({ ...row, updatedAt: "" }, "老孙"), "点评版 v3 · 老孙录音点评");
+});
+
+test("从点评版采纳来的来源：当前采用、旧写法、hover 都写成「v3 老孙录音点评」；普通版本不变", () => {
+  const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, creativeMotif: "原稿母题" } };
+  const intakes = [intake({
+    id: "i1", seq: 1, targetKey: "facts.creativeMotif", value: "点评版的母题",
+    sourceVersionNumber: 3, actorName: "老孙", createdAt: "2026-10-10T08:00:00.000Z",
+  })];
+  const trace = deriveV19FinalFieldTrace(origin, intakes, "facts.creativeMotif", "刘梦娜");
+  const reviewNumbers = new Set([3]);
+  const time = formatShortDateTime("2026-10-10T08:00:00.000Z");
+  assert.equal(describeV19FinalTraceRowLabel(trace.current!, reviewNumbers), `v3 老孙录音点评 ${time}`);
+  assert.equal(describeV19FinalTraceRowLabel(trace.current!), `v3 老孙 ${time}`, "不给点评版编号时照旧");
+  assert.equal(describeV19FinalTraceRowLabel(trace.current!, new Set([5])), `v3 老孙 ${time}`);
+  assert.equal(describeV19FinalTraceHoverSource(trace.current, reviewNumbers), `v3·老孙录音点评 ${time}`);
+  assert.equal(isV19ReviewSource({ source: "FINAL_DIRECT", sourceVersionNumber: 3 }, reviewNumbers), false);
+  assert.equal(isV19ReviewSource({ source: "VERSION", sourceVersionNumber: null }, reviewNumbers), false);
 });
