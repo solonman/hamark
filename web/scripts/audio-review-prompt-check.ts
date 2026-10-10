@@ -76,6 +76,7 @@ async function main() {
     apiKey: config.deepseek.apiKey,
     model: config.deepseek.model,
     baseUrl: config.deepseek.baseUrl,
+    reasoningEffort: process.env.DEEPSEEK_REASONING_EFFORT === "low" ? "low" : "high",
   });
   console.log(`耗时：${(outcome.durationMs / 1000).toFixed(1)} 秒`);
   console.log(`用量：${JSON.stringify(outcome.usage ?? null)}`);

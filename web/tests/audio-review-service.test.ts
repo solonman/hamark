@@ -370,6 +370,7 @@ function deps(clock: Clock, script: Scripted = {}) {
     submit: [] as Array<{ audioUrl: string; hotwordList: string }>,
     describe: [] as string[],
     llm: 0,
+    efforts: [] as string[],
     sleeps: [] as number[],
     put: [] as Array<[string, unknown]>,
     get: [] as Array<[string, unknown]>,
@@ -407,8 +408,9 @@ function deps(clock: Clock, script: Scripted = {}) {
       },
       llm: {
         model: "test-model",
-        complete: async (_messages, context) => {
+        complete: async (_messages, context, options) => {
           calls.llm += 1;
+          calls.efforts.push(options.reasoningEffort);
           clock.now += script.llmLatencyMs ?? 0;
           const next = llmQueue.shift() ?? fakeSuccess;
           return typeof next === "function" ? next(context) : next;
@@ -673,7 +675,7 @@ test("advance: submits, polls every 4 s, stores the transcript and goes straight
   assert.match(context.calls.submit[0].hotwordList, /^老孙\|10,刘梦娜\|10,/);
   assert.equal(row.llm_attempts, 1);
   assert.equal(row.llm_model, "test-model");
-  assert.equal(row.prompt_version, "2026-10-10.1");
+  assert.equal(row.prompt_version, "2026-10-10.2");
   assert.match(String(row.input_content_hash), /^[0-9a-f]{64}$/);
   assert.ok(row.proposed_at instanceof Date);
   assert.ok((row.proposal_json as { changes: unknown[] }).changes.length > 10);
@@ -732,6 +734,8 @@ test("advance: a failed first attempt is retried automatically; a proposal witho
   await advanceAudioReview(context.asDb, context.reviewId, { deadline: deadlineFrom(context.clock), deps: context.deps });
   const row = review(context.db, context.reviewId);
   assert.equal(context.calls.llm, 2);
+  // 再试换低思考强度换速度（第一次多半是超时或没给出可用结果）。
+  assert.deepEqual(context.calls.efforts, ["high", "low"]);
   assert.equal(row.status, "PENDING_CONFIRM");
   assert.equal(row.llm_attempts, 2);
   assert.deepEqual((row.llm_usage_json as { calls: Array<{ reason?: string }> }).calls[0].reason, "模型没有给出任何可用的改动。");
@@ -1072,7 +1076,7 @@ test("view: speakers by content, corrected transcript, expanded unaddressed rema
   assert.equal(praise.speaker, "老孙");
   assert.match(praise.text, /基本功是到位的/);
   assert.equal(view.proposal!.model, "test-model");
-  assert.equal(view.proposal!.promptVersion, "2026-10-10.1");
+  assert.equal(view.proposal!.promptVersion, "2026-10-10.2");
   assert.equal("dropped" in (view.proposal as object), false);
   // 兜底：未生成的任务即使行被别人拿到，视图里也没有提案和文字稿。
   const leaked = toAudioReviewView(pendingRow, { viewerDisplayName: "刘梦娜" });

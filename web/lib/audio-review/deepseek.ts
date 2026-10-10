@@ -12,11 +12,15 @@ export type DeepseekOptions = {
   baseUrl: string;
   fetchImpl?: DeepseekFetch;
   timeoutMs?: number;
+  /** 思考强度，默认 high；超时后的再试用 low 换速度（docs/25 4.3）。 */
+  reasoningEffort?: DeepseekReasoningEffort;
   /** 计时用；测试里固定。 */
   clock?: () => number;
 };
 
 export type LlmMessages = { system: string; user: string };
+
+export type DeepseekReasoningEffort = "low" | "high" | "max";
 
 export type LlmSuccess = {
   ok: true;
@@ -39,7 +43,11 @@ export type LlmFailure = {
 
 export type LlmOutcome = LlmSuccess | LlmFailure;
 
-export function buildDeepseekRequestBody(model: string, messages: LlmMessages) {
+export function buildDeepseekRequestBody(
+  model: string,
+  messages: LlmMessages,
+  reasoningEffort: DeepseekReasoningEffort = "high",
+) {
   return {
     model,
     messages: [
@@ -47,7 +55,7 @@ export function buildDeepseekRequestBody(model: string, messages: LlmMessages) {
       { role: "user", content: messages.user },
     ],
     thinking: { type: "enabled" },
-    reasoning_effort: "high",
+    reasoning_effort: reasoningEffort,
     response_format: { type: "json_object" },
     max_tokens: DEEPSEEK_MAX_TOKENS,
     stream: false,
@@ -95,7 +103,7 @@ export async function callDeepseekChat(messages: LlmMessages, options: DeepseekO
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(buildDeepseekRequestBody(options.model, messages)),
+        body: JSON.stringify(buildDeepseekRequestBody(options.model, messages, options.reasoningEffort)),
         signal: controller.signal,
       });
     } catch (error) {

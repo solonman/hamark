@@ -2,7 +2,13 @@
 // 服务层只认这里的接口，测试直接注入自己的假提供方。
 
 import { readAudioReviewConfig, type AudioReviewConfig, type AudioReviewProviderKind } from "./config";
-import { callDeepseekChat, type DeepseekFetch, type LlmMessages, type LlmOutcome } from "./deepseek";
+import {
+  callDeepseekChat,
+  type DeepseekFetch,
+  type DeepseekReasoningEffort,
+  type LlmMessages,
+  type LlmOutcome,
+} from "./deepseek";
 import { createFakeAsr, createFakeLlm } from "./fake";
 import type { AudioReviewPromptContext } from "./prompt";
 import {
@@ -24,7 +30,11 @@ export type AudioReviewAsrProvider = {
 
 export type AudioReviewLlmProvider = {
   model: string;
-  complete(messages: LlmMessages, context: AudioReviewPromptContext, options: { timeoutMs: number }): Promise<LlmOutcome>;
+  complete(
+    messages: LlmMessages,
+    context: AudioReviewPromptContext,
+    options: { timeoutMs: number; reasoningEffort: DeepseekReasoningEffort },
+  ): Promise<LlmOutcome>;
 };
 
 export type AudioReviewProviders = {
@@ -58,12 +68,13 @@ export function createAudioReviewProviders(
     },
     llm: {
       model: config.deepseek.model,
-      complete: (messages, _context, { timeoutMs }) => callDeepseekChat(messages, {
+      complete: (messages, _context, { timeoutMs, reasoningEffort }) => callDeepseekChat(messages, {
         apiKey: config.deepseek.apiKey,
         model: config.deepseek.model,
         baseUrl: config.deepseek.baseUrl,
         fetchImpl: options.llmFetch,
         timeoutMs,
+        reasoningEffort,
         clock,
       }),
     },

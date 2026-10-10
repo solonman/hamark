@@ -780,7 +780,12 @@ async function runUnderstanding(
     ).first<{ id: string } & QueryResultRow>();
     if (!started) return null;
 
-    const outcome = await llm.complete(messages, context, { timeoutMs: AUDIO_REVIEW_LLM_TIMEOUT_MS });
+    // 第一次用高思考强度；再试（多半是上一次超时或没给出可用结果）换低强度，同一段录音约快三成，
+    // 2026-10-10 真实转写实测质量没有明显下降。
+    const outcome = await llm.complete(messages, context, {
+      timeoutMs: AUDIO_REVIEW_LLM_TIMEOUT_MS,
+      reasoningEffort: attempt === 1 ? "high" : "low",
+    });
     let failure: { reason: string; retryable: boolean } | null = null;
     let proposalJson: string | null = null;
     if (!outcome.ok) {

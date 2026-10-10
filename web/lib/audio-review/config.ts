@@ -4,7 +4,8 @@
 import { isCaseReviewer } from "@/lib/case-review";
 import { isLocalDemoMode } from "@/lib/local-demo";
 
-export const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-pro";
+// 2026-10-10 用真实转写对比过：deepseek-flash 与 deepseek-v4-pro 理解质量相当，快约四成（2 分半录音 106 秒 vs 约 170 秒）。
+export const DEFAULT_DEEPSEEK_MODEL = "deepseek-flash";
 export const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 export const DEFAULT_TENCENT_ASR_ENGINE = "16k_zh_en_2.0";
 

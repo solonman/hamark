@@ -32,7 +32,7 @@ const context = {
 };
 
 test("the prompt version is pinned so task rows record which prompt produced them", () => {
-  assert.equal(AUDIO_REVIEW_PROMPT_VERSION, "2026-10-10.1");
+  assert.equal(AUDIO_REVIEW_PROMPT_VERSION, "2026-10-10.2");
 });
 
 test("the system prompt spells out every non-negotiable rule", () => {
