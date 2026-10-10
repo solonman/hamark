@@ -58,10 +58,11 @@ export async function loadCaseEngagement(
       `SELECT video_id FROM case_weekly_favorites
       WHERE user_id = ? AND video_id IN (${placeholders})`,
     ).bind(viewerUserId, ...ids).all<ViewerFavoriteRow>(),
+    // 作业评级只看个人版本：点评版不评分（docs/25 二、8），即便历史上有过也不进卡片。
     db.prepare(
       `SELECT r.video_id, v.version_number, v.owner_name_snapshot, r.stars
       FROM analysis_version_ratings r
-      JOIN analysis_versions v ON v.id = r.version_id
+      JOIN analysis_versions v ON v.id = r.version_id AND v.version_kind = 'PERSONAL'
       WHERE r.video_id IN (${placeholders})
       ORDER BY r.video_id ASC, v.version_number ASC`,
     ).bind(...ids).all<RatingRow>(),

@@ -762,7 +762,8 @@ export async function loadV04CaseCardsReadModel(
           (ARRAY_AGG(item.version_number ORDER BY item.updated_at DESC))[1] AS latest_version_number,
           (ARRAY_AGG(item.owner_name_snapshot ORDER BY item.updated_at DESC))[1] AS latest_version_owner_name,
           MAX(item.updated_at) AS latest_version_updated_at
-        FROM analysis_versions item WHERE item.workspace_id = w.id
+        FROM analysis_versions item
+        WHERE item.workspace_id = w.id AND item.version_kind = 'PERSONAL'
       ) version_stats ON TRUE
       WHERE v.id IN (${placeholders})
         AND v.deleted_at IS NULL

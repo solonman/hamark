@@ -11,7 +11,7 @@ import {
   normalizeReviewComment,
   normalizeReviewStars,
 } from "../lib/case-review.ts";
-import { toIsoTimestamp } from "../lib/case-review-server.ts";
+import { caseReviewVersionLabel, toIsoTimestamp } from "../lib/case-review-server.ts";
 
 const source = async (path: string) => readFile(new URL(path, import.meta.url), "utf8");
 
@@ -111,8 +111,10 @@ test("loadCaseReview fetches every version's comments for the case, and only a r
   const server = await source("../lib/case-review-server.ts");
   // 评论按整案例取，不再按单一版本——不管正看着哪一版都要看得见别版写了什么。
   assert.match(server, /FROM analysis_version_comments c[\s\S]*LEFT JOIN analysis_versions av ON av\.id = c\.version_id[\s\S]*WHERE c\.video_id = \?/);
-  // 找不到版本号（联查落空）就是写在集成版上。
-  assert.match(server, /row\.version_number != null \? `v\$\{row\.version_number\}` : "集成版"/);
+  // 找不到版本号（联查落空）就是写在集成版上；标签统一出自 caseReviewVersionLabel。
+  assert.match(server, /versionLabel: caseReviewVersionLabel\(row\.version_number == null \? null : Number\(row\.version_number\), row\.version_kind\)/);
+  assert.equal(caseReviewVersionLabel(null, null), "集成版");
+  assert.equal(caseReviewVersionLabel(3, "PERSONAL"), "v3");
   // 星级仍只锚定 `?version=` 指定的那一版；version 不在 analysis_versions 里（集成版）时不能评分。
   assert.match(server, /const canRate = ratableVersionId != null;/);
 });

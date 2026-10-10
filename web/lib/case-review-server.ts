@@ -32,8 +32,10 @@ export function toIsoTimestamp(value: unknown): string {
 
 export type CaseReviewViewer = { userId: string; displayName: string };
 
+type VersionKind = "PERSONAL" | "AUDIO_REVIEW";
 type VersionRow = QueryResultRow & { id: string; video_id: string };
-type VersionWithNumberRow = VersionRow & { version_number: number };
+type VersionWithKindRow = VersionRow & { version_kind: VersionKind | null };
+type VersionWithNumberRow = VersionWithKindRow & { version_number: number };
 type RatingRow = QueryResultRow & { stars: number };
 type SavedCommentRow = QueryResultRow & {
   target_key: string;
@@ -46,7 +48,19 @@ type CommentRow = SavedCommentRow & {
   version_id: string;
   /** `LEFT JOIN analysis_versions` 联查所得；为 null 的评论写在集成版上。 */
   version_number: number | null;
+  version_kind: VersionKind | null;
 };
+
+export const REVIEW_VERSION_NOT_RATABLE_MESSAGE = "点评版不评分。";
+
+/**
+ * 评论气泡上的版本标签：普通版本 `v3`，点评版 `v5（点评版）`（docs/25 二、8），
+ * `analysis_versions` 里找不到（联查落空）的评论写在集成版上。
+ */
+export function caseReviewVersionLabel(versionNumber: number | null, versionKind: VersionKind | null): string {
+  if (versionNumber == null) return "集成版";
+  return versionKind === "AUDIO_REVIEW" ? `v${versionNumber}（点评版）` : `v${versionNumber}`;
+}
 
 /**
  * 版本必须真属于这个案例才继续。否则一个能读 A 案例的人，
@@ -54,8 +68,8 @@ type CommentRow = SavedCommentRow & {
  */
 async function requireVersionOfVideo(db: DbClient, videoId: string, versionId: string) {
   const row = await db.prepare(
-    "SELECT id, video_id FROM analysis_versions WHERE id = ?",
-  ).bind(versionId.trim()).first<VersionRow>();
+    "SELECT id, video_id, version_kind FROM analysis_versions WHERE id = ?",
+  ).bind(versionId.trim()).first<VersionWithKindRow>();
   if (!row || row.video_id !== videoId) {
     throw new Error("指定的版本不存在。");
   }
@@ -77,10 +91,10 @@ async function requireCommentVersionOfVideo(
 ): Promise<{ id: string; label: string }> {
   const trimmed = versionId.trim();
   const version = await db.prepare(
-    "SELECT id, video_id, version_number FROM analysis_versions WHERE id = ?",
+    "SELECT id, video_id, version_number, version_kind FROM analysis_versions WHERE id = ?",
   ).bind(trimmed).first<VersionWithNumberRow>();
   if (version && version.video_id === videoId) {
-    return { id: version.id, label: `v${version.version_number}` };
+    return { id: version.id, label: caseReviewVersionLabel(Number(version.version_number), version.version_kind) };
   }
   const final = await db.prepare(
     "SELECT id FROM analysis_final_versions WHERE id = ? AND video_id = ?",
@@ -103,13 +117,16 @@ export async function loadCaseReview(
   const versionId = input.versionId?.trim() || "";
 
   // 星级仍只锚定 `?version=` 指定的那一版；只有普通版本能评分——
-  // 找不到（含集成版，其 id 不在 `analysis_versions` 里）就是不能评分。
+  // 找不到（含集成版，其 id 不在 `analysis_versions` 里）就是不能评分；
+  // 点评版不是谁的作业，同样不评分（docs/25 二、8）。
   let ratableVersionId: string | null = null;
   if (versionId) {
     const version = await db.prepare(
-      "SELECT id, video_id FROM analysis_versions WHERE id = ?",
-    ).bind(versionId).first<VersionRow>();
-    if (version && version.video_id === input.videoId) ratableVersionId = versionId;
+      "SELECT id, video_id, version_kind FROM analysis_versions WHERE id = ?",
+    ).bind(versionId).first<VersionWithKindRow>();
+    if (version && version.video_id === input.videoId && version.version_kind !== "AUDIO_REVIEW") {
+      ratableVersionId = versionId;
+    }
   }
   const canRate = ratableVersionId != null;
 
@@ -121,7 +138,7 @@ export async function loadCaseReview(
       : Promise.resolve(null),
     db.prepare(
       `SELECT c.target_key, c.target_label, c.body, c.author_name, c.updated_at,
-        c.version_id, av.version_number
+        c.version_id, av.version_number, av.version_kind
       FROM analysis_version_comments c
       LEFT JOIN analysis_versions av ON av.id = c.version_id
       WHERE c.video_id = ?
@@ -140,8 +157,8 @@ export async function loadCaseReview(
       authorName: row.author_name,
       updatedAt: toIsoTimestamp(row.updated_at),
       versionId: row.version_id,
-      // `analysis_versions` 里找不到（联查落空）的评论写在集成版上。
-      versionLabel: row.version_number != null ? `v${row.version_number}` : "集成版",
+      // `analysis_versions` 里找不到（联查落空）的评论写在集成版上；点评版标「（点评版）」。
+      versionLabel: caseReviewVersionLabel(row.version_number == null ? null : Number(row.version_number), row.version_kind),
     } satisfies CaseReviewComment)),
   };
 }
@@ -154,6 +171,8 @@ export async function saveCaseReviewRating(
   requireReviewer(input.viewer);
   const stars = normalizeReviewStars(input.stars);
   const version = await requireVersionOfVideo(db, input.videoId, input.versionId);
+  // 点评版不是谁的作业，和集成版一样不打分（docs/25 二、8）；撤销评分也一并拒绝。
+  if (version.version_kind === "AUDIO_REVIEW") throw new Error(REVIEW_VERSION_NOT_RATABLE_MESSAGE);
   if (stars === 0) {
     await db.prepare("DELETE FROM analysis_version_ratings WHERE version_id = ?")
       .bind(version.id).run();

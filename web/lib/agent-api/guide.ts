@@ -47,6 +47,22 @@ curl -H "Authorization: Bearer ${token}" "${base}"
 | \`GET /reports/{id}\` | 报告详情：元数据、逐页页图链接与文字摘录、相关资料、版本列表、集成版状态 |
 | \`GET /reports/{id}/analysis\` | 报告拆解内容：背景、策略、模块／单元结构、逐页组块 |
 
+### 视频版本的类型（\`GET /videos/{id}\` 的 \`versions[]\`）
+
+每个版本带 \`类型\`：
+
+- \`个人版本\`：某位同事自己的拆解作业，每人一个。
+- \`点评版\`：老孙在线下分享会上对某一版作业做了录音点评，系统据此在那一版的基础上改写出的版本（\`baseNumber\` 是被点评的那一版）。它不是谁的作业：不计入 \`versionCount\`，\`version=latest\` 不会选中它，也不会自动汇入集成版。点评版另附 \`点评录音\`：
+
+\`\`\`jsonc
+"点评录音": {
+  "录音时长": "12:34",          // 读不到时长时为 null
+  "意见": [ { "序号": 1, "类型": "总体", "摘要": "…" } ]   // 类型：总体 = 影响全片多处的判断；具体 = 点名到一处
+}
+\`\`\`
+
+读点评版内容：把它的 \`id\` 传给 \`/videos/{id}/analysis?version=…\`。和被点评的那一版对照着读，最能看出点评改了什么。
+
 ## 4. 列表参数（/videos、/reports）
 
 | 参数 | 说明 |
@@ -59,15 +75,15 @@ curl -H "Authorization: Bearer ${token}" "${base}"
 
 列表按上传时间倒序。每条带 \`analysis\` 摘要：
 
-- \`versionCount\`：已有几个个人版本（0 表示还没人拆）
+- \`versionCount\`：已有几个个人版本（0 表示还没人拆；不含点评版）
 - \`finalStatus\`：集成版状态。\`DONE\` = 已定稿，\`OPEN\` = 未定稿（内容仍可能变化），\`null\` = 还没有任何版本
-- \`lastVersionUpdatedAt\` / \`finalUpdatedAt\` / \`finalDoneAt\`：最近更新时间与定稿时间（ISO 8601，UTC）
+- \`lastVersionUpdatedAt\` / \`finalUpdatedAt\` / \`finalDoneAt\`：最近更新时间与定稿时间（ISO 8601，UTC）。\`lastVersionUpdatedAt\` 算的是任一版本（含点评版）的最近保存
 
 ## 5. 拆解内容参数（/videos/{id}/analysis、/reports/{id}/analysis）
 
 | 参数 | 说明 |
 |---|---|
-| \`version\` | \`final\`（默认）= 集成版，即多人版本逐处汇总后的最新稿；\`latest\` = 最近保存的那个个人版本；也可以传详情接口 \`versions[].id\` 里的具体版本 id |
+| \`version\` | \`final\`（默认）= 集成版，即多人版本逐处汇总后的最新稿；\`latest\` = 最近保存的那个个人版本（不含点评版）；也可以传详情接口 \`versions[].id\` 里的具体版本 id（点评版也可以） |
 | \`format\` | \`both\`（默认）= 同时返回 \`payload\` 和 \`readable\`；\`raw\` = 只要 \`payload\`；\`readable\` = 只要 \`readable\` |
 
 返回结构：
@@ -76,9 +92,9 @@ curl -H "Authorization: Bearer ${token}" "${base}"
 {
   "case": { "id": "…", "title": "…", "brand": "…" },   // 报告为 "report": { "id", "title", "taskType" }
   "version": {
-    "kind": "FINAL",            // FINAL = 集成版；VERSION = 个人版本；VIRTUAL_V1 = 旧工作稿生成的初始版
+    "kind": "FINAL",            // FINAL = 集成版；VERSION = 具体某一版（个人版本或点评版）；VIRTUAL_V1 = 旧工作稿生成的初始版
     "status": "DONE",           // 仅集成版：DONE 已定稿 / OPEN 未定稿
-    "number": 2, "ownerName": "…",   // 仅个人版本
+    "number": 2, "ownerName": "…", "类型": "个人版本",   // 仅 VERSION；点评版另附 "点评录音"（见 4.1）
     "updatedAt": "2026-09-30T04:10:54.000Z",
     "contentHash": "…"          // 内容指纹：与上次相同就说明内容没变，不必重新处理
   },

@@ -54,12 +54,23 @@
 返回 `{ total, limit, offset, videos|reports: [...] }`，按上传时间倒序。每条带
 `analysis: { versionCount, lastVersionUpdatedAt, finalStatus, finalDoneAt, finalUpdatedAt }`。
 `finalStatus`：`DONE` = 已定稿，`OPEN` = 未定稿，`null` = 还没有任何版本。
+视频的 `versionCount` 只数个人版本，不含点评版（docs/25 八）；`lastVersionUpdatedAt` 与 `updatedSince` 仍按任一版本（含点评版）的最近保存算，点评版被老孙手改后增量同步也能拉到。
+
+### 视频版本类型（`/videos/{id}` 的 `versions[]`，docs/25 八）
+
+每个版本摘要带 `类型`：`个人版本` 或 `点评版`。点评版是老孙的录音点评在被点评版本快照上改写出的版本，`baseNumber` 是被点评的那一版；它不计入 `versionCount`，`version=latest` 不会选中它，但可以按 id 读取。点评版另附
+
+```jsonc
+"点评录音": { "录音时长": "12:34" | null, "意见": [{ "序号": 1, "类型": "总体" | "具体", "摘要": "…" }] }
+```
+
+数据来自 `audio_reviews` 里 `status = 'GENERATED'` 的任务（`audio_duration_ms`、`proposal_json.opinions`），查不到就不附。录音本身、文字稿和待确认的拟定改动不对外。
 
 ### 拆解内容参数（`/videos/{id}/analysis`、`/reports/{id}/analysis`）
 
 | 参数 | 说明 |
 |---|---|
-| `version` | `final`（默认，集成版）/ `latest`（最近保存的个人版本）/ 具体版本 id（取自详情接口的 `versions[].id`，只在本案例的版本里找） |
+| `version` | `final`（默认，集成版）/ `latest`（最近保存的个人版本，不含点评版）/ 具体版本 id（取自详情接口的 `versions[].id`，只在本案例的版本里找；点评版也可以） |
 | `format` | `both`（默认）/ `raw` / `readable` |
 
 返回：
@@ -70,7 +81,7 @@
   "version": {
     "kind": "FINAL" | "VERSION" | "VIRTUAL_V1",
     // FINAL：label=集成版、status(OPEN/DONE)、doneAt、doneByName、pendingCount（定稿后未纳入的修改数）、isVirtual
-    // VERSION：number、ownerName、baseNumber、baseIsFinal、createdAt
+    // VERSION：number、类型（个人版本/点评版）、ownerName、baseNumber、baseIsFinal、createdAt；点评版另附 点评录音
     "updatedAt", "revision", "contentHash"
   },
   "payloadSchemaVersion": "AD_VIDEO_PAYLOAD_V1" | "report-annotation/1",
