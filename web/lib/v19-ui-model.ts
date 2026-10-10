@@ -5,6 +5,7 @@
 // 不重复声明；`case` 去掉 `media` 字段，因为响应体把媒体信息单独放在顶层 `media`。
 
 import type { V04Change, V04DraftPayloadV1 } from "@/lib/v04-contract";
+import type { V19AudioReviewSummary, V19ReviewCandidate } from "@/lib/audio-review-model";
 import type {
   V04ServerWorkspaceModel,
   V04UiCapabilities,
@@ -25,7 +26,13 @@ export type V19VersionSummary = {
   isVirtual: boolean;
   /** true when this version was manually created from the final version's payload (spec 五、13). */
   baseIsFinal: boolean;
+  /** 个人版本，或由老孙的录音点评生成的点评版（docs/25 二、5）。点评版的 isMine 恒为 false。 */
+  kind: V19VersionKind;
+  /** 点评版对应的点评任务 id；个人版本为 null。 */
+  audioReviewId: string | null;
 };
+
+export type V19VersionKind = "PERSONAL" | "AUDIO_REVIEW";
 
 export type V19CurrentVersion = V19VersionSummary & {
   payload: V04DraftPayloadV1;
@@ -70,8 +77,12 @@ export type V19StudioModel = {
   current: V19CurrentVersion;
   myVersionId: string | null;
   final: V19FinalSummary | null;
-  /** 只在 `?version=final` 时携带（spec 4.1）。 */
-  finalTrace?: { originPayload: V04DraftPayloadV1; intakes: V19FinalIntake[] };
+  /** 只在 `?version=final` 时携带（spec 4.1）。`reviewCandidates` 见 docs/25 六。 */
+  finalTrace?: { originPayload: V04DraftPayloadV1; intakes: V19FinalIntake[]; reviewCandidates?: V19ReviewCandidate[] };
+  /** 老孙看到全部未放弃的点评任务；其他人只看到已生成的（docs/25 4.8）。 */
+  audioReviews: V19AudioReviewSummary[];
+  /** 老孙且转写、模型、存储都已配置（或走本地假实现）时为 true，入口才出现。 */
+  audioReviewAvailable: boolean;
 };
 
 export type V19SaveRequestBody = {
@@ -89,6 +100,8 @@ export type V19SaveResponseBody = {
   createdVersion: boolean;
   skippedTargets?: string[];
   finalIntake: { merged: boolean; pending: number };
+  /** 这次写进的是个人版本还是点评版。点评版不汇入集成版，前端据此不弹汇入提示（docs/25 五、1）。 */
+  versionKind?: V19VersionKind;
 };
 
 export type V19CreateVersionRequestBody = {
@@ -99,7 +112,8 @@ export type V19CreateVersionRequestBody = {
 export type V19FinalActionRequestBody =
   | { action: "DONE" }
   | { action: "OPEN" }
-  | { action: "ADOPT"; intakeIds?: string[]; all?: boolean };
+  | { action: "ADOPT"; intakeIds?: string[]; all?: boolean }
+  | { action: "ADOPT_REVIEW"; reviewVersionId: string; targetKeys: string[] };
 
 export type V19FinalActionResponseBody = {
   final: V19FinalSummary;
@@ -118,7 +132,11 @@ export function formatV19VersionLabel(input: {
   ownerIsUploader: boolean;
   /** true when this version was created from the final version's payload rather than another editor's (spec 五、13). */
   baseIsFinal?: boolean;
+  kind?: V19VersionKind;
 }): string {
+  if (input.kind === "AUDIO_REVIEW") {
+    return `v${input.number}（${input.ownerName}录音点评，基于v${input.baseNumber ?? "?"}）`;
+  }
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
   const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
   return `v${input.number}（${basis}，${ownerLabel}）`;

@@ -6,6 +6,7 @@ import { V19_VERSION_CHAIN_SCHEMA_STATEMENTS } from "./v19-version-chain-schema"
 import { CASE_ENGAGEMENT_SCHEMA_STATEMENTS } from "./case-engagement-schema";
 import { REPORT_SCHEMA_STATEMENTS } from "./report-schema";
 import { FINAL_VERSION_SCHEMA_STATEMENTS } from "./final-version-schema";
+import { AUDIO_REVIEW_SCHEMA_STATEMENTS } from "./audio-review-schema";
 import { REPORT_FINAL_SCHEMA_STATEMENTS } from "./report-final-schema";
 import { VISUAL_SCHEMA_STATEMENTS } from "./visual-schema";
 import { AGENT_TOKEN_SCHEMA_STATEMENTS } from "./agent-token-schema";
@@ -564,6 +565,7 @@ export const BOOTSTRAP_STATEMENTS = [
   ...REPORT_SCHEMA_STATEMENTS,
   ...REPORT_FINAL_SCHEMA_STATEMENTS,
   ...FINAL_VERSION_SCHEMA_STATEMENTS,
+  ...AUDIO_REVIEW_SCHEMA_STATEMENTS,
   ...VISUAL_SCHEMA_STATEMENTS,
   ...AGENT_TOKEN_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only

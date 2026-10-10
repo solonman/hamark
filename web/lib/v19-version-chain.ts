@@ -147,6 +147,9 @@ export type V19VersionSummary = {
   isMine: boolean;
   isVirtual: boolean;
   baseIsFinal: boolean;
+  /** docs/25 二、5：个人版本，或老孙录音点评生成的点评版。点评版的 isMine 恒为 false。 */
+  kind: "PERSONAL" | "AUDIO_REVIEW";
+  audioReviewId: string | null;
 };
 
 export type V19CurrentVersion = V19VersionSummary & {
@@ -224,6 +227,8 @@ export type AnalysisVersionRow = QueryResultRow & {
   vocabulary_version: string;
   payload_schema_version: string;
   base_is_final: boolean;
+  version_kind: "PERSONAL" | "AUDIO_REVIEW";
+  audio_review_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -231,7 +236,7 @@ export type AnalysisVersionRow = QueryResultRow & {
 export const VERSION_COLUMNS = `id, workspace_id, video_id, version_number, owner_user_id, owner_name_snapshot,
   base_version_id, base_version_number, base_payload_json, base_captured_at,
   payload_json, content_hash, revision, taxonomy_version, workflow_version,
-  vocabulary_version, payload_schema_version, base_is_final, created_at, updated_at`;
+  vocabulary_version, payload_schema_version, base_is_final, version_kind, audio_review_id, created_at, updated_at`;
 
 export function parseJsonPayload(value: V04DraftPayloadV1 | string): V04DraftPayloadV1 {
   return typeof value === "string" ? JSON.parse(value) as V04DraftPayloadV1 : value;
@@ -332,9 +337,11 @@ export function toSummary(row: AnalysisVersionRow, actorUserId: string): V19Vers
       : Number(row.base_version_number),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    isMine: row.owner_user_id === actorUserId,
+    isMine: row.owner_user_id === actorUserId && row.version_kind !== "AUDIO_REVIEW",
     isVirtual: false,
     baseIsFinal: Boolean(row.base_is_final),
+    kind: row.version_kind === "AUDIO_REVIEW" ? "AUDIO_REVIEW" : "PERSONAL",
+    audioReviewId: row.audio_review_id ?? null,
   };
 }
 
@@ -362,6 +369,8 @@ function finalToCurrentVersion(final: LoadedFinalVersion): V19CurrentVersion {
     isMine: false,
     isVirtual: final.isVirtual,
     baseIsFinal: false,
+    kind: "PERSONAL",
+    audioReviewId: null,
     isFinal: true,
     payload: final.payload,
     basePayload: null,
@@ -387,6 +396,8 @@ function virtualVersion(
     isMine: ownerUserId === actorUserId,
     isVirtual: true,
     baseIsFinal: false,
+    kind: "PERSONAL",
+    audioReviewId: null,
   };
 }
 

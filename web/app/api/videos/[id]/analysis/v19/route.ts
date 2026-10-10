@@ -53,6 +53,9 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       myVersionId: chain.myVersionId,
       final: chain.final,
       ...(chain.finalTrace ? { finalTrace: chain.finalTrace } : {}),
+      // docs/25 4.8：点评任务摘要与入口开关，由录音点评流水线填充。
+      audioReviews: [],
+      audioReviewAvailable: false,
     };
     return Response.json(model);
   });
