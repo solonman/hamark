@@ -23,8 +23,22 @@ import {
   preserveV19UntouchedPerceptionPath,
   type V19FinalActionRequestBody,
   type V19StudioModel,
+  type V19VersionKind,
   type V19VersionSummary,
 } from "@/lib/v19-ui-model";
+import { audioReviewApi, type AudioReviewView } from "@/lib/audio-review-model";
+import {
+  audioReviewForVersion,
+  audioReviewTransitionToast,
+  buildV19ReviewBasis,
+  inFlightAudioReviewKey,
+  nextV19VersionNumber,
+  removeAudioReviewSummary,
+  resolveV19AudioReviewEntry,
+  summarizeAudioReview,
+  upsertAudioReviewSummary,
+  type V19ReviewBasisEntry,
+} from "@/lib/audio-review-ui";
 import { describeV19Diff, diffV19AgainstBase, type V19BaseDiff } from "@/lib/v19-base-diff";
 import { readJsonResponse } from "@/lib/http-json";
 import {
@@ -42,6 +56,11 @@ import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import V04VideoPlayer from "./V04VideoPlayer";
 import V19StudioDocument from "./V19StudioDocument";
 import V19AssignmentRating from "./V19AssignmentRating";
+import V19AudioReviewEntry from "./V19AudioReviewEntry";
+import V19AudioReviewUploadDialog from "./V19AudioReviewUploadDialog";
+import V19AudioReviewDrawer from "./V19AudioReviewDrawer";
+import V19AudioReviewCard, { V19_AUDIO_REVIEW_CARD_ID } from "./V19AudioReviewCard";
+import { AudioReviewIcon, AudioReviewVersionTag } from "./V19AudioReviewParts";
 import styles from "./V04Surface.module.css";
 
 /**
@@ -90,13 +109,20 @@ export type V19EditGuardDecision =
  * final version always proceeds and is never switched to his own per-editor
  * version — the final version has no owner, so `current.isMine` is always
  * false there and must not trigger the ordinary fork-redirect below.
+ *
+ * 点评版（docs/25 五、3）：`isMine` 恒为 false（它不是谁的「我的版本」），所以
+ * 归属人（老孙）要靠 `ownerUserId === viewerUserId` 认出来——他直接改点评版本身，
+ * 保存时 `basedOnVersionId` 就是点评版。其他人照改别人版本的规则：已有自己的
+ * 版本就切回去；还没有就照常编辑，服务端以点评版为底新建他的版本。
  */
 export function resolveV19EditGuard(
-  current: { isMine: boolean; isFinal?: boolean },
+  current: { isMine: boolean; isFinal?: boolean; kind?: V19VersionKind; ownerUserId?: string },
   myVersionId: string | null,
   canEditFinal?: boolean,
+  viewerUserId?: string,
 ): V19EditGuardDecision {
   if (current.isFinal) return canEditFinal ? { action: "PROCEED" } : { action: "BLOCKED_FINAL" };
+  if (current.kind === "AUDIO_REVIEW" && viewerUserId && current.ownerUserId === viewerUserId) return { action: "PROCEED" };
   if (current.isMine) return { action: "PROCEED" };
   if (myVersionId) return { action: "SWITCH_TO_OWN", versionId: myVersionId };
   return { action: "PROCEED" };
@@ -162,7 +188,11 @@ export function describeV19FinalIntakeToast(
 
 export type V19VersionTreeRow = { version: V19VersionSummary; depth: number };
 
-/** Builds the version panel's tree, rooted at every version with `baseNumber === null`. */
+/**
+ * Builds the version panel's tree, rooted at every version with `baseNumber === null`.
+ * 点评版和它的被点评版本是父子关系（baseNumber 就是被点评的那一版），同一层里
+ * 点评版排在其他派生版本前面，紧挂在被点评版本下面（docs/25 二、5）。
+ */
 export function buildV19VersionTree(versions: readonly V19VersionSummary[]): V19VersionTreeRow[] {
   const byBase = new Map<number | "root", V19VersionSummary[]>();
   for (const version of versions) {
@@ -171,8 +201,10 @@ export function buildV19VersionTree(versions: readonly V19VersionSummary[]): V19
     if (bucket) bucket.push(version); else byBase.set(key, [version]);
   }
   const rows: V19VersionTreeRow[] = [];
+  const reviewFirst = (list: V19VersionSummary[] | undefined) => [...(list ?? [])]
+    .sort((left, right) => Number(right.kind === "AUDIO_REVIEW") - Number(left.kind === "AUDIO_REVIEW"));
   const walk = (list: V19VersionSummary[] | undefined, depth: number) => {
-    for (const version of list ?? []) {
+    for (const version of reviewFirst(list)) {
       rows.push({ version, depth });
       walk(byBase.get(version.number), depth + 1);
     }
@@ -221,6 +253,17 @@ function computeV19Diff(model: V19StudioModel | null, draft: V04UiDraft): V19Bas
   if (!model || model.current.baseNumber === null) return null;
   const payload = v04UiDraftToPayload(draft, model.current.payload);
   return diffV19AgainstBase(payload, model.current.basePayload);
+}
+
+// 点评版视角下正文的「依据 意见 N」「老孙已手改」（docs/25 七、6）。和 computeV19Diff
+// 一样放在组件外：理由见上面那段关于 React Compiler 与 `.current` 的说明。
+function computeV19ReviewBasis(
+  model: V19StudioModel | null,
+  draft: V04UiDraft,
+  review: { id: string; view: AudioReviewView } | null,
+): ReadonlyMap<string, V19ReviewBasisEntry> | undefined {
+  if (!model || model.current.kind !== "AUDIO_REVIEW" || !review || review.id !== model.current.audioReviewId) return undefined;
+  return buildV19ReviewBasis(review.view, v04UiDraftToPayload(draft, model.current.payload));
 }
 
 function computeV19DefaultBaseId(model: V19StudioModel | null): string {
@@ -314,6 +357,18 @@ export default function V04StudioClient({
   const [trashing, setTrashing] = useState(false);
   const [trashError, setTrashError] = useState("");
   const trashKeyRef = useRef(`trash-${videoId}-${crypto.randomUUID()}`);
+  // 录音点评改写（docs/25 七）：上传弹层、确认抽屉、放弃确认、轮询拿到的完整任务、
+  // 点评版顶部录音卡用的那一份任务。toast 去重记在 ref 里（只认亲眼看到的转变）。
+  const [audioUploadOpen, setAudioUploadOpen] = useState(false);
+  const [audioUploading, setAudioUploading] = useState(false);
+  const [audioDrawerReviewId, setAudioDrawerReviewId] = useState<string | null>(null);
+  const [audioReviewBusy, setAudioReviewBusy] = useState(false);
+  const [audioAbandonTarget, setAudioAbandonTarget] = useState<string | null>(null);
+  const [audioReviewViews, setAudioReviewViews] = useState<Record<string, AudioReviewView>>({});
+  const [currentAudioReview, setCurrentAudioReview] = useState<{ id: string; view: AudioReviewView } | null>(null);
+  const [currentAudioReviewError, setCurrentAudioReviewError] = useState<{ id: string; message: string } | null>(null);
+  const [currentAudioReviewReload, setCurrentAudioReviewReload] = useState(0);
+  const audioReviewAnnouncedRef = useRef(new Set<string>());
 
   const pushToast = useCallback((text: string) => {
     const id = crypto.randomUUID();
@@ -321,6 +376,51 @@ export default function V04StudioClient({
     window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id));
     }, 3600);
+  }, []);
+
+  // 计数必须等于「实际能跳到的处数」，所以数的是页面上真正渲染出的标记，
+  // 而不是差异统计——统计里的一个 payload 键未必对应页面上的一个可见标记
+  // （例如整块新增只标一次，折叠的模块则一个都不渲染）。两者不一致时，
+  // 计数会说 7 而下一处能走到 11，读的人无从判断自己看完了没有。
+  const [diffTotal, setDiffTotal] = useState(0);
+
+  // 差异导航：以页面上实际渲染出的标记为准，而不是回头把 payload 键映射成
+  // DOM id——折叠的模块里没有标记，这样「下一处」就不会跳进看不见的地方。
+  // （放在切换版本之前定义：进入点评版时要自动打开比较并跳到第一处。）
+  const diffMarkers = useCallback((): HTMLElement[] =>
+    [...document.querySelectorAll<HTMLElement>("[data-v19-diff]")], []);
+
+  const revealDiffAt = useCallback((index: number) => {
+    const markers = diffMarkers();
+    if (markers.length === 0) return;
+    const bounded = ((index % markers.length) + markers.length) % markers.length;
+    const marker = markers[bounded];
+    // 圈出承载差异的内容，而不是徽标本身：改动过的字段圈它那一格，
+    // 新增的镜头/桥段圈整块。复用既有的定位脉冲，别再造一种「看这里」。
+    const scope = marker.getAttribute("data-v19-diff") === "new"
+      ? marker.closest<HTMLElement>("article, section")
+      : marker.parentElement;
+    const target = scope ?? marker;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.setAttribute("data-v04-located", "true");
+    window.setTimeout(() => {
+      if (target.isConnected) target.removeAttribute("data-v04-located");
+    }, V04_LOCATED_MARK_MS);
+    setDiffIndex(bounded);
+    setDiffTotal(markers.length);
+  }, [diffMarkers]);
+
+  // 等某个元素渲染出来再动手：切版本、打开比较、读回点评任务都是异步的，
+  // 标记什么时候出现说不准，隔一小会儿找一次，找够了还没有就放弃。
+  const whenRendered = useCallback((find: () => HTMLElement | null, then: (node: HTMLElement) => void, onMissing?: () => void) => {
+    let tries = 0;
+    const attempt = () => {
+      const node = find();
+      if (node) { then(node); return; }
+      tries += 1;
+      if (tries < 20) window.setTimeout(attempt, 120); else onMissing?.();
+    };
+    window.setTimeout(attempt, 0);
   }, []);
 
   const applyLoadedModel = useCallback((next: V19StudioModel) => {
@@ -366,22 +466,45 @@ export default function V04StudioClient({
     }
   }, []);
 
-  const switchToVersion = useCallback(async (versionId: string | null, options?: { announce?: boolean }) => {
+  const switchToVersion = useCallback(async (
+    versionId: string | null,
+    options?: {
+      /** true：每人一个版本的切回提示；"review"：从点评版上动手被切回自己的版本。 */
+      announce?: boolean | "review";
+      /** 进入点评版：自动打开比较并跳到第一处（docs/25 二、9）。 */
+      compare?: boolean;
+    },
+  ): Promise<boolean> => {
     try {
       const next = await v19Api.load(videoId, versionId ?? undefined);
       applyLoadedModel(next);
       if (options?.announce) {
-        pushToast(`每人只有一个版本：已切换到你的版本 ${formatV19VersionLabel({
+        const label = formatV19VersionLabel({
           number: next.current.number,
           baseNumber: next.current.baseNumber,
           ownerName: next.current.ownerName,
           ownerIsUploader: false,
-        })}，请在此继续编辑`);
+        });
+        pushToast(options.announce === "review"
+          ? `点评版只有老孙可以直接改：已切换到你的版本 ${label}，请在此继续编辑`
+          : `每人只有一个版本：已切换到你的版本 ${label}，请在此继续编辑`);
       }
+      if (options?.compare && next.current.baseNumber !== null) {
+        setDiffOn(true);
+        setDiffIndex(0);
+        // 等新版本真正渲染出来再跳：旧页面上的差异标记在这一刻可能还在。
+        const shownId = next.current.id ?? "";
+        whenRendered(
+          () => document.querySelector<HTMLElement>(`[data-v19-version-id="${CSS.escape(shownId)}"] [data-v19-diff]`),
+          () => revealDiffAt(0),
+        );
+      }
+      return true;
     } catch (reason) {
       pushToast(reason instanceof V04UiApiError ? reason.message : "切换版本失败，请重试。");
+      return false;
     }
-  }, [videoId, applyLoadedModel, pushToast]);
+  }, [videoId, applyLoadedModel, pushToast, whenRendered, revealDiffAt]);
 
   // Guard at the top of every mutating entry point (onChange / insert shot /
   // insert bridge): switches away BEFORE anything changes, discarding this
@@ -393,15 +516,15 @@ export default function V04StudioClient({
   const interceptForeignEdit = useCallback((): boolean => {
     const current = modelRef.current;
     if (!current) return false;
-    const decision = resolveV19EditGuard(current.current, current.myVersionId, current.viewerCapabilities.canEdit);
+    const decision = resolveV19EditGuard(current.current, current.myVersionId, current.viewerCapabilities.canEdit, viewerUserId);
     if (decision.action === "PROCEED") return false;
     if (decision.action === "BLOCKED_FINAL") {
       pushToast("集成版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入集成版");
       return true;
     }
-    void switchToVersion(decision.versionId, { announce: true });
+    void switchToVersion(decision.versionId, { announce: current.current.kind === "AUDIO_REVIEW" ? "review" : true });
     return true;
-  }, [switchToVersion, pushToast]);
+  }, [switchToVersion, pushToast, viewerUserId]);
 
   // Best-effort background refresh after a save auto-creates the viewer's
   // version: only refreshes the version list / myVersionId so the panel
@@ -483,6 +606,11 @@ export default function V04StudioClient({
       });
       const latest = modelRef.current ?? currentModel;
       const createdVersion = response.createdVersion;
+      // 老孙改的是点评版本身（docs/25 五、1）：写回的仍是点评版，视角不变——不能把
+      // current 改成「我的版本」，myVersionId 也不动，更没有集成版汇入可提示。
+      // 老后端不带 versionKind 时，按「写回的就是当前这一版点评版」认。
+      const savedIntoReview = !isFinalSave && (response.versionKind === "AUDIO_REVIEW"
+        || (response.versionKind === undefined && latest.current.kind === "AUDIO_REVIEW" && response.versionId === latest.current.id));
       // 保存成功后不能把 current 切成别的版本（spec 五、16）：集成版视角下
       // 保留 isFinal / isMine:false / ownerName「集成版」/ baseNumber:null，
       // 只更新这次写回的 id（虚拟集成版首次落库会拿到一个真实 id）、
@@ -504,6 +632,18 @@ export default function V04StudioClient({
           baseNumber: null,
           basePayload: null,
         }
+        : savedIntoReview ? {
+          ...latest.current,
+          id: response.versionId,
+          number: response.versionNumber,
+          revision: response.revision,
+          contentHash: response.contentHash,
+          updatedAt: response.updatedAt,
+          payload: afterPayload,
+          isMine: false,
+          isVirtual: false,
+          kind: "AUDIO_REVIEW",
+        }
         : {
           ...latest.current,
           id: response.versionId,
@@ -514,6 +654,9 @@ export default function V04StudioClient({
           payload: afterPayload,
           isMine: true,
           isVirtual: false,
+          // 写进的是个人版本：从点评版上动手的人新建了自己的版本，也落在这里。
+          kind: "PERSONAL",
+          audioReviewId: null,
           ...(createdVersion ? {
             baseNumber: latest.current.number,
             basePayload: structuredClone(basePayload),
@@ -524,7 +667,7 @@ export default function V04StudioClient({
         };
       const updatedModel: V19StudioModel = {
         ...latest,
-        myVersionId: isFinalSave ? latest.myVersionId : (latest.myVersionId ?? response.versionId),
+        myVersionId: isFinalSave || savedIntoReview ? latest.myVersionId : (latest.myVersionId ?? response.versionId),
         current: nextCurrent,
         // A direct final save can materialize a previously-virtual final
         // version (id was null) — keep the summary's id/isVirtual in step so
@@ -537,7 +680,9 @@ export default function V04StudioClient({
       setModelState(updatedModel);
       savedPayloadRef.current = afterPayload;
       setSaveStatus({ kind: "SAVED", at: response.updatedAt });
-      if (!isFinalSave) {
+      if (savedIntoReview) {
+        // 点评版不汇入集成版（docs/25 二、7）：不弹汇入提示，保存状态胶囊已经说明写到了哪一版。
+      } else if (!isFinalSave) {
         if (createdVersion) {
           pushToast(`已创建 ${formatV19VersionLabel({
             number: response.versionNumber,
@@ -825,7 +970,9 @@ export default function V04StudioClient({
       return;
     }
     setVersionPanelOpen(false);
-    void switchToVersion(versionId);
+    // 从版本菜单进入点评版也自动打开比较（同 demo 的 gotoView）。
+    const entering = current.versions.find((version) => version.id === versionId);
+    void switchToVersion(versionId, { compare: entering?.kind === "AUDIO_REVIEW" });
   }, [saveStatus.kind, commitSaveAttempt, switchToVersion, pushToast]);
 
   // Default base for "create my version" — computed at render time, not via
@@ -876,6 +1023,9 @@ export default function V04StudioClient({
       } else if (body.action === "OPEN") {
         const pending = response.final.pendingCount;
         pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；定稿期间的 ${pending} 处修改仍待逐条采纳` : ""}`);
+      } else if (body.action === "ADOPT_REVIEW") {
+        const reviewNumber = before?.versions.find((version) => version.id === body.reviewVersionId)?.number;
+        pushToast(`已采纳点评版${reviewNumber ? ` v${reviewNumber} ` : ""}的写法，集成版已更新`);
       } else {
         pushToast(`已采纳 ${response.adopted ?? 0} 处未纳入的修改`);
       }
@@ -902,16 +1052,161 @@ export default function V04StudioClient({
     void runFinalAction({ action: "ADOPT", all: true });
   }, [runFinalAction]);
 
+  // 集成版溯源里点评版候选行的「采纳」（docs/25 六）：一次只采一处。
+  const adoptReviewCandidate = useCallback((reviewVersionId: string, targetKey: string) => {
+    void runFinalAction({ action: "ADOPT_REVIEW", reviewVersionId, targetKeys: [targetKey] });
+  }, [runFinalAction]);
+
+  // ---------------------------------------------------------------------------
+  // 录音点评改写（docs/25 七）
+  // ---------------------------------------------------------------------------
+
+  const patchModel = useCallback((update: (current: V19StudioModel) => V19StudioModel) => {
+    const latest = modelRef.current;
+    if (!latest) return;
+    const next = update(latest);
+    modelRef.current = next;
+    setModelState(next);
+  }, []);
+
+  // 版本列表与点评任务摘要以服务端为准：生成了点评版、物化了虚拟 v1 之后重读一次，
+  // 只并这几项，不碰 current 和本地草稿（同 refreshVersionList 的约束）。
+  const refreshAudioReviewState = useCallback(async () => {
+    try {
+      const before = modelRef.current;
+      if (!before) return;
+      const fresh = await v19Api.load(videoId, before.current.isFinal ? "final" : before.current.id ?? undefined);
+      patchModel((latest) => ({
+        ...latest,
+        versions: fresh.versions,
+        myVersionId: fresh.myVersionId,
+        audioReviews: fresh.audioReviews,
+        audioReviewAvailable: fresh.audioReviewAvailable,
+      }));
+    } catch {
+      // 下一次正常读取时再对齐。
+    }
+  }, [videoId, patchModel]);
+
+  /** 拿到一份完整任务（轮询、上传、重试、确认的返回）：并回摘要，按需弹一次 toast。 */
+  const applyAudioReviewView = useCallback((view: AudioReviewView, options?: { silent?: boolean }) => {
+    const latest = modelRef.current;
+    if (!latest) return;
+    const previous = latest.audioReviews.find((item) => item.id === view.id) ?? null;
+    patchModel((current) => ({ ...current, audioReviews: upsertAudioReviewSummary(current.audioReviews, summarizeAudioReview(view)) }));
+    setAudioReviewViews((current) => ({ ...current, [view.id]: view }));
+    if (!options?.silent) {
+      const text = audioReviewTransitionToast(previous, view, audioReviewAnnouncedRef.current);
+      if (text) pushToast(text);
+    }
+    if (view.status === "GENERATED" && previous?.status !== "GENERATED") void refreshAudioReviewState();
+  }, [patchModel, pushToast, refreshAudioReviewState]);
+
+  const dropAudioReview = useCallback((reviewId: string) => {
+    patchModel((current) => ({ ...current, audioReviews: removeAudioReviewSummary(current.audioReviews, reviewId) }));
+  }, [patchModel]);
+
+  const openAudioReviewVersion = useCallback((reviewVersionId: string) => {
+    const dirty = saveCoordinatorRef.current.isRunning || editVersionRef.current > saveCoordinatorRef.current.savedVersion;
+    if (dirty) {
+      pushToast("当前修改仍在保存，请稍候完成后再切换版本。");
+      return;
+    }
+    setVersionPanelOpen(false);
+    void switchToVersion(reviewVersionId, { compare: true });
+  }, [switchToVersion, pushToast]);
+
+  const retryAudioReview = useCallback(async (reviewId: string) => {
+    setAudioReviewBusy(true);
+    try {
+      const { review: next } = await audioReviewApi.action(videoId, reviewId, { action: "RETRY" });
+      applyAudioReviewView(next, { silent: true });
+      pushToast("已重新开始处理点评录音，好了会在页头提示");
+    } catch (reason) {
+      pushToast(reason instanceof V04UiApiError ? reason.message : "重试没有成功，请稍后再试。");
+    } finally {
+      setAudioReviewBusy(false);
+    }
+  }, [videoId, applyAudioReviewView, pushToast]);
+
+  /**
+   * 放弃这次点评；`reupload` 时随后打开上传弹层（「重新上传」就是放弃再新建，docs/25 4.1）。
+   * `closeDrawer` 为 false 时由调用方晚一拍再关抽屉：确认弹窗和抽屉各自锁着 body 滚动、
+   * 各自在关闭时还原，弹窗必须先还原、抽屉后还原，否则页面会一直锁着滚不动。
+   */
+  const abandonAudioReview = useCallback(async (reviewId: string, reupload: boolean, closeDrawer = true) => {
+    setAudioReviewBusy(true);
+    try {
+      await audioReviewApi.action(videoId, reviewId, { action: "ABANDON" });
+      dropAudioReview(reviewId);
+      if (closeDrawer) setAudioDrawerReviewId(null);
+      if (reupload) setAudioUploadOpen(true); else pushToast("已放弃这次点评录音，可以重新上传");
+      return true;
+    } catch (reason) {
+      pushToast(reason instanceof V04UiApiError ? reason.message : "放弃没有成功，请稍后再试。");
+      return false;
+    } finally {
+      setAudioReviewBusy(false);
+    }
+  }, [videoId, dropAudioReview, pushToast]);
+
+  const confirmAudioReview = useCallback(async (view: AudioReviewView, selectedChangeIds: string[]) => {
+    setAudioReviewBusy(true);
+    try {
+      const response = await audioReviewApi.action(videoId, view.id, { action: "CONFIRM", selectedChangeIds });
+      applyAudioReviewView(response.review, { silent: true });
+      const reviewVersionId = response.reviewVersionId ?? response.review.reviewVersionId;
+      setAudioDrawerReviewId(null);
+      if (reviewVersionId) await switchToVersion(reviewVersionId, { compare: true });
+      const number = response.review.reviewVersionNumber;
+      pushToast(`点评版${number ? ` v${number}` : ""} 已生成：${selectedChangeIds.length} 处改动，比较已打开；v${view.baseVersionNumber} 保持原样`);
+    } catch (reason) {
+      pushToast(reason instanceof V04UiApiError ? reason.message : "点评版没有生成，请重试。");
+    } finally {
+      setAudioReviewBusy(false);
+    }
+  }, [videoId, applyAudioReviewView, switchToVersion, pushToast]);
+
+  const onAudioReviewCreated = useCallback((view: AudioReviewView) => {
+    applyAudioReviewView(view, { silent: true });
+    // 被点评的是虚拟 v1：服务端建任务时已经把它物化成真实的一行，这里接上它的 id，
+    // 入口才能按 baseVersionId 认出这个任务；版本列表随后重读一次。
+    const latest = modelRef.current;
+    if (latest && !latest.current.isFinal && latest.current.id === null) {
+      patchModel((current) => ({ ...current, current: { ...current.current, id: view.baseVersionId, isVirtual: false } }));
+      void refreshAudioReviewState();
+    }
+  }, [applyAudioReviewView, patchModel, refreshAudioReviewState]);
+
+  const onAudioReviewUploaded = useCallback((view: AudioReviewView, fileName: string) => {
+    applyAudioReviewView(view, { silent: true });
+    setAudioUploadOpen(false);
+    pushToast(`已上传「${fileName}」，正在处理……大约需要一两分钟，可以先做别的`);
+  }, [applyAudioReviewView, pushToast]);
+
+  const jumpToReviewOpinion = useCallback((opinionNumber: number) => {
+    setCollapsedModules(new Set());
+    setDiffOn(true);
+    whenRendered(
+      () => document.querySelector<HTMLElement>(`[data-v19-basis~="${opinionNumber}"]`),
+      (badge) => {
+        const tag = badge.previousElementSibling as HTMLElement | null;
+        const index = tag?.hasAttribute("data-v19-diff") ? diffMarkers().indexOf(tag) : -1;
+        if (index >= 0) { revealDiffAt(index); return; }
+        const target = badge.parentElement ?? badge;
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        target.setAttribute("data-v04-located", "true");
+        window.setTimeout(() => { if (target.isConnected) target.removeAttribute("data-v04-located"); }, V04_LOCATED_MARK_MS);
+      },
+      () => pushToast(`意见 ${opinionNumber} 改的地方已经不在了（可能已被改回原样）`),
+    );
+  }, [whenRendered, diffMarkers, revealDiffAt, pushToast]);
+
   const numbers = useMemo(() => new Map(numberedV04Shots(draft.shotGroups).map((entry) => [entry.stableId, entry.displayNumber])), [draft.shotGroups]);
   const diff = useMemo(() => computeV19Diff(model, draft), [model, draft]);
   const nonCompliantStartCount = useMemo(
     () => findV19NonCompliantStarts(draft.shotGroups.flatMap((group) => group.shots)).length,
     [draft]);
-  // 计数必须等于「实际能跳到的处数」，所以数的是页面上真正渲染出的标记，
-  // 而不是差异统计——统计里的一个 payload 键未必对应页面上的一个可见标记
-  // （例如整块新增只标一次，折叠的模块则一个都不渲染）。两者不一致时，
-  // 计数会说 7 而下一处能走到 11，读的人无从判断自己看完了没有。
-  const [diffTotal, setDiffTotal] = useState(0);
   useEffect(() => {
     if (!diffOn) return;
     // 标记要等这次状态变更渲染完才存在，所以推到下一个任务里再数。
@@ -919,31 +1214,6 @@ export default function V04StudioClient({
       () => setDiffTotal(document.querySelectorAll("[data-v19-diff]").length), 0);
     return () => window.clearTimeout(id);
   }, [diffOn, draft]);
-
-  // 差异导航：以页面上实际渲染出的标记为准，而不是回头把 payload 键映射成
-  // DOM id——折叠的模块里没有标记，这样「下一处」就不会跳进看不见的地方。
-  const diffMarkers = useCallback((): HTMLElement[] =>
-    [...document.querySelectorAll<HTMLElement>("[data-v19-diff]")], []);
-
-  const revealDiffAt = useCallback((index: number) => {
-    const markers = diffMarkers();
-    if (markers.length === 0) return;
-    const bounded = ((index % markers.length) + markers.length) % markers.length;
-    const marker = markers[bounded];
-    // 圈出承载差异的内容，而不是徽标本身：改动过的字段圈它那一格，
-    // 新增的镜头/桥段圈整块。复用既有的定位脉冲，别再造一种「看这里」。
-    const scope = marker.getAttribute("data-v19-diff") === "new"
-      ? marker.closest<HTMLElement>("article, section")
-      : marker.parentElement;
-    const target = scope ?? marker;
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
-    target.setAttribute("data-v04-located", "true");
-    window.setTimeout(() => {
-      if (target.isConnected) target.removeAttribute("data-v04-located");
-    }, V04_LOCATED_MARK_MS);
-    setDiffIndex(bounded);
-    setDiffTotal(markers.length);
-  }, [diffMarkers]);
 
   const stepDiff = useCallback((delta: number) => {
     // 首尾相接：读到最后一处再按「下一处」回到第一处，比走到头就没反应好。
@@ -1037,6 +1307,64 @@ export default function V04StudioClient({
 
   const reviewVersionId = model?.current.id ?? null;
 
+  // 轮询（docs/25 七、7）：有在途任务（上传、转写、理解）且页面可见时每 4 秒读一次；
+  // 切到后台暂停，切回来立刻补一次。只有老孙看得到在途任务，所以别人从不轮询。
+  const inFlightKey = model ? inFlightAudioReviewKey(model.audioReviews) : "";
+  useEffect(() => {
+    if (!inFlightKey) return;
+    const ids = inFlightKey.split(",");
+    let cancelled = false;
+    let running = false;
+    const tick = async () => {
+      if (running || cancelled || document.visibilityState !== "visible") return;
+      running = true;
+      try {
+        for (const id of ids) {
+          try {
+            const { review: next } = await audioReviewApi.get(videoId, id);
+            if (cancelled) return;
+            applyAudioReviewView(next);
+          } catch (reason) {
+            // 404：任务在别处被放弃了，入口回到「上传」。其余错误留给下一轮。
+            if (!cancelled && reason instanceof V04UiApiError && reason.status === 404) dropAudioReview(id);
+          }
+        }
+      } finally {
+        running = false;
+      }
+    };
+    const timer = window.setInterval(() => { void tick(); }, 4000);
+    const onVisibility = () => { if (document.visibilityState === "visible") void tick(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [inFlightKey, videoId, applyAudioReviewView, dropAudioReview]);
+
+  // 点评版顶部录音卡与正文「依据」用的那一份任务（全站可见，已生成）。
+  const currentAudioReviewId = model && model.current.kind === "AUDIO_REVIEW" ? model.current.audioReviewId : null;
+  useEffect(() => {
+    if (!currentAudioReviewId) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const { review: loaded } = await audioReviewApi.get(videoId, currentAudioReviewId, controller.signal);
+        if (controller.signal.aborted) return;
+        setCurrentAudioReview({ id: currentAudioReviewId, view: loaded });
+        setCurrentAudioReviewError(null);
+      } catch (reason) {
+        if (controller.signal.aborted) return;
+        setCurrentAudioReviewError({
+          id: currentAudioReviewId,
+          message: reason instanceof V04UiApiError ? reason.message : "录音点评暂时读不出来。",
+        });
+      }
+    })();
+    return () => controller.abort();
+  }, [videoId, currentAudioReviewId, currentAudioReviewReload]);
+
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
@@ -1101,9 +1429,15 @@ export default function V04StudioClient({
     [model],
   );
   const latestVersion = useMemo(() => {
-    if (!model || !model.versions.length) return null;
-    return model.versions.reduce((left, right) => (right.updatedAt >= left.updatedAt ? right : left));
+    // 「最新修改」不含点评版（docs/25 3.3）：它不是谁的作业。
+    const personal = model ? model.versions.filter((version) => version.kind !== "AUDIO_REVIEW") : [];
+    if (!personal.length) return null;
+    return personal.reduce((left, right) => (right.updatedAt >= left.updatedAt ? right : left));
   }, [model]);
+  const reviewBasis = useMemo(
+    () => computeV19ReviewBasis(model, draft, currentAudioReview),
+    [model, draft, currentAudioReview],
+  );
 
   if (loadError) {
     return (
@@ -1131,6 +1465,10 @@ export default function V04StudioClient({
   // 锁定态就是「集成版视角下的只读」，据此区分「压根不是可编辑区」的普通只读。
   const finalLocked = isFinalVersionView && readOnly;
   const canAdoptFinal = isFinalVersionView && !readOnly;
+  // 点评版 id → 点评人：集成版溯源里点评版候选行写「老孙录音点评」（docs/25 六）。
+  const reviewerNames = new Map(model.versions
+    .filter((version): version is V19VersionSummary & { id: string } => version.kind === "AUDIO_REVIEW" && version.id !== null)
+    .map((version) => [version.id, version.ownerName]));
   // `finalContext` (and so `locked`) must not depend on `model.finalTrace`
   // having loaded — it's an optional field on the GET response, and gating
   // the whole context on it left a colleague opening the case with no
@@ -1146,6 +1484,10 @@ export default function V04StudioClient({
       canAdopt: canAdoptFinal,
       onAdopt: adoptFinalIntake,
       originOwnerName: model.versions.find((version) => version.number === 1)?.ownerName ?? "",
+      reviewCandidates: model.finalTrace?.reviewCandidates ?? [],
+      onAdoptReview: adoptReviewCandidate,
+      reviewerNames,
+      reviewVersionNumbers: new Set(model.versions.filter((version) => version.kind === "AUDIO_REVIEW").map((version) => version.number)),
     }
     : undefined;
   // Reads `model.finalTrace` directly rather than `finalContext.intakes`:
@@ -1158,6 +1500,31 @@ export default function V04StudioClient({
   const pendingStructuralIntakes = isFinalVersionView && finalTraceMode
     ? pendingV19StructuralIntakes(model.finalTrace?.intakes ?? [])
     : [];
+
+  // 录音点评改写（docs/25 二、七）：当前是不是点评版、页头入口该是哪种形态、
+  // 被点评版本上的提示条、版本菜单里点评版的说明。
+  const isReviewVersionView = !isFinalVersionView && model.current.kind === "AUDIO_REVIEW";
+  const audioEntry = resolveV19AudioReviewEntry({
+    available: model.audioReviewAvailable,
+    current: model.current,
+    viewerUserId,
+    reviews: model.audioReviews,
+  });
+  const audioEntryReview = "review" in audioEntry ? audioEntry.review : null;
+  const currentBaseLabel = `v${model.current.number} ${model.current.ownerName}`;
+  const reviewOfCurrent = !isFinalVersionView && model.current.kind === "PERSONAL"
+    ? audioReviewForVersion(model.audioReviews, model.current.id)
+    : null;
+  const reviewNotice = reviewOfCurrent?.status === "GENERATED" && reviewOfCurrent.reviewVersionId ? reviewOfCurrent : null;
+  const reviewVersionOwner = (versionId: string | null) =>
+    model.versions.find((version) => version.id === versionId)?.ownerName || "老孙";
+  const reviewSummaryByVersion = new Map(model.audioReviews
+    .filter((item) => item.reviewVersionId)
+    .map((item) => [item.reviewVersionId as string, item]));
+  const hasReviewVersions = model.versions.some((version) => version.kind === "AUDIO_REVIEW");
+  const shownAudioReview = currentAudioReview && currentAudioReview.id === model.current.audioReviewId ? currentAudioReview.view : null;
+  const shownAudioReviewError = currentAudioReviewError && currentAudioReviewError.id === model.current.audioReviewId
+    ? currentAudioReviewError.message : "";
 
   return (
     <main className={styles.surface} data-v04-page="studio" data-v19-viewer-id={viewerUserId}>
@@ -1199,6 +1566,22 @@ export default function V04StudioClient({
               删除案例
             </button>
           ) : null}
+          {/* 老孙的点评录音入口（docs/25 二、1）：只在他看别人的普通版本时出现，
+              位置在版本胶囊之前；五种形态见 V19AudioReviewEntry。 */}
+          <V19AudioReviewEntry
+            key={audioEntry.kind}
+            state={audioEntry}
+            view={audioEntryReview ? audioReviewViews[audioEntryReview.id] ?? null : null}
+            baseLabel={currentBaseLabel}
+            uploadingLocally={audioUploading}
+            busy={audioReviewBusy}
+            onUpload={() => setAudioUploadOpen(true)}
+            onOpenDrawer={() => { if (audioEntryReview) setAudioDrawerReviewId(audioEntryReview.id); }}
+            onView={openAudioReviewVersion}
+            onRetry={() => { if (audioEntryReview) void retryAudioReview(audioEntryReview.id); }}
+            onReupload={() => { if (audioEntryReview) void abandonAudioReview(audioEntryReview.id, true); }}
+            onAbandon={() => { if (audioEntryReview) setAudioAbandonTarget(audioEntryReview.id); }}
+          />
           {/* 比较基版属于「当前这个版本」，所以两者共用一个容器、中间一道分隔，
               让从属关系由结构说明，而不是靠摆放位置暗示。没有基版时右段整段
               不渲染，控件自身就说明了这个版本无可比较的基版。 */}
@@ -1217,6 +1600,7 @@ export default function V04StudioClient({
                   ownerName: model.current.ownerName,
                   ownerIsUploader: false,
                   baseIsFinal: model.current.baseIsFinal,
+                  kind: model.current.kind,
                 })}，点击切换版本`}
               onClick={() => setVersionPanelOpen((current) => !current)}
             >
@@ -1228,6 +1612,15 @@ export default function V04StudioClient({
                       <span className={styles.finalStatusDot} aria-hidden="true" />
                       {model.final.status === "DONE" ? "已定稿" : "未定稿"}
                     </span>
+                  )}
+                </>
+              ) : isReviewVersionView ? (
+                // 点评版：「v3 老孙录音点评 基于 v1」（docs/25 二、5）。
+                <>
+                  <span className={styles.versionNum}>v{model.current.number}</span>
+                  <span className={styles.versionOwner}>{model.current.ownerName}录音点评</span>
+                  {model.current.baseNumber !== null && (
+                    <span className={styles.versionBase}>基于 v{model.current.baseNumber}</span>
                   )}
                 </>
               ) : (
@@ -1247,7 +1640,10 @@ export default function V04StudioClient({
             </button>
             {versionPanelOpen && (
               <div className={styles.versionPanel} role="dialog" aria-label="版本链">
-                <h4>版本链：集成版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖</h4>
+                <h4>
+                  版本链：集成版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖
+                  {hasReviewVersions && "；点评版由老孙的录音点评生成，挂在被点评的版本下面"}
+                </h4>
                 {model.final && (
                   <div
                     className={`${styles.versionRow} ${styles.versionRowFinal} ${isFinalVersionView ? styles.versionRowCurrent : ""}`.trim()}
@@ -1274,7 +1670,32 @@ export default function V04StudioClient({
                     </span>
                   </div>
                 )}
-                {versionRows.map(({ version, depth }) => (
+                {versionRows.map(({ version, depth }) => version.kind === "AUDIO_REVIEW" ? (
+                  // 点评版一行（docs/25 二、5）：挂在被点评版本下面，带「点评版」标记与说明；
+                  // 不是谁的作业，所以没有「我的」「最新修改」「默认展示」。
+                  <div
+                    key={version.id ?? `review-${version.number}`}
+                    className={`${styles.versionRow} ${styles.versionRowReview} ${!isFinalVersionView && model.current.id === version.id ? styles.versionRowCurrent : ""}`.trim()}
+                    role="button"
+                    tabIndex={0}
+                    style={{ paddingLeft: 8 + depth * 14 }}
+                    data-v19-review-version-row
+                    onClick={() => viewVersion(version.id)}
+                    onKeyDown={(event) => { if (event.key === "Enter") viewVersion(version.id); }}
+                  >
+                    <span className={styles.versionNumber}>v{version.number}</span>
+                    <span className={styles.versionMeta}>
+                      {version.ownerName}录音点评，基于 v{version.baseNumber ?? "?"}
+                    </span>
+                    <AudioReviewVersionTag />
+                    <span className={styles.versionTime}>{formatV19Clock(version.updatedAt)}</span>
+                    <span className={styles.versionDesc}>
+                      据录音点评改写 v{version.baseNumber ?? "?"}
+                      {version.id && reviewSummaryByVersion.get(version.id) ? `，${reviewSummaryByVersion.get(version.id)?.changeCount ?? 0} 处改动` : ""}
+                      ；不占个人版本名额，不汇入集成版。
+                    </span>
+                  </div>
+                ) : (
                   <div
                     key={version.id ?? "virtual"}
                     className={`${styles.versionRow} ${!isFinalVersionView && model.current.id === version.id ? styles.versionRowCurrent : ""}`.trim()}
@@ -1318,14 +1739,17 @@ export default function V04StudioClient({
                       {model.final && <option value="final">集成版（当前汇聚结果）</option>}
                       {createBaseOptions.map((option) => (
                         <option key={option.id} value={option.id}>
-                          {formatV19VersionLabel({ number: option.number, baseNumber: option.baseNumber, ownerName: option.ownerName, ownerIsUploader: false, baseIsFinal: option.baseIsFinal })}
+                          {formatV19VersionLabel({ number: option.number, baseNumber: option.baseNumber, ownerName: option.ownerName, ownerIsUploader: false, baseIsFinal: option.baseIsFinal, kind: option.kind })}
                         </option>
                       ))}
                     </select>
                     <button type="button" onClick={() => void createOwnVersion()}>创建我的版本</button>
                   </div>
                 ))}
-                <p className={styles.versionNote}>进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。</p>
+                <p className={styles.versionNote}>
+                  进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。
+                  {hasReviewVersions && "点评版只有老孙可以直接改；其他人在上面编辑，改动进自己的版本。"}
+                </p>
               </div>
             )}
           </div>
@@ -1455,8 +1879,64 @@ export default function V04StudioClient({
         onCancel={() => setConfirmingTrash(false)}
       />
 
+      {/* 录音点评改写的三个浮层：上传、确认抽屉、放弃确认（放弃确认复用同一个共享弹窗）。 */}
+      <V19AudioReviewUploadDialog
+        open={audioUploadOpen}
+        videoId={videoId}
+        baseVersionId={model.current.id}
+        baseLabel={currentBaseLabel}
+        caseTitle={model.case.title}
+        onClose={() => setAudioUploadOpen(false)}
+        onCreated={onAudioReviewCreated}
+        onUploaded={onAudioReviewUploaded}
+        onDiscarded={dropAudioReview}
+        onUploadingChange={setAudioUploading}
+      />
+      <V19AudioReviewDrawer
+        open={audioDrawerReviewId !== null}
+        videoId={videoId}
+        reviewId={audioDrawerReviewId}
+        baseLabel={currentBaseLabel}
+        nextVersionNumber={nextV19VersionNumber(model.versions)}
+        busy={audioReviewBusy}
+        covered={audioAbandonTarget !== null}
+        onClose={() => setAudioDrawerReviewId(null)}
+        onConfirm={(view, selectedChangeIds) => { void confirmAudioReview(view, selectedChangeIds); }}
+        onAbandon={() => { if (audioDrawerReviewId) setAudioAbandonTarget(audioDrawerReviewId); }}
+        onReupload={() => { if (audioDrawerReviewId) void abandonAudioReview(audioDrawerReviewId, true); }}
+      />
+      <DeleteConfirmDialog
+        open={audioAbandonTarget !== null}
+        eyebrow="AUDIO REVIEW"
+        heading="放弃这次点评"
+        title={model.case.title}
+        question="放弃这次点评录音？"
+        lines={[
+          "已上传的录音和拟定的改动都不再使用，入口回到「上传点评录音」，可以重新上传。",
+          "录音文件本身不会被删除。",
+        ]}
+        pending={audioReviewBusy}
+        confirmLabel="放弃这次点评"
+        pendingLabel="正在放弃…"
+        onConfirm={() => {
+          const target = audioAbandonTarget;
+          if (!target) return;
+          void abandonAudioReview(target, false, false).then((done) => {
+            setAudioAbandonTarget(null);
+            // 等弹窗先关掉、还原了它锁的滚动，再关抽屉（见 abandonAudioReview 的说明）。
+            if (done) window.setTimeout(() => setAudioDrawerReviewId(null), 0);
+          });
+        }}
+        onCancel={() => setAudioAbandonTarget(null)}
+      />
+
       <div className={`${styles.workspaceGrid} ${navCollapsed ? styles.navCollapsed : ""}`.trim()}>
         <nav className={styles.workspaceNav} aria-label="V1.9 工作台目录">
+          {isReviewVersionView && (
+            <button type="button" onClick={() => void locateV04Target(V19_AUDIO_REVIEW_CARD_ID)}>
+              <b>{model.current.ownerName}的录音点评</b><span>录音、意见与文字稿</span>
+            </button>
+          )}
           <button type="button" className={activeNavId === "module-1" ? styles.navActive : undefined} onClick={() => void locateV04Target("module-1")}>
             <b>第一模块</b><span>全片事实与核心判断</span>
           </button>
@@ -1502,8 +1982,19 @@ export default function V04StudioClient({
           </div>
         </nav>
 
-        <div className={styles.editorColumn}>
+        <div className={styles.editorColumn} data-v19-version-id={isFinalVersionView ? "final" : model.current.id ?? ""}>
           <V04VideoPlayer caseId={model.case.id} title={model.case.title} surface="detail" media={model.media} chrome="studio" />
+          {/* 被点评版本上的提示条（docs/25 二、10）：所有人可见，这一版本身保持原样。 */}
+          {reviewNotice && (
+            <div className={styles.reviewNotice} data-v19-review-notice>
+              <AudioReviewIcon name="mic" />
+              <span>
+                <b>{reviewVersionOwner(reviewNotice.reviewVersionId)}对这一版做了录音点评</b>，据此生成了点评版 v{reviewNotice.reviewVersionNumber ?? "?"}（{reviewNotice.changeCount} 处改动）。这一版保持原样。
+              </span>
+              <button type="button" className={styles.reviewGhostButton}
+                onClick={() => openAudioReviewVersion(reviewNotice.reviewVersionId as string)}>去看点评版</button>
+            </div>
+          )}
           {readOnly && !isFinalVersionView && (
             <p style={{ color: "var(--v04-muted)", fontSize: 12, margin: "0 0 16px" }}>当前身份无法编辑此工作台，仅可查看内容与历史版本。</p>
           )}
@@ -1551,6 +2042,17 @@ export default function V04StudioClient({
               ))}
             </div>
           )}
+          {/* 点评版顶部的录音卡（docs/25 二、5）：录音、意见清单、完整文字稿，全站可见。 */}
+          {isReviewVersionView && (
+            <V19AudioReviewCard
+              videoId={videoId}
+              review={shownAudioReview}
+              loadError={shownAudioReviewError}
+              baseVersionNumber={model.current.baseNumber}
+              onRetry={() => setCurrentAudioReviewReload((token) => token + 1)}
+              onJumpToOpinion={jumpToReviewOpinion}
+            />
+          )}
           <V19StudioDocument
             draft={draft}
             caseTitle={model.case.title}
@@ -1579,10 +2081,11 @@ export default function V04StudioClient({
               onSave: saveReviewComment,
             }}
             final={finalContext}
+            reviewBasis={isReviewVersionView && diffOn ? reviewBasis : undefined}
           />
-          {/* 打分放在正文末尾：读完整份作业才谈得上给分。集成版不评分——
-              星级只锚定个人版本，`review.canRate` 与集成版视角都会关掉它。 */}
-          {!isFinalVersionView && review.canRate && (
+          {/* 打分放在正文末尾：读完整份作业才谈得上给分。集成版、点评版都不评分——
+              星级只锚定个人版本，`review.canRate` 与集成版／点评版视角都会关掉它（docs/25 二、8）。 */}
+          {!isFinalVersionView && !isReviewVersionView && review.canRate && (
             <V19AssignmentRating
               stars={review.stars}
               canReview={review.canReview}
