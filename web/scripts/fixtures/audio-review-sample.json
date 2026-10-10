@@ -1,0 +1,103 @@
+{
+  "说明": "录音点评提示词核对样例：demo《捉迷藏》v1（刘梦娜）的快照 + 老孙点评录音的文字稿（第 11 段保留了听写错字「对质生意」）。供 scripts/audio-review-prompt-check.ts 与测试使用。",
+  "caseTitle": "捉迷藏",
+  "reviewerName": "老孙",
+  "revieweeName": "刘梦娜",
+  "baseVersionNumber": 1,
+  "snapshot": {
+    "contract": {
+      "productVersion": "AD_VIDEO_PRODUCT_V0_4",
+      "taxonomyVersion": "AD_VIDEO_TAXONOMY_V1",
+      "workflowVersion": "AD_VIDEO_WORKFLOW_V1",
+      "vocabularyVersion": "AD_VIDEO_VOCAB_V1",
+      "payloadSchemaVersion": "AD_VIDEO_PAYLOAD_V1"
+    },
+    "script": {
+      "shotGroups": [
+        {
+          "id": "bridge-hide-01",
+          "orderIndex": 0,
+          "bridgeName": "女孩开始数数",
+          "primaryCreativeRole": { "selectedOptionIds": ["ESTABLISH_SCENE_SITUATION"], "customText": "", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+          "auxiliaryCreativeRole": { "selectedOptionIds": ["ESTABLISH_ORIGINAL_EXPECTATION"], "customText": "", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+          "keyCreativeDescription": "小女孩在街角对着墙数数，周围是匆忙的上班族。",
+          "shots": [
+            { "id": "shot-hide-01", "orderIndex": 0, "startTime": "00:00", "endTime": "00:03", "shotScale": "远景", "cameraAngle": "平视", "cameraMovement": "固定", "visualContent": "繁忙的纽约街口，车流人流交错。", "screenCopy": "", "subtitleEffect": "", "dialogue": "", "voiceOver": "", "soundEffect": "车流声、人声嘈杂", "music": "" },
+            { "id": "shot-hide-02", "orderIndex": 1, "startTime": "00:03", "endTime": "00:07", "shotScale": "近景", "cameraAngle": "侧面", "cameraMovement": "固定", "visualContent": "小女孩双手捂眼，额头抵着墙数数。", "screenCopy": "", "subtitleEffect": "", "dialogue": "一、二、三……", "voiceOver": "", "soundEffect": "", "music": "轻快的钢琴进入" }
+          ]
+        },
+        {
+          "id": "bridge-hide-02",
+          "orderIndex": 1,
+          "bridgeName": "城市变游乐场",
+          "primaryCreativeRole": { "selectedOptionIds": ["ESCALATE_AUDIOVISUAL_RULE"], "customText": "", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+          "auxiliaryCreativeRole": { "selectedOptionIds": ["CREATE_DEVIATION_ANOMALY"], "customText": "", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+          "keyCreativeDescription": "路人纷纷躲进邮筒后、报亭里、井盖下，镜头快速切换，节奏越来越快。",
+          "shots": [
+            { "id": "shot-hide-03", "orderIndex": 2, "startTime": "00:07", "endTime": "00:10", "shotScale": "中景", "cameraAngle": "平视", "cameraMovement": "跟拍", "visualContent": "穿西装的上班族一个侧身，蹲到邮筒后面。", "screenCopy": "", "subtitleEffect": "", "dialogue": "", "voiceOver": "", "soundEffect": "", "music": "节奏加快" },
+            { "id": "shot-hide-04", "orderIndex": 3, "startTime": "00:10", "endTime": "00:12", "shotScale": "中景", "cameraAngle": "平视", "cameraMovement": "固定", "visualContent": "报亭老板把自己藏进摊开的报纸后面。", "screenCopy": "", "subtitleEffect": "", "dialogue": "", "voiceOver": "", "soundEffect": "翻报纸声", "music": "" },
+            { "id": "shot-hide-05", "orderIndex": 4, "startTime": "00:12", "endTime": "00:15", "shotScale": "特写", "cameraAngle": "低机位", "cameraMovement": "固定", "visualContent": "井盖被顶起，一个人探出头。", "screenCopy": "", "subtitleEffect": "", "dialogue": "", "voiceOver": "", "soundEffect": "金属摩擦声", "music": "" }
+          ]
+        },
+        {
+          "id": "bridge-hide-03",
+          "orderIndex": 2,
+          "bridgeName": "女孩回头",
+          "primaryCreativeRole": { "selectedOptionIds": ["CLOSE_CREATIVE_MOTIF"], "customText": "", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+          "auxiliaryCreativeRole": { "selectedOptionIds": ["BRING_IN_BRAND_PRODUCT"], "customText": "", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+          "keyCreativeDescription": "女孩数完回头，街道空无一人，只听到笑声。",
+          "shots": [
+            { "id": "shot-hide-06", "orderIndex": 5, "startTime": "00:15", "endTime": "00:18", "shotScale": "中景", "cameraAngle": "背面", "cameraMovement": "缓推", "visualContent": "女孩松开手，转身。", "screenCopy": "", "subtitleEffect": "", "dialogue": "", "voiceOver": "", "soundEffect": "", "music": "音乐停顿" },
+            { "id": "shot-hide-07", "orderIndex": 6, "startTime": "00:18", "endTime": "00:24", "shotScale": "大远景", "cameraAngle": "平视", "cameraMovement": "固定", "visualContent": "空荡荡的街道，远处传来压低的笑声；品牌标语浮现。", "screenCopy": "让运动回到日常", "subtitleEffect": "标语淡入", "dialogue": "", "voiceOver": "", "soundEffect": "压低的笑声", "music": "钢琴收尾" }
+          ]
+        }
+      ]
+    },
+    "factsAndCoreJudgement": {
+      "commercialIntent": "传递品牌“让运动回到日常”的态度，拉近品牌与城市年轻人的距离。",
+      "storySynopsis": "纽约街头，一个小女孩对着墙数数，路人们纷纷躲进邮筒后、报亭里、井盖下；越来越多的大人加入，整座城市变成了捉迷藏的游乐场。女孩数完回头，街上空无一人，只剩藏不住的笑声。",
+      "creativeMotif": "让日常城市生活绽放活力美好",
+      "tensionButton": "将喧嚣严肃的纽约大都市瞬间转变为充满童趣的游乐场。",
+      "mainMechanism": { "selectedOptionIds": ["FORMAL_PLAY"], "customText": "情境游戏化", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+      "auxiliaryMechanism": { "selectedOptionIds": ["INSIGHT_RESONANCE"], "customText": "情绪感染与节奏推进", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+      "creativeThinkingChain": "城市日常\n→ 放进一个孩子的游戏\n→ 游戏规则扩散到所有人\n→ 城市变成游乐场",
+      "storyReference": { "selectedOptionIds": ["EVERYDAY_LIFE_COMEDY"], "customText": "城市游戏化概念片", "advancedText": "", "vocabularyVersion": "AD_VIDEO_VOCAB_V1" },
+      "creativeCarriers": ["STORY", "AUDIOVISUAL_RULE"],
+      "carrierExplanation": "画面中城市各处的人躲藏的镜头不断叠加，配合轻快的音乐，营造出欢乐的氛围。",
+      "acceptanceContract": "观众接受城市里的陌生人会愿意放下手头的事，陪一个孩子玩。",
+      "overallCreativeRating": "S",
+      "ratingReason": "创意新颖，画面有趣，节奏轻快，看完很开心。"
+    },
+    "perceptionPath": {
+      "primaryType": "FUN",
+      "primaryDetails": {
+        "originalExpectation": "纽约是匆忙、严肃的大都市，没人有空停下来。",
+        "deviation": "路人一个接一个开始躲藏。",
+        "reveal": "女孩回头，街上的人全都不见了。",
+        "reinterpretation": "城市也可以很好玩。",
+        "mainCarrier": "躲藏的路人"
+      },
+      "auxiliaryTypes": [
+        { "type": "LOVE", "description": "大人们陪孩子玩的善意带来温暖。", "creativeRole": "给荒诞的游戏一层温情底色。" }
+      ]
+    },
+    "metadata": { "source": "HUMAN" }
+  },
+  "transcript": [
+    { "id": 1, "startMs": 8000, "endMs": 30000, "speakerId": "S0", "text": "好，下一个，梦娜的《捉迷藏》。片子大家都看过了，我直接说。" },
+    { "id": 2, "startMs": 31000, "endMs": 111000, "speakerId": "S0", "text": "先说好的，镜头拆得很细，时间码也准，这个基本功是到位的。" },
+    { "id": 3, "startMs": 112000, "endMs": 133000, "speakerId": "S0", "text": "问题出在判断上。你这个母题写的是“让日常城市生活绽放活力美好”，这个太虚了，换十条片子都能这么写。" },
+    { "id": 4, "startMs": 134000, "endMs": 184000, "speakerId": "S0", "text": "这片子真正好的地方是什么？是那些穿西装的、开报亭的、还有最后那个警察，这些平时最体面、最正经的大人，突然被允许当一回小孩。张力在这儿，不在“城市变游乐场”。" },
+    { "id": 5, "startMs": 185000, "endMs": 191000, "speakerId": "S1", "text": "我当时觉得结尾大家都不见了，算是一个反转。" },
+    { "id": 6, "startMs": 192000, "endMs": 259000, "speakerId": "S0", "text": "那个是结果，不是反转。它的反转是“原来全城都在陪一个孩子玩”，而且一个比一个认真。重新理解那一栏也要跟着改，不是城市好玩，是大人心里一直想玩。" },
+    { "id": 7, "startMs": 260000, "endMs": 297000, "speakerId": "S0", "text": "第二段你叫“城市变游乐场”，作用选的是升级视听规则。其实它是同一个“躲”的动作一直重复，但躲的人一个比一个不该躲——上班族、报亭老板、警察，意思是一层层变的。" },
+    { "id": 8, "startMs": 298000, "endMs": 339000, "speakerId": "S0", "text": "对了，井盖那个镜头，钻出来的是个警察，你写成“一个人”，这个信息很关键，要写出来。" },
+    { "id": 9, "startMs": 340000, "endMs": 421000, "speakerId": "S0", "text": "还有一个通病啊，不光是梦娜，你们很多人都这样：关键创意描述全在复述画面，邮筒后面躲一个人、报亭躲一个人，这个我看片子就知道了。要写的是这一段为什么成立，它在机制上干了什么。" },
+    { "id": 10, "startMs": 422000, "endMs": 428000, "speakerId": "S2", "text": "孙老师，那它主导机制还算形式游戏吗？" },
+    { "id": 11, "startMs": 429000, "endMs": 494000, "speakerId": "S0", "text": "形式游戏没错。但辅助不是洞察共鸣，是对质生意——体面和幼稚放在一起，才生出意思来。" },
+    { "id": 12, "startMs": 495000, "endMs": 569000, "speakerId": "S0", "text": "最后说分。梦娜你给 S，我觉得高了，我给 A。前面两段都很好，问题在结尾：回头一看街上没人，这个处理太常见了，收得软。" },
+    { "id": 13, "startMs": 570000, "endMs": 611000, "speakerId": "S0", "text": "这条片子的导演之前那条洗衣液也是这个路子，有空可以找来看看。" },
+    { "id": 14, "startMs": 612000, "endMs": 647000, "speakerId": "S0", "text": "最后一个建议，下次拆之前先完整看三遍再动笔，别边看边写。" },
+    { "id": 15, "startMs": 648000, "endMs": 682000, "speakerId": "S0", "text": "好，梦娜这条就到这儿。" }
+  ]
+}

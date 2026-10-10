@@ -1,4 +1,6 @@
 import { getDbClient } from "@/db";
+import { readAudioReviewConfig } from "@/lib/audio-review/config";
+import { loadAudioReviewStudioState } from "@/lib/audio-review/service";
 import { isCaseReviewer } from "@/lib/case-review";
 import { saveFinalVersionDirect } from "@/lib/final-version";
 import { v04Route } from "@/lib/v04-api";
@@ -15,7 +17,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     // Two independent reads (case/viewer context vs. the version chain) run
     // concurrently against the pool — neither writes, so there is nothing to
     // sequence them against.
-    const [workspace, chain] = await Promise.all([
+    const [workspace, chain, audioReview] = await Promise.all([
       loadV04WorkspaceReadModel(db, id, {
         actor,
         tabToken: request.headers.get("x-v04-tab-token"),
@@ -27,6 +29,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       // it resolved to being 集成版, not on the query string — so this call
       // site does not need to guess that up front any more.
       loadV19VersionChain(db, id, actor, versionId ? { versionId } : {}),
+      // docs/25 4.8：点评任务摘要与入口开关。迁移没执行时降级为空列表、入口关闭。
+      loadAudioReviewStudioState(db, id, actor, readAudioReviewConfig()),
     ]);
     const { media, ...caseFields } = workspace.video;
     // The shared read model still derives canEdit from holding the edit lease,
@@ -53,9 +57,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       myVersionId: chain.myVersionId,
       final: chain.final,
       ...(chain.finalTrace ? { finalTrace: chain.finalTrace } : {}),
-      // docs/25 4.8：点评任务摘要与入口开关，由录音点评流水线填充。
-      audioReviews: [],
-      audioReviewAvailable: false,
+      audioReviews: audioReview.audioReviews,
+      audioReviewAvailable: audioReview.audioReviewAvailable,
     };
     return Response.json(model);
   });

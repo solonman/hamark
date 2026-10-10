@@ -1,0 +1,2485 @@
+{
+ "TaskId": 17044704621,
+ "Status": 2,
+ "StatusStr": "success",
+ "AudioDuration": 143.488,
+ "Result": "[0:0.390,0:5.680,0]  好，下一个问那个捉迷藏天子在家就看过了，我直接说。\n[0:6.910,0:12.350,0]  先说好的，镜头拆的很细，时间瓦也准，整个基本中是到位的。\n[0:13.510,0:23.270,0]  问题出在判断上，你这个创意母题写的是让日常城市生活绽放活力美好，这个太新了，换时条天都能这么写。\n[0:24.440,0:35.550,0]  这天最真正好的计方是什么使那些穿西装的开报警的，还有最后那个警察，这些平时最体验最正经的家人，突然被人时当了一回小孩。\n[0:35.840,0:41.100,0]  张韵，在这儿不在城市变游乐场，所以你的张力按钮也要跟着改。\n[0:42.300,0:46.540,0]  我当时觉得结尾大家都不见了，算是一个反转。\n[0:47.510,1:0.720,0]  那个是结果，不是三阻拦他就阻，是原来全程都在陪，一个还阻拦，而且一个比一个认真，重新理解那一栏也要跟着改，不是纯是好玩，是叫人新日一日只想玩。\n[1:1.890,1:15.850,0]  第二段，你要城市电流要强作用选择是升级视听规则，其实它是同一个左个动作一直重复，但多个人民一个比一个不该多，上单族抱紧吴老胆警察，意思是一层层变子。\n[1:17.030,1:24.510,0]  对了，井盖那个镜头钻出来的是个警察，你先成为一个人，这个信息很关键，要先出来。\n[1:25.660,1:41.480,0]  还有一个聪明了，不光是弄娜，你们很多人多这样关键创意描述全在复述画面，刘通后面多一个人造成多一个人，就在我看天自己，我知道了要写这时这一段为什么所利，他在机制上干了什么。\n[1:42.570,1:46.150,0]  孙老师，那他最主老机制还算形式游戏吗？\n[1:47.360,1:55.200,0]  形式游戏没错，讲夫诸不是用啥用明是对质生利，体验和幼稚放在一起，才说出意思来。\n[1:56.390,2:7.350,0]  最后10分问纳你plays，我觉得高了，我对前面两段都很好，问题在结尾，回头一看，街上的人，这个出1太常见了，收the软。\n[2:8.540,2:13.800,0]  这几条片，这个导演之前那几条洗衣液也是这个路子，有空可以找来看看。\n[2:14.960,2:23.190,0]  最后一个建议，下次拆之前先完整看3遍，再动笔，别边看边写好，那这条就到这儿。\n",
+ "ResultDetail": [
+  {
+   "FinalSentence": "好，下一个问那个捉迷藏天子在家就看过了，我直接说。",
+   "SliceSentence": "好 ， 下一个 问 那个 捉迷藏 天子 在家 就 看过 了 ， 我 直接 说 。",
+   "WrittenText": "",
+   "StartMs": 390,
+   "EndMs": 5680,
+   "SpeechSpeed": 4.2,
+   "WordsNum": 16,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 400,
+     "Word": "好"
+    },
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 400,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 540,
+     "OffsetEndMs": 1180,
+     "Word": "下一个"
+    },
+    {
+     "OffsetStartMs": 1230,
+     "OffsetEndMs": 1520,
+     "Word": "问"
+    },
+    {
+     "OffsetStartMs": 1520,
+     "OffsetEndMs": 1835,
+     "Word": "那个"
+    },
+    {
+     "OffsetStartMs": 1835,
+     "OffsetEndMs": 2470,
+     "Word": "捉迷藏"
+    },
+    {
+     "OffsetStartMs": 2820,
+     "OffsetEndMs": 3260,
+     "Word": "天子"
+    },
+    {
+     "OffsetStartMs": 3260,
+     "OffsetEndMs": 3560,
+     "Word": "在家"
+    },
+    {
+     "OffsetStartMs": 3560,
+     "OffsetEndMs": 3755,
+     "Word": "就"
+    },
+    {
+     "OffsetStartMs": 3755,
+     "OffsetEndMs": 4100,
+     "Word": "看过"
+    },
+    {
+     "OffsetStartMs": 4100,
+     "OffsetEndMs": 4360,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 4100,
+     "OffsetEndMs": 4360,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4380,
+     "OffsetEndMs": 4670,
+     "Word": "我"
+    },
+    {
+     "OffsetStartMs": 4670,
+     "OffsetEndMs": 5000,
+     "Word": "直接"
+    },
+    {
+     "OffsetStartMs": 5000,
+     "OffsetEndMs": 5290,
+     "Word": "说"
+    },
+    {
+     "OffsetStartMs": 5000,
+     "OffsetEndMs": 5290,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 0,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "先说好的，镜头拆的很细，时间瓦也准，整个基本中是到位的。",
+   "SliceSentence": "先 说好 的 ， 镜头 拆 的 很细 ， 时间 瓦 也 准 ， 整个 基本 中 是 到位 的 。",
+   "WrittenText": "",
+   "StartMs": 6910,
+   "EndMs": 12350,
+   "SpeechSpeed": 4.4,
+   "WordsNum": 21,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 335,
+     "Word": "先"
+    },
+    {
+     "OffsetStartMs": 335,
+     "OffsetEndMs": 725,
+     "Word": "说好"
+    },
+    {
+     "OffsetStartMs": 725,
+     "OffsetEndMs": 1000,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 725,
+     "OffsetEndMs": 1000,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 1080,
+     "OffsetEndMs": 1595,
+     "Word": "镜头"
+    },
+    {
+     "OffsetStartMs": 1595,
+     "OffsetEndMs": 1760,
+     "Word": "拆"
+    },
+    {
+     "OffsetStartMs": 1760,
+     "OffsetEndMs": 1895,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 1895,
+     "OffsetEndMs": 2440,
+     "Word": "很细"
+    },
+    {
+     "OffsetStartMs": 1895,
+     "OffsetEndMs": 2440,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 2580,
+     "OffsetEndMs": 3050,
+     "Word": "时间"
+    },
+    {
+     "OffsetStartMs": 3050,
+     "OffsetEndMs": 3200,
+     "Word": "瓦"
+    },
+    {
+     "OffsetStartMs": 3200,
+     "OffsetEndMs": 3365,
+     "Word": "也"
+    },
+    {
+     "OffsetStartMs": 3365,
+     "OffsetEndMs": 3670,
+     "Word": "准"
+    },
+    {
+     "OffsetStartMs": 3365,
+     "OffsetEndMs": 3670,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 3840,
+     "OffsetEndMs": 4220,
+     "Word": "整个"
+    },
+    {
+     "OffsetStartMs": 4220,
+     "OffsetEndMs": 4550,
+     "Word": "基本"
+    },
+    {
+     "OffsetStartMs": 4550,
+     "OffsetEndMs": 4715,
+     "Word": "中"
+    },
+    {
+     "OffsetStartMs": 4715,
+     "OffsetEndMs": 4865,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 4865,
+     "OffsetEndMs": 5165,
+     "Word": "到位"
+    },
+    {
+     "OffsetStartMs": 5165,
+     "OffsetEndMs": 5440,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 5165,
+     "OffsetEndMs": 5440,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1230,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "问题出在判断上，你这个创意母题写的是让日常城市生活绽放活力美好，这个太新了，换时条天都能这么写。",
+   "SliceSentence": "问题 出 在 判断 上 ， 你 这个 创意 母题 写 的是 让 日常 城市 生活 绽放 活力 美好 ， 这个 太 新 了 ， 换 时 条 天都 能 这么 写 。",
+   "WrittenText": "",
+   "StartMs": 13510,
+   "EndMs": 23270,
+   "SpeechSpeed": 4.5,
+   "WordsNum": 33,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 515,
+     "Word": "问题"
+    },
+    {
+     "OffsetStartMs": 515,
+     "OffsetEndMs": 695,
+     "Word": "出"
+    },
+    {
+     "OffsetStartMs": 695,
+     "OffsetEndMs": 860,
+     "Word": "在"
+    },
+    {
+     "OffsetStartMs": 860,
+     "OffsetEndMs": 1235,
+     "Word": "判断"
+    },
+    {
+     "OffsetStartMs": 1235,
+     "OffsetEndMs": 1540,
+     "Word": "上"
+    },
+    {
+     "OffsetStartMs": 1235,
+     "OffsetEndMs": 1540,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 1770,
+     "OffsetEndMs": 2060,
+     "Word": "你"
+    },
+    {
+     "OffsetStartMs": 2060,
+     "OffsetEndMs": 2375,
+     "Word": "这个"
+    },
+    {
+     "OffsetStartMs": 2375,
+     "OffsetEndMs": 2705,
+     "Word": "创意"
+    },
+    {
+     "OffsetStartMs": 2705,
+     "OffsetEndMs": 3065,
+     "Word": "母题"
+    },
+    {
+     "OffsetStartMs": 3065,
+     "OffsetEndMs": 3245,
+     "Word": "写"
+    },
+    {
+     "OffsetStartMs": 3245,
+     "OffsetEndMs": 3670,
+     "Word": "的是"
+    },
+    {
+     "OffsetStartMs": 3750,
+     "OffsetEndMs": 4040,
+     "Word": "让"
+    },
+    {
+     "OffsetStartMs": 4040,
+     "OffsetEndMs": 4445,
+     "Word": "日常"
+    },
+    {
+     "OffsetStartMs": 4445,
+     "OffsetEndMs": 4820,
+     "Word": "城市"
+    },
+    {
+     "OffsetStartMs": 4820,
+     "OffsetEndMs": 5195,
+     "Word": "生活"
+    },
+    {
+     "OffsetStartMs": 5195,
+     "OffsetEndMs": 5585,
+     "Word": "绽放"
+    },
+    {
+     "OffsetStartMs": 5585,
+     "OffsetEndMs": 5885,
+     "Word": "活力"
+    },
+    {
+     "OffsetStartMs": 5885,
+     "OffsetEndMs": 6340,
+     "Word": "美好"
+    },
+    {
+     "OffsetStartMs": 5885,
+     "OffsetEndMs": 6340,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6600,
+     "OffsetEndMs": 7025,
+     "Word": "这个"
+    },
+    {
+     "OffsetStartMs": 7025,
+     "OffsetEndMs": 7190,
+     "Word": "太"
+    },
+    {
+     "OffsetStartMs": 7190,
+     "OffsetEndMs": 7370,
+     "Word": "新"
+    },
+    {
+     "OffsetStartMs": 7370,
+     "OffsetEndMs": 7660,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 7370,
+     "OffsetEndMs": 7660,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 7710,
+     "OffsetEndMs": 8030,
+     "Word": "换"
+    },
+    {
+     "OffsetStartMs": 8030,
+     "OffsetEndMs": 8270,
+     "Word": "时"
+    },
+    {
+     "OffsetStartMs": 8270,
+     "OffsetEndMs": 8495,
+     "Word": "条"
+    },
+    {
+     "OffsetStartMs": 8495,
+     "OffsetEndMs": 8990,
+     "Word": "天都"
+    },
+    {
+     "OffsetStartMs": 8990,
+     "OffsetEndMs": 9155,
+     "Word": "能"
+    },
+    {
+     "OffsetStartMs": 9155,
+     "OffsetEndMs": 9470,
+     "Word": "这么"
+    },
+    {
+     "OffsetStartMs": 9470,
+     "OffsetEndMs": 9760,
+     "Word": "写"
+    },
+    {
+     "OffsetStartMs": 9470,
+     "OffsetEndMs": 9760,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1160,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "这天最真正好的计方是什么使那些穿西装的开报警的，还有最后那个警察，这些平时最体验最正经的家人，突然被人时当了一回小孩。",
+   "SliceSentence": "这天 最 真正 好的 计 方 是 什么 使 那些 穿 西装 的 开报 警 的 ， 还有 最后 那个 警察 ， 这些 平时 最 体验 最 正经 的 家人 ， 突然 被 人时 当 了 一回 小孩 。",
+   "WrittenText": "",
+   "StartMs": 24440,
+   "EndMs": 35550,
+   "SpeechSpeed": 5,
+   "WordsNum": 39,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 515,
+     "Word": "这天"
+    },
+    {
+     "OffsetStartMs": 515,
+     "OffsetEndMs": 665,
+     "Word": "最"
+    },
+    {
+     "OffsetStartMs": 665,
+     "OffsetEndMs": 1025,
+     "Word": "真正"
+    },
+    {
+     "OffsetStartMs": 1025,
+     "OffsetEndMs": 1370,
+     "Word": "好的"
+    },
+    {
+     "OffsetStartMs": 1370,
+     "OffsetEndMs": 1520,
+     "Word": "计"
+    },
+    {
+     "OffsetStartMs": 1520,
+     "OffsetEndMs": 1685,
+     "Word": "方"
+    },
+    {
+     "OffsetStartMs": 1685,
+     "OffsetEndMs": 1835,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 1835,
+     "OffsetEndMs": 2200,
+     "Word": "什么"
+    },
+    {
+     "OffsetStartMs": 2460,
+     "OffsetEndMs": 2720,
+     "Word": "使"
+    },
+    {
+     "OffsetStartMs": 2720,
+     "OffsetEndMs": 3050,
+     "Word": "那些"
+    },
+    {
+     "OffsetStartMs": 3050,
+     "OffsetEndMs": 3290,
+     "Word": "穿"
+    },
+    {
+     "OffsetStartMs": 3290,
+     "OffsetEndMs": 3725,
+     "Word": "西装"
+    },
+    {
+     "OffsetStartMs": 3725,
+     "OffsetEndMs": 3980,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 3980,
+     "OffsetEndMs": 4415,
+     "Word": "开报"
+    },
+    {
+     "OffsetStartMs": 4415,
+     "OffsetEndMs": 4595,
+     "Word": "警"
+    },
+    {
+     "OffsetStartMs": 4595,
+     "OffsetEndMs": 4850,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 4595,
+     "OffsetEndMs": 4850,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4850,
+     "OffsetEndMs": 5225,
+     "Word": "还有"
+    },
+    {
+     "OffsetStartMs": 5225,
+     "OffsetEndMs": 5525,
+     "Word": "最后"
+    },
+    {
+     "OffsetStartMs": 5525,
+     "OffsetEndMs": 5795,
+     "Word": "那个"
+    },
+    {
+     "OffsetStartMs": 5795,
+     "OffsetEndMs": 6310,
+     "Word": "警察"
+    },
+    {
+     "OffsetStartMs": 5795,
+     "OffsetEndMs": 6310,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6390,
+     "OffsetEndMs": 6860,
+     "Word": "这些"
+    },
+    {
+     "OffsetStartMs": 6860,
+     "OffsetEndMs": 7235,
+     "Word": "平时"
+    },
+    {
+     "OffsetStartMs": 7235,
+     "OffsetEndMs": 7415,
+     "Word": "最"
+    },
+    {
+     "OffsetStartMs": 7415,
+     "OffsetEndMs": 7835,
+     "Word": "体验"
+    },
+    {
+     "OffsetStartMs": 7835,
+     "OffsetEndMs": 8060,
+     "Word": "最"
+    },
+    {
+     "OffsetStartMs": 8060,
+     "OffsetEndMs": 8435,
+     "Word": "正经"
+    },
+    {
+     "OffsetStartMs": 8435,
+     "OffsetEndMs": 8585,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 8585,
+     "OffsetEndMs": 8980,
+     "Word": "家人"
+    },
+    {
+     "OffsetStartMs": 8585,
+     "OffsetEndMs": 8980,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 9030,
+     "OffsetEndMs": 9500,
+     "Word": "突然"
+    },
+    {
+     "OffsetStartMs": 9500,
+     "OffsetEndMs": 9665,
+     "Word": "被"
+    },
+    {
+     "OffsetStartMs": 9665,
+     "OffsetEndMs": 10040,
+     "Word": "人时"
+    },
+    {
+     "OffsetStartMs": 10040,
+     "OffsetEndMs": 10190,
+     "Word": "当"
+    },
+    {
+     "OffsetStartMs": 10190,
+     "OffsetEndMs": 10265,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 10265,
+     "OffsetEndMs": 10595,
+     "Word": "一回"
+    },
+    {
+     "OffsetStartMs": 10595,
+     "OffsetEndMs": 11110,
+     "Word": "小孩"
+    },
+    {
+     "OffsetStartMs": 10595,
+     "OffsetEndMs": 11110,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1170,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "张韵，在这儿不在城市变游乐场，所以你的张力按钮也要跟着改。",
+   "SliceSentence": "张 韵 ， 在这儿 不在 城市 变 游乐场 ， 所以 你的 张力 按钮 也要 跟着 改 。",
+   "WrittenText": "",
+   "StartMs": 35840,
+   "EndMs": 41100,
+   "SpeechSpeed": 4.9,
+   "WordsNum": 17,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 290,
+     "Word": "张"
+    },
+    {
+     "OffsetStartMs": 290,
+     "OffsetEndMs": 455,
+     "Word": "韵"
+    },
+    {
+     "OffsetStartMs": 290,
+     "OffsetEndMs": 455,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 455,
+     "OffsetEndMs": 935,
+     "Word": "在这儿"
+    },
+    {
+     "OffsetStartMs": 935,
+     "OffsetEndMs": 1385,
+     "Word": "不在"
+    },
+    {
+     "OffsetStartMs": 1385,
+     "OffsetEndMs": 1730,
+     "Word": "城市"
+    },
+    {
+     "OffsetStartMs": 1730,
+     "OffsetEndMs": 1940,
+     "Word": "变"
+    },
+    {
+     "OffsetStartMs": 1940,
+     "OffsetEndMs": 2590,
+     "Word": "游乐场"
+    },
+    {
+     "OffsetStartMs": 1940,
+     "OffsetEndMs": 2590,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 2940,
+     "OffsetEndMs": 3350,
+     "Word": "所以"
+    },
+    {
+     "OffsetStartMs": 3350,
+     "OffsetEndMs": 3635,
+     "Word": "你的"
+    },
+    {
+     "OffsetStartMs": 3635,
+     "OffsetEndMs": 3935,
+     "Word": "张力"
+    },
+    {
+     "OffsetStartMs": 3935,
+     "OffsetEndMs": 4265,
+     "Word": "按钮"
+    },
+    {
+     "OffsetStartMs": 4265,
+     "OffsetEndMs": 4580,
+     "Word": "也要"
+    },
+    {
+     "OffsetStartMs": 4580,
+     "OffsetEndMs": 4970,
+     "Word": "跟着"
+    },
+    {
+     "OffsetStartMs": 4970,
+     "OffsetEndMs": 5260,
+     "Word": "改"
+    },
+    {
+     "OffsetStartMs": 4970,
+     "OffsetEndMs": 5260,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 290,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "我当时觉得结尾大家都不见了，算是一个反转。",
+   "SliceSentence": "我 当时 觉得 结尾 大家都 不见 了 ， 算是 一个 反转 。",
+   "WrittenText": "",
+   "StartMs": 42300,
+   "EndMs": 46540,
+   "SpeechSpeed": 4.5,
+   "WordsNum": 12,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 290,
+     "Word": "我"
+    },
+    {
+     "OffsetStartMs": 290,
+     "OffsetEndMs": 710,
+     "Word": "当时"
+    },
+    {
+     "OffsetStartMs": 710,
+     "OffsetEndMs": 1070,
+     "Word": "觉得"
+    },
+    {
+     "OffsetStartMs": 1070,
+     "OffsetEndMs": 1475,
+     "Word": "结尾"
+    },
+    {
+     "OffsetStartMs": 1475,
+     "OffsetEndMs": 2105,
+     "Word": "大家都"
+    },
+    {
+     "OffsetStartMs": 2105,
+     "OffsetEndMs": 2480,
+     "Word": "不见"
+    },
+    {
+     "OffsetStartMs": 2480,
+     "OffsetEndMs": 2770,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 2480,
+     "OffsetEndMs": 2770,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 2940,
+     "OffsetEndMs": 3425,
+     "Word": "算是"
+    },
+    {
+     "OffsetStartMs": 3425,
+     "OffsetEndMs": 3725,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 3725,
+     "OffsetEndMs": 4240,
+     "Word": "反转"
+    },
+    {
+     "OffsetStartMs": 3725,
+     "OffsetEndMs": 4240,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1200,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "那个是结果，不是三阻拦他就阻，是原来全程都在陪，一个还阻拦，而且一个比一个认真，重新理解那一栏也要跟着改，不是纯是好玩，是叫人新日一日只想玩。",
+   "SliceSentence": "那个 是 结果 ， 不是 三 阻拦 他 就 阻 ， 是 原来 全程 都在 陪 ， 一个 还 阻拦 ， 而且 一个 比 一个 认真 ， 重新 理解 那 一 栏 也要 跟着 改 ， 不是 纯 是 好玩 ， 是 叫人 新日 一日 只想 玩 。",
+   "WrittenText": "",
+   "StartMs": 47510,
+   "EndMs": 60720,
+   "SpeechSpeed": 4.8,
+   "WordsNum": 48,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 350,
+     "Word": "那个"
+    },
+    {
+     "OffsetStartMs": 350,
+     "OffsetEndMs": 485,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 485,
+     "OffsetEndMs": 910,
+     "Word": "结果"
+    },
+    {
+     "OffsetStartMs": 485,
+     "OffsetEndMs": 910,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 960,
+     "OffsetEndMs": 1340,
+     "Word": "不是"
+    },
+    {
+     "OffsetStartMs": 1340,
+     "OffsetEndMs": 1535,
+     "Word": "三"
+    },
+    {
+     "OffsetStartMs": 1535,
+     "OffsetEndMs": 1930,
+     "Word": "阻拦"
+    },
+    {
+     "OffsetStartMs": 2220,
+     "OffsetEndMs": 2495,
+     "Word": "他"
+    },
+    {
+     "OffsetStartMs": 2495,
+     "OffsetEndMs": 2750,
+     "Word": "就"
+    },
+    {
+     "OffsetStartMs": 2750,
+     "OffsetEndMs": 3065,
+     "Word": "阻"
+    },
+    {
+     "OffsetStartMs": 2750,
+     "OffsetEndMs": 3065,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 3065,
+     "OffsetEndMs": 3400,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 3510,
+     "OffsetEndMs": 4010,
+     "Word": "原来"
+    },
+    {
+     "OffsetStartMs": 4010,
+     "OffsetEndMs": 4460,
+     "Word": "全程"
+    },
+    {
+     "OffsetStartMs": 4460,
+     "OffsetEndMs": 4790,
+     "Word": "都在"
+    },
+    {
+     "OffsetStartMs": 4790,
+     "OffsetEndMs": 4955,
+     "Word": "陪"
+    },
+    {
+     "OffsetStartMs": 4790,
+     "OffsetEndMs": 4955,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4955,
+     "OffsetEndMs": 5270,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 5270,
+     "OffsetEndMs": 5450,
+     "Word": "还"
+    },
+    {
+     "OffsetStartMs": 5450,
+     "OffsetEndMs": 5860,
+     "Word": "阻拦"
+    },
+    {
+     "OffsetStartMs": 5450,
+     "OffsetEndMs": 5860,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 5910,
+     "OffsetEndMs": 6380,
+     "Word": "而且"
+    },
+    {
+     "OffsetStartMs": 6380,
+     "OffsetEndMs": 6680,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 6680,
+     "OffsetEndMs": 6845,
+     "Word": "比"
+    },
+    {
+     "OffsetStartMs": 6845,
+     "OffsetEndMs": 7145,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 7145,
+     "OffsetEndMs": 7600,
+     "Word": "认真"
+    },
+    {
+     "OffsetStartMs": 7145,
+     "OffsetEndMs": 7600,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 7950,
+     "OffsetEndMs": 8420,
+     "Word": "重新"
+    },
+    {
+     "OffsetStartMs": 8420,
+     "OffsetEndMs": 8750,
+     "Word": "理解"
+    },
+    {
+     "OffsetStartMs": 8750,
+     "OffsetEndMs": 8855,
+     "Word": "那"
+    },
+    {
+     "OffsetStartMs": 8855,
+     "OffsetEndMs": 8975,
+     "Word": "一"
+    },
+    {
+     "OffsetStartMs": 8975,
+     "OffsetEndMs": 9140,
+     "Word": "栏"
+    },
+    {
+     "OffsetStartMs": 9140,
+     "OffsetEndMs": 9500,
+     "Word": "也要"
+    },
+    {
+     "OffsetStartMs": 9500,
+     "OffsetEndMs": 9890,
+     "Word": "跟着"
+    },
+    {
+     "OffsetStartMs": 9890,
+     "OffsetEndMs": 10180,
+     "Word": "改"
+    },
+    {
+     "OffsetStartMs": 9890,
+     "OffsetEndMs": 10180,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 10260,
+     "OffsetEndMs": 10655,
+     "Word": "不是"
+    },
+    {
+     "OffsetStartMs": 10655,
+     "OffsetEndMs": 10820,
+     "Word": "纯"
+    },
+    {
+     "OffsetStartMs": 10820,
+     "OffsetEndMs": 11000,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 11000,
+     "OffsetEndMs": 11440,
+     "Word": "好玩"
+    },
+    {
+     "OffsetStartMs": 11000,
+     "OffsetEndMs": 11440,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 11520,
+     "OffsetEndMs": 11795,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 11795,
+     "OffsetEndMs": 12080,
+     "Word": "叫人"
+    },
+    {
+     "OffsetStartMs": 12080,
+     "OffsetEndMs": 12365,
+     "Word": "新日"
+    },
+    {
+     "OffsetStartMs": 12365,
+     "OffsetEndMs": 12560,
+     "Word": "一日"
+    },
+    {
+     "OffsetStartMs": 12560,
+     "OffsetEndMs": 12905,
+     "Word": "只想"
+    },
+    {
+     "OffsetStartMs": 12905,
+     "OffsetEndMs": 13210,
+     "Word": "玩"
+    },
+    {
+     "OffsetStartMs": 12905,
+     "OffsetEndMs": 13210,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 970,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "第二段，你要城市电流要强作用选择是升级视听规则，其实它是同一个左个动作一直重复，但多个人民一个比一个不该多，上单族抱紧吴老胆警察，意思是一层层变子。",
+   "SliceSentence": "第二 段 ， 你要 城市 电流 要强 作用 选择 是 升级 视听 规则 ， 其实 它 是 同一个 左 个 动作 一直 重复 ， 但 多个 人民 一个 比 一个 不该 多 ， 上单 族 抱紧 吴 老 胆 警察 ， 意思 是 一层 层 变 子 。",
+   "WrittenText": "",
+   "StartMs": 61890,
+   "EndMs": 75850,
+   "SpeechSpeed": 4.9,
+   "WordsNum": 48,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 440,
+     "Word": "第二"
+    },
+    {
+     "OffsetStartMs": 440,
+     "OffsetEndMs": 620,
+     "Word": "段"
+    },
+    {
+     "OffsetStartMs": 440,
+     "OffsetEndMs": 620,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 620,
+     "OffsetEndMs": 1010,
+     "Word": "你要"
+    },
+    {
+     "OffsetStartMs": 1010,
+     "OffsetEndMs": 1355,
+     "Word": "城市"
+    },
+    {
+     "OffsetStartMs": 1355,
+     "OffsetEndMs": 1745,
+     "Word": "电流"
+    },
+    {
+     "OffsetStartMs": 1745,
+     "OffsetEndMs": 2230,
+     "Word": "要强"
+    },
+    {
+     "OffsetStartMs": 2340,
+     "OffsetEndMs": 2810,
+     "Word": "作用"
+    },
+    {
+     "OffsetStartMs": 2810,
+     "OffsetEndMs": 3200,
+     "Word": "选择"
+    },
+    {
+     "OffsetStartMs": 3200,
+     "OffsetEndMs": 3350,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 3350,
+     "OffsetEndMs": 3680,
+     "Word": "升级"
+    },
+    {
+     "OffsetStartMs": 3680,
+     "OffsetEndMs": 4085,
+     "Word": "视听"
+    },
+    {
+     "OffsetStartMs": 4085,
+     "OffsetEndMs": 4630,
+     "Word": "规则"
+    },
+    {
+     "OffsetStartMs": 4085,
+     "OffsetEndMs": 4630,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4920,
+     "OffsetEndMs": 5360,
+     "Word": "其实"
+    },
+    {
+     "OffsetStartMs": 5360,
+     "OffsetEndMs": 5525,
+     "Word": "它"
+    },
+    {
+     "OffsetStartMs": 5525,
+     "OffsetEndMs": 5690,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 5690,
+     "OffsetEndMs": 6155,
+     "Word": "同一个"
+    },
+    {
+     "OffsetStartMs": 6155,
+     "OffsetEndMs": 6305,
+     "Word": "左"
+    },
+    {
+     "OffsetStartMs": 6305,
+     "OffsetEndMs": 6470,
+     "Word": "个"
+    },
+    {
+     "OffsetStartMs": 6470,
+     "OffsetEndMs": 6800,
+     "Word": "动作"
+    },
+    {
+     "OffsetStartMs": 6800,
+     "OffsetEndMs": 7115,
+     "Word": "一直"
+    },
+    {
+     "OffsetStartMs": 7115,
+     "OffsetEndMs": 7630,
+     "Word": "重复"
+    },
+    {
+     "OffsetStartMs": 7115,
+     "OffsetEndMs": 7630,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 7650,
+     "OffsetEndMs": 7925,
+     "Word": "但"
+    },
+    {
+     "OffsetStartMs": 7925,
+     "OffsetEndMs": 8255,
+     "Word": "多个"
+    },
+    {
+     "OffsetStartMs": 8255,
+     "OffsetEndMs": 8495,
+     "Word": "人民"
+    },
+    {
+     "OffsetStartMs": 8495,
+     "OffsetEndMs": 8765,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 8765,
+     "OffsetEndMs": 8945,
+     "Word": "比"
+    },
+    {
+     "OffsetStartMs": 8945,
+     "OffsetEndMs": 9230,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 9230,
+     "OffsetEndMs": 9590,
+     "Word": "不该"
+    },
+    {
+     "OffsetStartMs": 9590,
+     "OffsetEndMs": 9880,
+     "Word": "多"
+    },
+    {
+     "OffsetStartMs": 9590,
+     "OffsetEndMs": 9880,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 10020,
+     "OffsetEndMs": 10490,
+     "Word": "上单"
+    },
+    {
+     "OffsetStartMs": 10490,
+     "OffsetEndMs": 10730,
+     "Word": "族"
+    },
+    {
+     "OffsetStartMs": 10730,
+     "OffsetEndMs": 11105,
+     "Word": "抱紧"
+    },
+    {
+     "OffsetStartMs": 11105,
+     "OffsetEndMs": 11210,
+     "Word": "吴"
+    },
+    {
+     "OffsetStartMs": 11210,
+     "OffsetEndMs": 11345,
+     "Word": "老"
+    },
+    {
+     "OffsetStartMs": 11345,
+     "OffsetEndMs": 11600,
+     "Word": "胆"
+    },
+    {
+     "OffsetStartMs": 11600,
+     "OffsetEndMs": 12220,
+     "Word": "警察"
+    },
+    {
+     "OffsetStartMs": 11600,
+     "OffsetEndMs": 12220,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 12270,
+     "OffsetEndMs": 12680,
+     "Word": "意思"
+    },
+    {
+     "OffsetStartMs": 12680,
+     "OffsetEndMs": 12800,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 12800,
+     "OffsetEndMs": 13190,
+     "Word": "一层"
+    },
+    {
+     "OffsetStartMs": 13190,
+     "OffsetEndMs": 13445,
+     "Word": "层"
+    },
+    {
+     "OffsetStartMs": 13445,
+     "OffsetEndMs": 13670,
+     "Word": "变"
+    },
+    {
+     "OffsetStartMs": 13670,
+     "OffsetEndMs": 13960,
+     "Word": "子"
+    },
+    {
+     "OffsetStartMs": 13670,
+     "OffsetEndMs": 13960,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1170,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "对了，井盖那个镜头钻出来的是个警察，你先成为一个人，这个信息很关键，要先出来。",
+   "SliceSentence": "对了 ， 井盖 那个 镜头 钻出 来 的是 个 警察 ， 你先 成为 一个人 ， 这个 信息 很 关键 ， 要 先出 来 。",
+   "WrittenText": "",
+   "StartMs": 77030,
+   "EndMs": 84510,
+   "SpeechSpeed": 4.5,
+   "WordsNum": 24,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 550,
+     "Word": "对了"
+    },
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 550,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 600,
+     "OffsetEndMs": 1055,
+     "Word": "井盖"
+    },
+    {
+     "OffsetStartMs": 1055,
+     "OffsetEndMs": 1295,
+     "Word": "那个"
+    },
+    {
+     "OffsetStartMs": 1295,
+     "OffsetEndMs": 1780,
+     "Word": "镜头"
+    },
+    {
+     "OffsetStartMs": 1920,
+     "OffsetEndMs": 2450,
+     "Word": "钻出"
+    },
+    {
+     "OffsetStartMs": 2450,
+     "OffsetEndMs": 2570,
+     "Word": "来"
+    },
+    {
+     "OffsetStartMs": 2570,
+     "OffsetEndMs": 2810,
+     "Word": "的是"
+    },
+    {
+     "OffsetStartMs": 2810,
+     "OffsetEndMs": 2945,
+     "Word": "个"
+    },
+    {
+     "OffsetStartMs": 2945,
+     "OffsetEndMs": 3460,
+     "Word": "警察"
+    },
+    {
+     "OffsetStartMs": 2945,
+     "OffsetEndMs": 3460,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 3570,
+     "OffsetEndMs": 4070,
+     "Word": "你先"
+    },
+    {
+     "OffsetStartMs": 4070,
+     "OffsetEndMs": 4310,
+     "Word": "成为"
+    },
+    {
+     "OffsetStartMs": 4310,
+     "OffsetEndMs": 4840,
+     "Word": "一个人"
+    },
+    {
+     "OffsetStartMs": 4310,
+     "OffsetEndMs": 4840,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4950,
+     "OffsetEndMs": 5345,
+     "Word": "这个"
+    },
+    {
+     "OffsetStartMs": 5345,
+     "OffsetEndMs": 5720,
+     "Word": "信息"
+    },
+    {
+     "OffsetStartMs": 5720,
+     "OffsetEndMs": 5915,
+     "Word": "很"
+    },
+    {
+     "OffsetStartMs": 5915,
+     "OffsetEndMs": 6460,
+     "Word": "关键"
+    },
+    {
+     "OffsetStartMs": 5915,
+     "OffsetEndMs": 6460,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6540,
+     "OffsetEndMs": 6845,
+     "Word": "要"
+    },
+    {
+     "OffsetStartMs": 6845,
+     "OffsetEndMs": 7205,
+     "Word": "先出"
+    },
+    {
+     "OffsetStartMs": 7205,
+     "OffsetEndMs": 7480,
+     "Word": "来"
+    },
+    {
+     "OffsetStartMs": 7205,
+     "OffsetEndMs": 7480,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1180,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "还有一个聪明了，不光是弄娜，你们很多人多这样关键创意描述全在复述画面，刘通后面多一个人造成多一个人，就在我看天自己，我知道了要写这时这一段为什么所利，他在机制上干了什么。",
+   "SliceSentence": "还有 一个 聪明 了 ， 不光是 弄 娜 ， 你们 很多人 多 这样 关键 创意 描述 全 在 复述 画面 ， 刘 通 后面 多 一个人 造成 多 一个人 ， 就在 我 看 天 自己 ， 我 知道 了 要 写 这时 这一 段 为什么 所 利 ， 他 在 机制 上 干 了 什么 。",
+   "WrittenText": "",
+   "StartMs": 85660,
+   "EndMs": 101480,
+   "SpeechSpeed": 4.9,
+   "WordsNum": 56,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 425,
+     "Word": "还有"
+    },
+    {
+     "OffsetStartMs": 425,
+     "OffsetEndMs": 740,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 740,
+     "OffsetEndMs": 1085,
+     "Word": "聪明"
+    },
+    {
+     "OffsetStartMs": 1085,
+     "OffsetEndMs": 1360,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 1085,
+     "OffsetEndMs": 1360,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 1380,
+     "OffsetEndMs": 2000,
+     "Word": "不光是"
+    },
+    {
+     "OffsetStartMs": 2000,
+     "OffsetEndMs": 2195,
+     "Word": "弄"
+    },
+    {
+     "OffsetStartMs": 2195,
+     "OffsetEndMs": 2500,
+     "Word": "娜"
+    },
+    {
+     "OffsetStartMs": 2195,
+     "OffsetEndMs": 2500,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 2550,
+     "OffsetEndMs": 2975,
+     "Word": "你们"
+    },
+    {
+     "OffsetStartMs": 2975,
+     "OffsetEndMs": 3515,
+     "Word": "很多人"
+    },
+    {
+     "OffsetStartMs": 3515,
+     "OffsetEndMs": 3695,
+     "Word": "多"
+    },
+    {
+     "OffsetStartMs": 3695,
+     "OffsetEndMs": 4120,
+     "Word": "这样"
+    },
+    {
+     "OffsetStartMs": 4350,
+     "OffsetEndMs": 4925,
+     "Word": "关键"
+    },
+    {
+     "OffsetStartMs": 4925,
+     "OffsetEndMs": 5315,
+     "Word": "创意"
+    },
+    {
+     "OffsetStartMs": 5315,
+     "OffsetEndMs": 5690,
+     "Word": "描述"
+    },
+    {
+     "OffsetStartMs": 5690,
+     "OffsetEndMs": 5930,
+     "Word": "全"
+    },
+    {
+     "OffsetStartMs": 5930,
+     "OffsetEndMs": 6125,
+     "Word": "在"
+    },
+    {
+     "OffsetStartMs": 6125,
+     "OffsetEndMs": 6455,
+     "Word": "复述"
+    },
+    {
+     "OffsetStartMs": 6455,
+     "OffsetEndMs": 6910,
+     "Word": "画面"
+    },
+    {
+     "OffsetStartMs": 6455,
+     "OffsetEndMs": 6910,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6960,
+     "OffsetEndMs": 7265,
+     "Word": "刘"
+    },
+    {
+     "OffsetStartMs": 7265,
+     "OffsetEndMs": 7475,
+     "Word": "通"
+    },
+    {
+     "OffsetStartMs": 7475,
+     "OffsetEndMs": 7820,
+     "Word": "后面"
+    },
+    {
+     "OffsetStartMs": 7820,
+     "OffsetEndMs": 7970,
+     "Word": "多"
+    },
+    {
+     "OffsetStartMs": 7970,
+     "OffsetEndMs": 8480,
+     "Word": "一个人"
+    },
+    {
+     "OffsetStartMs": 8480,
+     "OffsetEndMs": 8915,
+     "Word": "造成"
+    },
+    {
+     "OffsetStartMs": 8915,
+     "OffsetEndMs": 9095,
+     "Word": "多"
+    },
+    {
+     "OffsetStartMs": 9095,
+     "OffsetEndMs": 9670,
+     "Word": "一个人"
+    },
+    {
+     "OffsetStartMs": 9095,
+     "OffsetEndMs": 9670,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 9780,
+     "OffsetEndMs": 10160,
+     "Word": "就在"
+    },
+    {
+     "OffsetStartMs": 10160,
+     "OffsetEndMs": 10325,
+     "Word": "我"
+    },
+    {
+     "OffsetStartMs": 10325,
+     "OffsetEndMs": 10550,
+     "Word": "看"
+    },
+    {
+     "OffsetStartMs": 10550,
+     "OffsetEndMs": 10760,
+     "Word": "天"
+    },
+    {
+     "OffsetStartMs": 10760,
+     "OffsetEndMs": 10985,
+     "Word": "自己"
+    },
+    {
+     "OffsetStartMs": 10760,
+     "OffsetEndMs": 10985,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 10985,
+     "OffsetEndMs": 11090,
+     "Word": "我"
+    },
+    {
+     "OffsetStartMs": 11090,
+     "OffsetEndMs": 11360,
+     "Word": "知道"
+    },
+    {
+     "OffsetStartMs": 11360,
+     "OffsetEndMs": 11620,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 11880,
+     "OffsetEndMs": 12170,
+     "Word": "要"
+    },
+    {
+     "OffsetStartMs": 12170,
+     "OffsetEndMs": 12335,
+     "Word": "写"
+    },
+    {
+     "OffsetStartMs": 12335,
+     "OffsetEndMs": 12605,
+     "Word": "这时"
+    },
+    {
+     "OffsetStartMs": 12605,
+     "OffsetEndMs": 12860,
+     "Word": "这一"
+    },
+    {
+     "OffsetStartMs": 12860,
+     "OffsetEndMs": 13055,
+     "Word": "段"
+    },
+    {
+     "OffsetStartMs": 13055,
+     "OffsetEndMs": 13580,
+     "Word": "为什么"
+    },
+    {
+     "OffsetStartMs": 13580,
+     "OffsetEndMs": 13745,
+     "Word": "所"
+    },
+    {
+     "OffsetStartMs": 13745,
+     "OffsetEndMs": 14075,
+     "Word": "利"
+    },
+    {
+     "OffsetStartMs": 13745,
+     "OffsetEndMs": 14075,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 14075,
+     "OffsetEndMs": 14405,
+     "Word": "他"
+    },
+    {
+     "OffsetStartMs": 14405,
+     "OffsetEndMs": 14555,
+     "Word": "在"
+    },
+    {
+     "OffsetStartMs": 14555,
+     "OffsetEndMs": 14870,
+     "Word": "机制"
+    },
+    {
+     "OffsetStartMs": 14870,
+     "OffsetEndMs": 15080,
+     "Word": "上"
+    },
+    {
+     "OffsetStartMs": 15080,
+     "OffsetEndMs": 15275,
+     "Word": "干"
+    },
+    {
+     "OffsetStartMs": 15275,
+     "OffsetEndMs": 15425,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 15425,
+     "OffsetEndMs": 15820,
+     "Word": "什么"
+    },
+    {
+     "OffsetStartMs": 15425,
+     "OffsetEndMs": 15820,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1150,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "孙老师，那他最主老机制还算形式游戏吗？",
+   "SliceSentence": "孙 老师 ， 那 他 最 主 老机 制 还算 形式 游戏 吗 ？",
+   "WrittenText": "",
+   "StartMs": 102570,
+   "EndMs": 106150,
+   "SpeechSpeed": 4.7,
+   "WordsNum": 14,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 365,
+     "Word": "孙"
+    },
+    {
+     "OffsetStartMs": 365,
+     "OffsetEndMs": 880,
+     "Word": "老师"
+    },
+    {
+     "OffsetStartMs": 365,
+     "OffsetEndMs": 880,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 990,
+     "OffsetEndMs": 1265,
+     "Word": "那"
+    },
+    {
+     "OffsetStartMs": 1265,
+     "OffsetEndMs": 1415,
+     "Word": "他"
+    },
+    {
+     "OffsetStartMs": 1415,
+     "OffsetEndMs": 1550,
+     "Word": "最"
+    },
+    {
+     "OffsetStartMs": 1550,
+     "OffsetEndMs": 1715,
+     "Word": "主"
+    },
+    {
+     "OffsetStartMs": 1715,
+     "OffsetEndMs": 2030,
+     "Word": "老机"
+    },
+    {
+     "OffsetStartMs": 2030,
+     "OffsetEndMs": 2195,
+     "Word": "制"
+    },
+    {
+     "OffsetStartMs": 2195,
+     "OffsetEndMs": 2600,
+     "Word": "还算"
+    },
+    {
+     "OffsetStartMs": 2600,
+     "OffsetEndMs": 2975,
+     "Word": "形式"
+    },
+    {
+     "OffsetStartMs": 2975,
+     "OffsetEndMs": 3305,
+     "Word": "游戏"
+    },
+    {
+     "OffsetStartMs": 3305,
+     "OffsetEndMs": 3580,
+     "Word": "吗"
+    },
+    {
+     "OffsetStartMs": 3305,
+     "OffsetEndMs": 3580,
+     "Word": "？"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1090,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "形式游戏没错，讲夫诸不是用啥用明是对质生利，体验和幼稚放在一起，才说出意思来。",
+   "SliceSentence": "形式 游戏 没错 ， 讲 夫 诸 不是 用 啥 用 明 是 对质 生 利 ， 体验 和 幼稚 放在 一起 ， 才 说出 意思 来 。",
+   "WrittenText": "",
+   "StartMs": 107360,
+   "EndMs": 115200,
+   "SpeechSpeed": 4.5,
+   "WordsNum": 28,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 455,
+     "Word": "形式"
+    },
+    {
+     "OffsetStartMs": 455,
+     "OffsetEndMs": 800,
+     "Word": "游戏"
+    },
+    {
+     "OffsetStartMs": 800,
+     "OffsetEndMs": 1300,
+     "Word": "没错"
+    },
+    {
+     "OffsetStartMs": 800,
+     "OffsetEndMs": 1300,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 1560,
+     "OffsetEndMs": 1850,
+     "Word": "讲"
+    },
+    {
+     "OffsetStartMs": 1850,
+     "OffsetEndMs": 2030,
+     "Word": "夫"
+    },
+    {
+     "OffsetStartMs": 2030,
+     "OffsetEndMs": 2195,
+     "Word": "诸"
+    },
+    {
+     "OffsetStartMs": 2195,
+     "OffsetEndMs": 2465,
+     "Word": "不是"
+    },
+    {
+     "OffsetStartMs": 2465,
+     "OffsetEndMs": 2630,
+     "Word": "用"
+    },
+    {
+     "OffsetStartMs": 2630,
+     "OffsetEndMs": 2810,
+     "Word": "啥"
+    },
+    {
+     "OffsetStartMs": 2810,
+     "OffsetEndMs": 2990,
+     "Word": "用"
+    },
+    {
+     "OffsetStartMs": 2990,
+     "OffsetEndMs": 3280,
+     "Word": "明"
+    },
+    {
+     "OffsetStartMs": 3390,
+     "OffsetEndMs": 3680,
+     "Word": "是"
+    },
+    {
+     "OffsetStartMs": 3680,
+     "OffsetEndMs": 4040,
+     "Word": "对质"
+    },
+    {
+     "OffsetStartMs": 4040,
+     "OffsetEndMs": 4220,
+     "Word": "生"
+    },
+    {
+     "OffsetStartMs": 4220,
+     "OffsetEndMs": 4510,
+     "Word": "利"
+    },
+    {
+     "OffsetStartMs": 4220,
+     "OffsetEndMs": 4510,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4800,
+     "OffsetEndMs": 5255,
+     "Word": "体验"
+    },
+    {
+     "OffsetStartMs": 5255,
+     "OffsetEndMs": 5390,
+     "Word": "和"
+    },
+    {
+     "OffsetStartMs": 5390,
+     "OffsetEndMs": 5690,
+     "Word": "幼稚"
+    },
+    {
+     "OffsetStartMs": 5690,
+     "OffsetEndMs": 6035,
+     "Word": "放在"
+    },
+    {
+     "OffsetStartMs": 6035,
+     "OffsetEndMs": 6460,
+     "Word": "一起"
+    },
+    {
+     "OffsetStartMs": 6035,
+     "OffsetEndMs": 6460,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6600,
+     "OffsetEndMs": 6905,
+     "Word": "才"
+    },
+    {
+     "OffsetStartMs": 6905,
+     "OffsetEndMs": 7280,
+     "Word": "说出"
+    },
+    {
+     "OffsetStartMs": 7280,
+     "OffsetEndMs": 7580,
+     "Word": "意思"
+    },
+    {
+     "OffsetStartMs": 7580,
+     "OffsetEndMs": 7840,
+     "Word": "来"
+    },
+    {
+     "OffsetStartMs": 7580,
+     "OffsetEndMs": 7840,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1210,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "最后10分问纳你plays，我觉得高了，我对前面两段都很好，问题在结尾，回头一看，街上的人，这个出1太常见了，收the软。",
+   "SliceSentence": "最后 10分 问 纳 你 plays ， 我 觉得 高 了 ， 我 对 前面 两段 都很 好 ， 问题 在 结尾 ， 回头 一看 ， 街上 的 人 ， 这个 出 1 太 常见 了 ， 收 the 软 。",
+   "WrittenText": "",
+   "StartMs": 116390,
+   "EndMs": 127350,
+   "SpeechSpeed": 4.8,
+   "WordsNum": 41,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 455,
+     "Word": "最后"
+    },
+    {
+     "OffsetStartMs": 455,
+     "OffsetEndMs": 940,
+     "Word": "10分"
+    },
+    {
+     "OffsetStartMs": 1230,
+     "OffsetEndMs": 1535,
+     "Word": "问"
+    },
+    {
+     "OffsetStartMs": 1535,
+     "OffsetEndMs": 1700,
+     "Word": "纳"
+    },
+    {
+     "OffsetStartMs": 1700,
+     "OffsetEndMs": 1850,
+     "Word": "你"
+    },
+    {
+     "OffsetStartMs": 1850,
+     "OffsetEndMs": 2260,
+     "Word": "plays"
+    },
+    {
+     "OffsetStartMs": 1850,
+     "OffsetEndMs": 2260,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 2400,
+     "OffsetEndMs": 2690,
+     "Word": "我"
+    },
+    {
+     "OffsetStartMs": 2690,
+     "OffsetEndMs": 2990,
+     "Word": "觉得"
+    },
+    {
+     "OffsetStartMs": 2990,
+     "OffsetEndMs": 3155,
+     "Word": "高"
+    },
+    {
+     "OffsetStartMs": 3155,
+     "OffsetEndMs": 3425,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 3155,
+     "OffsetEndMs": 3425,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 3425,
+     "OffsetEndMs": 3725,
+     "Word": "我"
+    },
+    {
+     "OffsetStartMs": 3725,
+     "OffsetEndMs": 3995,
+     "Word": "对"
+    },
+    {
+     "OffsetStartMs": 3995,
+     "OffsetEndMs": 4445,
+     "Word": "前面"
+    },
+    {
+     "OffsetStartMs": 4445,
+     "OffsetEndMs": 4850,
+     "Word": "两段"
+    },
+    {
+     "OffsetStartMs": 4850,
+     "OffsetEndMs": 5240,
+     "Word": "都很"
+    },
+    {
+     "OffsetStartMs": 5240,
+     "OffsetEndMs": 5560,
+     "Word": "好"
+    },
+    {
+     "OffsetStartMs": 5240,
+     "OffsetEndMs": 5560,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 5640,
+     "OffsetEndMs": 6140,
+     "Word": "问题"
+    },
+    {
+     "OffsetStartMs": 6140,
+     "OffsetEndMs": 6290,
+     "Word": "在"
+    },
+    {
+     "OffsetStartMs": 6290,
+     "OffsetEndMs": 6730,
+     "Word": "结尾"
+    },
+    {
+     "OffsetStartMs": 6290,
+     "OffsetEndMs": 6730,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6870,
+     "OffsetEndMs": 7310,
+     "Word": "回头"
+    },
+    {
+     "OffsetStartMs": 7310,
+     "OffsetEndMs": 7700,
+     "Word": "一看"
+    },
+    {
+     "OffsetStartMs": 7310,
+     "OffsetEndMs": 7700,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 7700,
+     "OffsetEndMs": 8015,
+     "Word": "街上"
+    },
+    {
+     "OffsetStartMs": 8015,
+     "OffsetEndMs": 8165,
+     "Word": "的"
+    },
+    {
+     "OffsetStartMs": 8165,
+     "OffsetEndMs": 8440,
+     "Word": "人"
+    },
+    {
+     "OffsetStartMs": 8165,
+     "OffsetEndMs": 8440,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 8520,
+     "OffsetEndMs": 8945,
+     "Word": "这个"
+    },
+    {
+     "OffsetStartMs": 8945,
+     "OffsetEndMs": 9095,
+     "Word": "出"
+    },
+    {
+     "OffsetStartMs": 9095,
+     "OffsetEndMs": 9275,
+     "Word": "1"
+    },
+    {
+     "OffsetStartMs": 9275,
+     "OffsetEndMs": 9470,
+     "Word": "太"
+    },
+    {
+     "OffsetStartMs": 9470,
+     "OffsetEndMs": 9860,
+     "Word": "常见"
+    },
+    {
+     "OffsetStartMs": 9860,
+     "OffsetEndMs": 10150,
+     "Word": "了"
+    },
+    {
+     "OffsetStartMs": 9860,
+     "OffsetEndMs": 10150,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 10260,
+     "OffsetEndMs": 10535,
+     "Word": "收"
+    },
+    {
+     "OffsetStartMs": 10535,
+     "OffsetEndMs": 10685,
+     "Word": "the"
+    },
+    {
+     "OffsetStartMs": 10685,
+     "OffsetEndMs": 10960,
+     "Word": "软"
+    },
+    {
+     "OffsetStartMs": 10685,
+     "OffsetEndMs": 10960,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1190,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "这几条片，这个导演之前那几条洗衣液也是这个路子，有空可以找来看看。",
+   "SliceSentence": "这 几条 片 ， 这个 导演 之前 那 几条 洗衣液 也是 这个 路子 ， 有空 可以 找来 看看 。",
+   "WrittenText": "",
+   "StartMs": 128540,
+   "EndMs": 133800,
+   "SpeechSpeed": 5.7,
+   "WordsNum": 19,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 245,
+     "Word": "这"
+    },
+    {
+     "OffsetStartMs": 245,
+     "OffsetEndMs": 545,
+     "Word": "几条"
+    },
+    {
+     "OffsetStartMs": 545,
+     "OffsetEndMs": 740,
+     "Word": "片"
+    },
+    {
+     "OffsetStartMs": 545,
+     "OffsetEndMs": 740,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 740,
+     "OffsetEndMs": 1025,
+     "Word": "这个"
+    },
+    {
+     "OffsetStartMs": 1025,
+     "OffsetEndMs": 1355,
+     "Word": "导演"
+    },
+    {
+     "OffsetStartMs": 1355,
+     "OffsetEndMs": 1775,
+     "Word": "之前"
+    },
+    {
+     "OffsetStartMs": 1775,
+     "OffsetEndMs": 1925,
+     "Word": "那"
+    },
+    {
+     "OffsetStartMs": 1925,
+     "OffsetEndMs": 2195,
+     "Word": "几条"
+    },
+    {
+     "OffsetStartMs": 2195,
+     "OffsetEndMs": 2630,
+     "Word": "洗衣液"
+    },
+    {
+     "OffsetStartMs": 2630,
+     "OffsetEndMs": 2870,
+     "Word": "也是"
+    },
+    {
+     "OffsetStartMs": 2870,
+     "OffsetEndMs": 3110,
+     "Word": "这个"
+    },
+    {
+     "OffsetStartMs": 3110,
+     "OffsetEndMs": 3520,
+     "Word": "路子"
+    },
+    {
+     "OffsetStartMs": 3110,
+     "OffsetEndMs": 3520,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 3540,
+     "OffsetEndMs": 4040,
+     "Word": "有空"
+    },
+    {
+     "OffsetStartMs": 4040,
+     "OffsetEndMs": 4340,
+     "Word": "可以"
+    },
+    {
+     "OffsetStartMs": 4340,
+     "OffsetEndMs": 4700,
+     "Word": "找来"
+    },
+    {
+     "OffsetStartMs": 4700,
+     "OffsetEndMs": 5260,
+     "Word": "看看"
+    },
+    {
+     "OffsetStartMs": 4700,
+     "OffsetEndMs": 5260,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1190,
+   "EmotionType": [
+    "disabled"
+   ]
+  },
+  {
+   "FinalSentence": "最后一个建议，下次拆之前先完整看3遍，再动笔，别边看边写好，那这条就到这儿。",
+   "SliceSentence": "最后 一个 建议 ， 下次 拆 之前 先 完整 看 3 遍 ， 再 动笔 ， 别 边 看 边 写 好 ， 那 这条 就到 这儿 。",
+   "WrittenText": "",
+   "StartMs": 134960,
+   "EndMs": 143190,
+   "SpeechSpeed": 4,
+   "WordsNum": 28,
+   "Words": [
+    {
+     "OffsetStartMs": 0,
+     "OffsetEndMs": 440,
+     "Word": "最后"
+    },
+    {
+     "OffsetStartMs": 440,
+     "OffsetEndMs": 740,
+     "Word": "一个"
+    },
+    {
+     "OffsetStartMs": 740,
+     "OffsetEndMs": 1180,
+     "Word": "建议"
+    },
+    {
+     "OffsetStartMs": 740,
+     "OffsetEndMs": 1180,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 1320,
+     "OffsetEndMs": 1835,
+     "Word": "下次"
+    },
+    {
+     "OffsetStartMs": 1835,
+     "OffsetEndMs": 2015,
+     "Word": "拆"
+    },
+    {
+     "OffsetStartMs": 2015,
+     "OffsetEndMs": 2435,
+     "Word": "之前"
+    },
+    {
+     "OffsetStartMs": 2435,
+     "OffsetEndMs": 2675,
+     "Word": "先"
+    },
+    {
+     "OffsetStartMs": 2675,
+     "OffsetEndMs": 3155,
+     "Word": "完整"
+    },
+    {
+     "OffsetStartMs": 3155,
+     "OffsetEndMs": 3410,
+     "Word": "看"
+    },
+    {
+     "OffsetStartMs": 3410,
+     "OffsetEndMs": 3635,
+     "Word": "3"
+    },
+    {
+     "OffsetStartMs": 3635,
+     "OffsetEndMs": 3845,
+     "Word": "遍"
+    },
+    {
+     "OffsetStartMs": 3635,
+     "OffsetEndMs": 3845,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 3845,
+     "OffsetEndMs": 4025,
+     "Word": "再"
+    },
+    {
+     "OffsetStartMs": 4025,
+     "OffsetEndMs": 4450,
+     "Word": "动笔"
+    },
+    {
+     "OffsetStartMs": 4025,
+     "OffsetEndMs": 4450,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 4560,
+     "OffsetEndMs": 4850,
+     "Word": "别"
+    },
+    {
+     "OffsetStartMs": 4850,
+     "OffsetEndMs": 5075,
+     "Word": "边"
+    },
+    {
+     "OffsetStartMs": 5075,
+     "OffsetEndMs": 5315,
+     "Word": "看"
+    },
+    {
+     "OffsetStartMs": 5315,
+     "OffsetEndMs": 5540,
+     "Word": "边"
+    },
+    {
+     "OffsetStartMs": 5540,
+     "OffsetEndMs": 5860,
+     "Word": "写"
+    },
+    {
+     "OffsetStartMs": 6240,
+     "OffsetEndMs": 6640,
+     "Word": "好"
+    },
+    {
+     "OffsetStartMs": 6240,
+     "OffsetEndMs": 6640,
+     "Word": "，"
+    },
+    {
+     "OffsetStartMs": 6720,
+     "OffsetEndMs": 7085,
+     "Word": "那"
+    },
+    {
+     "OffsetStartMs": 7085,
+     "OffsetEndMs": 7535,
+     "Word": "这条"
+    },
+    {
+     "OffsetStartMs": 7535,
+     "OffsetEndMs": 7895,
+     "Word": "就到"
+    },
+    {
+     "OffsetStartMs": 7895,
+     "OffsetEndMs": 8230,
+     "Word": "这儿"
+    },
+    {
+     "OffsetStartMs": 7895,
+     "OffsetEndMs": 8230,
+     "Word": "。"
+    }
+   ],
+   "SpeakerId": 0,
+   "EmotionalEnergy": 0,
+   "SilenceTime": 1160,
+   "EmotionType": [
+    "disabled"
+   ]
+  }
+ ],
+ "ErrorMsg": ""
+}
