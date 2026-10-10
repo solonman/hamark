@@ -33,6 +33,7 @@ import {
   type FinalTraceIntake,
   type LoadedFinalVersion,
 } from "./final-version";
+import type { V19ReviewCandidate } from "./audio-review-model";
 
 const WORKFLOW = V04_WORKFLOW_VERSION;
 
@@ -54,14 +55,17 @@ export function nextV19VersionNumber(existingNumbers: readonly number[]): number
  * The version a viewer sees by default: the one most recently modified.
  * Ties (equal `updatedAt`) fall back to the highest version number so the
  * choice is deterministic even when two saves land in the same instant.
+ * 点评版（docs/25 3.3）不是谁的作业，不参与「最新修改」——带 `kind` 的调用方
+ * 传进来的点评版在这里先被滤掉；报告侧的版本不带 `kind`，不受影响。
  */
-export function resolveV19DefaultVersion<T extends { number: number; updatedAt: string }>(
+export function resolveV19DefaultVersion<T extends { number: number; updatedAt: string; kind?: string }>(
   versions: readonly T[],
 ): T {
-  if (versions.length === 0) {
+  const personal = versions.filter((version) => version.kind !== "AUDIO_REVIEW");
+  if (personal.length === 0) {
     throw new Error("EMPTY_VERSION_LIST");
   }
-  return versions.reduce((best, candidate) => {
+  return personal.reduce((best, candidate) => {
     const bestTime = Date.parse(best.updatedAt);
     const candidateTime = Date.parse(candidate.updatedAt);
     if (candidateTime > bestTime) return candidate;
@@ -71,6 +75,7 @@ export function resolveV19DefaultVersion<T extends { number: number; updatedAt: 
 }
 
 /** `v3（基于v1，张三）` / `v1（初始版本，王大明·上传者）`, per spec 二、2.5.
+ * 点评版写作 `v5（老孙录音点评，基于v3）`（docs/25 二、5）。
  * Kept in sync with the client-safe duplicate in `lib/v19-ui-model.ts` — see
  * that copy's comment for why it cannot just import this module. */
 export function formatV19VersionLabel(input: {
@@ -80,18 +85,23 @@ export function formatV19VersionLabel(input: {
   ownerIsUploader: boolean;
   /** true when this version was created from the final version's payload rather than another editor's (spec 五、13). */
   baseIsFinal?: boolean;
+  kind?: V19VersionKind;
 }): string {
+  if (input.kind === "AUDIO_REVIEW") {
+    return `v${input.number}（${input.ownerName}录音点评，基于v${input.baseNumber ?? "?"}）`;
+  }
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
   const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
   return `v${input.number}（${basis}，${ownerLabel}）`;
 }
 
-/** The version owned by `actorUserId`, or null — every person owns at most one. */
-export function pickV19ActorVersion<T extends { ownerUserId: string }>(
+/** The version owned by `actorUserId`, or null — every person owns at most one.
+ * 点评版归老孙所有，但它不是老孙的「我的版本」（docs/25 3.3），不算在内。 */
+export function pickV19ActorVersion<T extends { ownerUserId: string; kind?: string }>(
   versions: readonly T[],
   actorUserId: string,
 ): T | null {
-  return versions.find((version) => version.ownerUserId === actorUserId) ?? null;
+  return versions.find((version) => version.ownerUserId === actorUserId && version.kind !== "AUDIO_REVIEW") ?? null;
 }
 
 export type V19CurrentSelection =
@@ -165,7 +175,7 @@ export type V19VersionChain = {
   current: V19CurrentVersion;
   myVersionId: string | null;
   final: FinalSummary | null;
-  finalTrace?: { originPayload: V04DraftPayloadV1; intakes: FinalTraceIntake[] };
+  finalTrace?: { originPayload: V04DraftPayloadV1; intakes: FinalTraceIntake[]; reviewCandidates: V19ReviewCandidate[] };
 };
 
 export type V19SaveInput = {
@@ -185,7 +195,11 @@ export type V19SaveResult = {
   createdVersion: boolean;
   skippedTargets?: string[];
   finalIntake: { merged: boolean; pending: number };
+  /** 这次写进的是个人版本还是点评版；点评版不汇入集成版（docs/25 五、1）。 */
+  versionKind: V19VersionKind;
 };
+
+export type V19VersionKind = "PERSONAL" | "AUDIO_REVIEW";
 
 export type V19CreateFromInput = {
   videoId: string;
@@ -320,10 +334,25 @@ export async function findVersionById(db: DbClient, versionId: string) {
     .bind(versionId).first<AnalysisVersionRow>();
 }
 
+/** 点评版（docs/25 3.3）不是谁的「我的版本」：每人一版、默认版本、汇入集成版都只看个人版本。 */
+export function isPersonalVersionRow(row: Pick<AnalysisVersionRow, "version_kind">) {
+  return row.version_kind !== "AUDIO_REVIEW";
+}
+
+/** The actor's own PERSONAL version — a review version 老孙 owns never counts as his. */
 async function findVersionByOwner(db: DbClient, workspaceId: string, ownerUserId: string) {
   return db.prepare(
-    `SELECT ${VERSION_COLUMNS} FROM analysis_versions WHERE workspace_id = ? AND owner_user_id = ?`,
+    `SELECT ${VERSION_COLUMNS} FROM analysis_versions
+    WHERE workspace_id = ? AND owner_user_id = ? AND version_kind = 'PERSONAL'`,
   ).bind(workspaceId, ownerUserId).first<AnalysisVersionRow>();
+}
+
+/** 个人版本的数量。「工作区还没有任何版本、先物化 v1」只看个人版本——点评版必然建立在个人版本之上。 */
+export async function countPersonalVersions(db: DbClient, workspaceId: string) {
+  const row = await db.prepare(
+    `SELECT COUNT(*) AS count FROM analysis_versions WHERE workspace_id = ? AND version_kind = 'PERSONAL'`,
+  ).bind(workspaceId).first<{ count: number } & QueryResultRow>();
+  return Number(row?.count ?? 0);
 }
 
 export function toSummary(row: AnalysisVersionRow, actorUserId: string): V19VersionSummary {
@@ -443,7 +472,8 @@ export async function loadV19VersionChain(
 
   const summaries = rows.map((row) => toSummary(row, actor.userId));
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const mine = rows.find((row) => row.owner_user_id === actor.userId);
+  // 老孙拥有的点评版不是他的「我的版本」：没有个人版本时默认照常落到集成版。
+  const mine = rows.find((row) => row.owner_user_id === actor.userId && isPersonalVersionRow(row));
 
   // spec 二、11: whenever the case has any real version, `final` is
   // meaningful (materialized or virtual). Which one is `current` by default
@@ -594,11 +624,8 @@ async function resolveOrCreateActorVersion(
   basedOnVersionId: string | null,
   now: Date,
 ): Promise<{ versionRow: AnalysisVersionRow; createdVersion: boolean }> {
-  const countRow = await db.prepare(
-    `SELECT COUNT(*) AS count FROM analysis_versions WHERE workspace_id = ?`,
-  ).bind(workspace.id).first<{ count: number } & QueryResultRow>();
   let materializedV1 = false;
-  if (Number(countRow?.count ?? 0) === 0) {
+  if (await countPersonalVersions(db, workspace.id) === 0) {
     await materializeV19FirstVersion(db, workspace, now);
     materializedV1 = true;
   }
@@ -610,6 +637,9 @@ async function resolveOrCreateActorVersion(
 
   const allRows = await listVersionRows(db, workspace.id);
   const summaries = allRows.map((row) => toSummary(row, actor.userId));
+  // 明确指向的基版可以是点评版——在点评版上动手、还没有自己版本的人，以点评版
+  // 当时的内容为底新建自己的版本（docs/25 二、6）；没指定时的默认基版只在
+  // 个人版本里挑「最新修改」（resolveV19DefaultVersion 滤掉点评版）。
   const requestedBase = basedOnVersionId
     ? allRows.find((row) => row.id === basedOnVersionId)
     : undefined;
@@ -632,6 +662,36 @@ async function resolveOrCreateActorVersion(
   if (raced) return { versionRow: raced, createdVersion: false };
   throw new V04ServiceError("VERSION_NOT_FOUND", "版本创建未完成，请重试。");
 }
+
+/**
+ * docs/25 五、1：保存先读 `basedOnVersionId` 指向的那一行。它是本工作区的点评版、
+ * 且操作人就是它的归属人（老孙）时，这次改动直接写进点评版本身；其他情况——
+ * 别人在点评版上动手，或老孙在别人的版本上动手——照旧走「每人一版」：
+ * 写进操作人自己的个人版本，没有就以 `basedOnVersionId` 指向的版本（可以是点评版）为底新建。
+ */
+async function resolveWriteTarget(
+  db: DbClient,
+  workspace: WorkspaceRow,
+  actor: V04Actor,
+  basedOnVersionId: string | null,
+  now: Date,
+): Promise<{ versionRow: AnalysisVersionRow; createdVersion: boolean }> {
+  if (basedOnVersionId) {
+    const requested = await findVersionById(db, basedOnVersionId);
+    if (requested && requested.workspace_id === workspace.id &&
+      !isPersonalVersionRow(requested) && requested.owner_user_id === actor.userId) {
+      return { versionRow: requested, createdVersion: false };
+    }
+  }
+  return resolveOrCreateActorVersion(db, workspace, actor, basedOnVersionId, now);
+}
+
+function versionKindOf(row: Pick<AnalysisVersionRow, "version_kind">): V19VersionKind {
+  return isPersonalVersionRow(row) ? "PERSONAL" : "AUDIO_REVIEW";
+}
+
+/** 点评版不汇入集成版（docs/25 二、7），保存结果里固定报「没汇入、没有新的未纳入」。 */
+const reviewVersionFinalIntake = () => ({ merged: false, pending: 0 });
 
 export async function resolveWorkspaceForWrite(db: DbClient, actor: V04Actor, videoId: string) {
   await assertCaseAvailable(db, videoId, true);
@@ -680,17 +740,21 @@ export async function saveV19VersionChanges(
     if (replay) {
       const versionRow = await findVersionById(tx, replay.version_id);
       if (!versionRow) throw new V04ServiceError("VERSION_NOT_FOUND", "幂等保存对应的版本不存在。");
+      const replayKind = versionKindOf(versionRow);
       // 3.4: intake 落库以 change_set_id + source_version_id 判重，这里安全地
       // 重放同一次请求——原始保存早已写过汇入记录，这里只是重新读出 merged/pending。
-      const finalIntake = await intakeIntoFinal(tx, workspace, {
-        changes: input.changes,
-        sourceVersionId: versionRow.id,
-        sourceVersionNumber: Number(versionRow.version_number),
-        actorUserId: actor.userId,
-        actorName: actor.displayName,
-        changeSetId: input.changeSetId,
-        now,
-      });
+      // 点评版从不汇入集成版，重放也不碰集成版（docs/25 五、1）。
+      const finalIntake = replayKind === "AUDIO_REVIEW"
+        ? reviewVersionFinalIntake()
+        : await intakeIntoFinal(tx, workspace, {
+          changes: input.changes,
+          sourceVersionId: versionRow.id,
+          sourceVersionNumber: Number(versionRow.version_number),
+          actorUserId: actor.userId,
+          actorName: actor.displayName,
+          changeSetId: input.changeSetId,
+          now,
+        });
       return {
         versionId: versionRow.id,
         versionNumber: Number(versionRow.version_number),
@@ -699,12 +763,14 @@ export async function saveV19VersionChanges(
         updatedAt: versionRow.updated_at,
         createdVersion: false,
         finalIntake,
+        versionKind: replayKind,
       };
     }
 
-    const { versionRow, createdVersion } = await resolveOrCreateActorVersion(
+    const { versionRow, createdVersion } = await resolveWriteTarget(
       tx, workspace, actor, input.basedOnVersionId, now,
     );
+    const versionKind = versionKindOf(versionRow);
 
     const before = parseJsonPayload(versionRow.payload_json);
     // Last write wins inside one's own version: a stale before-value is this
@@ -732,15 +798,17 @@ export async function saveV19VersionChanges(
 
     const nextHash = hashV04Payload(after);
     if (nextHash === versionRow.content_hash) {
-      const finalIntake = await intakeIntoFinal(tx, workspace, {
-        changes: [],
-        sourceVersionId: versionRow.id,
-        sourceVersionNumber: Number(versionRow.version_number),
-        actorUserId: actor.userId,
-        actorName: actor.displayName,
-        changeSetId: input.changeSetId,
-        now,
-      });
+      const finalIntake = versionKind === "AUDIO_REVIEW"
+        ? reviewVersionFinalIntake()
+        : await intakeIntoFinal(tx, workspace, {
+          changes: [],
+          sourceVersionId: versionRow.id,
+          sourceVersionNumber: Number(versionRow.version_number),
+          actorUserId: actor.userId,
+          actorName: actor.displayName,
+          changeSetId: input.changeSetId,
+          now,
+        });
       return {
         versionId: versionRow.id,
         versionNumber: Number(versionRow.version_number),
@@ -750,6 +818,7 @@ export async function saveV19VersionChanges(
         createdVersion,
         skippedTargets,
         finalIntake,
+        versionKind,
       };
     }
     const nextRevision = Number(versionRow.revision) + 1;
@@ -782,6 +851,7 @@ export async function saveV19VersionChanges(
       workspaceId: workspace.id,
       changeSetId: input.changeSetId,
       versionNumber: Number(versionRow.version_number),
+      versionKind,
       appliedRevision: nextRevision,
       createdVersion,
       targets: appliedChanges.map((item) => item.targetKey),
@@ -791,16 +861,19 @@ export async function saveV19VersionChanges(
 
     // spec 三、3.4: 汇入集成版必须发生在修订事件写完之后、同一事务内；任何集成版侧
     // 失败都不能让这次保存本身失败——intakeIntoFinal 内部把落不下去的记录标记为
-    // NOOP，从不向外抛出跟内容有关的错误。
-    const finalIntake = await intakeIntoFinal(tx, workspace, {
-      changes: appliedChanges,
-      sourceVersionId: versionRow.id,
-      sourceVersionNumber: Number(versionRow.version_number),
-      actorUserId: actor.userId,
-      actorName: actor.displayName,
-      changeSetId: input.changeSetId,
-      now,
-    });
+    // NOOP，从不向外抛出跟内容有关的错误。点评版不自动汇入（docs/25 二、7），
+    // 它的写法只在溯源视图里作为候选，由老孙逐条采纳。
+    const finalIntake = versionKind === "AUDIO_REVIEW"
+      ? reviewVersionFinalIntake()
+      : await intakeIntoFinal(tx, workspace, {
+        changes: appliedChanges,
+        sourceVersionId: versionRow.id,
+        sourceVersionNumber: Number(versionRow.version_number),
+        actorUserId: actor.userId,
+        actorName: actor.displayName,
+        changeSetId: input.changeSetId,
+        now,
+      });
 
     return {
       versionId: versionRow.id,
@@ -811,6 +884,7 @@ export async function saveV19VersionChanges(
       createdVersion,
       skippedTargets,
       finalIntake,
+      versionKind,
     };
   });
 }
@@ -833,13 +907,11 @@ export async function createV19VersionFrom(
   return db.withTransaction(async (tx) => {
     const workspace = await resolveWorkspaceForWrite(tx, actor, input.videoId);
 
-    const countRow = await tx.prepare(
-      `SELECT COUNT(*) AS count FROM analysis_versions WHERE workspace_id = ?`,
-    ).bind(workspace.id).first<{ count: number } & QueryResultRow>();
-    if (Number(countRow?.count ?? 0) === 0) {
+    if (await countPersonalVersions(tx, workspace.id) === 0) {
       await materializeV19FirstVersion(tx, workspace, now);
     }
 
+    // 只看个人版本：老孙拥有点评版，不妨碍他手动建自己的版本。
     const mine = await findVersionByOwner(tx, workspace.id, actor.userId);
     if (mine) throw alreadyOwnsVersion();
 
@@ -884,6 +956,7 @@ export async function createV19VersionFrom(
       updatedAt: savedAt,
       createdVersion: true,
       finalIntake: { merged: true, pending: finalLoaded.pendingCount },
+      versionKind: "PERSONAL",
     };
   });
 }

@@ -20,9 +20,11 @@ import {
   locateTarget,
 } from "./v04-domain";
 import { V04ServiceError } from "./v04-errors";
-import { V04_UI_SHOT_FIELDS } from "./v04-ui-model";
+import { V04_UI_SHOT_FIELDS, v04PayloadChanges } from "./v04-ui-model";
 import type { V04Actor } from "./v04-workspace-service";
+import type { V19ReviewCandidate } from "./audio-review-model";
 import {
+  countPersonalVersions,
   insertAudit,
   materializeV19FirstVersion,
   parseJsonPayload,
@@ -430,6 +432,59 @@ export function deriveFinalOrigin(
   return candidate;
 }
 
+/** 与键顺序无关的取值比较：jsonb 读回来的对象键序和内存里拼出来的未必一致。 */
+function sameValue(left: unknown, right: unknown) {
+  const stable = (value: unknown) => JSON.stringify(value, (_key, item: unknown) => (
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item as Record<string, unknown>).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : item
+  ));
+  return stable(left) === stable(right);
+}
+
+/** 一个点评版：当前内容、上传那一刻被点评版本的快照（base_payload_json）、编号与最近修改时间。 */
+export type FinalReviewSource = {
+  id: string;
+  number: number;
+  payload: V04DraftPayloadV1;
+  basePayload: V04DraftPayloadV1 | null;
+  updatedAt: string;
+};
+
+/**
+ * docs/25 六 —— 集成版溯源里「点评版 vN 的写法」候选。点评版相对它的基版快照改了
+ * 哪些处，按汇入同一套规则求出：先 `v04PayloadChanges(基版, 当前)` 得到变更集（结构
+ * 变了就是一条 script.structure），再 `decomposeV19ChangesForFinal` 拆成逐处记录，只留
+ * FIELD（facts.* / path.* / shotGroup:<id>.<field> / shot:<id>.<field>）。点评版里新插的
+ * 桥段、镜头不是 FIELD，本期不采纳（docs/25 十一）。集成版里定位不到的键、集成版当前值
+ * 已经等于候选值的，都不列——后者也让采纳过的候选自然消失。
+ */
+export function computeV19ReviewCandidates(
+  finalPayload: V04DraftPayloadV1,
+  reviews: readonly FinalReviewSource[],
+): V19ReviewCandidate[] {
+  const candidates: V19ReviewCandidate[] = [];
+  for (const review of reviews) {
+    if (!review.basePayload) continue;
+    const drafts = decomposeV19ChangesForFinal(v04PayloadChanges(review.basePayload, review.payload));
+    for (const draft of drafts) {
+      if (draft.kind !== "FIELD") continue;
+      const target = locateTarget(finalPayload, draft.targetKey);
+      if (!target) continue;
+      if (sameValue(target.object[target.key], draft.value)) continue;
+      candidates.push({
+        reviewVersionId: review.id,
+        reviewVersionNumber: review.number,
+        targetKey: draft.targetKey,
+        targetLabel: draft.targetLabel,
+        value: draft.value,
+        updatedAt: review.updatedAt,
+      });
+    }
+  }
+  return candidates;
+}
+
 // ---------------------------------------------------------------------------
 // Row shapes and small DB helpers.
 // ---------------------------------------------------------------------------
@@ -478,13 +533,15 @@ const FINAL_INTAKE_COLUMNS = `id, final_id, workspace_id, video_id, seq, kind, t
   value_json, source, source_version_id, source_version_number, actor_user_id, actor_name,
   change_set_id, applied, applied_at, created_at`;
 
+// 集成版回放只取个人版本的修订事件：点评版（docs/25 二、7）不自动汇入，它的生成事件
+// （AI 改写）和老孙之后的手改都不能混进回放，只作为溯源里的候选由老孙逐条采纳。
 async function loadWorkspaceHistoryEvents(db: DbClient, workspaceId: string): Promise<FinalHistoryEvent[]> {
   const rows = (await db.prepare(
     `SELECT e.id, e.created_at, e.version_id, v.version_number, e.change_set_id,
       e.target_key, e.target_label_snapshot, e.value_type,
       e.before_value_json, e.after_value_json, e.actor_user_id, e.actor_name_snapshot
     FROM collaboration_revision_events e
-    INNER JOIN analysis_versions v ON v.id = e.version_id
+    INNER JOIN analysis_versions v ON v.id = e.version_id AND v.version_kind = 'PERSONAL'
     WHERE e.workspace_id = ? AND e.version_id IS NOT NULL
     ORDER BY e.created_at ASC, e.id ASC`,
   ).bind(workspaceId).all<QueryResultRow & {
@@ -507,6 +564,36 @@ async function loadWorkspaceHistoryEvents(db: DbClient, workspaceId: string): Pr
     actorUserId: row.actor_user_id,
     actorName: row.actor_name_snapshot,
   }));
+}
+
+type ReviewVersionRow = QueryResultRow & {
+  id: string;
+  version_number: number;
+  payload_json: V04DraftPayloadV1 | string;
+  base_payload_json: V04DraftPayloadV1 | string | null;
+  updated_at: string | Date;
+};
+
+const REVIEW_VERSION_COLUMNS = "id, version_number, payload_json, base_payload_json, updated_at";
+
+function toReviewSource(row: ReviewVersionRow): FinalReviewSource {
+  return {
+    id: row.id,
+    number: Number(row.version_number),
+    payload: parseJsonPayload(row.payload_json),
+    basePayload: row.base_payload_json == null ? null : parseJsonPayload(row.base_payload_json),
+    updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+  };
+}
+
+/** 工作区里全部点评版，按编号升序——溯源候选按这个顺序排列。 */
+async function loadReviewSources(db: DbClient, workspaceId: string): Promise<FinalReviewSource[]> {
+  const rows = (await db.prepare(
+    `SELECT ${REVIEW_VERSION_COLUMNS} FROM analysis_versions
+    WHERE workspace_id = ? AND version_kind = 'AUDIO_REVIEW'
+    ORDER BY version_number ASC`,
+  ).bind(workspaceId).all<ReviewVersionRow>()).results;
+  return rows.map(toReviewSource);
 }
 
 async function countPending(db: DbClient, finalId: string) {
@@ -566,13 +653,12 @@ export async function ensureFinalVersion(
     .bind(workspace.id).first<FinalVersionRow>();
   if (existing) return existing;
 
-  const countRow = await db.prepare(`SELECT COUNT(*) AS count FROM analysis_versions WHERE workspace_id = ?`)
-    .bind(workspace.id).first<{ count: number } & QueryResultRow>();
-  if (Number(countRow?.count ?? 0) === 0) {
+  if (await countPersonalVersions(db, workspace.id) === 0) {
     await materializeV19FirstVersion(db, workspace, now);
   }
   const v1 = await db.prepare(
-    `SELECT id, payload_json FROM analysis_versions WHERE workspace_id = ? AND version_number = 1`,
+    `SELECT id, payload_json FROM analysis_versions
+    WHERE workspace_id = ? AND version_number = 1 AND version_kind = 'PERSONAL'`,
   ).bind(workspace.id).first<{ id: string; payload_json: V04DraftPayloadV1 | string } & QueryResultRow>();
   if (!v1) throw new V04ServiceError("VERSION_NOT_FOUND", "案例还没有任何版本，无法生成集成版。");
 
@@ -959,6 +1045,144 @@ export async function adoptFinalIntakes(
   });
 }
 
+/** 一组 FIELD 写法一起套用、只在最后过一次契约；任何一处定位不到或契约不过就整组不套。 */
+function applyFieldsTogether(
+  payload: V04DraftPayloadV1,
+  fields: readonly Pick<V19ReviewCandidate, "targetKey" | "value">[],
+): V04DraftPayloadV1 | null {
+  const next = structuredClone(payload);
+  for (const field of fields) {
+    const target = locateTarget(next, field.targetKey);
+    if (!target) return null;
+    target.object[target.key] = structuredClone(field.value);
+  }
+  try {
+    assertV04PayloadContract(next);
+  } catch {
+    return null;
+  }
+  return next;
+}
+
+/**
+ * docs/25 六 —— 老孙在溯源视图里逐条「采纳」点评版的写法。
+ *
+ * 候选一律由服务端按点评版当前内容和集成版当前内容重新计算（computeV19ReviewCandidates），
+ * 客户端只决定采纳哪几个键，不决定写进去的值。每个选中的键用 applyFinalIntake(FIELD)
+ * 写进集成版，并插入一条 applied=true 的汇入记录，来源记为这个点评版（source='VERSION'、
+ * source_version_id/number 填点评版），溯源里于是显示「当前采用 · vN」。这类记录从不是
+ * 「未纳入」，不影响 pendingCount；集成版定稿态也允许采纳（采纳本来就是老孙主动做的）。
+ *
+ * 有些键单独套用会被契约挡下、和另一个选中的键一起才成立（例如主导路径换成原来的
+ * 辅助路径，同时辅助路径去掉了它）。所以一轮套不上的键在其余键套完之后再试一轮，
+ * 直到不再有进展；还剩不止一个就整组一起套一次（互换的情形）。仍然套不上的键不采纳、
+ * 不记账，只写进审计的 skippedTargets。
+ */
+export async function adoptFinalReviewCandidates(
+  db: DbClient,
+  actor: V04Actor,
+  input: { videoId: string; reviewVersionId: string; targetKeys: string[]; now?: Date },
+): Promise<{ final: FinalSummary; adopted: number }> {
+  requireReviewerActor(actor, "只有老孙可以采纳点评版的写法。");
+  const reviewVersionId = typeof input.reviewVersionId === "string" ? input.reviewVersionId.trim() : "";
+  if (!reviewVersionId) {
+    throw new V04ServiceError("INVALID_PAYLOAD_SCHEMA", "采纳点评版的写法需要指定点评版。");
+  }
+  const requestedKeys = new Set(
+    (Array.isArray(input.targetKeys) ? input.targetKeys : [])
+      .filter((value): value is string => typeof value === "string" && value.trim() !== ""),
+  );
+  const now = input.now ?? new Date();
+  return db.withTransaction(async (tx) => {
+    const workspace = await resolveWorkspaceForWrite(tx, actor, input.videoId);
+    await ensureFinalVersion(tx, workspace, now);
+    const finalRow = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE`)
+      .bind(workspace.id).first<FinalVersionRow>();
+    if (!finalRow) throw new V04ServiceError("VERSION_NOT_FOUND", "集成版尚不存在。");
+
+    // 只在本工作区的点评版里找：别的案例的点评版、个人版本的 id 都当不存在。
+    const reviewRow = await tx.prepare(
+      `SELECT ${REVIEW_VERSION_COLUMNS} FROM analysis_versions
+      WHERE id = ? AND workspace_id = ? AND version_kind = 'AUDIO_REVIEW'`,
+    ).bind(reviewVersionId, workspace.id).first<ReviewVersionRow>();
+    if (!reviewRow) throw new V04ServiceError("VERSION_NOT_FOUND", "指定的点评版不存在。");
+    if (requestedKeys.size === 0) {
+      return { final: toFinalSummary(finalRow, await countPending(tx, finalRow.id)), adopted: 0 };
+    }
+    const review = toReviewSource(reviewRow);
+
+    let payload = parseJsonPayload(finalRow.payload_json);
+    let remaining = computeV19ReviewCandidates(payload, [review])
+      .filter((candidate) => requestedKeys.has(candidate.targetKey));
+    const adoptedCandidates: V19ReviewCandidate[] = [];
+    let progressed = true;
+    while (remaining.length > 0 && progressed) {
+      progressed = false;
+      const retry: V19ReviewCandidate[] = [];
+      for (const candidate of remaining) {
+        const result = applyFinalIntake(payload, { kind: "FIELD", targetKey: candidate.targetKey, value: candidate.value });
+        if (result.effect === "APPLIED") {
+          payload = result.payload;
+          adoptedCandidates.push(candidate);
+          progressed = true;
+        } else {
+          retry.push(candidate);
+        }
+      }
+      remaining = retry;
+    }
+    // 互换（主导／辅助机制看反了、主导路径和辅助路径对调）时每个键单独套都不成立，
+    // 剩下的键只能一起套、一起过契约。
+    if (remaining.length > 1) {
+      const together = applyFieldsTogether(payload, remaining);
+      if (together) {
+        payload = together;
+        adoptedCandidates.push(...remaining);
+        remaining = [];
+      }
+    }
+
+    const savedAt = iso(now);
+    for (const candidate of adoptedCandidates) {
+      await insertIntakeRow(tx, finalRow.id, workspace, {
+        kind: "FIELD",
+        targetKey: candidate.targetKey,
+        targetLabel: candidate.targetLabel,
+        value: candidate.value,
+      }, {
+        source: "VERSION",
+        sourceVersionId: review.id,
+        sourceVersionNumber: review.number,
+        actorUserId: actor.userId,
+        actorName: actor.displayName,
+        changeSetId: null,
+        applied: true,
+        appliedAt: savedAt,
+        createdAt: savedAt,
+      });
+    }
+    if (adoptedCandidates.length > 0) {
+      await tx.prepare(
+        `UPDATE analysis_final_versions
+        SET payload_json = ?::jsonb, content_hash = ?, revision = revision + 1, updated_at = ?::timestamptz
+        WHERE id = ?`,
+      ).bind(JSON.stringify(payload), hashV04Payload(payload), savedAt, finalRow.id).run();
+    }
+    const adoptedKeys = new Set(adoptedCandidates.map((candidate) => candidate.targetKey));
+    await insertAudit(tx, actor, "V19_FINAL_REVIEW_ADOPTED", "V19_FINAL", finalRow.id, {
+      reviewVersionId: review.id,
+      reviewVersionNumber: review.number,
+      adopted: adoptedCandidates.length,
+      targets: [...adoptedKeys],
+      skippedTargets: [...requestedKeys].filter((key) => !adoptedKeys.has(key)),
+    });
+
+    const refreshed = await tx.prepare(`SELECT ${FINAL_VERSION_COLUMNS} FROM analysis_final_versions WHERE id = ?`)
+      .bind(finalRow.id).first<FinalVersionRow>();
+    return { final: toFinalSummary(refreshed!, await countPending(tx, finalRow.id)), adopted: adoptedCandidates.length };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Read path — never writes (spec 3.3: GET never materializes).
 // ---------------------------------------------------------------------------
@@ -995,7 +1219,8 @@ export async function loadFinalVersion(
   }
 
   const v1 = await db.prepare(
-    `SELECT payload_json, updated_at FROM analysis_versions WHERE workspace_id = ? AND version_number = 1`,
+    `SELECT payload_json, updated_at FROM analysis_versions
+    WHERE workspace_id = ? AND version_number = 1 AND version_kind = 'PERSONAL'`,
   ).bind(workspace.id).first<{ payload_json: V04DraftPayloadV1 | string; updated_at: string } & QueryResultRow>();
   if (!v1) throw new V04ServiceError("VERSION_NOT_FOUND", "案例还没有任何版本。");
 
@@ -1034,19 +1259,32 @@ export type FinalTraceIntake = {
   createdAt: string;
 };
 
-/** `?version=final` 时的溯源数据：原稿 + 每处内容按 seq 升序的写法链。 */
+/**
+ * `?version=final` 时的溯源数据：原稿 + 每处内容按 seq 升序的写法链，以及点评版的
+ * 候选写法（docs/25 六，按集成版当前内容现算，不落库、不计入未纳入）。
+ */
 export async function loadFinalTrace(
   db: DbClient,
   workspace: WorkspaceRow,
-): Promise<{ originPayload: V04DraftPayloadV1; intakes: FinalTraceIntake[] }> {
-  const row = await db.prepare(`SELECT id, origin_payload_json FROM analysis_final_versions WHERE workspace_id = ?`)
-    .bind(workspace.id).first<{ id: string; origin_payload_json: V04DraftPayloadV1 | string } & QueryResultRow>();
+): Promise<{ originPayload: V04DraftPayloadV1; intakes: FinalTraceIntake[]; reviewCandidates: V19ReviewCandidate[] }> {
+  const row = await db.prepare(
+    `SELECT id, origin_payload_json, payload_json FROM analysis_final_versions WHERE workspace_id = ?`,
+  ).bind(workspace.id).first<{
+    id: string;
+    origin_payload_json: V04DraftPayloadV1 | string;
+    payload_json: V04DraftPayloadV1 | string;
+  } & QueryResultRow>();
   if (row) {
     const rows = (await db.prepare(
       `SELECT ${FINAL_INTAKE_COLUMNS} FROM analysis_final_intakes WHERE final_id = ? ORDER BY seq ASC`,
     ).bind(row.id).all<FinalIntakeRow>()).results;
+    const reviewCandidates = computeV19ReviewCandidates(
+      parseJsonPayload(row.payload_json),
+      await loadReviewSources(db, workspace.id),
+    );
     return {
       originPayload: parseJsonPayload(row.origin_payload_json),
+      reviewCandidates,
       intakes: rows.map((intake) => ({
         id: intake.id,
         seq: Number(intake.seq),
@@ -1064,14 +1302,16 @@ export async function loadFinalTrace(
   }
 
   const v1 = await db.prepare(
-    `SELECT payload_json FROM analysis_versions WHERE workspace_id = ? AND version_number = 1`,
+    `SELECT payload_json FROM analysis_versions
+    WHERE workspace_id = ? AND version_number = 1 AND version_kind = 'PERSONAL'`,
   ).bind(workspace.id).first<{ payload_json: V04DraftPayloadV1 | string } & QueryResultRow>();
   if (!v1) throw new V04ServiceError("VERSION_NOT_FOUND", "案例还没有任何版本。");
   const origin = parseJsonPayload(v1.payload_json);
   const events = await loadWorkspaceHistoryEvents(db, workspace.id);
-  const { intakes } = computeFinalFromHistory(origin, events);
+  const { payload, intakes } = computeFinalFromHistory(origin, events);
   return {
     originPayload: origin,
+    reviewCandidates: computeV19ReviewCandidates(payload, await loadReviewSources(db, workspace.id)),
     intakes: intakes.map((intake, index) => ({
       id: `virtual_${index}`,
       seq: index + 1,
