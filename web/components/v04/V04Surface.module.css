@@ -1035,3 +1035,266 @@ input.editableTimecode { padding: 5px 8px; }
   .commentPopover { width: min(288px, calc(100vw - 48px)); }
   .assignmentRating { flex-direction: column; align-items: flex-end; gap: 10px; }
 }
+
+/* ======================================================================
+   录音点评改写（docs/25 七；demo：docs/demos/2026-10-10-录音点评改写demo.html）
+   页头入口与进度气泡、上传弹层、确认抽屉、点评版顶部录音卡、被点评版本上的提示条、
+   版本菜单里的点评版标记、正文的「依据 意见 N」、集成版溯源里的点评版候选行。
+   配色只用 --v04-*；点评相关的「身份色」统一用 --v04-subject（条目名的金褐），
+   和集成版的 --v04-gold、未纳入的 --v04-warn 区分开。
+   按钮一律挂在 .surface 或某个容器类下面写成 (0,2,0)：顶部 `.surface button
+   { font: inherit }` 是 (0,1,1)，单类名的字号会被它压回 14px。
+   弹层与抽屉 portal 到 body 时外面套了一层 display:contents 的 .surface，
+   所以 `.surface .x` 同样命中。
+   ====================================================================== */
+
+/* ---------- 共用：点评版标记、意见类型、按钮、转圈 ---------- */
+.reviewTag {
+  display: inline-flex; flex: none; align-items: center; gap: 4px; border: 1px solid rgb(var(--v04-subject-rgb) / .6);
+  border-radius: 999px; padding: 1px 7px; color: var(--v04-subject); font-size: 9.5px; font-weight: 800; line-height: 1.5; white-space: nowrap;
+}
+.reviewTag svg { width: 10px; height: 10px; flex: none; }
+.reviewKind { display: inline-flex; margin-right: 6px; border-radius: 999px; padding: 0 7px; font-size: 9.5px; font-weight: 800; line-height: 1.7; white-space: nowrap; vertical-align: 1px; }
+.reviewKindGeneral { background: rgb(var(--v04-subject-rgb) / .18); color: var(--v04-subject); }
+.reviewKindSpecific { background: var(--v04-raised-2); color: var(--v04-ink-dim); }
+.surface .reviewGhostButton {
+  flex: none; border: 1px solid var(--v04-line); border-radius: 999px; background: transparent; color: var(--v04-ink);
+  padding: 6px 13px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; cursor: pointer;
+}
+.surface .reviewGhostButton:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.surface .reviewDangerButton:hover:not(:disabled) { border-color: rgb(var(--v04-danger-rgb) / .6); color: var(--v04-danger); }
+.surface .reviewPrimaryButton {
+  flex: none; border: 0; border-radius: 999px; background: var(--v04-accent-fill); color: var(--v04-on-accent);
+  padding: 7px 16px; font-size: 12px; font-weight: 800; line-height: 1.5; white-space: nowrap; cursor: pointer;
+}
+.surface .reviewPrimaryButton:hover:not(:disabled) { filter: brightness(1.05); }
+.surface .reviewGhostButton:disabled, .surface .reviewPrimaryButton:disabled { cursor: not-allowed; opacity: .45; }
+.reviewSpin {
+  display: inline-block; width: 13px; height: 13px; flex: none; border: 2px solid rgb(var(--v04-accent-rgb) / .25);
+  border-top-color: var(--v04-accent); border-radius: 50%; animation: reviewSpin .8s linear infinite;
+}
+@keyframes reviewSpin { to { transform: rotate(360deg); } }
+
+/* ---------- 页头入口（版本胶囊之前）与进度气泡 ----------
+   外层是 div 不是 span：`.siteUtilities > span` 会给它套 max-width:120px + overflow:hidden。 */
+.reviewEntry { position: relative; display: inline-flex; flex: none; }
+.surface .reviewEntryButton, .surface .reviewEntryChip {
+  display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border-radius: 999px;
+  background: transparent; font-size: 12px; line-height: 1; white-space: nowrap; cursor: pointer;
+}
+.surface .reviewEntryButton { gap: 6px; border: 1px solid rgb(var(--v04-accent-rgb) / .45); color: var(--v04-accent); }
+.surface .reviewEntryButton:hover { background: rgb(var(--v04-accent-rgb) / .1); }
+.surface .reviewEntryChip { border: 1px solid var(--v04-line); color: var(--v04-ink-dim); }
+.surface .reviewEntryChip:hover { border-color: rgb(var(--v04-accent-rgb) / .45); }
+.surface .reviewEntryPending { border-color: transparent; background: var(--v04-accent-fill); color: var(--v04-on-accent); font-weight: 700; }
+.surface .reviewEntryPending:hover { border-color: transparent; filter: brightness(1.05); }
+.surface .reviewEntryFailed { border-color: rgb(var(--v04-warn-rgb) / .55); color: var(--v04-warn); }
+.reviewEntry svg { width: 15px; height: 15px; flex: none; }
+.reviewEntry b { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; }
+.reviewPop {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 60; width: 330px; max-width: calc(100vw - 24px);
+  padding: 14px 16px; border: 1px solid var(--v04-line); border-radius: 14px; background: var(--v04-panel); color: var(--v04-ink);
+  font-size: 12px; line-height: 1.6; text-align: left; white-space: normal;
+  box-shadow: 0 20px 70px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)));
+}
+.reviewPop h4 { margin: 0 0 4px; font-size: 12.5px; }
+.reviewPop p { margin: 0 0 10px; color: var(--v04-muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.reviewSteps { display: grid; gap: 7px; margin: 0 0 12px; padding: 0; list-style: none; }
+.reviewSteps li { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--v04-muted); }
+.reviewSteps li > i {
+  display: grid; width: 16px; height: 16px; flex: none; place-items: center; border: 1px solid var(--v04-line); border-radius: 50%;
+  font-size: 9px; font-style: normal; line-height: 1;
+}
+.reviewSteps small { overflow: hidden; min-width: 0; margin-left: auto; color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.reviewSteps .reviewStepDone { color: var(--v04-ink-soft); }
+.reviewSteps .reviewStepDone > i { border-color: transparent; background: rgb(var(--v04-accent-rgb) / .18); color: var(--v04-accent); }
+.reviewSteps .reviewStepDoing { color: var(--v04-ink); font-weight: 700; }
+.reviewSteps .reviewStepDoing > i { border: 2px solid rgb(var(--v04-accent-rgb) / .25); border-top-color: var(--v04-accent); animation: reviewSpin .8s linear infinite; }
+.reviewSteps .reviewStepFail { color: var(--v04-warn); font-weight: 700; }
+.reviewSteps .reviewStepFail > i { border-color: rgb(var(--v04-warn-rgb) / .6); color: var(--v04-warn); }
+.reviewPopActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* 手机宽度：气泡挂在页头上铺满一行（页头带 backdrop-filter，fixed 以它为参照），不从按钮右缘往左伸出屏幕。 */
+@media (max-width: 620px) {
+  .reviewEntry { position: static; }
+  .reviewPop { position: absolute; left: 12px; right: 12px; width: auto; max-width: none; top: calc(100% + 6px); }
+  .reviewEntryLabel { display: none; }
+  .surface .reviewEntryButton, .surface .reviewEntryChip { padding: 0 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reviewSpin, .reviewSteps .reviewStepDoing > i { animation: none; }
+}
+
+/* ---------- 被点评版本：视频下方的提示条（docs/25 二、10） ---------- */
+.reviewNotice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 22px; padding: 10px 16px;
+  border: 1px solid rgb(var(--v04-subject-rgb) / .4); border-radius: 12px; background: var(--v04-panel); font-size: 12.5px; line-height: 1.6;
+}
+.reviewNotice > svg { width: 16px; height: 16px; flex: none; color: var(--v04-subject); }
+.reviewNotice > span { flex: 1 1 240px; min-width: 0; color: var(--v04-ink-dim); }
+.reviewNotice b { color: var(--v04-ink); }
+
+/* ---------- 版本菜单：点评版一行（说明换到下一行铺满） ---------- */
+.versionRowReview { flex-wrap: wrap; }
+
+/* ---------- 录音条（确认抽屉与录音卡共用；真实 <audio>，界面自己画） ---------- */
+.reviewAudio {
+  display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 12px; border: 1px solid var(--v04-line);
+  border-radius: 12px; background: var(--v04-panel-alt);
+}
+.reviewAudio audio { display: none; }
+.surface .reviewAudioPlay {
+  display: grid; width: 30px; height: 30px; flex: none; place-items: center; border: 0; border-radius: 50%;
+  background: var(--v04-accent-fill); color: var(--v04-on-accent); padding: 0; cursor: pointer;
+}
+.surface .reviewAudioPlay svg { width: 12px; height: 12px; }
+.reviewAudioName { overflow: hidden; min-width: 0; max-width: 200px; color: var(--v04-ink-dim); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.reviewAudioTrack { position: relative; display: flex; flex: 1; min-width: 60px; height: 18px; align-items: center; cursor: pointer; touch-action: none; }
+.reviewAudioTrack:focus-visible { outline: 2px solid var(--v04-accent); outline-offset: 3px; border-radius: 4px; }
+.reviewAudioRail { position: relative; width: 100%; height: 4px; border-radius: 2px; background: var(--v04-raised-2); }
+.reviewAudioFill { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--v04-accent); }
+.reviewAudioMark { position: absolute; top: -4px; width: 2px; height: 12px; background: var(--v04-subject); opacity: .7; pointer-events: none; }
+.reviewAudioClock { flex: none; color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
+.reviewAudioError { margin: -6px 0 0; color: var(--v04-warn); font-size: 11px; }
+@media (max-width: 620px) {
+  .reviewAudioName { display: none; }
+  .reviewAudio { gap: 10px; padding: 8px 10px; }
+}
+
+/* ---------- 文字稿（可折叠；播放时高亮当前句；虚线下划线＝按词表校正过的听写） ---------- */
+.reviewTranscript { border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-panel-alt); }
+.reviewTranscript > summary, .reviewUnaddressed > summary { padding: 9px 14px; color: var(--v04-ink-dim); font-size: 12px; cursor: pointer; }
+.reviewTranscriptLines { max-height: 340px; overflow: auto; padding: 0 14px 12px; overscroll-behavior: contain; }
+.reviewLine {
+  display: grid; grid-template-columns: 44px 56px minmax(0, 1fr); gap: 8px; padding: 5px 6px; border-radius: 7px;
+  color: var(--v04-ink-soft); font-size: 12.5px; line-height: 1.6;
+}
+.reviewLineWho { overflow: hidden; color: var(--v04-muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.reviewLineReviewer .reviewLineWho { color: var(--v04-subject); font-weight: 800; }
+.reviewLineText { min-width: 0; overflow-wrap: anywhere; }
+.reviewLinePlaying { background: rgb(var(--v04-accent-rgb) / .1); }
+.surface .reviewTime {
+  border: 0; background: none; padding: 0; color: var(--v04-accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.6; text-align: left; cursor: pointer;
+}
+.surface .reviewTime:hover { text-decoration: underline; }
+.reviewFix { border-bottom: 1px dashed var(--v04-subject); cursor: help; }
+@media (max-width: 620px) {
+  .reviewLine { grid-template-columns: 40px minmax(0, 1fr); gap: 2px 8px; }
+  .reviewLineText { grid-column: 1 / -1; }
+}
+
+/* ---------- 点评版顶部的录音卡 ---------- */
+.reviewCard { margin: 0 0 22px; border: 1px solid rgb(var(--v04-subject-rgb) / .45); border-radius: 18px; background: var(--v04-panel); scroll-margin-top: 84px; }
+.reviewCardHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 16px 22px; border-bottom: 1px solid var(--v04-line); }
+.reviewCardHead h2 { margin: 0; color: var(--v04-subject); font-size: 17px; font-weight: 500; }
+.reviewCardHead small { min-width: 0; color: var(--v04-muted); font-size: 11px; overflow-wrap: anywhere; }
+.reviewCardBody { display: grid; gap: 14px; padding: 16px 22px 18px; }
+.reviewOpinionList { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.reviewOpinionList li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 13px; line-height: 1.6; }
+.reviewOpinionNumber { color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; white-space: nowrap; }
+.reviewOpinionList li > span:nth-child(2) { overflow-wrap: anywhere; }
+.surface .reviewJump { border: 0; background: none; padding: 0; color: var(--v04-accent); font-size: 11px; white-space: nowrap; cursor: pointer; }
+.surface .reviewJump:hover { text-decoration: underline; }
+.reviewCardNote { margin: 0; color: var(--v04-muted); font-size: 11px; line-height: 1.7; }
+@media (max-width: 620px) {
+  .reviewCardHead, .reviewCardBody { padding-left: 16px; padding-right: 16px; }
+  .reviewOpinionList li { grid-template-columns: minmax(0, 1fr) auto; }
+  .reviewOpinionNumber { grid-column: 1 / -1; }
+}
+
+/* ---------- 上传弹层（壳复用 components/shared/DeleteConfirmDialog.module.css） ---------- */
+.reviewDrop {
+  display: grid; place-items: center; gap: 8px; padding: 26px 16px; border: 1.5px dashed rgb(var(--v04-accent-rgb) / .45);
+  border-radius: 14px; background: var(--v04-sunken); text-align: center;
+}
+.reviewDropActive { border-color: var(--v04-accent); background: rgb(var(--v04-accent-rgb) / .06); }
+.reviewDrop > svg { width: 26px; height: 26px; color: var(--v04-accent); }
+.reviewDrop > b { font-size: 13px; }
+.reviewDrop > p { margin: 0; color: var(--v04-muted); font-size: 12px; }
+.reviewDialogNotes { margin: 0; padding-left: 18px; color: var(--v04-muted); font-size: 11.5px; line-height: 1.8; }
+.reviewDialogNotes b { color: var(--v04-ink); }
+.reviewUploadProgress { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-panel-alt); }
+.reviewUploadProgress > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; font-size: 12px; }
+.reviewUploadProgress > div > span { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.reviewUploadProgress > div > b { flex: none; margin-left: auto; color: var(--v04-accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+.reviewUploadProgress > small { color: var(--v04-muted); font-size: 11px; }
+.reviewProgressRail { height: 4px; overflow: hidden; border-radius: 2px; background: var(--v04-raised-2); }
+.reviewProgressRail > i { display: block; height: 100%; border-radius: 2px; background: var(--v04-accent); transition: width .2s; }
+.reviewDialogError { margin: 0; color: var(--v04-danger); font-size: 11.5px; line-height: 1.6; }
+
+/* ---------- 确认抽屉（右侧，手机宽度全宽） ---------- */
+.reviewScrim { position: fixed; inset: 0; z-index: 88; background: var(--v04-scrim); }
+.reviewDrawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 89; display: flex; flex-direction: column; width: min(780px, 100vw);
+  border-left: 1px solid var(--v04-line); background: var(--v04-panel); color: var(--v04-ink); font-size: 14px; line-height: 1.65;
+  box-shadow: -30px 0 90px rgb(var(--v04-shadow-rgb) / calc(.5 * var(--v04-shadow-strength)));
+}
+.reviewDrawerHead { display: flex; align-items: flex-start; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid var(--v04-line); }
+.reviewDrawerHead h3 { margin: 0; font-size: 17px; }
+.reviewDrawerHead small { display: block; color: var(--v04-muted); font-size: 11.5px; }
+.surface .reviewDrawerClose {
+  display: grid; width: 30px; height: 30px; flex: none; place-items: center; margin-left: auto; border: 1px solid var(--v04-line);
+  border-radius: 50%; background: transparent; color: var(--v04-muted); padding: 0; font-size: 13px; line-height: 1; cursor: pointer;
+}
+.surface .reviewDrawerClose:hover { border-color: rgb(var(--v04-accent-rgb) / .5); color: var(--v04-accent); }
+.reviewDrawerBody { display: grid; flex: 1; align-content: start; gap: 14px; overflow: auto; padding: 16px 22px 24px; overscroll-behavior: contain; }
+.reviewDrawerFoot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 22px; border-top: 1px solid var(--v04-line);
+  background: var(--v04-panel-deep);
+}
+.reviewDrawerCount { margin-right: auto; color: var(--v04-muted); font-size: 12px; }
+.reviewDrawerCount b { color: var(--v04-ink); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+.reviewSummary { margin: 0; color: var(--v04-ink-dim); font-size: 12.5px; line-height: 1.7; }
+.reviewSummary b { color: var(--v04-ink); }
+.reviewHint { margin: 0; color: var(--v04-muted); font-size: 11px; line-height: 1.7; }
+.reviewOp { border: 1px solid var(--v04-line); border-radius: 14px; background: var(--v04-panel-alt); scroll-margin-top: 12px; }
+.reviewOpOff { opacity: .55; }
+.reviewOpHead { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px 10px; }
+.reviewOpHead h4 { flex: 1 1 0; min-width: 0; margin: 0; font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.reviewOpHead > span { flex: none; padding-top: 2px; color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+.reviewOpToggle { display: inline-flex; flex: none; align-items: center; gap: 5px; margin-left: auto; color: var(--v04-muted); font-size: 11px; white-space: nowrap; cursor: pointer; }
+.reviewOpToggle input, .reviewChange input { margin: 0; accent-color: var(--v04-accent); }
+.reviewQuotes { display: grid; gap: 4px; padding: 0 14px 10px 40px; }
+.reviewQuote { color: var(--v04-ink-dim); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.reviewQuote .reviewTime { margin-right: 6px; font-size: 10.5px; }
+.reviewOpWhy { margin: 0 14px 10px 40px; color: var(--v04-muted); font-size: 11px; line-height: 1.6; }
+.reviewChanges { padding: 6px 6px 8px; border-top: 1px solid var(--v04-line); }
+.reviewChange { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 6px; padding: 8px; border-radius: 9px; cursor: pointer; }
+.reviewChange:hover { background: var(--v04-raised); }
+.reviewChange input { margin-top: 3px; }
+.reviewChangeWhere { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--v04-subject); font-size: 10.5px; font-weight: 800; }
+.reviewChangeAlso { color: var(--v04-muted); font-weight: 500; }
+.reviewChangeBefore, .reviewChangeAfter { display: grid; grid-column: 2; grid-template-columns: 20px minmax(0, 1fr); line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.reviewChangeBefore { color: var(--v04-muted); font-size: 11.5px; }
+.reviewChangeBefore > span { text-decoration: line-through; text-decoration-color: rgb(var(--v04-fg-rgb) / .3); }
+.reviewChangeAfter { color: var(--v04-ink); font-size: 12.5px; }
+.reviewChangeBefore > i, .reviewChangeAfter > i { color: var(--v04-muted); font-size: 10px; font-style: normal; line-height: 1.9; }
+.reviewChangeAfter > i { color: var(--v04-accent); }
+.reviewChangeOff .reviewChangeAfter > span { color: var(--v04-muted); text-decoration: line-through; }
+.reviewOpEmpty { margin: 0; padding: 8px 14px 12px 40px; border-top: 1px solid var(--v04-line); color: var(--v04-muted); font-size: 11px; }
+.reviewUnaddressed { border: 1px solid var(--v04-line); border-radius: 12px; }
+.reviewUnaddressed ul { display: grid; gap: 8px; margin: 0; padding: 0 14px 12px; list-style: none; }
+.reviewUnaddressed li { color: var(--v04-ink-dim); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.reviewUnaddressed li .reviewTime { margin-right: 6px; font-size: 10.5px; }
+.reviewUnaddressed li em { display: block; color: var(--v04-muted); font-size: 11px; font-style: normal; }
+.reviewDrawerState { margin: 0; padding: 30px 0; color: var(--v04-muted); font-size: 12.5px; text-align: center; }
+@media (max-width: 620px) {
+  .reviewDrawerHead, .reviewDrawerBody, .reviewDrawerFoot { padding-left: 16px; padding-right: 16px; }
+  .reviewQuotes, .reviewOpEmpty { padding-left: 14px; }
+  .reviewOpWhy { margin-left: 14px; }
+  .reviewOpHead { flex-wrap: wrap; row-gap: 6px; }
+  .reviewOpToggle { flex-basis: 100%; margin-left: 21px; }
+  .reviewDrawerCount { flex-basis: 100%; }
+}
+
+/* ---------- 点评版正文：差异标记旁的「依据 意见 N」（悬停看意见摘要） ---------- */
+.reviewBasisTag {
+  display: inline-flex; margin-left: 6px; border: 1px solid rgb(var(--v04-subject-rgb) / .5); border-radius: 999px; padding: 0 7px;
+  color: var(--v04-subject); font-size: 9px; font-weight: 800; white-space: nowrap; vertical-align: 2px; cursor: help;
+}
+
+/* ---------- 集成版溯源：点评版候选行（排在未纳入之后，不计入未纳入） ---------- */
+.finalTraceRowReview { border-left-color: rgb(var(--v04-subject-rgb) / .55); background: rgb(var(--v04-subject-rgb) / .07); }
+.finalTraceRowReview .finalTraceVersion { color: var(--v04-subject); }
+.surface .finalTraceAdoptReview { border-color: rgb(var(--v04-subject-rgb) / .6); color: var(--v04-subject); }
+.surface .finalTraceAdoptReview:hover { background: rgb(var(--v04-subject-rgb) / .14); }
