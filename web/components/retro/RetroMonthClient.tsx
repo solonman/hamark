@@ -550,8 +550,8 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
     const source: RetroSourceContext = {
       monthKey,
       quotedSegments: draft.quotedSegments,
-      recordingRefs: draft.recordingRefs ?? {},
-      caseNumbers: rowNumbers,
+      recordingRefs: draft.recordingRefs,
+      caseNumbers: { ...rowNumbers, ...draft.caseNumbers },
       roundRefs: draft.roundRefs,
       caseLabels,
     };
