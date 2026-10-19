@@ -2,7 +2,7 @@
 //
 //   新建案例、传点评录音         任何已登录成员
 //   改基本信息、回合、附件、关联、收尾、删除案例    案例上传者；系统管理员
-//   移除一段点评录音            这段录音的上传者、案例上传者、系统管理员
+//   移除一段点评录音            这段录音的上传者、案例上传者、系统管理员；老孙另可移除任何非 READY 的
 //   生成、审阅、发布（月度整理）   老孙（isCaseReviewer），不另开别的例外
 //
 // 「老孙」能不能改别人的案例，取决于他是不是系统管理员，不单独放行。
@@ -35,11 +35,13 @@ export function canEditRetroCase(retroCase: { createdByUserId: string }, viewer:
 }
 
 export function canRemoveRetroRecording(
-  recording: { uploadedByUserId: string },
+  recording: { uploadedByUserId: string; status?: string },
   retroCase: { createdByUserId: string } | null,
-  viewer: Pick<RetroViewer, "userId" | "isAdmin">,
+  viewer: Pick<RetroViewer, "userId" | "isAdmin"> & { isReviewer?: boolean },
 ): boolean {
   if (viewer.isAdmin) return true;
   if (recording.uploadedByUserId === viewer.userId) return true;
+  // 老孙可以清掉任何还没转写完成的点评录音（卡在上传中、失败的陈旧行也能清掉）；已就绪的不行。
+  if (viewer.isReviewer && recording.status !== undefined && recording.status !== "READY") return true;
   return Boolean(retroCase && retroCase.createdByUserId === viewer.userId);
 }

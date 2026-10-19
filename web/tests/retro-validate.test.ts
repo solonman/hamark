@@ -17,6 +17,7 @@ import { retroAttachmentDisposition } from "../lib/retro/assets";
 import { buildRetroHotwords, shouldAdvanceRetroTranscription } from "../lib/retro/transcription";
 import {
   assertRetroAssetCapacity,
+  retroContentTypeFor,
   validateRetroCaseBasics,
   validateRetroCasePatch,
   validateRetroLinks,
@@ -163,11 +164,22 @@ test("attachments are classified image / video / audio / document and everything
   }
 });
 
-test("the browser's content type is stored untouched because the presigned PUT signs it", () => {
-  const [plain] = validateRetroNewAssets({ assets: [asset("客户电话.m4a")] });
-  assert.equal(plain.contentType, "application/octet-stream");
-  const [typed] = validateRetroNewAssets({ assets: [asset("客户电话.m4a", { contentType: "audio/x-m4a" })] });
-  assert.equal(typed.contentType, "audio/x-m4a");
+test("the stored content type is a fixed whitelist value mapped from the extension, never what the browser claims", () => {
+  const typeOf = (name: string, claimed = "") => validateRetroNewAssets({ assets: [asset(name, { contentType: claimed })] })[0].contentType;
+  assert.equal(typeOf("客户电话.m4a"), "audio/mp4");
+  assert.equal(typeOf("客户电话.m4a", "text/html"), "audio/mp4", "a lying browser type is ignored");
+  assert.equal(typeOf("a.PNG", "text/html"), "image/png");
+  assert.equal(typeOf("照片.heic", "application/octet-stream"), "image/heic");
+  assert.equal(typeOf("demo.mp4", "text/html"), "video/mp4");
+  assert.equal(typeOf("a.mov"), "video/quicktime");
+  assert.equal(typeOf("a.mp3"), "audio/mpeg");
+  assert.equal(typeOf("brief.pdf", "text/html"), "application/pdf");
+  assert.equal(typeOf("方案.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  // 没有扩展名：浏览器给的类型恰好在白名单里才采用，否则拒收。
+  assert.equal(typeOf("无扩展名", "image/png"), "image/png");
+  rejects(() => validateRetroNewAssets({ assets: [asset("无扩展名", { contentType: "video/x-weird" })] }), /支持图片、视频、音频/);
+  assert.equal(retroContentTypeFor("x.unknown", "image/png"), "image/png");
+  assert.equal(retroContentTypeFor("x.unknown", "text/html"), null);
 });
 
 test("attachment size, audio cap and batch size are checked", () => {
@@ -286,6 +298,18 @@ test("a recording is removable by its uploader, the case uploader or an admin; a
   assert.equal(canRemoveRetroRecording(recording, null, { userId: "u-up", isAdmin: false }), true);
 });
 
+test("老孙 may remove any review recording that is not READY, but not a finished one", () => {
+  const recording = (status: string) => ({ uploadedByUserId: "u-up", status });
+  const sun = { userId: "u-sun", isAdmin: false, isReviewer: true };
+  for (const status of ["UPLOADING", "TRANSCRIBING", "FAILED"]) {
+    assert.equal(canRemoveRetroRecording(recording(status), { createdByUserId: "u-owner" }, sun), true, status);
+  }
+  assert.equal(canRemoveRetroRecording(recording("READY"), { createdByUserId: "u-owner" }, sun), false);
+  // 其他人没有这条特权，status 没传时也不会误放行。
+  assert.equal(canRemoveRetroRecording(recording("FAILED"), { createdByUserId: "u-owner" }, { userId: "u-x", isAdmin: false, isReviewer: false }), false);
+  assert.equal(canRemoveRetroRecording({ uploadedByUserId: "u-up" }, null, sun), false);
+});
+
 // ---------------------------------------------------------------------------
 // 缺表
 // ---------------------------------------------------------------------------
@@ -340,12 +364,14 @@ test("hotwords start with 老孙 and the uploader, skip default round titles, de
   assert.ok(!buildRetroHotwords({ uploaderName: "x", clientNames: ["超长的客户名称一二三四五六七八"], departments: [], titles: [], sceneTags: [], roundTitles: [] }).includes("超长的客户名称一二三四五六七八"));
 });
 
-test("RETRO_AI_PROVIDER picks the fake, defaulting to it in local demo mode", () => {
-  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, false), "fake");
-  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "FAKE" }, false), "fake");
+test("the fake provider exists only in local demo mode; production ignores RETRO_AI_PROVIDER=fake", () => {
   assert.equal(resolveRetroAiProvider({}, true), "fake");
-  assert.equal(resolveRetroAiProvider({}, false), "real");
+  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, true), "fake");
+  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "FAKE" }, true), "fake");
   assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "real" }, true), "real");
+  assert.equal(resolveRetroAiProvider({}, false), "real");
+  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, false), "real", "a misconfigured production must not serve the built-in transcript");
+  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "FAKE" }, false), "real");
 });
 
 test("the fake ASR returns the built-in transcript on the second poll, per recording kind", async () => {

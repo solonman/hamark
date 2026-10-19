@@ -18,7 +18,7 @@ import type { RetroAsrKind } from "./asr";
 export const RETRO_RECORDING_UPLOAD_URL_TTL_SECONDS = 900;
 export const RETRO_RECORDING_AUDIO_URL_TTL_SECONDS = 3 * 60 * 60;
 
-type Actor = Pick<RetroViewer, "userId" | "displayName" | "isAdmin">;
+type Actor = Pick<RetroViewer, "userId" | "displayName" | "isAdmin"> & { isReviewer?: boolean };
 
 export function retroRecordingAsrKind(row: Pick<RetroRecordingRow, "case_id">): RetroAsrKind {
   return row.case_id ? "REVIEW" : "SUMMARY";
@@ -36,12 +36,55 @@ async function loadRow(db: DbClient, id: string): Promise<RetroRecordingRow | nu
   return db.prepare(`SELECT ${RETRO_RECORDING_COLUMNS} FROM retro_recordings WHERE id = ?`).bind(id).first<RetroRecordingRow>();
 }
 
+/** 上传到一半就被放弃的录音：停在 UPLOADING 超过这么久，读的时候懒置为 FAILED。 */
+export const RETRO_STALE_UPLOAD_MS = 60 * 60 * 1000;
+export const RETRO_STALE_UPLOAD_REASON = "上传没有完成，请重新上传";
+
+/**
+ * 把停在 UPLOADING 超过 1 小时的点评录音置为 FAILED（fail_reason「上传没有完成，请重新上传」）：
+ * 浏览器关了、断网了的上传不会再有人报 UPLOADED，不处理的话会一直显示「转写中」、也让月度整理的前提永远不满足。
+ * 路由在读详情、读录音、读库首页时顺手调一次；scope 不传就扫全库。返回置了几条。
+ * 注意：FAILED 仍占着段号（唯一索引只放过 REMOVED），所以新建录音遇到占满时会清掉「从没上传成功过」的失败行，见 createRetroRecording。
+ */
+export async function failStaleRetroRecordingUploads(
+  db: DbClient,
+  scope: { caseId?: string; recordingId?: string; now?: Date } = {},
+): Promise<number> {
+  const cutoff = new Date((scope.now ?? new Date()).getTime() - RETRO_STALE_UPLOAD_MS).toISOString();
+  const filters: string[] = [];
+  const binds: string[] = [RETRO_STALE_UPLOAD_REASON, cutoff];
+  if (scope.caseId) {
+    filters.push("AND case_id = ?");
+    binds.push(scope.caseId);
+  }
+  if (scope.recordingId) {
+    filters.push("AND id = ?");
+    binds.push(scope.recordingId);
+  }
+  const result = await db.prepare(
+    `UPDATE retro_recordings SET status = 'FAILED', fail_reason = ?, updated_at = now()
+     WHERE status = 'UPLOADING' AND created_at < ?::timestamptz ${filters.join(" ")}`,
+  ).bind(...binds).run();
+  return result.meta.rows_written;
+}
+
+/** 案例详情里的 canRemove 是按上传者、案例上传者、管理员算的；老孙另可移除非 READY 的，这里补上。 */
+export function withReviewerRemoval(recordings: RetroRecordingView[], viewer: { isReviewer?: boolean }): RetroRecordingView[] {
+  if (!viewer.isReviewer) return recordings;
+  return recordings.map((item) => (item.status !== "READY" && item.status !== "REMOVED" ? { ...item, canRemove: true } : item));
+}
+
 async function viewOf(db: DbClient, viewer: Actor, row: RetroRecordingRow): Promise<RetroRecordingView> {
   const caseHead = row.case_id ? await loadRetroCaseHead(db, row.case_id) : null;
   const removable = row.status !== "REMOVED"
-    && canRemoveRetroRecording({ uploadedByUserId: row.uploaded_by_user_id }, caseHead, viewer);
+    && canRemoveRetroRecording({ uploadedByUserId: row.uploaded_by_user_id, status: row.status }, caseHead, viewer);
   return toRetroRecordingView(row, removable);
 }
+
+const DEAD_ROWS_SQL = `UPDATE retro_recordings
+  SET status = 'REMOVED', removed_at = now(), removed_by_user_id = ?, lease_until = NULL, updated_at = now()
+  WHERE status = 'FAILED' AND uploaded_at IS NULL AND {scope}
+  RETURNING part_no`;
 
 // ---------------------------------------------------------------------------
 // 建行并签 PUT（POST /api/retro-recordings）
@@ -71,7 +114,15 @@ export async function createRetroRecording(
         const taken = input.caseId
           ? await tx.prepare(`SELECT part_no FROM retro_recordings WHERE case_id = ? AND status <> 'REMOVED'`).bind(input.caseId).all<QueryResultRow & { part_no: number }>()
           : await tx.prepare(`SELECT part_no FROM retro_recordings WHERE case_id IS NULL AND month_key = ? AND status <> 'REMOVED'`).bind(input.monthKey).all<QueryResultRow & { part_no: number }>();
-        const partNo = nextRetroPartNo(taken.results.map((row) => Number(row.part_no)));
+        let partNo = nextRetroPartNo(taken.results.map((row) => Number(row.part_no)));
+        if (partNo === null) {
+          // 占满了：先清掉「从没上传成功过」的失败行（上传超时、对象没传上来），它们只会占着段号。
+          const freed = input.caseId
+            ? await tx.prepare(DEAD_ROWS_SQL.replace("{scope}", "case_id = ?")).bind(viewer.userId, input.caseId).all<QueryResultRow & { part_no: number }>()
+            : await tx.prepare(DEAD_ROWS_SQL.replace("{scope}", "case_id IS NULL AND month_key = ?")).bind(viewer.userId, input.monthKey).all<QueryResultRow & { part_no: number }>();
+          const freedParts = new Set(freed.results.map((row) => Number(row.part_no)));
+          partNo = nextRetroPartNo(taken.results.map((row) => Number(row.part_no)).filter((part) => !freedParts.has(part)));
+        }
         if (partNo === null) {
           throw new RetroError(
             409,
@@ -166,7 +217,7 @@ export async function runRetroRecordingAction(
   const row = await loadRow(db, id);
   if (!row) throw retroNotFound("点评录音不存在。");
   const caseHead = row.case_id ? await loadRetroCaseHead(db, row.case_id) : null;
-  if (!canRemoveRetroRecording({ uploadedByUserId: row.uploaded_by_user_id }, caseHead, viewer)) {
+  if (!canRemoveRetroRecording({ uploadedByUserId: row.uploaded_by_user_id, status: row.status }, caseHead, viewer)) {
     throw retroForbidden("只有这段录音的上传者、案例上传者或管理员可以处理这段录音。");
   }
   const result = async (advance: boolean): Promise<RetroRecordingActionResult> => {

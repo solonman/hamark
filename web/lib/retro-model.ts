@@ -619,7 +619,8 @@ export type RetroNewAssetInput = {
 };
 
 export type RetroAddAssetsResponse = { assetIds: string[] };
-export type RetroUploadUrlResponse = { uploadUrl: string; coverUploadUrl: string | null };
+/** contentType 是服务端按扩展名定的白名单类型，已经签进 uploadUrl：前端 PUT 时必须原样用它，不能用浏览器的 file.type。 */
+export type RetroUploadUrlResponse = { uploadUrl: string; coverUploadUrl: string | null; contentType: string };
 export type RetroCompleteAssetsResponse = { missing: string[] };
 
 export type RetroPutLinksRequest = { links: { kind: RetroLinkKind; targetId: string }[] };

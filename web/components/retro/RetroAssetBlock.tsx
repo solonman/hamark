@@ -105,7 +105,8 @@ export default function RetroAssetBlock({
         const signed = await retroApi.assetUploadUrl(caseId, assetId);
         if (!signed.uploadUrl) throw new Error("获取上传地址失败");
         const total = upload.file.size + (upload.coverFile?.size ?? 0);
-        await putFile(signed.uploadUrl, upload.file, upload.contentType, (loaded) => patchUpload(assetId, { pct: Math.round((loaded / total) * 100) }));
+        // 用服务端返回的 contentType（按扩展名定的白名单类型，已签进上传地址），不用浏览器的 file.type。
+        await putFile(signed.uploadUrl, upload.file, signed.contentType || upload.contentType, (loaded) => patchUpload(assetId, { pct: Math.round((loaded / total) * 100) }));
         if (upload.coverFile && signed.coverUploadUrl) {
           await putFile(signed.coverUploadUrl, upload.coverFile, upload.coverFile.type || "image/jpeg", (loaded) =>
             patchUpload(assetId, { pct: Math.round(((upload.file.size + loaded) / total) * 100) }));
