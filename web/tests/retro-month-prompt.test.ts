@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeRetroExtraction } from "../lib/retro/extraction";
-import { readRetroAiConfig, RETRO_RELAY_DEV_SECRET, resolveRetroAiProvider, resolveRetroRelaySecret } from "../lib/retro/month-config";
+import { readRetroAiConfig, requireRetroMonthConfigured, RETRO_RELAY_DEV_SECRET, resolveRetroLlmProvider, resolveRetroRelayOrigin, resolveRetroRelaySecret } from "../lib/retro/month-config";
 import { parseRetroRelayToken, retroRelayUrl, signRetroRelayToken, verifyRetroRelaySignature } from "../lib/retro/month-relay";
 import { hashRetroCaseInput } from "../lib/retro/month-snapshot";
 import {
@@ -64,14 +64,14 @@ test("an omitted client transcript tail is announced in the input", () => {
 
 test("the synthesis inputs only list segments ① cited, plus the summary transcript", () => {
   const snapshot = sampleSnapshot();
-  const a = normalizeRetroExtraction({ speakers: { founder: "S0" }, review: { process: "", disputes: [], founderPoints: [{ text: "x", segmentIds: [3] }], suggestions: [] }, methods: [] }, CASE_A).output;
+  const a = normalizeRetroExtraction({ speakers: { founder: ["1:S0", "2:S0"] }, review: { process: "", disputes: [], founderPoints: [{ text: "x", segmentIds: [3] }], suggestions: [] }, methods: [] }, CASE_A).output;
   const ctx = { snapshot, extractions: { rtc_a: a } };
   const minutes = JSON.parse(buildRetroMinutesMessages(ctx).user);
   assert.deepEqual(Object.keys(minutes.quotes), ["2:3"]);
   assert.equal(minutes.quotes["2:3"].speaker, "老孙");
   assert.deepEqual(minutes.整场总结文字稿.map((line: { id: string }) => line.id), ["S1", "S2", "S3"]);
-  const methods = JSON.parse(buildRetroMethodsMessages(ctx, "S0").user);
-  assert.equal(methods.整场总结里的老孙, "S0");
+  const methods = JSON.parse(buildRetroMethodsMessages(ctx, { rtr_sum: { founder: "S0", labels: {} } }).user);
+  assert.deepEqual(methods.整场总结里的老孙, ["1:S0"]);
 });
 
 test("the case input hash ignores the frozen number but follows content, model and prompt version", () => {
@@ -85,13 +85,27 @@ test("the case input hash ignores the frozen number but follows content, model a
   assert.notEqual(hashRetroCaseInput(CASE_A, options), hashRetroCaseInput(CASE_A, { ...options, promptVersion: "v2" }));
 });
 
-test("provider: fake by default in local demo, real elsewhere, explicit value wins", () => {
-  assert.equal(resolveRetroAiProvider({}, true), "fake");
-  assert.equal(resolveRetroAiProvider({}, false), "real");
-  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, false), "fake");
-  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "real" }, true), "real");
-  assert.deepEqual(readRetroAiConfig({}, false).missing, ["DEEPSEEK_API_KEY"]);
+test("provider: fake only in local demo (default there); production ignores RETRO_AI_PROVIDER=fake", () => {
+  assert.equal(resolveRetroLlmProvider({}, true), "fake");
+  assert.equal(resolveRetroLlmProvider({ RETRO_AI_PROVIDER: "fake" }, true), "fake");
+  assert.equal(resolveRetroLlmProvider({ RETRO_AI_PROVIDER: "real" }, true), "real");
+  assert.equal(resolveRetroLlmProvider({}, false), "real");
+  assert.equal(resolveRetroLlmProvider({ RETRO_AI_PROVIDER: "fake" }, false), "real", "fake content must never be publishable in production");
   assert.equal(readRetroAiConfig({ DEEPSEEK_API_KEY: "k" }, true).provider, "fake", "a configured key is not used in local demo unless asked");
+});
+
+test("config: production needs both the DeepSeek key and RETRO_RELAY_SECRET; local demo needs neither", () => {
+  assert.deepEqual(readRetroAiConfig({}, false).missing, ["DEEPSEEK_API_KEY", "RETRO_RELAY_SECRET"]);
+  assert.deepEqual(readRetroAiConfig({ DEEPSEEK_API_KEY: "k" }, false).missing, ["RETRO_RELAY_SECRET"]);
+  assert.equal(readRetroAiConfig({ DEEPSEEK_API_KEY: "k", RETRO_RELAY_SECRET: "s".repeat(40) }, false).configured, true);
+  assert.equal(readRetroAiConfig({}, true).configured, true);
+});
+
+test("relay origin: APP_URL, then https://VERCEL_URL, request origin only in local demo", () => {
+  assert.equal(resolveRetroRelayOrigin({ APP_URL: "https://site.example/path", VERCEL_URL: "x.vercel.app" }, false, "https://evil.test/a"), "https://site.example");
+  assert.equal(resolveRetroRelayOrigin({ VERCEL_URL: "x.vercel.app" }, false, "https://evil.test/a"), "https://x.vercel.app");
+  assert.equal(resolveRetroRelayOrigin({}, false, "https://evil.test/a"), null, "never trust the request host in production");
+  assert.equal(resolveRetroRelayOrigin({}, true, "http://localhost:3102/api/x"), "http://localhost:3102");
 });
 
 test("relay secret: the configured one, a fixed dev secret only in local demo, otherwise none", () => {
@@ -110,4 +124,45 @@ test("relay tokens are HMACs of job id + sequence; anything else fails verificat
   assert.equal(verifyRetroRelaySignature("secret", "rtj_1", "3.zz"), null);
   assert.equal(verifyRetroRelaySignature("secret", "rtj_1", null), null);
   assert.equal(retroRelayUrl("https://example.test/", "2026-10", "rtj_1"), "https://example.test/api/retro-months/2026-10/jobs/rtj_1/advance");
+});
+
+test("review and summary transcripts are capped at 60,000 characters with the omission announced", async () => {
+  const { truncateRecordings } = await import("../lib/retro/month-snapshot");
+  const { RETRO_LIMITS } = await import("../lib/retro-model");
+  assert.equal(RETRO_LIMITS.reviewTranscriptCharsPerCase, 60000);
+  assert.equal(RETRO_LIMITS.summaryTranscriptChars, 60000);
+  const lines = (count: number, base: number) => Array.from({ length: count }, (_, index) => ({ id: index + 1, startMs: (base + index) * 1000, endMs: 0, speakerId: "S0", text: "字".repeat(1000) }));
+  const [first, second] = truncateRecordings([
+    { recordingId: "r2", partNo: 2, segments: lines(30, 0) },
+    { recordingId: "r1", partNo: 1, segments: lines(40, 0) },
+  ], 60000);
+  assert.deepEqual([first.recordingId, first.segments.length, first.omittedSegments], ["r1", 40, undefined]);
+  assert.deepEqual([second.recordingId, second.segments.length, second.omittedSegments], ["r2", 20, 10]);
+  const item = structuredClone(CASE_A);
+  item.recordings[1].omittedSegments = 7;
+  const payload = JSON.parse(buildRetroExtractMessages(item).user);
+  assert.match(JSON.stringify(payload.点评录音文字稿.at(-1)), /以下省略 7 句/);
+  const snapshot = sampleSnapshot();
+  snapshot.summaryRecordings[0].omittedSegments = 3;
+  const minutes = JSON.parse(buildRetroMinutesMessages({ snapshot, extractions: {} }).user);
+  assert.match(JSON.stringify(minutes.整场总结文字稿.at(-1)), /以下省略 3 句/);
+});
+
+test("the extract input keys every speaker by recording part", () => {
+  const payload = JSON.parse(buildRetroExtractMessages(CASE_A).user);
+  assert.deepEqual(payload.点评录音文字稿.map((line: { speaker: string }) => line.speaker), ["1:S1", "1:S0", "1:S0", "1:S2", "2:S2", "2:S0"]);
+  assert.match(RETRO_EXTRACT_SYSTEM_PROMPT, /只在同一段录音里有意义/);
+});
+
+test("starting a job without RETRO_RELAY_SECRET in production answers 503 with the setup instruction", async () => {
+  const { RetroError } = await import("../lib/retro/errors");
+  const production = readRetroAiConfig({ DEEPSEEK_API_KEY: "k" }, false);
+  for (const mode of ["GENERATE", "REVISE_PUBLISHED"]) {
+    assert.throws(() => requireRetroMonthConfigured(production, mode), (error: unknown) =>
+      error instanceof RetroError && error.status === 503 && error.code === "RETRO_RELAY_NOT_CONFIGURED" && /RETRO_RELAY_SECRET.*Vercel/.test(error.message));
+  }
+  assert.throws(() => requireRetroMonthConfigured(readRetroAiConfig({ RETRO_RELAY_SECRET: "s".repeat(40) }, false), "GENERATE"), (error: unknown) =>
+    error instanceof RetroError && error.status === 503 && error.code === "RETRO_AI_NOT_CONFIGURED");
+  assert.doesNotThrow(() => requireRetroMonthConfigured(readRetroAiConfig({ RETRO_RELAY_SECRET: "s".repeat(40) }, false), "REVISE_PUBLISHED"));
+  assert.doesNotThrow(() => requireRetroMonthConfigured(readRetroAiConfig({}, true), "GENERATE"));
 });

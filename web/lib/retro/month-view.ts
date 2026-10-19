@@ -238,7 +238,7 @@ export async function loadRetroMonthView(
     publicationVersions: ai.publicationVersions,
     changedSincePublish: ai.changedSincePublish,
     job: ai.job,
-    preconditions: computeRetroPreconditions(facts, Boolean(ai.liveJobRow)),
+    preconditions: computeRetroPreconditions(facts, ai.liveJobRow ? { status: ai.liveJobRow.status } : null),
     viewer: { isReviewer, canUploadSummary: true },
   };
   const advanceJobId = ai.liveJobRow && shouldAdvanceRetroJob(ai.liveJobRow, nowMs) ? ai.liveJobRow.id : null;

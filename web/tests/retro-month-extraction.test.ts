@@ -19,7 +19,7 @@ const method = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const base = (overrides: Record<string, unknown> = {}) => ({
-  speakers: { founder: "S0", labels: { S1: "汇报人", S2: "其他同事" } },
+  speakers: { founder: ["1:S0", "2:S0"], labels: { "1:S1": "汇报人", "1:S2": "其他同事", "2:S2": "其他同事" } },
   review: { process: "经过", processSegmentIds: [], disputes: [], founderPoints: [], suggestions: [] },
   insights: [],
   actions: [],
@@ -102,10 +102,10 @@ test("a method candidate needs at least one sentence said by the founder", () =>
 });
 
 test("without a recognised founder every method candidate is dropped", () => {
-  const { output, dropped } = normalizeRetroExtraction(base({ speakers: { founder: "S9" }, methods: [method()] }), CASE_A);
+  const { output, dropped } = normalizeRetroExtraction(base({ speakers: { founder: ["1:S9", "2:S9"] }, methods: [method()] }), CASE_A);
   assert.equal(output.methods.length, 0);
-  assert.equal(output.speakers.founder, null);
-  assert.ok(dropped.some((line) => line.includes("没有认出老孙")));
+  assert.deepEqual([output.speakers.rtr_a1.founder, output.speakers.rtr_a2.founder], [null, null]);
+  assert.equal(dropped.filter((line) => line.includes("没有认出老孙")).length, 2);
 });
 
 test("illegal enums, empty titles and situational candidates without a situation are dropped", () => {
@@ -148,9 +148,34 @@ test("a case whose every item is dropped is marked empty, not failed", () => {
   assert.equal(output.review.process, "只剩经过");
 });
 
-test("speaker labels: the founder becomes 老孙, unknown speakers are ignored", () => {
-  const { output } = normalizeRetroExtraction(base({ speakers: { founder: "S0", labels: { S1: "汇报人", S7: "路人", S0: "别的" } } }), CASE_A);
-  assert.deepEqual(output.speakers.labels, { S1: "汇报人", S0: "老孙" });
+test("speaker labels are per recording: the founder becomes 老孙, unknown speakers are ignored", () => {
+  const { output } = normalizeRetroExtraction(base({
+    speakers: { founder: ["1:S0", "2:S2"], labels: { "1:S1": "汇报人", "1:S7": "路人", "1:S0": "别的", "2:S0": "汇报人", "3:S1": "不存在的段" } },
+  }), CASE_A);
+  assert.deepEqual(output.speakers, {
+    rtr_a1: { founder: "S0", labels: { S1: "汇报人", S0: "老孙" } },
+    rtr_a2: { founder: "S2", labels: { S0: "汇报人", S2: "老孙" } },
+  });
+});
+
+test("the founder rule is checked per (recording, speaker): S0 in part 2 is not 老孙 when part 2's founder is S2", () => {
+  // 第 2 段换了设备，老孙在那段被标成 S2；第 2 段里的 S0 是别人。
+  const { output, dropped } = normalizeRetroExtraction(base({
+    speakers: { founder: ["1:S0", "2:S2"] },
+    methods: [method({ title: "只引第 2 段的 S0", segmentIds: [6] }), method({ title: "引第 2 段的 S2", segmentIds: [5] }), method({ title: "引第 1 段的 S0", segmentIds: [3] })],
+  }), CASE_A);
+  assert.deepEqual(output.methods.map((item) => item.title), ["引第 2 段的 S2", "引第 1 段的 S0"]);
+  assert.ok(dropped.some((line) => line.includes("只引第 2 段的 S0")));
+});
+
+test("a bare speaker label is accepted only when the case has a single recording", () => {
+  const multi = normalizeRetroExtraction(base({ speakers: { founder: "S0" }, methods: [method()] }), CASE_A);
+  assert.equal(multi.output.methods.length, 0, "bare S0 is ambiguous across two recordings");
+  const single = structuredClone(CASE_A);
+  single.recordings = single.recordings.slice(0, 1);
+  const one = normalizeRetroExtraction(base({ speakers: { founder: "S0" }, methods: [method()] }), single);
+  assert.equal(one.output.speakers.rtr_a1.founder, "S0");
+  assert.equal(one.output.methods.length, 1);
 });
 
 test("corrections must quote the segment text exactly", () => {

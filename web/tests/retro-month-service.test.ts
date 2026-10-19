@@ -48,16 +48,16 @@ let pool: pg.Pool;
 let db: DbClient;
 
 async function cleanup() {
-  const months = `month_key LIKE '2091-%'`;
+  const months = `(month_key LIKE '2091-%' OR month_key LIKE '2092-%')`;
   await db.prepare(`DELETE FROM retro_method_candidates WHERE ${months}`).run();
   await db.prepare(`DELETE FROM retro_month_publications WHERE ${months}`).run();
   await db.prepare(`DELETE FROM retro_month_jobs WHERE ${months}`).run();
   await db.prepare(`DELETE FROM retro_recordings WHERE ${months}`).run();
-  await db.prepare(`DELETE FROM retro_round_links WHERE round_id IN (SELECT r.id FROM retro_case_rounds r JOIN retro_cases c ON c.id = r.case_id WHERE c.${months})`).run();
+  await db.prepare(`DELETE FROM retro_round_links WHERE round_id IN (SELECT r.id FROM retro_case_rounds r JOIN retro_cases c ON c.id = r.case_id WHERE c.month_key LIKE '2091-%' OR c.month_key LIKE '2092-%')`).run();
   await db.prepare(`DELETE FROM retro_case_assets WHERE case_id IN (SELECT id FROM retro_cases WHERE ${months})`).run();
   await db.prepare(`DELETE FROM retro_case_rounds WHERE case_id IN (SELECT id FROM retro_cases WHERE ${months})`).run();
   await db.prepare(`DELETE FROM retro_cases WHERE ${months}`).run();
-  await db.prepare(`DELETE FROM audit_logs WHERE detail_json LIKE '%"monthKey":"2091-%'`).run();
+  await db.prepare(`DELETE FROM audit_logs WHERE detail_json LIKE '%"monthKey":"2091-%' OR detail_json LIKE '%"monthKey":"2092-%'`).run();
   // 只删自己的两个用户：另一组集成测试（retro-service.test.ts）可能同时在跑，用的是 TEST_ONLY_ 前缀。
   await db.prepare(`DELETE FROM users WHERE id IN (?, ?)`).bind(SUN.userId, LIU.userId).run();
 }
@@ -474,6 +474,7 @@ test("month view: rows, numbering, summary recordings, preconditions, badges and
   assert.deepEqual(view.preconditions, {
     caseCount: 3, recordedCaseCount: 2, unrecordedCaseCount: 1, reviewRecordingsProcessing: 0, summaryParts: 1,
     clientAudio: { total: 1, ready: 1, transcribing: 0, failed: 0 }, canGenerate: true, blockedReason: null,
+    canRegenerate: false, regenerateBlockedReason: "没有可以替换的整理任务。",
   });
   assert.deepEqual(await loadRetroMonthBadges(db, [seed.month, "2090-01"]), { [seed.month]: { state: "NONE" }, "2090-01": { state: "NONE" } });
 
@@ -511,4 +512,163 @@ test("month view: rows, numbering, summary recordings, preconditions, badges and
   assert.equal(view.latestPublication!.versionNumber, 1);
   assert.equal(view.job, null);
   assert.deepEqual((await loadRetroMonthBadges(db, [seed.month]))[seed.month], { state: "PUBLISHED", version: 1, changed: true });
+});
+
+// ---------------------------------------------------------------------------
+// 上线前审查的修正（2026-10-20）
+// ---------------------------------------------------------------------------
+
+async function draftJob(month: string) {
+  const seed = await seedMonth(month);
+  const { provider } = testLlm();
+  const jobId = await generate(month, provider);
+  await runToEnd(jobId, provider);
+  assert.equal((await loadRetroJob(db, jobId))!.status, "PENDING_REVIEW");
+  return { seed, jobId, provider };
+}
+
+test("regenerating from PENDING_REVIEW replaces the draft atomically", { skip }, async () => {
+  const { seed, jobId, provider } = await draftJob("2092-01");
+  const viewer = { userId: SUN.userId, displayName: SUN.displayName, isAdmin: false };
+  const { view } = await loadRetroMonthView(db, seed.month, viewer, START);
+  assert.deepEqual([view.preconditions.canGenerate, view.preconditions.canRegenerate, view.preconditions.regenerateBlockedReason], [false, true, null]);
+  await rejectsWith(startRetroMonthJob(db, LIU, { monthKey: seed.month, body: { mode: "GENERATE", replaceJobId: jobId }, llmModel: "test-model" }), 403);
+  await rejectsWith(startRetroMonthJob(db, SUN, { monthKey: "2092-02", body: { mode: "GENERATE", replaceJobId: jobId }, llmModel: "test-model" }), 404);
+  const { jobId: next } = await startRetroMonthJob(db, SUN, { monthKey: seed.month, body: { mode: "GENERATE", replaceJobId: jobId }, llmModel: provider.model });
+  assert.equal((await loadRetroJob(db, jobId))!.status, "ABANDONED");
+  assert.equal((await loadRetroJob(db, next))!.status, "QUEUED");
+  const audit = await db.prepare(`SELECT detail_json FROM audit_logs WHERE action = 'RETRO_MONTH_JOB_ABANDONED' AND object_id = ?`).bind(jobId).first<{ detail_json: string }>();
+  assert.equal(JSON.parse(audit!.detail_json).replacedByJobId, next);
+});
+
+test("a failed replacement rolls back: the old draft stays PENDING_REVIEW with every edit", { skip }, async () => {
+  const { seed, jobId } = await draftJob("2092-03");
+  const insight = toRetroJobView((await loadRetroJob(db, jobId))!, { isReviewer: true, revisingFromVersion: null }).draft!.minutes.insights[0];
+  await patchRetroDraft(db, SUN, { monthKey: seed.month, jobId, body: { section: "insights", itemId: insight.id, op: "UPDATE", value: { text: "老孙改过的一条" }, revision: 1 } });
+  const before = await loadRetroJob(db, jobId);
+  const replace = () => startRetroMonthJob(db, SUN, { monthKey: seed.month, body: { mode: "GENERATE", replaceJobId: jobId }, llmModel: "test-model" });
+
+  // 前提不满足（有录音在转写）：在放弃旧任务之前就拒绝。
+  await insertRecording(seed.month, `TEST_ONLY-month-${seed.month}_rtr_busy`, seed.caseC, 1, "TRANSCRIBING", null, new Date(Date.now() - 60000).toISOString());
+  await rejectsWith(replace(), 409, /点评录音还在上传或转写/);
+  await db.prepare(`UPDATE retro_recordings SET status = 'REMOVED', removed_at = now() WHERE id = ?`).bind(`TEST_ONLY-month-${seed.month}_rtr_busy`).run();
+
+  // 放弃旧任务之后才失败（文字稿都是空的）：整个事务回滚，旧任务没被放弃。
+  await db.prepare(`UPDATE retro_recordings SET transcript_json = '{"segments":[]}'::jsonb WHERE month_key = ? AND status = 'READY'`).bind(seed.month).run();
+  await rejectsWith(replace(), 409, /文字稿都是空的/);
+  const after = (await loadRetroJob(db, jobId))!;
+  assert.equal(after.status, "PENDING_REVIEW");
+  assert.equal(Number(after.draft_revision), 2);
+  assert.deepEqual(after.minutes_json, before!.minutes_json);
+  const jobs = await db.prepare(`SELECT COUNT(*) AS n FROM retro_month_jobs WHERE month_key = ?`).bind(seed.month).first<{ n: string }>();
+  assert.equal(Number(jobs!.n), 1, "no half-inserted replacement job");
+  const abandons = await db.prepare(`SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'RETRO_MONTH_JOB_ABANDONED' AND object_id = ?`).bind(jobId).first<{ n: string }>();
+  assert.equal(Number(abandons!.n), 0);
+});
+
+test("only PENDING_REVIEW or FAILED jobs can be replaced; a FAILED job can", { skip }, async () => {
+  const seed = await seedMonth("2092-04");
+  const broken = testLlm((context) => (context.step === "SUMMARIZE" ? failure("密钥无效", false) : null));
+  const jobId = await generate(seed.month, broken.provider);
+  await advanceRetroMonthJob(db, jobId, { deadline: fullWindow, deps: deps(broken.provider) });
+  const viewer = { userId: SUN.userId, displayName: SUN.displayName, isAdmin: false };
+  assert.equal((await loadRetroMonthView(db, seed.month, viewer, START)).view.preconditions.canRegenerate, false, "a running job cannot be replaced");
+  await rejectsWith(startRetroMonthJob(db, SUN, { monthKey: seed.month, body: { mode: "GENERATE", replaceJobId: jobId }, llmModel: "test-model" }), 409, /还在进行/);
+  assert.equal((await loadRetroJob(db, jobId))!.status, "EXTRACTING");
+  await runToEnd(jobId, broken.provider);
+  assert.equal((await loadRetroJob(db, jobId))!.status, "FAILED");
+  const { jobId: next } = await startRetroMonthJob(db, SUN, { monthKey: seed.month, body: { mode: "GENERATE", replaceJobId: jobId }, llmModel: "test-model" });
+  assert.equal((await loadRetroJob(db, jobId))!.status, "ABANDONED");
+  assert.equal((await loadRetroJob(db, next))!.status, "QUEUED");
+});
+
+test("an extraction whose content is all dropped, or that lacks every expected key, is retried and never cached", { skip }, async () => {
+  const seed = await seedMonth("2092-05");
+  // 案例 3：第一次返回空对象（缺所有键），第二次全部引用不存在的片段 → FAILED(EXTRACT)，不写缓存。
+  const bogus = (context: RetroStepContext) => {
+    const raw = buildFakeRetroOutput(context) as ReturnType<typeof buildFakeRetroOutput> & Record<string, unknown>;
+    const strip = (list: Array<{ segmentIds?: unknown[] }>) => list.map((entry) => ({ ...entry, segmentIds: [9999] }));
+    const review = (raw as unknown as { review: Record<string, Array<{ segmentIds?: unknown[] }>> }).review;
+    return JSON.stringify({ ...raw, review: { ...review, disputes: strip(review.disputes), founderPoints: strip(review.founderPoints), suggestions: strip(review.suggestions) },
+      insights: strip(raw.insights as never), actions: strip(raw.actions as never), methods: strip(raw.methods as never) });
+  };
+  const ok = (content: string): LlmOutcome => ({ ok: true, content, finishReason: "stop", usage: null, model: "test-model", durationMs: 1 });
+  let attempt = 0;
+  const { calls, provider } = testLlm((context) => {
+    if (context.step !== "EXTRACT" || context.item.caseId !== seed.caseB) return null;
+    attempt += 1;
+    return ok(attempt === 1 ? "{}" : bogus(context));
+  });
+  const jobId = await generate(seed.month, provider);
+  await runToEnd(jobId, provider);
+  const row = (await loadRetroJob(db, jobId))!;
+  assert.deepEqual([row.status, row.failed_step, Number(row.progress_index)], ["FAILED", "EXTRACT", 1]);
+  assert.match(String(row.fail_reason), /全部没有有效的录音依据/);
+  assert.deepEqual(calls.filter((call) => call.caseId === seed.caseB).map((call) => call.effort), ["high", "low"]);
+  const store = row.extractions_json as { cases: Record<string, unknown> };
+  assert.equal(store.cases[seed.caseB], undefined, "the rejected result is not cached");
+  const reasons = (row.llm_usage_json as { calls: Array<{ reason?: string }> }).calls.map((call) => call.reason ?? "");
+  assert.ok(reasons.some((reason) => reason.includes("缺少预期的内容")));
+});
+
+test("a genuinely empty extraction is accepted but cached as empty, so regenerating recomputes it", { skip }, async () => {
+  const seed = await seedMonth("2092-06");
+  const empty = JSON.stringify({ speakers: { founder: ["1:S0"] }, review: { process: "", disputes: [], founderPoints: [], suggestions: [] }, insights: [], actions: [], methods: [], corrections: [] });
+  const first = testLlm((context) => (context.step === "EXTRACT" && context.item.caseId === seed.caseB
+    ? { ok: true, content: empty, finishReason: "stop", usage: null, model: "test-model", durationMs: 1 } : null));
+  const jobId = await generate(seed.month, first.provider);
+  await runToEnd(jobId, first.provider);
+  const row = (await loadRetroJob(db, jobId))!;
+  assert.equal(row.status, "PENDING_REVIEW");
+  const store = row.extractions_json as { cases: Record<string, { empty: boolean }> };
+  assert.deepEqual([store.cases[seed.caseA].empty, store.cases[seed.caseB].empty], [false, true]);
+  const view = toRetroJobView(row, { isReviewer: true, revisingFromVersion: null });
+  assert.equal(view.draft!.minutes.cases.find((item) => item.caseId === seed.caseB)!.empty, true);
+  await runRetroMonthJobAction(db, SUN, { monthKey: seed.month, jobId, body: { action: "ABANDON" } });
+  const second = testLlm();
+  const next = await generate(seed.month, second.provider);
+  await runToEnd(next, second.provider);
+  assert.deepEqual(second.calls.map((call) => call.caseId ?? call.step), [seed.caseB, "SUMMARIZE", "DISTILL"], "only the empty case is recomputed");
+});
+
+test("speakers are identified per recording and each recording gets its own labels on publish", { skip }, async () => {
+  const seed = await seedMonth("2092-07");
+  // 案例 2 的第 2 段换了设备：老孙在那段被标成 S2，那段的 S0 是汇报人。
+  const { provider } = testLlm((context) => {
+    if (context.step !== "EXTRACT" || context.item.caseId !== seed.caseA) return null;
+    const raw = buildFakeRetroOutput(context) as Record<string, unknown>;
+    return { ok: true, content: JSON.stringify({ ...raw, speakers: { founder: ["1:S0", "2:S2"], labels: { "1:S1": "汇报人", "1:S2": "其他同事", "2:S0": "汇报人" } } }), finishReason: "stop", usage: null, model: "test-model", durationMs: 1 };
+  });
+  const jobId = await generate(seed.month, provider);
+  await runToEnd(jobId, provider);
+  const row = (await loadRetroJob(db, jobId))!;
+  const speakers = (row.extractions_json as { cases: Record<string, { output: { speakers: Record<string, { founder: string }> } }> }).cases[seed.caseA].output.speakers;
+  assert.deepEqual([speakers[seed.recA1].founder, speakers[seed.recA2].founder], ["S0", "S2"]);
+  const draft = toRetroJobView(row, { isReviewer: true, revisingFromVersion: null }).draft!;
+  const part2 = draft.quotedSegments[`R:${seed.recA2}`] ?? [];
+  for (const quote of part2) assert.equal(quote.speakerLabel, quote.text.includes("接着说") ? "老孙" : "汇报人");
+  await runRetroMonthJobAction(db, SUN, { monthKey: seed.month, jobId, body: { action: "PUBLISH" } });
+  const labels = async (id: string) => (await db.prepare(`SELECT speaker_labels_json FROM retro_recordings WHERE id = ?`).bind(id).first<{ speaker_labels_json: Record<string, string> }>())!.speaker_labels_json;
+  assert.deepEqual(await labels(seed.recA1), { S0: "老孙", S1: "汇报人", S2: "其他同事" });
+  assert.deepEqual(await labels(seed.recA2), { S0: "汇报人", S2: "老孙" });
+});
+
+test("an abandoned half upload (UPLOADING for over an hour) no longer blocks generating", { skip }, async () => {
+  const seed = await seedMonth("2092-08");
+  const viewer = { userId: LIU.userId, displayName: LIU.displayName, isAdmin: false };
+  const pre = async () => (await loadRetroMonthView(db, seed.month, viewer, START)).view.preconditions;
+  const twoHoursAgo = new Date(Date.now() - 2 * 3600_000).toISOString();
+  await insertRecording(seed.month, `TEST_ONLY-month-${seed.month}_rtr_stale`, seed.caseC, 1, "UPLOADING", null, twoHoursAgo);
+  assert.deepEqual([(await pre()).canGenerate, (await pre()).reviewRecordingsProcessing], [true, 0]);
+  await insertRecording(seed.month, `TEST_ONLY-month-${seed.month}_rtr_fresh`, null, 2, "UPLOADING", null, new Date(Date.now() - 5 * 60_000).toISOString());
+  assert.equal((await pre()).canGenerate, false, "a fresh upload still blocks");
+  await db.prepare(`UPDATE retro_recordings SET status = 'REMOVED', removed_at = now() WHERE id = ?`).bind(`TEST_ONLY-month-${seed.month}_rtr_fresh`).run();
+  await db.prepare(`UPDATE retro_case_assets SET upload_status = 'UPLOADING', transcribe_status = 'NONE', created_at = ?::timestamptz WHERE id = ?`).bind(twoHoursAgo, seed.asset).run();
+  const stale = await pre();
+  assert.deepEqual([stale.canGenerate, stale.clientAudio.transcribing, stale.clientAudio.failed], [true, 0, 1]);
+  await db.prepare(`UPDATE retro_case_assets SET created_at = now() WHERE id = ?`).bind(seed.asset).run();
+  assert.equal((await pre()).canGenerate, false, "a fresh client upload still blocks");
+  await db.prepare(`UPDATE retro_case_assets SET created_at = ?::timestamptz WHERE id = ?`).bind(twoHoursAgo, seed.asset).run();
+  const { provider } = testLlm();
+  await generate(seed.month, provider);
 });

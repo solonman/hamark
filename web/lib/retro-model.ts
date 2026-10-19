@@ -109,6 +109,10 @@ export const RETRO_LIMITS = {
   recordingMaxBytes: 500 * 1024 * 1024,
   /** 客户录音进提示词的字数上限（每个案例合计，规格 6.4）。 */
   clientTranscriptCharsPerCase: 30000,
+  /** 点评录音进逐案提炼提示词的字数上限（每个案例各段合计）；超出按时间截断并注明省略。 */
+  reviewTranscriptCharsPerCase: 60000,
+  /** 整场总结进汇总提示词的字数上限（各段合计）。 */
+  summaryTranscriptChars: 60000,
   draftTextMax: 600,
   draftTitleMax: 40,
 } as const;
@@ -560,7 +564,7 @@ export type RetroGeneratePreconditions = {
   canGenerate: boolean;
   /** canGenerate 为 false 时的原因，给按钮旁边写。 */
   blockedReason: string | null;
-};
+} & RetroRegeneratePreconditions;
 
 export type RetroMonthView = {
   monthKey: string;
@@ -628,7 +632,11 @@ export type RetroCreateRecordingRequest = { monthKey: string; caseId: string | n
 export type RetroCreateRecordingResponse = { recording: RetroRecordingView; uploadUrl: string };
 export type RetroRecordingAction = "UPLOADED" | "RETRY" | "REMOVE";
 
-export type RetroStartJobRequest = { mode: "GENERATE" | "REVISE_PUBLISHED" };
+export type RetroStartJobRequest = {
+  mode: "GENERATE" | "REVISE_PUBLISHED";
+  /** 待审阅或失败时「重新生成」：要替换的在途任务 id。服务端在同一个事务里放弃它并插入新任务，任何一步失败都整体回滚。 */
+  replaceJobId?: string;
+};
 export type RetroJobAction = "RETRY" | "ABANDON" | "PUBLISH";
 
 export type RetroDraftPatchRequest = {
@@ -708,3 +716,12 @@ export type RetroStartJobResponse = { job: RetroJobView };
 export type RetroJobActionResponse = { job: RetroJobView; publicationVersion?: number };
 /** PATCH jobs/[jobId]/draft；ADD 时 itemId 是新条目的 id。 */
 export type RetroDraftPatchResponse = { job: RetroJobView; itemId: string | null };
+
+/**
+ * 待审阅或失败时「重新生成」的前提（审查意见 1）：排除当前在途任务计算。服务端恒给出，标成可选只为兼容旧的测试样例。
+ * 没有在途任务、或任务还在跑时 canRegenerate 为 false。
+ */
+export type RetroRegeneratePreconditions = {
+  canRegenerate?: boolean;
+  regenerateBlockedReason?: string | null;
+};

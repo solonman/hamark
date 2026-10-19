@@ -9,6 +9,7 @@ import {
 } from "@/lib/audio-review/deepseek";
 import { readRetroAiConfig, type RetroAiConfig, type RetroAiProviderKind } from "./month-config";
 import { createFakeRetroLlm } from "./month-fake";
+import type { RetroSpeakers } from "./extraction";
 import type { RetroSnapshotCase } from "./month-snapshot";
 import type { RetroLlmMessages } from "./prompt";
 import type { RetroSynthesisContext } from "./synthesis";
@@ -17,7 +18,7 @@ import type { RetroSynthesisContext } from "./synthesis";
 export type RetroStepContext =
   | { step: "EXTRACT"; item: RetroSnapshotCase }
   | { step: "SUMMARIZE"; synthesis: RetroSynthesisContext }
-  | { step: "DISTILL"; synthesis: RetroSynthesisContext; summaryFounder: string | null };
+  | { step: "DISTILL"; synthesis: RetroSynthesisContext; summarySpeakers: RetroSpeakers | null };
 
 export type RetroLlmProvider = {
   kind: RetroAiProviderKind;

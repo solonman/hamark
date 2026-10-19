@@ -121,7 +121,14 @@ export type RetroExtractionCacheEntry = {
   promptVersion: string;
   usage: unknown;
   at: string;
+  /** 全部被校验丢光（或模型什么都没给）：这种结果不复用，下次重新生成时重算（审查意见 2）。 */
+  empty?: boolean;
 };
+
+/** 缓存条目能不能复用：输入哈希一致，且不是空结果。 */
+export function isReusableExtraction(entry: RetroExtractionCacheEntry | undefined, inputHash: string): boolean {
+  return Boolean(entry) && entry!.inputHash === inputHash && !(entry!.empty ?? entry!.output?.empty ?? false);
+}
 
 /** retro_month_jobs.extractions_json：逐案结果按输入哈希缓存，另存②③的说话人认定与丢弃原因。 */
 export type RetroExtractionsStore = {
@@ -187,11 +194,11 @@ async function insertRetroAudit(db: DbClient, actor: RetroMonthActor, action: st
 export function generateQuoteResolver(snapshot: RetroGenerateSnapshot, store: RetroExtractionsStore): RetroQuoteResolver {
   const recordings = new Map<string, { segments: RetroGenerateSnapshot["cases"][number]["recordings"][number]["segments"]; labels: Record<string, string> | null }>();
   for (const item of snapshot.cases) {
-    const labels = store.cases[item.caseId]?.output.speakers.labels ?? null;
-    for (const recording of item.recordings) recordings.set(recording.recordingId, { segments: recording.segments, labels });
+    const speakers = store.cases[item.caseId]?.output.speakers;
+    for (const recording of item.recordings) recordings.set(recording.recordingId, { segments: recording.segments, labels: speakers?.[recording.recordingId]?.labels ?? null });
   }
   for (const recording of snapshot.summaryRecordings) {
-    recordings.set(recording.recordingId, { segments: recording.segments, labels: store.summary?.speakers.labels ?? null });
+    recordings.set(recording.recordingId, { segments: recording.segments, labels: store.summary?.speakers[recording.recordingId]?.labels ?? null });
   }
   const client = new Map<string, { segments: RetroGenerateSnapshot["cases"][number]["clientAudio"][number]["segments"] }>();
   for (const item of snapshot.cases) for (const audio of item.clientAudio) client.set(audio.assetId, { segments: audio.segments });
@@ -240,11 +247,37 @@ export async function startRetroMonthJob(
 
   const now = input.now ?? new Date();
   const jobId = newRetroJobId();
+  const rawReplace = (input.body as { replaceJobId?: unknown }).replaceJobId;
+  const replaceJobId = typeof rawReplace === "string" && rawReplace.trim() ? rawReplace.trim() : null;
+  if (rawReplace != null && !replaceJobId) throw retroInvalid("replaceJobId 格式不对。");
+  // 一个事务：锁旧任务 → 校验 → 排除它重算前提 → 置 ABANDONED → 冻结快照 → 插入新任务。
+  // 任何一步失败整体回滚，旧草稿原样保留（审查意见 1）。
   await db.withTransaction(async (tx) => {
+    let replaced: RetroJobRow | null = null;
+    if (replaceJobId) {
+      replaced = await loadRetroJob(tx, replaceJobId, true);
+      if (!replaced || replaced.month_key !== input.monthKey) throw retroNotFound("要替换的整理任务不存在。");
+      if (replaced.status !== "PENDING_REVIEW" && replaced.status !== "FAILED") {
+        throw retroConflict("INVALID_STATE", "只有待审阅或失败的任务可以重新生成；整理还在进行时请等它完成或先放弃。");
+      }
+    }
     const live = await loadLiveRetroJob(tx, input.monthKey);
+    const otherLive = live && live.id !== replaced?.id ? live : null;
+    if (otherLive) throw retroConflict("JOB_EXISTS", "本月已有一个整理任务，先完成或放弃它。");
     const facts = await loadRetroMonthFacts(tx, input.monthKey);
-    const preconditions = computeRetroPreconditions(facts, Boolean(live));
-    if (!preconditions.canGenerate) throw retroConflict(live ? "JOB_EXISTS" : "NOT_READY", preconditions.blockedReason ?? "现在还不能生成。");
+    const preconditions = computeRetroPreconditions(facts, null);
+    if (!preconditions.canGenerate) throw retroConflict("NOT_READY", preconditions.blockedReason ?? "现在还不能生成。");
+    if (replaced) {
+      const abandoned = await tx.prepare(
+        `UPDATE retro_month_jobs SET status = 'ABANDONED', abandoned_at = now(), lease_until = NULL, updated_at = now()
+        WHERE id = ? AND status IN ('PENDING_REVIEW', 'FAILED')
+        RETURNING id`,
+      ).bind(replaced.id).first<QueryResultRow & { id: string }>();
+      if (!abandoned) throw retroConflict("INVALID_STATE", "任务的状态刚刚变了，请刷新后重试。");
+      await insertRetroAudit(tx, actor, "RETRO_MONTH_JOB_ABANDONED", "RETRO_MONTH_JOB", replaced.id, {
+        monthKey: input.monthKey, fromStatus: replaced.status, replacedByJobId: jobId,
+      });
+    }
     const snapshot = await buildRetroGenerateSnapshot(tx, input.monthKey, now);
     if (!analyzedCases(snapshot).length) throw retroConflict("NOT_READY", "点评录音的文字稿都是空的，没有可以提炼的内容。");
 
@@ -256,7 +289,7 @@ export async function startRetroMonthJob(
     ).bind(input.monthKey).all<QueryResultRow & { extractions_json: unknown }>()).results.map((row) => parseExtractionsStore(row.extractions_json));
     for (const item of analyzedCases(snapshot)) {
       const hash = hashRetroCaseInput(item, { model: input.llmModel, promptVersion: RETRO_EXTRACT_PROMPT_VERSION });
-      const hit = previous.map((store) => store.cases[item.caseId]).find((entry) => entry?.inputHash === hash);
+      const hit = previous.map((store) => store.cases[item.caseId]).find((entry) => isReusableExtraction(entry, hash));
       if (hit) cache.cases[item.caseId] = hit;
     }
 
@@ -279,6 +312,7 @@ export async function startRetroMonthJob(
       caseCount: snapshot.cases.length,
       analyzedCaseCount: analyzedCases(snapshot).length,
       cachedCaseIds: Object.keys(cache.cases),
+      ...(replaced ? { replacedJobId: replaced.id } : {}),
     });
   });
   return { jobId, advance: true };
@@ -433,12 +467,16 @@ export async function publishRetroMonthJob(
       // AI 认出的称呼（老孙／汇报人／其他同事）写进参与提炼的各段录音（规格 5.2、6.4）。
       const labelUpdates: Array<[string, Record<string, string>]> = [];
       for (const item of snapshot.cases) {
-        const labels = store.cases[item.caseId]?.output.speakers.labels;
-        if (labels && Object.keys(labels).length) for (const recording of item.recordings) labelUpdates.push([recording.recordingId, labels]);
+        // 每段录音用它自己的认定（标签只在一段录音里有意义）。
+        const speakers = store.cases[item.caseId]?.output.speakers;
+        for (const recording of item.recordings) {
+          const labels = speakers?.[recording.recordingId]?.labels;
+          if (labels && Object.keys(labels).length) labelUpdates.push([recording.recordingId, labels]);
+        }
       }
-      const summaryLabels = store.summary?.speakers.labels;
-      if (summaryLabels && Object.keys(summaryLabels).length) {
-        for (const recording of snapshot.summaryRecordings) labelUpdates.push([recording.recordingId, summaryLabels]);
+      for (const recording of snapshot.summaryRecordings) {
+        const labels = store.summary?.speakers[recording.recordingId]?.labels;
+        if (labels && Object.keys(labels).length) labelUpdates.push([recording.recordingId, labels]);
       }
       for (const [recordingId, labels] of labelUpdates) {
         await tx.prepare(`UPDATE retro_recordings SET speaker_labels_json = ?::jsonb, updated_at = now() WHERE id = ?`)
@@ -595,7 +633,7 @@ async function runSteps(db: DbClient, state: StepState, options: AdvanceOptions)
       const model = row.llm_model ?? options.deps.llm.model;
       let index = Number(row.progress_index);
       // 输入没变的案例直接复用缓存。
-      while (index < cases.length && store.cases[cases[index].caseId]?.inputHash === hashRetroCaseInput(cases[index], { model, promptVersion: RETRO_EXTRACT_PROMPT_VERSION })) {
+      while (index < cases.length && isReusableExtraction(store.cases[cases[index].caseId], hashRetroCaseInput(cases[index], { model, promptVersion: RETRO_EXTRACT_PROMPT_VERSION }))) {
         index += 1;
       }
       if (index !== Number(row.progress_index) || index >= cases.length) {
@@ -618,6 +656,7 @@ async function runSteps(db: DbClient, state: StepState, options: AdvanceOptions)
         messages: buildRetroExtractMessages(item),
         context: { step: "EXTRACT", item },
         normalize: (raw) => normalizeRetroExtraction(raw, item),
+        reject: rejectRetroExtraction,
       });
       if (outcome.kind !== "OK") return outcome.status;
       const nextStore: RetroExtractionsStore = {
@@ -632,6 +671,7 @@ async function runSteps(db: DbClient, state: StepState, options: AdvanceOptions)
             promptVersion: RETRO_EXTRACT_PROMPT_VERSION,
             usage: outcome.usage,
             at: new Date(options.deps.clock()).toISOString(),
+            empty: outcome.result.output.empty,
           },
         },
       };
@@ -671,14 +711,14 @@ async function runSteps(db: DbClient, state: StepState, options: AdvanceOptions)
         state.row = next;
         continue;
       }
-      const summaryFounder = store.summary?.speakers.founder ?? null;
+      const summarySpeakers = store.summary?.speakers ?? null;
       const outcome = await callModel(db, state, options, {
         step: "DISTILL",
         label: "汇总方法",
         promptVersion: RETRO_METHODS_PROMPT_VERSION,
-        messages: buildRetroMethodsMessages(synthesis, summaryFounder),
-        context: { step: "DISTILL", synthesis, summaryFounder },
-        normalize: (raw) => normalizeRetroDistill(raw, synthesis, summaryFounder),
+        messages: buildRetroMethodsMessages(synthesis, summarySpeakers),
+        context: { step: "DISTILL", synthesis, summarySpeakers },
+        normalize: (raw) => normalizeRetroDistill(raw, synthesis, summarySpeakers),
       });
       if (outcome.kind !== "OK") return outcome.status;
       const nextStore: RetroExtractionsStore = { ...store, distill: { dropped: outcome.result.dropped } };
@@ -704,7 +744,22 @@ type ModelCall<T> = {
   messages: RetroLlmMessages;
   context: Parameters<RetroLlmProvider["complete"]>[1];
   normalize: (raw: Record<string, unknown>) => T;
+  /** 结果虽然是合法 JSON 但不能用（缺键、全被丢光）：返回失败原因，按可重试失败处理，不写缓存。 */
+  reject?: (result: T, raw: Record<string, unknown>) => string | null;
 };
+
+const EXTRACT_KEYS = ["speakers", "review", "insights", "actions", "methods"] as const;
+
+/**
+ * ①的结果不能用的两种情况（审查意见 2）：原始 JSON 一个预期的键都没有；或者给了内容却全部被校验丢光
+ * （只算条目被丢的原因，「某段没认出老孙」这类说话人提示不算）。这两种都当作可重试的失败，不写缓存。
+ */
+export function rejectRetroExtraction(result: ReturnType<typeof normalizeRetroExtraction>, raw: Record<string, unknown>): string | null {
+  if (!EXTRACT_KEYS.some((key) => key in raw)) return "模型返回的 JSON 缺少预期的内容（speakers、review、methods 等都没有）。";
+  const itemDrops = result.dropped.filter((line) => !line.startsWith("点评录音第"));
+  if (result.output.empty && itemDrops.length) return "模型给出的内容全部没有有效的录音依据，被校验丢弃了。";
+  return null;
+}
 
 type ModelOutcome<T> =
   | { kind: "OK"; result: T; usage: unknown; usageJson: string }
@@ -747,7 +802,12 @@ async function callModel<T>(db: DbClient, state: StepState, options: AdvanceOpti
   } else {
     const parsed = parseModelJsonContent(outcome.content, outcome.finishReason);
     if (!parsed.ok) failure = { reason: parsed.reason, retryable: true };
-    else result = call.normalize(parsed.value);
+    else {
+      const normalized = call.normalize(parsed.value);
+      const rejection = call.reject?.(normalized, parsed.value) ?? null;
+      if (rejection) failure = { reason: rejection, retryable: true };
+      else result = normalized;
+    }
   }
   const record: LlmCallRecord = {
     step: call.step,

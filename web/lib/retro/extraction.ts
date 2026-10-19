@@ -6,7 +6,7 @@
 // - 不存在的片段号、回合号剔除；
 // - 客户录音引用只能出现在 review.process 和 review.disputes 里，出现在其它地方一律剔除；
 // - founderPoints / suggestions / insights / actions / disputes 剔除无效引用后一句不剩就丢弃；
-// - 方法候选的 segmentIds 里至少有一句是 speakers.founder 说的，否则整条丢弃；
+// - 方法候选的 segmentIds 里至少有一句是老孙说的（按录音认定，见 RetroRecordingSpeakers），否则整条丢弃；
 // - 枚举值非法、标题为空、SITUATIONAL 没写情境，都丢弃；
 // - 文字去首尾空白，标题 40 字、其他 600 字截断；
 // - 引文永远由服务端按片段号从转写里取，模型写的引文一律不用。
@@ -23,14 +23,27 @@ import {
   type RetroMethodTransfer,
   type RetroSource,
 } from "@/lib/retro-model";
+import { dominantSpeaker } from "@/lib/audio-review/transcript";
 import { caseSegmentIndex, type RetroSegmentRef, type RetroSnapshotCase } from "./month-snapshot";
 
-export type RetroSpeakers = {
-  /** 老孙对应的说话人标签；没认出来为 null（这时方法候选全部丢弃）。 */
+/**
+ * 一段录音的说话人认定。说话人分离的标签（S0、S1…）只在一段录音内有意义：换了设备、断过重录，
+ * 第 2 段里的 S0 未必还是老孙，所以认定按录音分别做（审查意见 4）。
+ */
+export type RetroRecordingSpeakers = {
+  /** 这段录音里老孙对应的标签；没认出来为 null（这段录音的话不能作为方法候选的依据）。 */
   founder: string | null;
-  /** 完整称呼表：{ S0: "老孙", S1: "汇报人" }。发布时写进各录音的 speaker_labels_json。 */
+  /** 完整称呼表：{ S0: "老孙", S1: "汇报人" }。发布时写进这段录音的 speaker_labels_json。 */
   labels: Record<string, string>;
 };
+
+/** 录音 id → 这段录音的说话人认定。 */
+export type RetroSpeakers = Record<string, RetroRecordingSpeakers>;
+
+export function isFounderSegment(speakers: RetroSpeakers | null | undefined, recordingId: string, speakerId: string): boolean {
+  const founder = speakers?.[recordingId]?.founder;
+  return Boolean(founder) && founder === speakerId;
+}
 
 export type RetroCorrection = { recordingId: string; segmentId: number; from: string; to: string };
 
@@ -223,19 +236,57 @@ export function normalizeCandidateFields(raw: Record<string, unknown>):
 // 主函数
 // ---------------------------------------------------------------------------
 
-function normalizeSpeakers(raw: unknown, ctx: CaseRefContext, dropped: string[]): RetroSpeakers {
+type SpeakerRecording = { recordingId: string; partNo: number; segments: ReadonlyArray<{ speakerId: string; text: string }> };
+
+/** "2:S1" → { partNo: 2, speakerId: "S1" }；只有一段录音时也认裸的 "S1"。 */
+function parseSpeakerKey(value: unknown, singlePart: number | null): { partNo: number; speakerId: string } | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  const keyed = /^(\d+)\s*[:：]\s*(S\d+)$/i.exec(text);
+  if (keyed) return { partNo: Number(keyed[1]), speakerId: keyed[2].toUpperCase() };
+  const bare = /^(S\d+)$/i.exec(text);
+  return bare && singlePart != null ? { partNo: singlePart, speakerId: bare[1].toUpperCase() } : null;
+}
+
+/**
+ * 按录音归一说话人认定。模型输出 `{ founder: ["1:S0", "2:S1"], labels: { "1:S1": "汇报人" } }`：
+ * 键是「段号:标签」。某段录音没认出老孙时记进 dropped；fallbackDominant 时按这段里说得最多的人兜底（整场总结用）。
+ */
+export function normalizeRecordingSpeakers(
+  raw: unknown,
+  recordings: readonly SpeakerRecording[],
+  dropped: string[],
+  options: { label: string; fallbackDominant: boolean },
+): RetroSpeakers {
   const record = asRecord(raw);
-  const present = new Set(ctx.index.map((ref) => ref.segment.speakerId));
-  const founder = typeof record.founder === "string" && present.has(record.founder.trim()) ? record.founder.trim() : null;
-  if (!founder) dropped.push(`说话人：没有认出老孙（founder=${String(record.founder)}），方法候选全部丢弃`);
-  const labels: Record<string, string> = {};
-  for (const [speakerId, label] of Object.entries(asRecord(record.labels))) {
-    if (!present.has(speakerId) || speakerId === founder) continue;
-    const text = clipText(label, 20);
-    if (text && text !== FOUNDER_LABEL) labels[speakerId] = text;
+  const singlePart = recordings.length === 1 ? recordings[0].partNo : null;
+  const byPart = new Map(recordings.map((recording) => [recording.partNo, recording]));
+  const founders = new Map<number, string>();
+  for (const value of Array.isArray(record.founder) ? record.founder : [record.founder]) {
+    const key = parseSpeakerKey(value, singlePart);
+    if (key && byPart.has(key.partNo) && !founders.has(key.partNo)) founders.set(key.partNo, key.speakerId);
   }
-  if (founder) labels[founder] = FOUNDER_LABEL;
-  return { founder, labels };
+  const result: RetroSpeakers = {};
+  for (const recording of recordings) {
+    const present = new Set(recording.segments.map((segment) => segment.speakerId));
+    let founder = founders.get(recording.partNo) ?? null;
+    if (founder && !present.has(founder)) founder = null;
+    if (!founder && options.fallbackDominant && recording.segments.length) {
+      founder = dominantSpeaker(recording.segments as Parameters<typeof dominantSpeaker>[0]);
+      dropped.push(`${options.label}第 ${recording.partNo} 段：模型没有认出老孙，按说得最多的 ${founder} 兜底`);
+    } else if (!founder) {
+      dropped.push(`${options.label}第 ${recording.partNo} 段：没有认出老孙（founder=${JSON.stringify(record.founder ?? null)}），这段录音的话不能作为方法候选的依据`);
+    }
+    const labels: Record<string, string> = {};
+    for (const [key, label] of Object.entries(asRecord(record.labels))) {
+      const parsed = parseSpeakerKey(key, singlePart);
+      if (!parsed || parsed.partNo !== recording.partNo || !present.has(parsed.speakerId) || parsed.speakerId === founder) continue;
+      const text = clipText(label, 20);
+      if (text && text !== FOUNDER_LABEL) labels[parsed.speakerId] = text;
+    }
+    if (founder) labels[founder] = FOUNDER_LABEL;
+    result[recording.recordingId] = { founder, labels };
+  }
+  return result;
 }
 
 type ItemRule = { section: string; idPrefix: string; allowClient: boolean };
@@ -268,7 +319,7 @@ function normalizeItems(raw: unknown, ctx: CaseRefContext, rule: ItemRule, dropp
   return items;
 }
 
-function normalizeMethods(raw: unknown, ctx: CaseRefContext, founder: string | null, dropped: string[]): RetroMethodCandidate[] {
+function normalizeMethods(raw: unknown, ctx: CaseRefContext, speakers: RetroSpeakers, dropped: string[]): RetroMethodCandidate[] {
   const methods: RetroMethodCandidate[] = [];
   asArray(raw).forEach((entry, index) => {
     const record = asRecord(entry);
@@ -281,7 +332,8 @@ function normalizeMethods(raw: unknown, ctx: CaseRefContext, founder: string | n
     const refs = resolveCaseRefs(record.segmentIds, ctx, false);
     if (refs.invalid.length) dropped.push(`${label}：剔除不存在的片段 ${refs.invalid.join("、")}`);
     if (refs.disallowedClient.length) dropped.push(`${label}：客户录音不能作为方法候选的依据，剔除 ${refs.disallowedClient.join("、")}`);
-    if (!founder || !refs.review.some((ref) => ref.segment.speakerId === founder)) {
+    // 按 (录音, 说话人) 判断：第 2 段的 S0 不一定是第 1 段的 S0。
+    if (!refs.review.some((ref) => isFounderSegment(speakers, ref.recordingId, ref.segment.speakerId))) {
       dropped.push(`${label}：没有引用老孙的原话，整条丢弃（${fields.value.title}）`);
       return;
     }
@@ -318,7 +370,7 @@ function normalizeCorrections(raw: unknown, ctx: CaseRefContext, dropped: string
 export function normalizeRetroExtraction(raw: Record<string, unknown>, item: RetroSnapshotCase): RetroExtractionResult {
   const ctx = caseRefContext(item);
   const dropped: string[] = [];
-  const speakers = normalizeSpeakers(raw.speakers, ctx, dropped);
+  const speakers = normalizeRecordingSpeakers(raw.speakers, item.recordings, dropped, { label: "点评录音", fallbackDominant: false });
   const review = asRecord(raw.review);
 
   const process = clipText(review.process, RETRO_LIMITS.draftTextMax);
@@ -331,7 +383,7 @@ export function normalizeRetroExtraction(raw: Record<string, unknown>, item: Ret
   const suggestions = normalizeItems(review.suggestions, ctx, { section: "review.suggestions", idPrefix: "s", allowClient: false }, dropped);
   const insights = normalizeItems(raw.insights, ctx, { section: "insights", idPrefix: "i", allowClient: false }, dropped);
   const actions = normalizeItems(raw.actions, ctx, { section: "actions", idPrefix: "a", allowClient: false }, dropped);
-  const methods = normalizeMethods(raw.methods, ctx, speakers.founder, dropped);
+  const methods = normalizeMethods(raw.methods, ctx, speakers, dropped);
   const corrections = normalizeCorrections(raw.corrections, ctx, dropped);
 
   const empty = !disputes.length && !founderPoints.length && !suggestions.length && !insights.length && !actions.length && !methods.length;

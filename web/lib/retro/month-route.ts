@@ -5,7 +5,8 @@ import { after } from "next/server";
 import { getDbClient } from "@/db";
 import { isRetroMonthKey } from "@/lib/retro-model";
 import { retroForbidden, retroNotFound } from "./errors";
-import { readRetroAiConfig, type RetroAiConfig } from "./month-config";
+import { isLocalDemoMode } from "@/lib/local-demo";
+import { readRetroAiConfig, resolveRetroRelayOrigin, type RetroAiConfig } from "./month-config";
 import { createRetroLlmProvider } from "./month-providers";
 import { advanceAndRelay } from "./month-relay";
 import { RETRO_MONTH_DEADLINE_MS, RETRO_REVIEWER_ONLY, type RetroMonthDeps } from "./month-service";
@@ -26,16 +27,10 @@ export function createRetroMonthDeps(config: RetroAiConfig = readRetroAiConfig()
 
 /**
  * 响应发出后推进一次（规格 6.3），deadline = 请求开始 + 280 秒，配合路由的 maxDuration = 300；
- * 任务还在途就向自己的 advance 接口接力。同源绝对地址从请求推出。
+ * 任务还在途就向自己的 advance 接口接力。地址取 APP_URL / VERCEL_URL，本机演示模式才用请求自己的 origin。
  */
 export function scheduleRetroMonthAdvance(input: { request: Request; monthKey: string; jobId: string; startedAt: number }) {
-  const origin = (() => {
-    try {
-      return new URL(input.request.url).origin;
-    } catch {
-      return null;
-    }
-  })();
+  const origin = resolveRetroRelayOrigin(process.env, isLocalDemoMode(), input.request.url);
   after(async () => {
     try {
       const config = readRetroAiConfig();

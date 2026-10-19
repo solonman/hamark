@@ -6,8 +6,10 @@
 import type { DbClient, QueryResultRow } from "@/db";
 import { parseStoredTranscript } from "@/lib/audio-review/transcript";
 import {
+  RETRO_LIMITS,
   retroCaseNumbers,
   type RetroGeneratePreconditions,
+  type RetroJobStatus,
   type RetroLinkKind,
   type RetroRecordingBadge,
   type RetroRecordingStatus,
@@ -16,6 +18,7 @@ import {
 import { RETRO_RECORDING_COLUMNS, type RetroRecordingRow } from "./views";
 import {
   truncateClientAudio,
+  truncateRecordings,
   type RetroGenerateSnapshot,
   type RetroSnapshotCase,
   type RetroSnapshotLink,
@@ -73,7 +76,7 @@ export type RetroMonthRecordingFact = {
   row: RetroRecordingRow;
 };
 
-export type RetroMonthClientAudioFact = { id: string; caseId: string; uploadStatus: string; transcribeStatus: string };
+export type RetroMonthClientAudioFact = { id: string; caseId: string; uploadStatus: string; transcribeStatus: string; createdAt: string };
 
 export type RetroMonthFacts = {
   monthKey: string;
@@ -100,10 +103,10 @@ export async function loadRetroMonthFacts(db: DbClient, monthKey: string): Promi
     FROM retro_recordings WHERE month_key = ? ORDER BY case_id NULLS LAST, part_no ASC, created_at ASC`,
   ).bind(monthKey).all<RecordingRow>()).results;
   const assetRows = (await db.prepare(
-    `SELECT a.id, a.case_id, a.upload_status, a.transcribe_status
+    `SELECT a.id, a.case_id, a.upload_status, a.transcribe_status, a.created_at
     FROM retro_case_assets a JOIN retro_cases c ON c.id = a.case_id
     WHERE c.month_key = ? AND c.deleted_at IS NULL AND a.type = 'AUDIO'`,
-  ).bind(monthKey).all<QueryResultRow & { id: string; case_id: string; upload_status: string; transcribe_status: string }>()).results;
+  ).bind(monthKey).all<QueryResultRow & { id: string; case_id: string; upload_status: string; transcribe_status: string; created_at: unknown }>()).results;
 
   return {
     monthKey,
@@ -132,7 +135,9 @@ export async function loadRetroMonthFacts(db: DbClient, monthKey: string): Promi
       segments: row.status === "READY" ? parseRetroTranscriptSegments(row.transcript_json) : null,
       row,
     })),
-    clientAudio: assetRows.map((row) => ({ id: row.id, caseId: row.case_id, uploadStatus: row.upload_status, transcribeStatus: row.transcribe_status })),
+    clientAudio: assetRows.map((row) => ({
+      id: row.id, caseId: row.case_id, uploadStatus: row.upload_status, transcribeStatus: row.transcribe_status, createdAt: toIso(row.created_at),
+    })),
   };
 }
 
@@ -147,32 +152,58 @@ export function retroRecordingBadge(recordings: readonly RetroMonthRecordingFact
   return { state: "READY", parts: active.length, durationMs: active.reduce((sum, recording) => sum + (recording.durationMs ?? 0), 0) };
 }
 
-const isProcessing = (status: RetroRecordingStatus) => status === "UPLOADING" || status === "TRANSCRIBING";
+/** 上传到一半被放弃的：UPLOADING 超过 1 小时，不算「还在上传」，也不挡生成（B1 会把它们懒置为 FAILED）。 */
+export const RETRO_STALE_UPLOAD_MS = 60 * 60 * 1000;
 
-/** 客户录音还没到终态：上传中、转写中，或者传完还没开始转写。 */
-const clientAudioPending = (asset: RetroMonthClientAudioFact) =>
-  asset.uploadStatus === "UPLOADING" || asset.transcribeStatus === "TRANSCRIBING" || asset.transcribeStatus === "NONE";
+const isStaleUpload = (uploadStatus: string, createdAt: string, nowMs: number) => {
+  if (uploadStatus !== "UPLOADING") return false;
+  const created = Date.parse(createdAt);
+  return Number.isFinite(created) && nowMs - created > RETRO_STALE_UPLOAD_MS;
+};
 
-/** 生成前提（规格 6.1）。hasLiveJob：本月已有未结束的整理任务。 */
-export function computeRetroPreconditions(facts: RetroMonthFacts, hasLiveJob: boolean): RetroGeneratePreconditions {
+const isProcessing = (recording: RetroMonthRecordingFact, nowMs: number) =>
+  recording.status === "TRANSCRIBING" || (recording.status === "UPLOADING" && !isStaleUpload("UPLOADING", recording.createdAt, nowMs));
+
+/** 客户录音还没到终态：上传中（未过期）、转写中，或者传完还没开始转写。 */
+const clientAudioPending = (asset: RetroMonthClientAudioFact, nowMs: number) =>
+  asset.uploadStatus === "UPLOADING"
+    ? !isStaleUpload(asset.uploadStatus, asset.createdAt, nowMs)
+    : asset.transcribeStatus === "TRANSCRIBING" || asset.transcribeStatus === "NONE";
+
+export type RetroLiveJobFact = { status: RetroJobStatus } | null;
+
+/**
+ * 生成前提（规格 6.1）。
+ * - canGenerate / blockedReason：现在能不能新开一个任务（有在途任务时不能）；
+ * - canRegenerate / regenerateBlockedReason：在途任务是待审阅或失败时，能不能「重新生成」替换它——
+ *   排除这个任务自己，其余前提照算（审查意见 1）。
+ */
+export function computeRetroPreconditions(facts: RetroMonthFacts, liveJob: RetroLiveJobFact, nowMs: number = Date.now()): RetroGeneratePreconditions {
   const live = liveRetroCases(facts);
   const liveIds = new Set(live.map((item) => item.id));
   const reviewRecordings = facts.recordings.filter((recording) => recording.status !== "REMOVED" && (recording.caseId == null || liveIds.has(recording.caseId)));
   const recordedCaseCount = live.filter((item) => reviewRecordings.some((recording) => recording.caseId === item.id && recording.status === "READY")).length;
-  const reviewRecordingsProcessing = reviewRecordings.filter((recording) => isProcessing(recording.status)).length;
+  const reviewRecordingsProcessing = reviewRecordings.filter((recording) => isProcessing(recording, nowMs)).length;
   const summaryParts = reviewRecordings.filter((recording) => recording.caseId == null && recording.status === "READY").length;
+  const transcribing = facts.clientAudio.filter((asset) => clientAudioPending(asset, nowMs)).length;
   const clientAudio = {
     total: facts.clientAudio.length,
     ready: facts.clientAudio.filter((asset) => asset.uploadStatus !== "UPLOADING" && asset.transcribeStatus === "READY").length,
-    transcribing: facts.clientAudio.filter(clientAudioPending).length,
-    failed: facts.clientAudio.filter((asset) => asset.uploadStatus !== "UPLOADING" && asset.transcribeStatus === "FAILED").length,
+    transcribing,
+    // 过期的半截上传算失败：它不会进入提炼。
+    failed: facts.clientAudio.filter((asset) =>
+      (asset.uploadStatus !== "UPLOADING" && asset.transcribeStatus === "FAILED") || isStaleUpload(asset.uploadStatus, asset.createdAt, nowMs)).length,
   };
-  let blockedReason: string | null = null;
-  if (hasLiveJob) blockedReason = "本月已有一个整理任务，先完成或放弃它。";
-  else if (!live.length) blockedReason = "本月还没有案例。";
-  else if (!recordedCaseCount) blockedReason = "还没有任何案例的点评录音转写完成。";
-  else if (reviewRecordingsProcessing) blockedReason = `有 ${reviewRecordingsProcessing} 段点评录音还在上传或转写，等它们完成后再生成。`;
-  else if (clientAudio.transcribing) blockedReason = `有 ${clientAudio.transcribing} 段客户录音还在上传或转写，等它们完成后再生成。`;
+  let inputBlocked: string | null = null;
+  if (!live.length) inputBlocked = "本月还没有案例。";
+  else if (!recordedCaseCount) inputBlocked = "还没有任何案例的点评录音转写完成。";
+  else if (reviewRecordingsProcessing) inputBlocked = `有 ${reviewRecordingsProcessing} 段点评录音还在上传或转写，等它们完成后再生成。`;
+  else if (transcribing) inputBlocked = `有 ${transcribing} 段客户录音还在上传或转写，等它们完成后再生成。`;
+  const blockedReason = liveJob ? "本月已有一个整理任务，先完成或放弃它。" : inputBlocked;
+  let regenerateBlockedReason: string | null;
+  if (!liveJob) regenerateBlockedReason = "没有可以替换的整理任务。";
+  else if (liveJob.status !== "PENDING_REVIEW" && liveJob.status !== "FAILED") regenerateBlockedReason = "整理还在进行，等它完成或放弃后再重新生成。";
+  else regenerateBlockedReason = inputBlocked;
   return {
     caseCount: live.length,
     recordedCaseCount,
@@ -182,6 +213,8 @@ export function computeRetroPreconditions(facts: RetroMonthFacts, hasLiveJob: bo
     clientAudio,
     canGenerate: blockedReason == null,
     blockedReason,
+    canRegenerate: regenerateBlockedReason == null,
+    regenerateBlockedReason,
   };
 }
 
@@ -339,7 +372,10 @@ export async function buildRetroGenerateSnapshot(db: DbClient, monthKey: string,
           .filter(Boolean),
       })),
       clientAudio: truncateClientAudio(audio),
-      recordings: recordingRows.filter((recording) => recording.case_id === row.id).map(toRecording).filter((recording) => recording.segments.length),
+      recordings: truncateRecordings(
+        recordingRows.filter((recording) => recording.case_id === row.id).map(toRecording).filter((recording) => recording.segments.length),
+        RETRO_LIMITS.reviewTranscriptCharsPerCase,
+      ),
     };
   }).sort((a, b) => a.number - b.number);
 
@@ -349,6 +385,9 @@ export async function buildRetroGenerateSnapshot(db: DbClient, monthKey: string,
     capturedAt: now.toISOString(),
     caseNumbers,
     cases,
-    summaryRecordings: recordingRows.filter((recording) => recording.case_id == null).map(toRecording).filter((recording) => recording.segments.length),
+    summaryRecordings: truncateRecordings(
+      recordingRows.filter((recording) => recording.case_id == null).map(toRecording).filter((recording) => recording.segments.length),
+      RETRO_LIMITS.summaryTranscriptChars,
+    ),
   };
 }
