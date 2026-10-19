@@ -691,3 +691,11 @@ export type RetroRecordingResponse = { recording: RetroRecordingView };
 
 /** 回收站、删除回合、删除附件、回合排序的响应。 */
 export type RetroOkResponse = { ok: true };
+
+// 月度整理接口的返回（/api/retro-months/**）：GET 月份页直接返回 RetroMonthView，GET publications/[n] 直接返回 RetroPublicationView。
+/** POST jobs → 201。待审阅时「重新生成」= 先 ABANDON 当前任务，再 POST GENERATE（直接 GENERATE 会 409）。 */
+export type RetroStartJobResponse = { job: RetroJobView };
+/** POST jobs/[jobId]（RETRY / ABANDON / PUBLISH）；PUBLISH 时带 publicationVersion。 */
+export type RetroJobActionResponse = { job: RetroJobView; publicationVersion?: number };
+/** PATCH jobs/[jobId]/draft；ADD 时 itemId 是新条目的 id。 */
+export type RetroDraftPatchResponse = { job: RetroJobView; itemId: string | null };
