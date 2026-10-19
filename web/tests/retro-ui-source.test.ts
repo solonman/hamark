@@ -217,8 +217,8 @@ test("「重新生成」 is one atomic call with replaceJobId, gated by canRegen
   assert.match(month, /retroRegenerateGate\(/);
   const start = month.slice(month.indexOf("async function startGenerate"), month.indexOf("function requestGenerate"));
   assert.doesNotMatch(start, /"ABANDON"/);
-  const client = await read("lib/retro-client.ts");
-  assert.match(client, /replaceJobId\?: string/);
+  const model = await read("lib/retro-model.ts");
+  assert.match(model, /export type RetroStartJobRequest = \{[^}]*replaceJobId\?: string/);
 });
 
 test("recording dialog: only a failed PUT or a cancel removes the row; a failed UPLOADED keeps it and offers 重试收尾", async () => {
