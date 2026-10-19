@@ -2,8 +2,8 @@
 // 写法照 lib/audio-review-model.ts 末尾的 createAudioReviewApiClient：同源、不缓存、带 X-Request-Id，
 // 失败统一抛 V04UiApiError（带 HTTP 状态和中文原因）。
 //
-// 返回值解包是宽松的（`{ case: … }` 与裸对象都认），因为路由是另一组人写的；写操作成功后调用方一律重新读详情，
-// 不依赖写接口返回什么，这样接口返回体怎么调整都不影响前端。
+// 返回体形状见 lib/retro-model.ts 末尾的 Retro*Response；解包仍然宽松（`{ case: … }` 与裸对象都认）。
+// 失焦保存（PATCH 案例／回合）只回 revision 和归一后的值，调用方只并这几项，不整份覆盖。
 
 import { V04UiApiError } from "@/lib/v04-ui-api-client";
 import type {
@@ -13,6 +13,7 @@ import type {
   RetroCompleteAssetsResponse,
   RetroCreateCaseResponse,
   RetroCreateRecordingRequest,
+  RetroCreateRoundResponse,
   RetroCreateRecordingResponse,
   RetroDraftPatchRequest,
   RetroJobAction,
@@ -21,7 +22,9 @@ import type {
   RetroMonthView,
   RetroNewAssetInput,
   RetroPatchCaseRequest,
+  RetroPatchCaseResponse,
   RetroPatchRoundRequest,
+  RetroPatchRoundResponse,
   RetroPublicationView,
   RetroRecordingAction,
   RetroRecordingView,
@@ -106,14 +109,15 @@ export function createRetroApiClient(fetcher: FetchLike = fetch) {
 
     // ---- 案例 ----
     getCase: async (caseId: string, signal?: AbortSignal) => unwrapRetro<RetroCaseDetail>(await request(caseBase(caseId), { signal }), "case"),
-    patchCase: (caseId: string, body: RetroPatchCaseRequest) => request(caseBase(caseId), { method: "PATCH", body }),
+    /** 只回新的 revision 和归一后的值，不回整份详情。 */
+    patchCase: (caseId: string, body: RetroPatchCaseRequest) => request<RetroPatchCaseResponse>(caseBase(caseId), { method: "PATCH", body }),
     trashCase: (caseId: string) => request(caseBase(caseId, "/trash"), { method: "POST" }),
     restoreCase: (caseId: string) => request(caseBase(caseId, "/restore"), { method: "POST" }),
 
     // ---- 回合 ----
-    createRound: (caseId: string) => request(caseBase(caseId, "/rounds"), { method: "POST", body: {} }),
+    createRound: (caseId: string) => request<RetroCreateRoundResponse>(caseBase(caseId, "/rounds"), { method: "POST", body: {} }),
     patchRound: (caseId: string, roundId: string, body: RetroPatchRoundRequest) =>
-      request(caseBase(caseId, `/rounds/${enc(roundId)}`), { method: "PATCH", body }),
+      request<RetroPatchRoundResponse>(caseBase(caseId, `/rounds/${enc(roundId)}`), { method: "PATCH", body }),
     deleteRound: (caseId: string, roundId: string) => request(caseBase(caseId, `/rounds/${enc(roundId)}`), { method: "DELETE" }),
     orderRounds: (caseId: string, roundIds: string[]) => request(caseBase(caseId, "/round-order"), { method: "PATCH", body: { roundIds } }),
     putLinks: (caseId: string, roundId: string, links: { kind: RetroLinkKind; targetId: string }[]) =>

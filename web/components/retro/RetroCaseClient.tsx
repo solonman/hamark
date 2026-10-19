@@ -244,12 +244,14 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     applyDetail({ ...current, [field]: value });
     void enqueue(async () => {
       try {
-        await retroApi.patchCase(caseId, { [field]: value, revision: detailRef.current?.revision ?? current.revision } as RetroPatchCaseRequest);
-        await reload();
+        const saved = await retroApi.patchCase(caseId, { [field]: value, revision: detailRef.current?.revision ?? current.revision } as RetroPatchCaseRequest);
+        // 只并 revision、updatedAt 和这一项归一后的值：整份覆盖会冲掉别的字段里还没提交的输入。
+        const latest = detailRef.current;
+        if (latest) applyDetail({ ...latest, revision: saved.revision, updatedAt: saved.updatedAt, [field]: saved[field] });
         flashSaved(`case:${field}`);
       } catch (reason) { await onMutationError(reason); }
     });
-  }, [applyDetail, caseId, enqueue, flashSaved, notify, onMutationError, reload]);
+  }, [applyDetail, caseId, enqueue, flashSaved, notify, onMutationError]);
 
   const saveRoundField = useCallback((round: RetroRoundView, field: RetroRoundTextField, value: string) => {
     const current = detailRef.current;
@@ -264,23 +266,28 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
       try {
         const latest = detailRef.current?.rounds.find((item) => item.id === round.id) ?? round;
         const body = { [field]: value, revision: latest.revision } as RetroPatchRoundRequest;
-        await retroApi.patchRound(caseId, round.id, body);
-        await reload();
+        const saved = await retroApi.patchRound(caseId, round.id, body);
+        const latestDetail = detailRef.current;
+        if (latestDetail && saved?.round) {
+          applyDetail({
+            ...latestDetail,
+            rounds: latestDetail.rounds.map((item) => (item.id === round.id ? { ...item, revision: saved.round.revision, [field]: saved.round[field] } : item)),
+          });
+        }
         flashSaved(`${round.id}:${field}`);
       } catch (reason) { await onMutationError(reason); }
     });
-  }, [applyDetail, caseId, enqueue, flashSaved, notify, onMutationError, reload]);
+  }, [applyDetail, caseId, enqueue, flashSaved, notify, onMutationError]);
 
   const addRound = useCallback(() => {
     void enqueue(async () => {
       try {
-        const before = new Set((detailRef.current?.rounds ?? []).map((round) => round.id));
-        await retroApi.createRound(caseId);
-        const next = await retroApi.getCase(caseId);
+        const created = (await retroApi.createRound(caseId)).round;
+        const latest = detailRef.current;
+        if (!latest) return;
         // 新回合的光标落在「我们交了什么」：先记下要聚焦的字段，再 setDetail，渲染后由上面的 effect 点开它。
-        const created = next.rounds.find((round) => !before.has(round.id));
-        if (created) pendingFocus.current = `retro-round-${created.id}-deliveryText`;
-        applyDetail(next);
+        pendingFocus.current = `retro-round-${created.id}-deliveryText`;
+        applyDetail({ ...latest, rounds: [...latest.rounds, created] });
       } catch (reason) { await onMutationError(reason); }
     });
   }, [applyDetail, caseId, enqueue, onMutationError]);

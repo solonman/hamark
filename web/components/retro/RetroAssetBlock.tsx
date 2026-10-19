@@ -4,7 +4,7 @@ import { useRef, useState, type JSX } from "react";
 import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { retroApi, retroReasonText } from "@/lib/retro-client";
-import { RETRO_FILE_ACCEPT, RETRO_FILE_TYPES_HINT, RETRO_LIMITS, formatRetroClock, type RetroAssetView, type RetroNewAssetInput } from "@/lib/retro-model";
+import { RETRO_FILE_ACCEPT, RETRO_LIMITS, formatRetroClock, type RetroAssetView, type RetroNewAssetInput } from "@/lib/retro-model";
 import { buildClientTranscript, checkRetroAttachFile, docFormatLabel, remainingRetroAssetSlots } from "@/lib/retro-ui";
 import { AudioReviewIcon } from "../v04/V19AudioReviewParts";
 import RetroAudioPanel, { type RetroAudioSeekRequest } from "./RetroAudioPanel";
@@ -326,7 +326,6 @@ export default function RetroAssetBlock({
         </div>
       ) : null}
       {failedCount ? <p className={styles.formErrorText}>有 {failedCount} 个没传上：可以在格子上重传，或者去掉。</p> : null}
-      {editable && !sorted.length ? <p className={styles.recNote}>{RETRO_FILE_TYPES_HINT}；PDF 在线打开，Word、Excel、PPT 点开是下载；音频传完自动转写，文字稿全员可见，也会进入 AI 提炼。</p> : null}
       <DeleteConfirmDialog
         open={removing !== null}
         heading="移除附件"
