@@ -29,7 +29,7 @@ import {
   type V19VersionKind,
   type V19VersionSummary,
 } from "@/lib/v19-ui-model";
-import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
+import { AUDIO_REVIEW_CRITIC_NAME, AUDIO_REVIEW_UPLOADER_NAMES, isAudioReviewUploader } from "@/lib/audio-review/access";
 import { audioReviewApi, type AudioReviewView } from "@/lib/audio-review-model";
 import {
   audioReviewForVersion,
@@ -114,19 +114,19 @@ export type V19EditGuardDecision =
  * version — the final version has no owner, so `current.isMine` is always
  * false there and must not trigger the ordinary fork-redirect below.
  *
- * 点评版（docs/25 五、3）：`isMine` 恒为 false（它不是谁的「我的版本」），所以
- * 归属人（老孙）要靠 `ownerUserId === viewerUserId` 认出来——他直接改点评版本身，
- * 保存时 `basedOnVersionId` 就是点评版。其他人照改别人版本的规则：已有自己的
- * 版本就切回去；还没有就照常编辑，服务端以点评版为底新建他的版本。
+ * 点评版（docs/25 五、3）：`isMine` 恒为 false（它不是谁的「我的版本」）。点评版只有一个，
+ * 由上传名单里的人（老孙、秦欣欣）共用：`canEditReview` 为真时直接改点评版本身，保存时
+ * `basedOnVersionId` 就是点评版。其他人照改别人版本的规则：已有自己的版本就切回去；
+ * 还没有就照常编辑，服务端以点评版为底新建他的版本。
  */
 export function resolveV19EditGuard(
-  current: { isMine: boolean; isFinal?: boolean; kind?: V19VersionKind; ownerUserId?: string },
+  current: { isMine: boolean; isFinal?: boolean; kind?: V19VersionKind },
   myVersionId: string | null,
   canEditFinal?: boolean,
-  viewerUserId?: string,
+  canEditReview?: boolean,
 ): V19EditGuardDecision {
   if (current.isFinal) return canEditFinal ? { action: "PROCEED" } : { action: "BLOCKED_FINAL" };
-  if (current.kind === "AUDIO_REVIEW" && viewerUserId && current.ownerUserId === viewerUserId) return { action: "PROCEED" };
+  if (current.kind === "AUDIO_REVIEW" && canEditReview) return { action: "PROCEED" };
   if (current.isMine) return { action: "PROCEED" };
   if (myVersionId) return { action: "SWITCH_TO_OWN", versionId: myVersionId };
   return { action: "PROCEED" };
@@ -325,7 +325,7 @@ function draftAsSavedPayload(model: V19StudioModel, draft: V04UiDraft) {
   return preserveV19UntouchedPerceptionPath(v04UiDraftToPayload(draft, model.current.payload), model.current.payload);
 }
 
-// 点评版视角下正文的「依据 意见 N」「老孙已手改」（docs/25 七、6）。和 computeV19Diff
+// 点评版视角下正文的「依据 意见 N」「已手改」（docs/25 七、6）。和 computeV19Diff
 // 一样放在组件外：理由见上面那段关于 React Compiler 与 `.current` 的说明。
 function computeV19ReviewBasis(
   model: V19StudioModel | null,
@@ -542,9 +542,8 @@ export default function V04StudioClient({
     versionId: string | null,
     options?: {
       /** true：每人一个版本的切回提示；"review"：从点评版上动手被切回自己的版本。 */
-      /** "review"：从点评版切回自己的版本，`reviewOwnerName` 是那份点评版的归属人。 */
+      /** "review"：从点评版切回自己的版本（点评版只有上传名单里的人能直接改）。 */
       announce?: boolean | "review";
-      reviewOwnerName?: string;
       /** 进入点评版：自动打开比较并跳到第一处（docs/25 二、9）。 */
       compare?: boolean;
     },
@@ -560,7 +559,7 @@ export default function V04StudioClient({
           ownerIsUploader: false,
         });
         pushToast(options.announce === "review"
-          ? `点评版只有${options.reviewOwnerName || AUDIO_REVIEW_CRITIC_NAME}可以直接改：已切换到你的版本 ${label}，请在此继续编辑`
+          ? `点评版只有${AUDIO_REVIEW_UPLOADER_NAMES.join("、")}可以直接改：已切换到你的版本 ${label}，请在此继续编辑`
           : `每人只有一个版本：已切换到你的版本 ${label}，请在此继续编辑`);
       }
       if (options?.compare && next.current.baseNumber !== null) {
@@ -590,17 +589,17 @@ export default function V04StudioClient({
   const interceptForeignEdit = useCallback((): boolean => {
     const current = modelRef.current;
     if (!current) return false;
-    const decision = resolveV19EditGuard(current.current, current.myVersionId, current.viewerCapabilities.canEdit, viewerUserId);
+    const decision = resolveV19EditGuard(
+      current.current, current.myVersionId, current.viewerCapabilities.canEdit, isAudioReviewUploader(viewerName),
+    );
     if (decision.action === "PROCEED") return false;
     if (decision.action === "BLOCKED_FINAL") {
       pushToast("集成版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入集成版");
       return true;
     }
-    void switchToVersion(decision.versionId, current.current.kind === "AUDIO_REVIEW"
-      ? { announce: "review", reviewOwnerName: current.current.ownerName }
-      : { announce: true });
+    void switchToVersion(decision.versionId, { announce: current.current.kind === "AUDIO_REVIEW" ? "review" : true });
     return true;
-  }, [switchToVersion, pushToast, viewerUserId]);
+  }, [switchToVersion, pushToast, viewerName]);
 
   // Best-effort background refresh after a save auto-creates the viewer's
   // version: only refreshes the version list / myVersionId so the panel
@@ -1857,7 +1856,7 @@ export default function V04StudioClient({
                 ))}
                 <p className={styles.versionNote}>
                   进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。
-                  {hasReviewVersions && "点评版只有上传确认它的人可以直接改；其他人在上面编辑，改动进自己的版本。"}
+                  {hasReviewVersions && `点评版只有${AUDIO_REVIEW_UPLOADER_NAMES.join("、")}可以直接改；其他人在上面编辑，改动进自己的版本。`}
                 </p>
               </div>
             )}
@@ -2191,7 +2190,6 @@ export default function V04StudioClient({
             }}
             final={finalContext}
             reviewBasis={isReviewVersionView && diffOn ? reviewBasis : undefined}
-            reviewOwnerName={isReviewVersionView ? model.current.ownerName : undefined}
           />
           {/* 打分放在正文末尾：读完整份作业才谈得上给分。集成版、点评版都不评分——
               星级只锚定个人版本，`review.canRate` 与集成版／点评版视角都会关掉它（docs/25 二、8）。 */}

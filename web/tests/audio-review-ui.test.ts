@@ -1,5 +1,5 @@
 // 纯函数单测：录音点评改写的前端推导（页头入口形态、轮询并回、确认面板分组、
-// 点评版正文的「依据」与「老孙已手改」、文字稿校正词切分）。见 lib/audio-review-ui.ts
+// 点评版正文的「依据」与「已手改」、文字稿校正词切分）。见 lib/audio-review-ui.ts
 // 与 docs/25_录音点评改写_实施规格_V0.1.md 二、七。
 import assert from "node:assert/strict";
 import test from "node:test";

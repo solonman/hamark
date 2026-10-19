@@ -140,12 +140,10 @@ export type V19StudioDocumentProps = {
    * 点评版视角下比较开启时传入（docs/25 七、6）：键是提案的细粒度键（普通条目就是
    * targetKey，主导路径细项是 `path.primaryDetails.<sub>`，辅助路径是
    * `path.auxiliaryTypes.<TYPE>.description|creativeRole`）。差异标记旁画「依据 意见 N」，
-   * `title` 是意见摘要；当前值已不是提案写法的另标「老孙已手改」。有差异却不在
-   * 提案里的处，只可能是生成后手改出来的，同样标「老孙已手改」。缺省即普通版本的样子。
+   * `title` 是意见摘要；当前值已不是提案写法的另标「已手改」。有差异却不在
+   * 提案里的处，只可能是生成后手改出来的，同样标「已手改」。缺省即普通版本的样子。
    */
   reviewBasis?: ReadonlyMap<string, V19ReviewBasisEntry>;
-  /** 点评版的归属人（老孙本人，或替他上传的秦欣欣），拼进「X已手改」。缺省按老孙。 */
-  reviewOwnerName?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -446,7 +444,6 @@ export default function V19StudioDocument({
   final,
   caseTitle,
   reviewBasis,
-  reviewOwnerName,
 }: V19StudioDocumentProps): JSX.Element {
   const setFactText = (key: "commercialIntent" | "storySummary" | "creativeMotif" | "tensionButton" | "creativeThinkingChain" | "carrierExplanation" | "creativeContract" | "gradeReason") =>
     (value: string) => onChange((next) => { next[key] = value; });
@@ -606,7 +603,8 @@ export default function V19StudioDocument({
   function basisBadges(keys: readonly string[], changed = true): ReactNode {
     if (!reviewBasis || !diff || !changed) return undefined;
     const entry = keys.map((key) => reviewBasis.get(key)).find((item): item is V19ReviewBasisEntry => Boolean(item));
-    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>{reviewOwnerName || AUDIO_REVIEW_CRITIC_NAME}已手改</span>;
+    // 点评版由老孙、秦欣欣共用，生成后谁改的都算手改，不点名。
+    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>已手改</span>;
     if (!entry) return handEdited;
     return (
       <>

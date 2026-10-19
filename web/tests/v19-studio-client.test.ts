@@ -140,7 +140,7 @@ test("source: finalContext's trace fields degrade to null/empty instead of requi
 
 test("source: interceptForeignEdit toasts the exact spec 五、16 message for a blocked final-version edit, and never redirects it", () => {
   const guardMatch = source.match(
-    /const interceptForeignEdit = useCallback\(\(\): boolean => \{([\s\S]*?)\n {2}\}, \[switchToVersion, pushToast, viewerUserId\]\);/,
+    /const interceptForeignEdit = useCallback\(\(\): boolean => \{([\s\S]*?)\n {2}\}, \[switchToVersion, pushToast, viewerName\]\);/,
   );
   assert.ok(guardMatch, "expected to find interceptForeignEdit");
   const body = guardMatch[1];
@@ -508,23 +508,23 @@ test("style: the studio header's grid yields its middle (title) column first, so
 // ---------------------------------------------------------------------------
 
 type GuardCurrent = Parameters<typeof resolveV19EditGuard>[0];
-const reviewVersion: GuardCurrent = { isMine: false, kind: "AUDIO_REVIEW", ownerUserId: "u-sun" };
+const reviewVersion: GuardCurrent = { isMine: false, kind: "AUDIO_REVIEW" };
 
-test("resolveV19EditGuard：点评版的归属人（老孙）直接编辑点评版本身，即使他另有个人版本也不被切走", () => {
-  assert.deepEqual(resolveV19EditGuard(reviewVersion, null, true, "u-sun"), { action: "PROCEED" });
-  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-sun-personal", true, "u-sun"), { action: "PROCEED" });
+test("resolveV19EditGuard：点评版由上传名单里的人（老孙、秦欣欣）共用，直接编辑点评版本身，另有个人版本也不被切走", () => {
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, null, true, true), { action: "PROCEED" });
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-sun-personal", true, true), { action: "PROCEED" });
 });
 
-test("resolveV19EditGuard：其他人在点评版上动手照改别人版本的规则——有自己的版本就切回，没有就照常编辑（服务端以点评版为底新建）", () => {
-  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-wang", true, "u-wang"), { action: "SWITCH_TO_OWN", versionId: "ver-wang" });
-  assert.deepEqual(resolveV19EditGuard(reviewVersion, null, true, "u-chen"), { action: "PROCEED" });
-  // 没传看的人是谁（旧调用）：不会误认成归属人
+test("resolveV19EditGuard：名单外的人在点评版上动手照改别人版本的规则——有自己的版本就切回，没有就照常编辑（服务端以点评版为底新建）", () => {
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-wang", true, false), { action: "SWITCH_TO_OWN", versionId: "ver-wang" });
+  assert.deepEqual(resolveV19EditGuard(reviewVersion, null, true, false), { action: "PROCEED" });
+  // 没传能不能改点评版（旧调用）：按不能处理
   assert.deepEqual(resolveV19EditGuard(reviewVersion, "ver-wang"), { action: "SWITCH_TO_OWN", versionId: "ver-wang" });
 });
 
 test("resolveV19EditGuard：个人版本的规则不受点评版分支影响", () => {
-  assert.deepEqual(resolveV19EditGuard({ isMine: false, kind: "PERSONAL", ownerUserId: "u-sun" }, "ver-sun", true, "u-sun"),
-    { action: "SWITCH_TO_OWN", versionId: "ver-sun" }, "个人版本仍以 isMine 为准，ownerUserId 不参与");
+  assert.deepEqual(resolveV19EditGuard({ isMine: false, kind: "PERSONAL" }, "ver-sun", true, true),
+    { action: "SWITCH_TO_OWN", versionId: "ver-sun" }, "个人版本仍以 isMine 为准，能改点评版不影响个人版本");
 });
 
 test("buildV19VersionTree：点评版挂在被点评版本下面，同一层里排在其他派生版本前面", () => {

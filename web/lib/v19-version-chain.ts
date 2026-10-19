@@ -36,7 +36,7 @@ import {
   type LoadedFinalVersion,
 } from "./final-version";
 import type { V19ReviewCandidate } from "./audio-review-model";
-import { AUDIO_REVIEW_CRITIC_NAME } from "./audio-review/access";
+import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewUploader } from "./audio-review/access";
 
 const WORKFLOW = V04_WORKFLOW_VERSION;
 
@@ -672,8 +672,8 @@ async function resolveOrCreateActorVersion(
 
 /**
  * docs/25 五、1：保存先读 `basedOnVersionId` 指向的那一行。它是本工作区的点评版、
- * 且操作人就是它的归属人（老孙）时，这次改动直接写进点评版本身；其他情况——
- * 别人在点评版上动手，或老孙在别人的版本上动手——照旧走「每人一版」：
+ * 且操作人在上传名单里（老孙、秦欣欣，两人共用点评版）时，这次改动直接写进点评版本身；
+ * 其他情况——别人在点评版上动手，或名单里的人在别人的个人版本上动手——照旧走「每人一版」：
  * 写进操作人自己的个人版本，没有就以 `basedOnVersionId` 指向的版本（可以是点评版）为底新建。
  */
 async function resolveWriteTarget(
@@ -685,8 +685,10 @@ async function resolveWriteTarget(
 ): Promise<{ versionRow: AnalysisVersionRow; createdVersion: boolean }> {
   if (basedOnVersionId) {
     const requested = await findVersionById(db, basedOnVersionId);
+    // 点评版只有一个，由上传名单里的人（老孙、秦欣欣）共用：谁确认的都一样，名单里的人都直接写进它本身
+    //（owner_user_id 只记确认人）。
     if (requested && requested.workspace_id === workspace.id &&
-      !isPersonalVersionRow(requested) && requested.owner_user_id === actor.userId) {
+      !isPersonalVersionRow(requested) && isAudioReviewUploader(actor.displayName)) {
       return { versionRow: requested, createdVersion: false };
     }
   }

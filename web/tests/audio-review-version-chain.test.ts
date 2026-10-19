@@ -74,6 +74,7 @@ function actor(userId: string, displayName: string): V04Actor {
 const LAOSUN = actor("user_laosun", "老孙");
 const LIU = actor("user_liu", "刘梦娜");
 const ZHAO = actor("user_zhao", "赵雅诗");
+const QIN = actor("user_qin", "秦欣欣");
 
 function shot(id: string, orderIndex: number, overrides: Partial<V04ShotPayload> = {}): V04ShotPayload {
   return {
@@ -547,6 +548,25 @@ test("老孙 saving on his own review version writes into that row and never tou
   assert.equal(state.audits[0].detail.versionKind, "AUDIO_REVIEW");
   assert.deepEqual(touchesFinal(calls), [], "a review version never feeds 集成版");
   assert.equal(state.intakes.length, 0);
+});
+
+test("点评版由老孙、秦欣欣共用：秦欣欣在老孙确认的点评版上动手，也直接写进点评版本身，不给她新建个人版本", async () => {
+  const state = reviewedWorkspace({ final: finalRow(homework()) });
+  const { db, calls } = studioDb(state);
+  const result = await saveV19VersionChanges(db, QIN, {
+    videoId: "video1",
+    basedOnVersionId: "v3",
+    changeSetId: "cs_qin_review_edit",
+    changes: [change("facts.ratingReason", "节奏好", "节奏好，结尾收得软")],
+    now: NOW,
+  });
+  assert.equal(result.versionId, "v3");
+  assert.equal(result.versionKind, "AUDIO_REVIEW");
+  assert.equal(result.createdVersion, false);
+  assert.equal(state.versions.length, 3, "no personal version is created for 秦欣欣");
+  assert.equal(state.versions.find((row) => row.id === "v3")!.owner_user_id, LAOSUN.userId, "确认人不变，只是共用");
+  assert.equal((state.versions.find((row) => row.id === "v3")!.payload_json as V04DraftPayloadV1).factsAndCoreJudgement.ratingReason, "节奏好，结尾收得软");
+  assert.deepEqual(touchesFinal(calls), []);
 });
 
 test("replaying a review-version save stays off 集成版 too, and a no-op save on it does not intake either", async () => {
