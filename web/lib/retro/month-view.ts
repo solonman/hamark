@@ -10,6 +10,8 @@ import type {
   RetroMonthCaseRow,
   RetroMonthView,
   RetroPublicationView,
+  RetroRoundRefs,
+  RetroSource,
   RetroStoredPublicationCases,
   RetroStoredQuotes,
 } from "@/lib/retro-model";
@@ -36,6 +38,36 @@ import {
 import { analyzedCases, parseJsonColumn, parseRetroSnapshot } from "./month-snapshot";
 
 export type RetroMonthViewer = Pick<RetroViewer, "userId" | "displayName" | "isAdmin">;
+
+// ---------------------------------------------------------------------------
+// 回合标记（「第 N 版」）：出处里引用到的回合 → 所属案例与标题。读时现取，软删除的回合也算。
+// ---------------------------------------------------------------------------
+
+function referencedRoundIds(minutes: RetroMinutes, methods: RetroMethods): string[] {
+  const ids = new Set<string>();
+  const visit = (sources: readonly RetroSource[] | undefined) => {
+    for (const source of sources ?? []) {
+      if (source.kind === "REVIEW") for (const id of source.roundIds ?? []) ids.add(id);
+      else if (source.roundId) ids.add(source.roundId);
+    }
+  };
+  for (const review of minutes.cases) {
+    visit(review.processSources);
+    for (const item of [...review.disputes, ...review.founderPoints, ...review.suggestions]) visit(item.sources);
+  }
+  for (const item of [...minutes.insights, ...minutes.actions, ...methods.observations]) visit(item.sources);
+  for (const candidate of methods.candidates) visit(candidate.sources);
+  return [...ids];
+}
+
+export async function loadRetroRoundRefs(db: DbClient, minutes: RetroMinutes, methods: RetroMethods): Promise<RetroRoundRefs> {
+  const ids = referencedRoundIds(minutes, methods);
+  if (!ids.length) return {};
+  const rows = (await db.prepare(
+    `SELECT id, case_id, title FROM retro_case_rounds WHERE id IN (${ids.map(() => "?").join(", ")})`,
+  ).bind(...ids).all<QueryResultRow & { id: string; case_id: string; title: string }>()).results;
+  return Object.fromEntries(rows.map((row) => [row.id, { caseId: row.case_id, title: row.title }]));
+}
 
 // ---------------------------------------------------------------------------
 // 任务
@@ -77,7 +109,9 @@ async function revisingFromVersion(db: DbClient, row: RetroJobRow): Promise<numb
 }
 
 export async function loadRetroJobView(db: DbClient, row: RetroJobRow, viewer: { isReviewer: boolean }): Promise<RetroJobView> {
-  return toRetroJobView(row, { isReviewer: viewer.isReviewer, revisingFromVersion: await revisingFromVersion(db, row) });
+  const view = toRetroJobView(row, { isReviewer: viewer.isReviewer, revisingFromVersion: await revisingFromVersion(db, row) });
+  if (view.draft) view.draft.roundRefs = await loadRetroRoundRefs(db, view.draft.minutes, view.draft.methods);
+  return view;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,16 +151,20 @@ export function toRetroPublicationView(row: PublicationRow): RetroPublicationVie
   };
 }
 
+async function withRoundRefs(db: DbClient, view: RetroPublicationView): Promise<RetroPublicationView> {
+  return { ...view, roundRefs: await loadRetroRoundRefs(db, view.minutes, view.methods) };
+}
+
 export async function loadRetroPublication(db: DbClient, monthKey: string, versionNumber: number): Promise<RetroPublicationView | null> {
   const row = await db.prepare(`${PUBLICATION_SELECT} WHERE p.month_key = ? AND p.version_number = ?`)
     .bind(monthKey, versionNumber).first<PublicationRow>();
-  return row ? toRetroPublicationView(row) : null;
+  return row ? withRoundRefs(db, toRetroPublicationView(row)) : null;
 }
 
 export async function loadLatestRetroPublication(db: DbClient, monthKey: string): Promise<RetroPublicationView | null> {
   const row = await db.prepare(`${PUBLICATION_SELECT} WHERE p.month_key = ? ORDER BY p.version_number DESC LIMIT 1`)
     .bind(monthKey).first<PublicationRow>();
-  return row ? toRetroPublicationView(row) : null;
+  return row ? withRoundRefs(db, toRetroPublicationView(row)) : null;
 }
 
 export async function listRetroPublicationVersions(db: DbClient, monthKey: string): Promise<number[]> {

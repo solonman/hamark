@@ -71,5 +71,6 @@ export async function loadRetroCaseInMinutes(db: DbClient, caseId: string, month
     methods,
     quotedSegments: publication.quotedSegments,
     recordingRefs: publication.recordingRefs,
+    roundRefs: publication.roundRefs,
   };
 }

@@ -16,6 +16,7 @@ import {
   type RetroPatchCaseResponse,
   type RetroRecordingBadge,
   type RetroRecordingStatus,
+  retroCaseNumbers,
 } from "@/lib/retro-model";
 import type { VideoBucket } from "@/storage/types";
 import { canEditRetroCase, canRemoveRetroRecording, type RetroViewer } from "./access";
@@ -57,6 +58,13 @@ function excerpt(text: string, chars: number) {
 // ---------------------------------------------------------------------------
 // 新建
 // ---------------------------------------------------------------------------
+
+/** 当月序号「案例 N」（规格 6.7）：按创建先后，被删除的案例也占号。 */
+async function loadRetroCaseNumber(db: DbClient, caseId: string, monthKey: string): Promise<number | undefined> {
+  const rows = (await db.prepare(`SELECT id, created_at FROM retro_cases WHERE month_key = ?`)
+    .bind(monthKey).all<QueryResultRow & { id: string; created_at: unknown }>()).results;
+  return retroCaseNumbers(rows.map((item) => ({ id: item.id, createdAt: isoOrNull(item.created_at) ?? "" })))[caseId];
+}
 
 export async function createRetroCase(
   db: DbClient,
@@ -277,6 +285,7 @@ export async function loadRetroCaseDetail(
     needAssets: assetsByOwner.get("NEED") ?? [],
     rounds,
     recordings,
+    caseNumber: await loadRetroCaseNumber(db, row.id, row.month_key),
     inMinutes: await loadRetroCaseInMinutes(db, row.id, row.month_key),
     viewerCapabilities: { canEdit, canTrash: canEdit, canUploadRecording: true },
   };
