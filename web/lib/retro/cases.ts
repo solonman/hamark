@@ -395,4 +395,3 @@ export async function restoreRetroCase(db: DbClient, viewer: Pick<RetroViewer, "
   if (result.meta.rows_written !== 1) throw retroConflict("NOT_TRASHED", "案例未在回收站中，无需恢复。");
   return { ok: true };
 }
-
