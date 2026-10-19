@@ -44,7 +44,7 @@ export function buildFakeRetroExtraction(item: RetroSnapshotCase) {
   return {
     speakers: { founder, labels },
     review: {
-      process: `${item.clientName}「${item.title}」：${item.background ? `${clip(item.background, 60)}；` : ""}${path ? `经过 ${path}；` : ""}结果：${item.outcome ? clip(item.outcome, 60) : "仍在进行"}。`,
+      process: `${item.clientName}「${item.title}」：${item.background ? `${clip(item.background, 60).replace(/[。；，、\s]+$/u, "")}；` : ""}${path ? `经过 ${path}；` : ""}结果：${item.outcome ? clip(item.outcome, 60).replace(/[。；，、\s]+$/u, "") : "仍在进行"}。`,
       processSegmentIds: [...(clientRef ? [clientRef] : []), ...(otherRefs[0] ? [otherRefs[0].n] : [])],
       disputes: otherRefs.length
         ? [{

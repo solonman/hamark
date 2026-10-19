@@ -93,3 +93,15 @@ test("background advancing uses after(), a 280 s deadline and relays to the same
   assert.match(shell, /deadline: input\.startedAt \+ RETRO_MONTH_DEADLINE_MS/);
   assert.match(shell, /new URL\(input\.request\.url\)\.origin/);
 });
+
+test("the session proxy lets only the relay endpoint through without a cookie (the route checks the HMAC token)", async () => {
+  const proxy = codeOnly(await source("proxy.ts"));
+  const match = /const publicPatterns = \[(.+?)\];/.exec(proxy);
+  assert.ok(match, "proxy.ts declares publicPatterns");
+  const patterns = [...match[1].matchAll(/\/(\^.+?\$)\//g)].map((item) => new RegExp(item[1].replace(/\\\//g, "/")));
+  const allowed = (path: string) => patterns.some((pattern) => pattern.test(path));
+  assert.equal(allowed("/api/retro-months/2026-10/jobs/rtj_1/advance"), true);
+  for (const path of ["/api/retro-months/2026-10", "/api/retro-months/2026-10/jobs/rtj_1", "/api/retro-months/2026-10/jobs/rtj_1/draft", "/api/retro-months/2026-10/jobs/rtj_1/advance/x", "/api/retro-cases/x/advance"]) {
+    assert.equal(allowed(path), false, path);
+  }
+});

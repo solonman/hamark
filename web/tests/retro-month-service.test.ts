@@ -39,8 +39,8 @@ const loopback = (() => {
 })();
 const skip = url && loopback ? false : "RETRO_TEST_DATABASE_URL (loopback TEST_ONLY database) not provided";
 
-const SUN: RetroMonthActor = { userId: "TEST_ONLY_u_sun", displayName: "老孙", identityKey: "TEST_ONLY:sun" };
-const LIU: RetroMonthActor = { userId: "TEST_ONLY_u_liu", displayName: "刘梦娜", identityKey: "TEST_ONLY:liu" };
+const SUN: RetroMonthActor = { userId: "TEST_ONLY-month-u-sun", displayName: "老孙", identityKey: "TEST_ONLY:sun" };
+const LIU: RetroMonthActor = { userId: "TEST_ONLY-month-u-liu", displayName: "刘梦娜", identityKey: "TEST_ONLY:liu" };
 const START = Date.parse("2091-06-01T08:00:00.000Z");
 const SECRET = "TEST_ONLY_relay_secret_0123456789abcdef";
 
@@ -58,7 +58,8 @@ async function cleanup() {
   await db.prepare(`DELETE FROM retro_case_rounds WHERE case_id IN (SELECT id FROM retro_cases WHERE ${months})`).run();
   await db.prepare(`DELETE FROM retro_cases WHERE ${months}`).run();
   await db.prepare(`DELETE FROM audit_logs WHERE detail_json LIKE '%"monthKey":"2091-%'`).run();
-  await db.prepare(`DELETE FROM users WHERE id LIKE 'TEST_ONLY_%'`).run();
+  // 只删自己的两个用户：另一组集成测试（retro-service.test.ts）可能同时在跑，用的是 TEST_ONLY_ 前缀。
+  await db.prepare(`DELETE FROM users WHERE id IN (?, ?)`).bind(SUN.userId, LIU.userId).run();
 }
 
 before(async () => {
@@ -100,7 +101,7 @@ async function insertRecording(month: string, id: string, caseId: string | null,
 }
 
 async function seedMonth(month: string): Promise<Seed> {
-  const p = `TEST_ONLY_${month}`;
+  const p = `TEST_ONLY-month-${month}`;
   const seed: Seed = {
     month,
     caseD: `${p}_rtc_d`, caseA: `${p}_rtc_a`, caseB: `${p}_rtc_b`, caseC: `${p}_rtc_c`,
@@ -433,8 +434,8 @@ test("publish writes v1 in one transaction; REVISE_PUBLISHED copies it without t
   assert.ok(inMinutes.methods.length > 0 && inMinutes.methods.every((candidate) => candidate.sources.some((source) => source.caseId === seed.caseA)));
   await db.prepare(
     `INSERT INTO retro_cases (id, month_key, department, client_name, title, created_by_user_id, created_by_name) VALUES (?, ?, '新部门', '新客户', 'TEST_ONLY 发布后新建', ?, ?)`,
-  ).bind(`TEST_ONLY_${seed.month}_rtc_late`, seed.month, LIU.userId, LIU.displayName).run();
-  assert.equal(await loadRetroCaseInMinutes(db, `TEST_ONLY_${seed.month}_rtc_late`, seed.month), null);
+  ).bind(`TEST_ONLY-month-${seed.month}_rtc_late`, seed.month, LIU.userId, LIU.displayName).run();
+  assert.equal(await loadRetroCaseInMinutes(db, `TEST_ONLY-month-${seed.month}_rtc_late`, seed.month), null);
 });
 
 test("non-reviewers get 403 on every reviewer action and never see draft content", { skip }, async () => {
@@ -477,12 +478,12 @@ test("month view: rows, numbering, summary recordings, preconditions, badges and
   assert.deepEqual(await loadRetroMonthBadges(db, [seed.month, "2090-01"]), { [seed.month]: { state: "NONE" }, "2090-01": { state: "NONE" } });
 
   // 有录音在转写、有客户录音在转写：按钮灰掉，后端也拒绝。
-  await insertRecording(seed.month, `TEST_ONLY_${seed.month}_rtr_c1`, seed.caseC, 1, "TRANSCRIBING", null, new Date(Date.now() - 3600000).toISOString());
+  await insertRecording(seed.month, `TEST_ONLY-month-${seed.month}_rtr_c1`, seed.caseC, 1, "TRANSCRIBING", null, new Date(Date.now() - 3600000).toISOString());
   ({ view } = await loadRetroMonthView(db, seed.month, viewer, START));
   assert.equal(view.preconditions.canGenerate, false);
   assert.match(view.preconditions.blockedReason!, /1 段点评录音还在上传或转写/);
   await rejectsWith(startRetroMonthJob(db, SUN, { monthKey: seed.month, body: { mode: "GENERATE" }, llmModel: "test-model" }), 409, /点评录音/);
-  await db.prepare(`UPDATE retro_recordings SET status = 'REMOVED', removed_at = now() WHERE id = ?`).bind(`TEST_ONLY_${seed.month}_rtr_c1`).run();
+  await db.prepare(`UPDATE retro_recordings SET status = 'REMOVED', removed_at = now() WHERE id = ?`).bind(`TEST_ONLY-month-${seed.month}_rtr_c1`).run();
   await db.prepare(`UPDATE retro_case_assets SET transcribe_status = 'TRANSCRIBING' WHERE id = ?`).bind(seed.asset).run();
   ({ view } = await loadRetroMonthView(db, seed.month, viewer, START));
   assert.deepEqual(view.preconditions.clientAudio, { total: 1, ready: 0, transcribing: 1, failed: 0 });
@@ -502,7 +503,7 @@ test("month view: rows, numbering, summary recordings, preconditions, badges and
   assert.deepEqual((await loadRetroMonthBadges(db, [seed.month]))[seed.month], { state: "PUBLISHED", version: 1, changed: false });
 
   // 发布后：新传一段、移除一段 → 2 段变动，badge 带「有更新」。
-  await insertRecording(seed.month, `TEST_ONLY_${seed.month}_rtr_c2`, seed.caseC, 1, "READY", segs([[1, "S0", "补录"]]), new Date(Date.now() + 1000).toISOString());
+  await insertRecording(seed.month, `TEST_ONLY-month-${seed.month}_rtr_c2`, seed.caseC, 1, "READY", segs([[1, "S0", "补录"]]), new Date(Date.now() + 1000).toISOString());
   await db.prepare(`UPDATE retro_recordings SET status = 'REMOVED', removed_at = now() + interval '1 second' WHERE id = ?`).bind(seed.recB1).run();
   ({ view } = await loadRetroMonthView(db, seed.month, viewer, START));
   assert.equal(view.changedSincePublish, 2);

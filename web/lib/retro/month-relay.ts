@@ -66,7 +66,9 @@ export const fetchRetroRelay: RetroRelaySender = async ({ url, token }) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RELAY_REQUEST_TIMEOUT_MS);
   try {
-    await fetch(url, { method: "POST", headers: { [RETRO_RELAY_HEADER]: token }, signal: controller.signal, cache: "no-store" });
+    const response = await fetch(url, { method: "POST", headers: { [RETRO_RELAY_HEADER]: token }, signal: controller.signal, cache: "no-store" });
+    // 接力接口只会回 202；别的状态（被会话代理挡下的 401、令牌无效的 404）都要记日志，方便排查。
+    if (response.status !== 202) throw new Error(`接力请求返回 HTTP ${response.status}`);
   } finally {
     clearTimeout(timer);
   }
