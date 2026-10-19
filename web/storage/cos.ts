@@ -2,6 +2,7 @@ import { getOptionalEnv, getRequiredEnv } from "../lib/env.ts";
 import type {
   ObjectBody,
   ObjectRange,
+  PresignedGetOptions,
   PresignedPutOptions,
   VideoBucket,
 } from "./types.ts";
@@ -396,20 +397,26 @@ export class CosVideoBucket implements VideoBucket {
     {
       expiresInSeconds = 3 * 60 * 60,
       now = new Date(),
-    }: { expiresInSeconds?: number; now?: Date } = {},
+      responseContentDisposition,
+      responseContentType,
+    }: PresignedGetOptions = {},
   ) {
     if (!Number.isInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 3 * 60 * 60) {
       throw new Error("COS playback URL expiry must be between 1 and 10800 seconds.");
     }
 
     const url = new URL(virtualHostObjectUrl(this.config.bucket, this.config.region, key));
+    // 响应头覆盖是 GET 的查询参数，要先放进 URL 再签名（签名里的 q-url-param-list 会带上它们）。
+    if (responseContentType) url.searchParams.set("response-content-type", responseContentType);
+    if (responseContentDisposition) url.searchParams.set("response-content-disposition", responseContentDisposition);
     const startTime = Math.floor(now.getTime() / 1000);
     const keyTime = `${startTime};${startTime + expiresInSeconds}`;
     const headers = new Headers({ host: url.host });
     const fields = await createCosSignatureFields({
       method: "GET", url, headers, config: this.config, keyTime,
     });
-    const parameters = new URLSearchParams(fields);
+    const parameters = new URLSearchParams(url.search);
+    for (const [name, value] of Object.entries(fields)) parameters.set(name, value);
     url.search = parameters.toString();
     return url.toString();
   }

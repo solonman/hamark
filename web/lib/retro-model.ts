@@ -428,6 +428,8 @@ export type RetroCaseCard = {
   createdByName: string;
   createdAt: string;
   canManage: boolean;
+  /** 库首页搜索用：需求加各回合的标题与文字，压成一行、最多 4000 字（规格 10.1「搜需求与回合文字」）。 */
+  searchText?: string;
 };
 
 /** 月份标题行上的成果状态（规格 10.1）。 */
@@ -630,3 +632,62 @@ export type RetroDraftPatchRequest = {
     Partial<Pick<RetroMethodCandidate, "dimension" | "kind" | "title" | "description" | "situation" | "transfer" | "transferNote">>;
   revision: number;
 };
+
+// ---------------------------------------------------------------------------
+// 案例与录音接口的响应形状（B1 追加；请求形状见上）
+// ---------------------------------------------------------------------------
+
+/** GET /api/retro-cases/[id] */
+export type RetroCaseDetailResponse = { case: RetroCaseDetail };
+
+/**
+ * PATCH /api/retro-cases/[id]：不回整份详情（失焦自动保存时，整份覆盖会冲掉别的字段里还没提交的输入），
+ * 只回新的 revision 和服务端归一后的值。
+ */
+export type RetroPatchCaseResponse = Pick<
+  RetroCaseDetail,
+  | "revision"
+  | "updatedAt"
+  | "monthKey"
+  | "department"
+  | "clientName"
+  | "title"
+  | "sceneTags"
+  | "background"
+  | "outcome"
+  | "turningPoints"
+  | "discussionQuestions"
+>;
+
+/** POST /api/retro-cases/[id]/rounds，可选 body { title? }。 */
+export type RetroCreateRoundRequest = { title?: string };
+export type RetroCreateRoundResponse = { round: RetroRoundView };
+
+/** PATCH /api/retro-cases/[id]/rounds/[roundId]：回新的 revision 和归一后的文字。 */
+export type RetroPatchRoundResponse = {
+  round: Pick<RetroRoundView, "id" | "title" | "occurredOn" | "deliveryText" | "feedbackText" | "responseText" | "revision">;
+};
+
+/** PATCH /api/retro-cases/[id]/round-order：必须恰好是现有未删除回合的全部 id。 */
+export type RetroRoundOrderRequest = { roundIds: string[] };
+
+/** POST /api/retro-cases/[id]/assets：每个附件自带 roundId（null = 需求凭证）。 */
+export type RetroAddAssetsRequest = { assets: RetroNewAssetInput[] };
+
+/**
+ * POST /api/retro-cases/[id]/assets/complete：可选 { assetIds }，不带就核对这个案例里所有还在上传中的附件。
+ * 响应一律 200，missing 是没核对到的附件 id（没传上或大小不符），可以重传或去掉；其余的已置为就绪。
+ */
+export type RetroCompleteAssetsRequest = { assetIds?: string[] };
+
+/** GET /api/retro-cases/[id]/assets/[assetId]/transcript，POST 同样返回这个形状。 */
+export type RetroTranscriptResponse = { assetId: string; transcribe: RetroTranscribeView };
+
+/** PUT /api/retro-cases/[id]/rounds/[roundId]/links */
+export type RetroPutLinksResponse = { links: RetroLinkView[] };
+
+/** POST /api/retro-recordings/[id]、GET /api/retro-recordings/[id] */
+export type RetroRecordingResponse = { recording: RetroRecordingView };
+
+/** 回收站、删除回合、删除附件、回合排序的响应。 */
+export type RetroOkResponse = { ok: true };
