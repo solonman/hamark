@@ -9,11 +9,12 @@
 import { transcriptClock } from "@/lib/audio-review/transcript";
 import {
   RETRO_DIMENSION_LABELS,
+  RETRO_LIMITS,
   RETRO_KIND_LABELS,
   RETRO_LINK_KIND_LABELS,
   RETRO_TRANSFER_LABELS,
 } from "@/lib/retro-model";
-import type { RetroExtractionOutput } from "./extraction";
+import type { RetroExtractionOutput, RetroSpeakers } from "./extraction";
 import {
   caseSegmentIndex,
   recordingSegmentIndex,
@@ -24,9 +25,9 @@ import {
 } from "./month-snapshot";
 import { buildSynthesisRefIndex, type RetroSynthesisContext } from "./synthesis";
 
-export const RETRO_EXTRACT_PROMPT_VERSION = "2026-10-19.1";
-export const RETRO_MINUTES_PROMPT_VERSION = "2026-10-19.1";
-export const RETRO_METHODS_PROMPT_VERSION = "2026-10-19.1";
+export const RETRO_EXTRACT_PROMPT_VERSION = "2026-10-20.1";
+export const RETRO_MINUTES_PROMPT_VERSION = "2026-10-20.1";
+export const RETRO_METHODS_PROMPT_VERSION = "2026-10-20.1";
 
 export const RETRO_PROMPT_VERSIONS = {
   extract: RETRO_EXTRACT_PROMPT_VERSION,
@@ -94,7 +95,7 @@ ${Object.entries(RETRO_TRANSFER_GUIDE).map(([key, text]) => `- ${key}（${RETRO_
 
 const OUTPUT_RULE = "只输出一个 JSON 对象，不要输出解释文字，不要用 Markdown 围栏。没有内容的数组给空数组。文字用书面语，去掉口头禅；不要写「老孙认为」以外的揣测。";
 
-const SPEAKER_RULE = `【认人】文字稿每句带一个 speaker 标签（S0、S1……），是机器自动区分的，可能分错，也可能全部相同。请按内容判断谁是老孙：他在追问、下判断、给建议、点评；汇报人在讲经过、解释自己当时的做法；其他同事多是插话、提问。speakers.founder 写最常对应老孙的那个标签；labels 给其他标签起称呼（只用「汇报人」「其他同事」这类称呼，认得出的可以写名字）。`;
+const SPEAKER_RULE = `【认人】文字稿每句带一个 speaker，写成「<段号>:<标签>」，例如 "1:S0"、"2:S1"。标签是机器在每段录音里各自区分的，**只在同一段录音里有意义**：第 2 段的 S0 不一定是第 1 段的 S0（中途换过设备、断过重录）；标签也可能分错，或者全部相同。请按内容、逐段判断谁是老孙：他在追问、下判断、给建议、点评；汇报人在讲经过、解释自己当时的做法；其他同事多是插话、提问。speakers.founder 是一个数组，每段录音写一个最常对应老孙的「段号:标签」；labels 给其他「段号:标签」起称呼（只用「汇报人」「其他同事」这类称呼，认得出的可以写名字）。`;
 
 const MISHEARING_RULE = "【听写错字】文字稿是机器听写，同音、近音错字可能很多。按表单里的客户名、部门、案例标题、回合标题和上下文还原原意，不要被错字带偏，也不要把错字写进成果。影响理解的错字写进 corrections（segmentId、原文里一字不差的 from、还原后的 to），只记有把握的。";
 
@@ -126,7 +127,7 @@ ${SPEAKER_RULE}
 【引用的写法】
 - 点评录音片段写编号数字，例如 12；一个案例有多段录音时，编号已经按段号接续好了。
 - 客户录音片段写成 "c<附件id>:<片段号>"，例如 "cast_1:3"。客户录音只能出现在 review.processSegmentIds 和 review.disputes 里；放在别处会被系统剔除。
-- 方法候选的 segmentIds 里至少要有一句是老孙（speakers.founder）说的，否则整条会被丢弃。
+- 方法候选的 segmentIds 里至少要有一句是老孙说的（按 speakers.founder 里那段录音的标签判断），否则整条会被丢弃。
 - roundIds 只能用表单里给出的回合 id。
 
 ${MISHEARING_RULE}
@@ -134,7 +135,7 @@ ${MISHEARING_RULE}
 【输出】${OUTPUT_RULE}`;
 
 const EXTRACT_OUTPUT_FORMAT = {
-  speakers: { founder: "S0", labels: { S1: "汇报人", S2: "其他同事" } },
+  speakers: { founder: ["1:S0", "2:S1"], labels: { "1:S1": "汇报人", "1:S2": "其他同事", "2:S0": "汇报人" } },
   review: {
     process: "业务问题及其发展过程（叙述）",
     processSegmentIds: [3, "c<附件id>:2"],
@@ -170,13 +171,17 @@ const linkLine = (link: RetroSnapshotCase["rounds"][number]["links"][number]) =>
 
 export function buildRetroExtractMessages(item: RetroSnapshotCase): RetroLlmMessages {
   const roundTitle = new Map(item.rounds.map((round) => [round.id, round.title]));
-  const reviewLines = caseSegmentIndex(item).map((ref) => ({
+  const reviewLines: Array<Record<string, unknown>> = caseSegmentIndex(item).map((ref) => ({
     id: ref.n,
-    ...(item.recordings.length > 1 ? { 段: ref.partNo } : {}),
+    段: ref.partNo,
     t: transcriptClock(ref.segment.startMs),
-    speaker: ref.segment.speakerId,
+    speaker: `${ref.partNo}:${ref.segment.speakerId}`,
     text: ref.segment.text,
   }));
+  const omittedReview = item.recordings.reduce((sum, recording) => sum + (recording.omittedSegments ?? 0), 0);
+  if (omittedReview > 0) {
+    reviewLines.push({ id: null, text: `（以下省略 ${omittedReview} 句：点评录音每个案例合计只取前 ${RETRO_LIMITS.reviewTranscriptCharsPerCase / 10000} 万字）` });
+  }
   const payload = {
     任务: "提炼这一个案例，严格按「输出格式」输出 JSON。",
     案例: {
@@ -225,13 +230,16 @@ const SYNTH_REF_RULE = `【引用的写法】
 - 引用了不存在或没列出的片段会被系统剔除；剔除后一句不剩的条目整条丢弃。`;
 
 function summaryLines(snapshot: RetroGenerateSnapshot) {
-  return recordingSegmentIndex(snapshot.summaryRecordings).map((ref) => ({
+  const lines: Array<Record<string, unknown>> = recordingSegmentIndex(snapshot.summaryRecordings).map((ref) => ({
     id: `S${ref.n}`,
-    ...(snapshot.summaryRecordings.length > 1 ? { 段: ref.partNo } : {}),
+    段: ref.partNo,
     t: transcriptClock(ref.segment.startMs),
-    speaker: ref.segment.speakerId,
+    speaker: `${ref.partNo}:${ref.segment.speakerId}`,
     text: ref.segment.text,
   }));
+  const omitted = snapshot.summaryRecordings.reduce((sum, recording) => sum + (recording.omittedSegments ?? 0), 0);
+  if (omitted > 0) lines.push({ id: null, text: `（以下省略 ${omitted} 句：整场总结合计只取前 ${RETRO_LIMITS.summaryTranscriptChars / 10000} 万字）` });
+  return lines;
 }
 
 /** 把①的出处换成 "<案例序号>:<片段号>"。 */
@@ -254,7 +262,7 @@ function quotesFor(ctx: RetroSynthesisContext) {
   const index = buildSynthesisRefIndex(ctx);
   const quotes: Record<string, { speaker: string; text: string }> = {};
   for (const citation of index.cases.values()) {
-    const labels = ctx.extractions[citation.caseId]?.speakers.labels ?? {};
+    const labels = ctx.extractions[citation.caseId]?.speakers[citation.ref.recordingId]?.labels ?? {};
     quotes[citation.key] = { speaker: labels[citation.ref.segment.speakerId] ?? citation.ref.segment.speakerId, text: citation.ref.segment.text };
   }
   return quotes;
@@ -294,7 +302,7 @@ ${HARD_RULES}
 
 【这一步要做的】
 你会拿到本月各案例第一步的提炼结果（每条都带引用的片段和原话）以及老孙整场总结的文字稿。案例回顾（经过、争议、老孙指出的问题、改进建议）系统会直接取第一步的结果，你不用重写。你只需要输出：
-- summarySpeakers：整场总结文字稿里谁是老孙（founder 写标签），其他标签的称呼写进 labels。整场总结绝大部分是老孙在说。
+- summarySpeakers：整场总结文字稿里谁是老孙。写法同第一步：founder 是数组，每段录音写一个「段号:标签」（标签只在同一段录音里有意义）；其他「段号:标签」的称呼写进 labels。整场总结绝大部分是老孙在说。
 - insights：本次培训的核心认识。跨案例归纳：几个案例背后是同一个判断的，合成一条，引用取并集；只在一个案例里出现但有分量的，照样单列。不按案例凑数，不按出现次数排序，可以很少。
 - actions：可以进入实际工作的改进事项，每条写清在什么时候、由谁、做什么；整场总结里老孙布置的事项优先。说不清这三样的不要写。
 
@@ -303,7 +311,7 @@ ${SYNTH_REF_RULE}
 【输出】${OUTPUT_RULE}`;
 
 const MINUTES_OUTPUT_FORMAT = {
-  summarySpeakers: { founder: "S0", labels: { S1: "其他同事" } },
+  summarySpeakers: { founder: ["1:S0"], labels: { "1:S1": "其他同事" } },
   insights: [{ text: "跨案例归纳的核心认识", segments: ["1:12", "3:5", "S4"] }],
   actions: [{ text: "从何时起，由谁，做什么", segments: ["S7", "2:30"] }],
 };
@@ -360,7 +368,7 @@ const METHODS_OUTPUT_FORMAT = {
   observations: [{ text: "同一思路在不同情境下的差异", segments: ["2:30", "5:11"] }],
 };
 
-export function buildRetroMethodsMessages(ctx: RetroSynthesisContext, summaryFounder: string | null): RetroLlmMessages {
+export function buildRetroMethodsMessages(ctx: RetroSynthesisContext, summarySpeakers: RetroSpeakers | null): RetroLlmMessages {
   const candidates = [...ctx.snapshot.cases]
     .sort((a, b) => a.number - b.number)
     .flatMap((item) => (ctx.extractions[item.caseId]?.methods ?? []).map((method) => ({ item, method })))
@@ -383,7 +391,9 @@ export function buildRetroMethodsMessages(ctx: RetroSynthesisContext, summaryFou
     第一步的方法候选: candidates,
     quotes: quotesFor(ctx),
     整场总结文字稿: summaryLines(ctx.snapshot),
-    整场总结里的老孙: summaryFounder,
+    整场总结里的老孙: ctx.snapshot.summaryRecordings
+      .map((recording) => (summarySpeakers?.[recording.recordingId]?.founder ? `${recording.partNo}:${summarySpeakers[recording.recordingId].founder}` : null))
+      .filter(Boolean),
     输出格式: METHODS_OUTPUT_FORMAT,
   };
   return { system: RETRO_METHODS_SYSTEM_PROMPT, user: JSON.stringify(payload, null, 1) };

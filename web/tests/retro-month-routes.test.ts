@@ -87,11 +87,11 @@ test("the month page schedules advancing after the response, and draft content i
   assert.match(view, /failReason: options\.isReviewer \? row\.fail_reason : null/);
 });
 
-test("background advancing uses after(), a 280 s deadline and relays to the same origin", async () => {
+test("background advancing uses after(), a 280 s deadline and relays to APP_URL / VERCEL_URL (request origin only in local demo)", async () => {
   const shell = codeOnly(await source("lib/retro/month-route.ts"));
   assert.match(shell, /after\(async \(\) => \{/);
   assert.match(shell, /deadline: input\.startedAt \+ RETRO_MONTH_DEADLINE_MS/);
-  assert.match(shell, /new URL\(input\.request\.url\)\.origin/);
+  assert.match(shell, /resolveRetroRelayOrigin\(process\.env, isLocalDemoMode\(\), input\.request\.url\)/);
 });
 
 test("the session proxy lets only the relay endpoint through without a cookie (the route checks the HMAC token)", async () => {
@@ -104,4 +104,9 @@ test("the session proxy lets only the relay endpoint through without a cookie (t
   for (const path of ["/api/retro-months/2026-10", "/api/retro-months/2026-10/jobs/rtj_1", "/api/retro-months/2026-10/jobs/rtj_1/draft", "/api/retro-months/2026-10/jobs/rtj_1/advance/x", "/api/retro-cases/x/advance"]) {
     assert.equal(allowed(path), false, path);
   }
+});
+
+test("starting a job checks configuration (relay secret, model key) after 老孙 and before the business code", async () => {
+  const body = handler(codeOnly(await source(`${ROOT}/jobs/route.ts`)), "POST");
+  inOrder(body, ["requireRetroReviewer(viewer);", "requireRetroMonthConfigured(config, mode);", "startRetroMonthJob("], "jobs POST");
 });

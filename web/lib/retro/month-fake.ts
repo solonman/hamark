@@ -8,6 +8,7 @@
 import { dominantSpeaker } from "@/lib/audio-review/transcript";
 import type { LlmOutcome } from "@/lib/audio-review/deepseek";
 import type { RetroMethodCandidate, RetroSource } from "@/lib/retro-model";
+import type { RetroSpeakers } from "./extraction";
 import { caseSegmentIndex, recordingSegmentIndex, type RetroSnapshotCase } from "./month-snapshot";
 import type { RetroLlmProvider, RetroStepContext } from "./month-providers";
 import { buildSynthesisRefIndex, type RetroSynthesisContext } from "./synthesis";
@@ -20,16 +21,33 @@ const clip = (text: string, max: number) => {
   return chars.length > max ? `${chars.slice(0, max).join("")}…` : chars.join("");
 };
 
-function founderOf(speakers: string[], segments: Parameters<typeof dominantSpeaker>[0]) {
-  return speakers.includes("S0") ? "S0" : dominantSpeaker(segments);
+function founderOf(segments: Parameters<typeof dominantSpeaker>[0]) {
+  return segments.some((segment) => segment.speakerId === "S0") ? "S0" : dominantSpeaker(segments);
+}
+
+/** 按录音认人（标签只在一段录音里有意义）：每段 S0 优先，没有 S0 就取说得最多的；输出「段号:标签」。 */
+function fakeSpeakers(recordings: RetroSnapshotCase["recordings"]) {
+  const founders = new Map<string, string>();
+  const founder: string[] = [];
+  const labels: Record<string, string> = {};
+  for (const recording of [...recordings].sort((a, b) => a.partNo - b.partNo)) {
+    if (!recording.segments.length) continue;
+    const who = founderOf(recording.segments);
+    founders.set(recording.recordingId, who);
+    founder.push(`${recording.partNo}:${who}`);
+    [...new Set(recording.segments.map((segment) => segment.speakerId))]
+      .filter((speaker) => speaker !== who)
+      .forEach((speaker, i) => { labels[`${recording.partNo}:${speaker}`] = i === 0 ? "汇报人" : "其他同事"; });
+  }
+  return { founders, output: { founder, labels } };
 }
 
 export function buildFakeRetroExtraction(item: RetroSnapshotCase) {
   const index = caseSegmentIndex(item);
-  const speakers = [...new Set(index.map((ref) => ref.segment.speakerId))];
-  const founder = founderOf(speakers, index.map((ref) => ref.segment));
-  const founderRefs = index.filter((ref) => ref.segment.speakerId === founder);
-  const otherRefs = index.filter((ref) => ref.segment.speakerId !== founder);
+  const speakers = fakeSpeakers(item.recordings);
+  const isFounder = (ref: (typeof index)[number]) => speakers.founders.get(ref.recordingId) === ref.segment.speakerId;
+  const founderRefs = index.filter(isFounder);
+  const otherRefs = index.filter((ref) => !isFounder(ref));
   const f = (i: number) => founderRefs[Math.min(i, founderRefs.length - 1)];
   const first = f(0);
   const second = f(1);
@@ -38,11 +56,10 @@ export function buildFakeRetroExtraction(item: RetroSnapshotCase) {
   const r2 = item.rounds[1]?.id ?? r1;
   const firstClient = item.clientAudio.find((audio) => audio.segments.length);
   const clientRef = firstClient ? `c${firstClient.assetId}:${firstClient.segments[0].id}` : null;
-  const labels = Object.fromEntries(speakers.filter((speaker) => speaker !== founder).map((speaker, i) => [speaker, i === 0 ? "汇报人" : "其他同事"]));
   const path = item.rounds.map((round) => round.title).join(" → ");
 
   return {
-    speakers: { founder, labels },
+    speakers: speakers.output,
     review: {
       process: `${item.clientName}「${item.title}」：${item.background ? `${clip(item.background, 60).replace(/[。；，、\s]+$/u, "")}；` : ""}${path ? `经过 ${path}；` : ""}结果：${item.outcome ? clip(item.outcome, 60).replace(/[。；，、\s]+$/u, "") : "仍在进行"}。`,
       processSegmentIds: [...(clientRef ? [clientRef] : []), ...(otherRefs[0] ? [otherRefs[0].n] : [])],
@@ -107,21 +124,20 @@ function keysOf(ctx: RetroSynthesisContext, sources: readonly RetroSource[]) {
   return keys;
 }
 
-function summaryFounderRef(ctx: RetroSynthesisContext, founder: string | null) {
+function summaryFounderRef(ctx: RetroSynthesisContext, founders: ReadonlyMap<string, string>) {
   const index = recordingSegmentIndex(ctx.snapshot.summaryRecordings);
-  const ref = index.find((entry) => entry.segment.speakerId === founder) ?? index[0];
+  const ref = index.find((entry) => founders.get(entry.recordingId) === entry.segment.speakerId) ?? index[0];
   return ref ? `S${ref.n}` : null;
 }
 
 export function buildFakeRetroSummary(ctx: RetroSynthesisContext) {
-  const summarySegments = recordingSegmentIndex(ctx.snapshot.summaryRecordings).map((ref) => ref.segment);
-  const founder = summarySegments.length ? founderOf([...new Set(summarySegments.map((segment) => segment.speakerId))], summarySegments) : null;
-  const summaryRef = summaryFounderRef(ctx, founder);
+  const speakers = fakeSpeakers(ctx.snapshot.summaryRecordings);
+  const summaryRef = summaryFounderRef(ctx, speakers.founders);
   const cases = [...ctx.snapshot.cases].sort((a, b) => a.number - b.number).filter((item) => ctx.extractions[item.caseId]);
   const firstKeys = cases.flatMap((item) => keysOf(ctx, ctx.extractions[item.caseId].review.founderPoints[0]?.sources ?? []).slice(0, 1));
   const secondKeys = cases.flatMap((item) => keysOf(ctx, ctx.extractions[item.caseId].review.suggestions[0]?.sources ?? []).slice(0, 1));
   return {
-    summarySpeakers: founder ? { founder, labels: {} } : {},
+    summarySpeakers: speakers.output,
     insights: [
       { text: "客户的修改意见是线索，不是答案：几个案子背后，都有一个客户没说出来的生意问题。", segments: [...firstKeys, ...(summaryRef ? [summaryRef] : [])] },
       ...(secondKeys.length ? [{ text: "方案和目标矛盾时，画面越好越危险：先对齐目标，再谈好不好看。", segments: secondKeys }] : []),
@@ -137,7 +153,7 @@ export function buildFakeRetroSummary(ctx: RetroSynthesisContext) {
   };
 }
 
-export function buildFakeRetroDistill(ctx: RetroSynthesisContext, summaryFounder: string | null) {
+export function buildFakeRetroDistill(ctx: RetroSynthesisContext, summarySpeakers: RetroSpeakers | null) {
   const groups = new Map<string, { method: RetroMethodCandidate; keys: string[]; roundIds: string[] }>();
   const cases = [...ctx.snapshot.cases].sort((a, b) => a.number - b.number).filter((item) => ctx.extractions[item.caseId]);
   for (const item of cases) {
@@ -163,7 +179,8 @@ export function buildFakeRetroDistill(ctx: RetroSynthesisContext, summaryFounder
     segments: keys,
     roundIds,
   }));
-  const summaryRef = summaryFounderRef(ctx, summaryFounder);
+  const founders = new Map(Object.entries(summarySpeakers ?? {}).flatMap(([id, entry]) => (entry.founder ? [[id, entry.founder] as [string, string]] : [])));
+  const summaryRef = summaryFounderRef(ctx, founders);
   if (summaryRef) {
     candidates.push({
       dimension: "PATH", kind: "METHOD", title: "回头看每一版：在回答客户的问题，还是我们以为的问题",
@@ -190,7 +207,7 @@ export function buildFakeRetroDistill(ctx: RetroSynthesisContext, summaryFounder
 export function buildFakeRetroOutput(context: RetroStepContext) {
   if (context.step === "EXTRACT") return buildFakeRetroExtraction(context.item);
   if (context.step === "SUMMARIZE") return buildFakeRetroSummary(context.synthesis);
-  return buildFakeRetroDistill(context.synthesis, context.summaryFounder);
+  return buildFakeRetroDistill(context.synthesis, context.summarySpeakers);
 }
 
 export function createFakeRetroLlm(sleep: (ms: number) => Promise<void>, clock: () => number = Date.now): RetroLlmProvider {

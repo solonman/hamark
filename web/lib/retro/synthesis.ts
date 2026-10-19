@@ -6,7 +6,6 @@
 // 客户录音不能进入核心认识、改进事项、方法候选和本月观察。方法候选至少要有一句老孙的话。
 // 案例回顾（经过、争议、老孙指出的问题、改进建议）直接取自①，模型不重写（assembleRetroMinutes）。
 
-import { dominantSpeaker } from "@/lib/audio-review/transcript";
 import {
   RETRO_LIMITS,
   RETRO_METHOD_DIMENSION_LIST,
@@ -21,8 +20,9 @@ import {
   caseRefContext,
   clipText,
   extractionReviewSources,
-  FOUNDER_LABEL,
+  isFounderSegment,
   normalizeCandidateFields,
+  normalizeRecordingSpeakers,
   reviewSources,
   type RetroExtractionOutput,
   type RetroSpeakers,
@@ -43,7 +43,7 @@ export type RetroSynthesisContext = {
 export type RetroSummaryOutput = { insights: RetroItem[]; actions: RetroItem[]; speakers: RetroSpeakers };
 export type RetroDistillOutput = { candidates: RetroMethodCandidate[]; observations: RetroItem[] };
 
-type CaseCitation = { key: string; caseId: string; caseNumber: number; ref: RetroSegmentRef; founder: string | null };
+type CaseCitation = { key: string; caseId: string; caseNumber: number; ref: RetroSegmentRef; isFounder: boolean };
 
 export type SynthesisRefIndex = {
   /** "3:12" → 引用信息；只含①里引用过的片段。 */
@@ -73,7 +73,7 @@ export function buildSynthesisRefIndex(ctx: RetroSynthesisContext): SynthesisRef
     for (const ref of refCtx.index) {
       if (!cited.has(`${ref.recordingId}#${ref.segment.id}`)) continue;
       const key = `${item.number}:${ref.n}`;
-      cases.set(key, { key, caseId: item.caseId, caseNumber: item.number, ref, founder: extraction.speakers.founder });
+      cases.set(key, { key, caseId: item.caseId, caseNumber: item.number, ref, isFounder: isFounderSegment(extraction.speakers, ref.recordingId, ref.segment.speakerId) });
     }
   }
   const summaryIndex = recordingSegmentIndex(ctx.snapshot.summaryRecordings);
@@ -155,32 +155,12 @@ function normalizeSynthesisItems(raw: unknown, index: SynthesisRefIndex, section
   return items;
 }
 
-function normalizeSummarySpeakers(raw: unknown, index: SynthesisRefIndex, dropped: string[]): RetroSpeakers {
-  const segments = index.summaryIndex.map((ref) => ref.segment);
-  if (!segments.length) return { founder: null, labels: {} };
-  const record = asRecord(raw);
-  const present = new Set(segments.map((segment) => segment.speakerId));
-  let founder = typeof record.founder === "string" && present.has(record.founder.trim()) ? record.founder.trim() : null;
-  if (!founder) {
-    // 整场总结是老孙一个人的总结，绝大部分是他在说：没认出来时按说得最多的那位兜底。
-    founder = dominantSpeaker(segments);
-    dropped.push(`整场总结说话人：模型没有认出老孙（${String(record.founder)}），按说得最多的 ${founder} 兜底`);
-  }
-  const labels: Record<string, string> = {};
-  for (const [speakerId, label] of Object.entries(asRecord(record.labels))) {
-    if (!present.has(speakerId) || speakerId === founder) continue;
-    const text = clipText(label, 20);
-    if (text && text !== FOUNDER_LABEL) labels[speakerId] = text;
-  }
-  labels[founder] = FOUNDER_LABEL;
-  return { founder, labels };
-}
-
 /** ② 汇总纪要：核心认识、改进事项，以及整场总结的说话人认定。 */
 export function normalizeRetroSummary(raw: Record<string, unknown>, ctx: RetroSynthesisContext): { output: RetroSummaryOutput; dropped: string[] } {
   const index = buildSynthesisRefIndex(ctx);
   const dropped: string[] = [];
-  const speakers = normalizeSummarySpeakers(raw.summarySpeakers, index, dropped);
+  // 整场总结绝大部分是老孙在说：某段没认出来时按说得最多的那位兜底。
+  const speakers = normalizeRecordingSpeakers(raw.summarySpeakers, ctx.snapshot.summaryRecordings, dropped, { label: "整场总结", fallbackDominant: true });
   const insights = normalizeSynthesisItems(raw.insights, index, "insights", "ins-", dropped);
   const actions = normalizeSynthesisItems(raw.actions, index, "actions", "act-", dropped);
   return { output: { insights, actions, speakers }, dropped };
@@ -190,7 +170,7 @@ export function normalizeRetroSummary(raw: Record<string, unknown>, ctx: RetroSy
 export function normalizeRetroDistill(
   raw: Record<string, unknown>,
   ctx: RetroSynthesisContext,
-  summaryFounder: string | null,
+  summarySpeakers: RetroSpeakers | null,
 ): { output: RetroDistillOutput; dropped: string[] } {
   const index = buildSynthesisRefIndex(ctx);
   const dropped: string[] = [];
@@ -206,8 +186,8 @@ export function normalizeRetroDistill(
     const refs = resolveSynthesisRefs(record.segments ?? record.segmentIds, index);
     if (refs.invalid.length) dropped.push(`${label}：剔除不存在或①没引用过的片段 ${refs.invalid.join("、")}`);
     const hasFounder =
-      refs.cases.some((citation) => citation.founder && citation.ref.segment.speakerId === citation.founder) ||
-      (summaryFounder != null && refs.summary.some((ref) => ref.segment.speakerId === summaryFounder));
+      refs.cases.some((citation) => citation.isFounder) ||
+      refs.summary.some((ref) => isFounderSegment(summarySpeakers, ref.recordingId, ref.segment.speakerId));
     if (!hasFounder) {
       dropped.push(`${label}：没有引用老孙的原话，整条丢弃（${fields.value.title}）`);
       return;

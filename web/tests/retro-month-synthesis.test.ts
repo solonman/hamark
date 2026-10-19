@@ -14,10 +14,12 @@ import {
 import type { RetroMethodCandidate } from "../lib/retro-model";
 import { CASE_A, CASE_B, sampleSnapshot } from "./retro-month-fixtures";
 
+const SUMMARY_SPEAKERS = { rtr_sum: { founder: "S0", labels: { S0: "老孙" } } };
+
 function context(): RetroSynthesisContext {
   const snapshot = sampleSnapshot();
   const a = normalizeRetroExtraction({
-    speakers: { founder: "S0", labels: { S1: "汇报人" } },
+    speakers: { founder: ["1:S0", "2:S0"], labels: { "1:S1": "汇报人" } },
     review: {
       process: "经过",
       processSegmentIds: ["cast_voice:1"],
@@ -28,7 +30,7 @@ function context(): RetroSynthesisContext {
     methods: [{ dimension: "ENTRY", kind: "METHOD", title: "先问为什么", description: "", situation: "", transfer: "TRANSFERABLE", transferNote: "", segmentIds: [2], roundIds: ["rnd_a1"] }],
   }, CASE_A).output;
   const b = normalizeRetroExtraction({
-    speakers: { founder: "S0", labels: {} },
+    speakers: { founder: ["1:S0"], labels: {} },
     review: { process: "茶饮经过", disputes: [], founderPoints: [{ text: "问过吗", segmentIds: [2] }], suggestions: [] },
     methods: [{ dimension: "ENTRY", kind: "METHOD", title: "先问为什么", description: "", situation: "", transfer: "TRANSFERABLE", transferNote: "", segmentIds: [2] }],
   }, CASE_B).output;
@@ -38,7 +40,7 @@ function context(): RetroSynthesisContext {
 test("② sources may cite only segments ① already cited, or real summary segments", () => {
   const ctx = context();
   const { output, dropped } = normalizeRetroSummary({
-    summarySpeakers: { founder: "S0", labels: { S1: "其他同事" } },
+    summarySpeakers: { founder: ["1:S0"], labels: { "1:S1": "其他同事" } },
     insights: [
       { text: "线索不是答案", segments: ["2:2", "3:2", "S2"] },
       { text: "引用了①没引用过的片段", segments: ["2:1", "3:3"] },
@@ -53,14 +55,14 @@ test("② sources may cite only segments ① already cited, or real summary segm
     { kind: "REVIEW", recordingId: "rtr_sum", segmentIds: [2], caseId: null },
   ]);
   assert.deepEqual(output.actions[0].sources.map((source) => source.kind === "REVIEW" && source.recordingId), ["rtr_a2", "rtr_sum"]);
-  assert.deepEqual(output.speakers, { founder: "S0", labels: { S1: "其他同事", S0: "老孙" } });
+  assert.deepEqual(output.speakers, { rtr_sum: { founder: "S0", labels: { S1: "其他同事", S0: "老孙" } } });
   assert.ok(dropped.some((line) => line.includes("2:1")));
   assert.ok(dropped.some((line) => line.includes("S99")));
 });
 
 test("② falls back to the dominant summary speaker when the founder is not recognised", () => {
-  const { output } = normalizeRetroSummary({ summarySpeakers: { founder: "S5" }, insights: [], actions: [] }, context());
-  assert.equal(output.speakers.founder, "S0");
+  const { output } = normalizeRetroSummary({ summarySpeakers: { founder: ["1:S5"] }, insights: [], actions: [] }, context());
+  assert.equal(output.speakers.rtr_sum.founder, "S0");
 });
 
 test("③ merges across cases, keeps the founder rule, and validates round ids against the cited cases", () => {
@@ -73,7 +75,7 @@ test("③ merges across cases, keeps the founder rule, and validates round ids a
       { dimension: "INFO", kind: "INTUITION", title: "总结里的判断", description: "", situation: "", transfer: "UNSURE", transferNote: "", segments: ["S1"] },
     ],
     observations: [{ text: "差异", segments: ["2:6", "3:2"] }, { text: "无据", segments: [] }],
-  }, ctx, "S0");
+  }, ctx, SUMMARY_SPEAKERS);
   assert.deepEqual(output.candidates.map((candidate) => candidate.title), ["先问为什么", "总结里的判断"]);
   const merged = output.candidates[0];
   assert.deepEqual(merged.sources, [
@@ -92,7 +94,7 @@ test("③ client audio can never back a candidate (client refs are not citable i
   const { output } = normalizeRetroDistill({
     candidates: [{ dimension: "ENTRY", kind: "METHOD", title: "x", description: "", situation: "", transfer: "UNSURE", transferNote: "", segments: ["cast_voice:1"] }],
     observations: [],
-  }, ctx, "S0");
+  }, ctx, SUMMARY_SPEAKERS);
   assert.equal(output.candidates.length, 0);
 });
 
@@ -124,7 +126,7 @@ test("the fake provider covers all three kinds, a cross-case merge, observations
   }
   const ctx = { snapshot, extractions };
   const summary = normalizeRetroSummary(buildFakeRetroSummary(ctx), ctx);
-  const distill = normalizeRetroDistill(buildFakeRetroDistill(ctx, summary.output.speakers.founder), ctx, summary.output.speakers.founder);
+  const distill = normalizeRetroDistill(buildFakeRetroDistill(ctx, summary.output.speakers), ctx, summary.output.speakers);
   droppedAll.push(...summary.dropped, ...distill.dropped);
 
   const kinds = new Set(distill.output.candidates.map((candidate) => candidate.kind));
@@ -141,4 +143,12 @@ test("the fake provider covers all three kinds, a cross-case merge, observations
   }
   assert.ok(summary.output.insights.length >= 1);
   assert.ok(summary.output.actions.length >= 1);
+});
+
+test("③ a summary sentence backs a candidate only if that summary recording's founder said it", () => {
+  const ctx = context();
+  const candidate = { dimension: "INFO", kind: "INTUITION", title: "总结里的判断", description: "", situation: "", transfer: "UNSURE", transferNote: "", segments: ["S3"] };
+  // S3 是 S1 说的（同事插话）：按这段录音的认定，它不是老孙。
+  assert.equal(normalizeRetroDistill({ candidates: [candidate], observations: [] }, ctx, SUMMARY_SPEAKERS).output.candidates.length, 0);
+  assert.equal(normalizeRetroDistill({ candidates: [candidate], observations: [] }, ctx, { rtr_sum: { founder: "S1", labels: {} } }).output.candidates.length, 1);
 });

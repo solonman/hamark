@@ -47,7 +47,13 @@ export type RetroSnapshotClientAudio = {
   omittedSegments: number;
 };
 
-export type RetroSnapshotRecording = { recordingId: string; partNo: number; segments: RetroTranscriptSegment[] };
+export type RetroSnapshotRecording = {
+  recordingId: string;
+  partNo: number;
+  segments: RetroTranscriptSegment[];
+  /** 因为超出字数上限（RETRO_LIMITS.reviewTranscriptCharsPerCase / summaryTranscriptChars）而省略的片段数。 */
+  omittedSegments?: number;
+};
 
 export type RetroSnapshotCase = {
   caseId: string;
@@ -158,6 +164,30 @@ export function truncateClientAudio(
       }
     }
     return { ...audio, segments: kept, omittedSegments: omitted };
+  });
+}
+
+/**
+ * 点评录音（每案各段合计）、整场总结（各段合计）进提示词的字数上限：按段号、再按时间装入，超出部分省略并记数。
+ * 省略的片段不进快照，所以模型引用不到、校验也认不出它们。
+ */
+export function truncateRecordings(list: readonly RetroSnapshotRecording[], maxChars: number): RetroSnapshotRecording[] {
+  let used = 0;
+  let full = false;
+  return [...list].sort((a, b) => a.partNo - b.partNo).map((recording) => {
+    const kept: RetroTranscriptSegment[] = [];
+    let omitted = 0;
+    for (const segment of [...recording.segments].sort((a, b) => a.startMs - b.startMs || a.id - b.id)) {
+      const length = [...segment.text].length;
+      if (!full && used + length <= maxChars) {
+        kept.push(segment);
+        used += length;
+      } else {
+        full = true;
+        omitted += 1;
+      }
+    }
+    return omitted ? { ...recording, segments: kept, omittedSegments: omitted } : { ...recording, segments: kept };
   });
 }
 
