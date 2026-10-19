@@ -6,6 +6,7 @@
 
 import type { V04Change, V04DraftPayloadV1 } from "@/lib/v04-contract";
 import type { V19AudioReviewSummary, V19ReviewCandidate } from "@/lib/audio-review-model";
+import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
 import type {
   V04ServerWorkspaceModel,
   V04UiCapabilities,
@@ -138,7 +139,7 @@ export function formatV19VersionLabel(input: {
   kind?: V19VersionKind;
 }): string {
   if (input.kind === "AUDIO_REVIEW") {
-    return `v${input.number}（${input.ownerName}录音点评，基于v${input.baseNumber ?? "?"}）`;
+    return `v${input.number}（${AUDIO_REVIEW_CRITIC_NAME}录音点评，基于v${input.baseNumber ?? "?"}）`;
   }
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
   const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;

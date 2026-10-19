@@ -11,7 +11,7 @@ import {
   type AudioReviewView,
   type V19AudioReviewSummary,
 } from "@/lib/audio-review-model";
-import { isCaseReviewer } from "@/lib/case-review";
+import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewUploader } from "./access";
 import { isReviewerSegment, parseStoredProposal, type StoredAudioReviewProposal } from "./proposal";
 import { dominantSpeaker, parseStoredTranscript, safeJson, type AudioReviewTranscriptSegment } from "./transcript";
 
@@ -89,7 +89,7 @@ export function parseSelectedChangeIds(value: unknown): string[] | null {
 
 /** 老孙看得到任何状态；其他人只看得到已生成的（docs/25 4.2 第 2 条）。 */
 export function canViewAudioReview(viewerDisplayName: string, status: AudioReviewStatus) {
-  return isCaseReviewer(viewerDisplayName) || status === "GENERATED";
+  return isAudioReviewUploader(viewerDisplayName) || status === "GENERATED";
 }
 
 export function audioReviewAudioPath(videoId: string, reviewId: string) {
@@ -142,7 +142,8 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
   const transcript = restricted ? null : parseStoredTranscript(row.transcript_json);
   const selected = parseSelectedChangeIds(row.selected_change_ids);
   const segments = transcript?.segments ?? [];
-  const speakers = audioReviewSpeakerNames(segments, stored, row.reviewer_name);
+  // 录音里点评的人始终是老孙；reviewer_name 记的是上传人（可能是替他上传的秦欣欣）。
+  const speakers = audioReviewSpeakerNames(segments, stored, AUDIO_REVIEW_CRITIC_NAME);
 
   const viewSegments: AudioReviewSegment[] = segments.map((segment) => {
     const corrections = (stored?.corrections ?? [])
@@ -162,7 +163,7 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
 
   let proposal: AudioReviewProposalView | null = null;
   if (stored) {
-    // 完整提案（不含 dropped）。待确认的提案只有老孙拿得到——其他人在 GENERATED 之前根本看不到
+    // 完整提案（不含 dropped）。待确认的提案只有上传名单里的人拿得到——其他人在 GENERATED 之前根本看不到
     // 这条任务（loadAudioReviewForViewer 回 404）；生成之后点评版录音卡对所有人展示意见清单，
     // 「落实了几处」由前端拿 changeIds 与 selectedChangeIds 求交得出。
     proposal = {
@@ -189,7 +190,8 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
     baseVersionId: row.base_version_id,
     baseVersionNumber: Number(row.base_version_number),
     baseOwnerName: row.base_owner_name,
-    reviewerName: row.reviewer_name,
+    reviewerName: AUDIO_REVIEW_CRITIC_NAME,
+    uploaderName: row.reviewer_name,
     status: row.status,
     failedStep: row.failed_step ?? null,
     failReason: row.fail_reason ?? null,

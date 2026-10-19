@@ -50,7 +50,7 @@ export default function V19AudioReviewCard({
   const meta = review ? [
     review.audio.fileName,
     review.audio.durationMs ? formatAudioClock(review.audio.durationMs) : "",
-    review.confirmedAt ? `${reviewer} ${formatShortDateTime(review.confirmedAt)} 确认生成` : "",
+    review.confirmedAt ? `${review.uploaderName || reviewer} ${formatShortDateTime(review.confirmedAt)} 确认生成` : "",
   ].filter(Boolean).join(" · ") : "";
 
   return (

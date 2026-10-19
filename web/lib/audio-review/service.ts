@@ -18,7 +18,7 @@ import {
   type CreateAudioReviewRequestBody,
   type V19AudioReviewSummary,
 } from "@/lib/audio-review-model";
-import { isCaseReviewer } from "@/lib/case-review";
+import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewCriticVersion, isAudioReviewUploader } from "./access";
 import {
   V04_PAYLOAD_SCHEMA_VERSION,
   V04_TAXONOMY_VERSION,
@@ -96,7 +96,7 @@ export const audioReviewObjectKey = (reviewId: string) => `audio-reviews/${revie
 const ADVANCEABLE: readonly AudioReviewStatus[] = ["TRANSCRIBING", "UNDERSTANDING"];
 
 function forbidden() {
-  return new AudioReviewError(403, "FORBIDDEN", "只有老孙可以上传和处理点评录音。");
+  return new AudioReviewError(403, "FORBIDDEN", "只有上传名单里的人（老孙、秦欣欣）可以上传和处理点评录音。");
 }
 
 function notFound() {
@@ -125,11 +125,11 @@ export async function loadAudioReview(db: DbClient, videoId: string, reviewId: s
   ).bind(reviewId, videoId).first<AudioReviewRow>();
 }
 
-/** 按可见性取一条：老孙任何状态都看得到；其他人只有已生成的，否则当作不存在（404）。 */
+/** 按可见性取一条：上传名单里的人任何状态都看得到；其他人只有已生成的，否则当作不存在（404）。 */
 export async function loadAudioReviewForViewer(db: DbClient, actor: V04Actor, videoId: string, reviewId: string) {
   const row = await loadAudioReview(db, videoId, reviewId);
   if (!row) throw notFound();
-  if (!isCaseReviewer(actor.displayName) && row.status !== "GENERATED") throw notFound();
+  if (!isAudioReviewUploader(actor.displayName) && row.status !== "GENERATED") throw notFound();
   return row;
 }
 
@@ -138,7 +138,7 @@ export async function listAudioReviewSummaries(
   videoId: string,
   viewerDisplayName: string,
 ): Promise<V19AudioReviewSummary[]> {
-  const reviewer = isCaseReviewer(viewerDisplayName);
+  const reviewer = isAudioReviewUploader(viewerDisplayName);
   const rows = (await db.prepare(
     `SELECT ar.id, ar.base_version_id, ar.status, ar.failed_step, ar.fail_reason,
       CASE WHEN jsonb_typeof(ar.proposal_json -> 'changes') = 'array'
@@ -244,7 +244,7 @@ export async function createAudioReview(
   input: { videoId: string; body: unknown; now?: Date },
   deps: Pick<AudioReviewDeps, "bucket">,
 ): Promise<{ row: AudioReviewRow; uploadUrl: string }> {
-  if (!isCaseReviewer(actor.displayName)) throw forbidden();
+  if (!isAudioReviewUploader(actor.displayName)) throw forbidden();
   const body = normalizeCreateAudioReviewBody(input.body);
   const now = input.now ?? new Date();
   const reviewId = newAudioReviewId();
@@ -263,8 +263,10 @@ export async function createAudioReview(
     if ((base.version_kind ?? "PERSONAL") !== "PERSONAL") {
       throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", "点评版不能再上传点评录音。");
     }
-    if (base.owner_user_id === actor.userId) {
-      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", "不能给自己的版本上传点评录音。");
+    // 录音里点评的人始终是老孙：他自己的版本不挂点评。替他上传的人（秦欣欣）自己的作业可以——
+    // 老孙点评的可能正是她那一版。
+    if (isAudioReviewCriticVersion(base.owner_name_snapshot)) {
+      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", `不能给${AUDIO_REVIEW_CRITIC_NAME}自己的版本上传点评录音。`);
     }
     const live = await tx.prepare(
       `SELECT id FROM audio_reviews WHERE base_version_id = ? AND status <> 'ABANDONED' LIMIT 1`,
@@ -383,7 +385,7 @@ export async function runAudioReviewAction(
   input: { videoId: string; reviewId: string; body: unknown },
   deps: Pick<AudioReviewDeps, "bucket">,
 ): Promise<AudioReviewActionResult> {
-  if (!isCaseReviewer(actor.displayName)) throw forbidden();
+  if (!isAudioReviewUploader(actor.displayName)) throw forbidden();
   const body = (input.body && typeof input.body === "object" ? input.body : {}) as Partial<AudioReviewActionRequestBody> & {
     selectedChangeIds?: unknown;
   };
@@ -468,7 +470,7 @@ export async function confirmAudioReview(
   actor: V04Actor,
   input: { videoId: string; reviewId: string; selectedChangeIds: unknown },
 ): Promise<{ row: AudioReviewRow; reviewVersionId: string }> {
-  if (!isCaseReviewer(actor.displayName)) throw forbidden();
+  if (!isAudioReviewUploader(actor.displayName)) throw forbidden();
   const reviewVersionId = await db.withTransaction(async (tx) => {
     await assertVideoAvailable(tx, input.videoId);
     const workspace = await workspaceForVideo(tx, input.videoId, true);
@@ -658,7 +660,7 @@ async function runTranscription(
         return null;
       }
       const hotwordList = formatHotwordList(buildAsrHotwords({
-        reviewerName: current.reviewer_name,
+        reviewerName: AUDIO_REVIEW_CRITIC_NAME,
         revieweeName: current.base_owner_name,
       }));
       const submitted = await asr.submit({ audioUrl, hotwordList });
@@ -763,7 +765,8 @@ async function runUnderstanding(
     const context: AudioReviewPromptContext = {
       snapshot,
       segments: transcript.segments,
-      reviewerName: current.reviewer_name,
+      // 不管谁上传，录音里点评的人都是老孙（reviewer_name 记的是上传人）。
+      reviewerName: AUDIO_REVIEW_CRITIC_NAME,
       revieweeName: current.base_owner_name,
       baseVersionNumber: Number(current.base_version_number),
       caseTitle: title,
@@ -798,7 +801,7 @@ async function runUnderstanding(
         const proposal = normalizeAudioReviewProposal(parsed.value, {
           snapshot,
           segments: transcript.segments,
-          reviewerName: current.reviewer_name,
+          reviewerName: AUDIO_REVIEW_CRITIC_NAME,
         });
         if (proposal.changes.length === 0) {
           failure = { reason: "模型没有给出任何可用的改动。", retryable: true };

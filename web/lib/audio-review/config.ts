@@ -1,7 +1,7 @@
 // 录音点评改写的运行配置（docs/25 4.7）。读环境变量的地方只有这一个文件；
 // 判断逻辑是纯函数（显式传入 env 与是否本机演示），单测不用改 process.env。
 
-import { isCaseReviewer } from "@/lib/case-review";
+import { isAudioReviewUploader } from "./access";
 import { isLocalDemoMode } from "@/lib/local-demo";
 
 // 2026-10-10 用真实转写对比过：deepseek-flash 与 deepseek-v4-pro 理解质量相当，快约四成（2 分半录音 106 秒 vs 约 170 秒）。
@@ -64,7 +64,7 @@ export function readAudioReviewConfig(env: Env = process.env, localDemo = isLoca
   return { provider, configured: missing.length === 0, missing, deepseek, asr };
 }
 
-/** 入口开关（docs/25 4.7）：老孙，且（DeepSeek 密钥和 COS 齐全，或走 fake）。 */
+/** 入口开关（docs/25 4.7）：上传名单里的人（老孙、秦欣欣），且（DeepSeek 密钥和 COS 齐全，或走 fake）。 */
 export function isAudioReviewAvailable(displayName: string | null | undefined, config: AudioReviewConfig) {
-  return isCaseReviewer(displayName) && config.configured;
+  return isAudioReviewUploader(displayName) && config.configured;
 }

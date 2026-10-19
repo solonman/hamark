@@ -26,6 +26,9 @@ import {
 } from "../lib/audio-review/service";
 import { toAudioReviewView, type AudioReviewRow } from "../lib/audio-review/view";
 import { readAudioReviewConfig } from "../lib/audio-review/config";
+import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewCriticVersion, isAudioReviewUploader } from "../lib/audio-review/access";
+import { formatV19VersionLabel as formatClientLabel } from "../lib/v19-ui-model";
+import { formatV19VersionLabel as formatServerLabel } from "../lib/v19-version-chain";
 import type { V04DraftPayloadV1 } from "../lib/v04-contract";
 import { V04ServiceError } from "../lib/v04-errors";
 import type { V04Actor } from "../lib/v04-workspace-service";
@@ -1106,4 +1109,69 @@ test("view: speakers by content, corrected transcript, expanded unaddressed rema
       assert.ok(publicView.proposal!.changes.find((change) => change.id === id)!.opinionIds.includes(opinion.id));
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// 替老孙上传（2026-10-19 秦欣欣进上传名单）：谁能上传是名单，录音里点评的人始终是老孙
+// ---------------------------------------------------------------------------
+
+const ASSISTANT: V04Actor = { userId: "user-qin", identityKey: "wecom:qin", displayName: "秦欣欣", sessionId: "s4", requestId: "req-4" };
+
+test("access: 上传名单是老孙和秦欣欣；录音里点评的人始终是老孙", () => {
+  assert.equal(isAudioReviewUploader("老孙"), true);
+  assert.equal(isAudioReviewUploader(" 秦欣欣 "), true);
+  assert.equal(isAudioReviewUploader("刘梦娜"), false);
+  assert.equal(isAudioReviewUploader(null), false);
+  assert.equal(AUDIO_REVIEW_CRITIC_NAME, "老孙");
+  assert.equal(isAudioReviewCriticVersion("老孙"), true);
+  assert.equal(isAudioReviewCriticVersion("秦欣欣"), false);
+});
+
+test("秦欣欣能建任务（包括她自己那一版），老孙本人的版本不行；名单外的人仍然 403；她的入口开着、在途任务看得见", async () => {
+  const context = setup({ versions: [versionRow("v-liu", 1, AUTHOR), versionRow("v-qin", 2, ASSISTANT), versionRow("v-sun", 3, REVIEWER)] });
+  const harness = deps(context.clock);
+  const { row } = await createAudioReview(context.asDb, ASSISTANT, { videoId: VIDEO, body: createBody() }, harness.deps);
+  assert.equal(review(context.db, row.id).reviewer_name, "秦欣欣");
+  const own = await createAudioReview(context.asDb, ASSISTANT, { videoId: VIDEO, body: createBody({ baseVersionId: "v-qin" }) }, harness.deps);
+  assert.equal(own.row.base_version_id, "v-qin");
+  await expectError(createAudioReview(context.asDb, ASSISTANT, { videoId: VIDEO, body: createBody({ baseVersionId: "v-sun" }) }, harness.deps), 409, "AUDIO_REVIEW_NOT_ALLOWED");
+  await expectError(createAudioReview(context.asDb, OTHER, { videoId: VIDEO, body: createBody({ baseVersionId: "v-liu" }) }, harness.deps), 403, "FORBIDDEN");
+
+  assert.equal((await loadAudioReviewForViewer(context.asDb, ASSISTANT, VIDEO, row.id)).id, row.id);
+  assert.equal((await listAudioReviewSummaries(context.asDb, VIDEO, "秦欣欣")).length, 2);
+  const configured = readAudioReviewConfig({}, true);
+  assert.equal((await loadAudioReviewStudioState(context.asDb, VIDEO, { displayName: "秦欣欣" }, configured)).audioReviewAvailable, true);
+});
+
+test("秦欣欣上传的录音：模型和热词里的点评人仍是老孙；视图里点评人是老孙、上传人是秦欣欣；确认后点评版归她，标签仍写老孙录音点评", async () => {
+  const context = setup();
+  const seen: string[] = [];
+  const harness = deps(context.clock, {
+    llm: [(llmContext) => {
+      seen.push(llmContext.reviewerName);
+      return { ok: true, content: JSON.stringify(buildFakeModelOutput(llmContext)), finishReason: "stop", usage: { total_tokens: 1 }, model: "m", durationMs: 1 };
+    }],
+  });
+  const { row } = await createAudioReview(context.asDb, ASSISTANT, { videoId: VIDEO, body: createBody() }, harness.deps);
+  Object.assign(context.db.reviews.get(row.id)!, { status: "TRANSCRIBING" });
+  await advanceAudioReview(context.asDb, row.id, { deadline: deadlineFrom(context.clock), deps: harness.deps });
+  assert.equal(review(context.db, row.id).status, "PENDING_CONFIRM");
+  assert.deepEqual(seen, ["老孙"]);
+  assert.match(harness.calls.submit[0].hotwordList, /老孙\|/);
+
+  const view = toAudioReviewView(review(context.db, row.id) as AudioReviewRow, { viewerDisplayName: "秦欣欣" });
+  assert.equal(view.reviewerName, "老孙");
+  assert.equal(view.uploaderName, "秦欣欣");
+  assert.ok(view.proposal);
+
+  const changeIds = (review(context.db, row.id).proposal_json as { changes: Array<{ id: string }> }).changes.map((change) => change.id);
+  const result = await runAudioReviewAction(context.asDb, ASSISTANT, { videoId: VIDEO, reviewId: row.id, body: { action: "CONFIRM", selectedChangeIds: changeIds.slice(0, 1) } }, harness.deps);
+  const reviewVersion = context.db.versions.find((version) => version.id === result.reviewVersionId)!;
+  assert.equal(reviewVersion.version_kind, "AUDIO_REVIEW");
+  assert.equal(reviewVersion.owner_user_id, ASSISTANT.userId);
+  assert.equal(reviewVersion.owner_name_snapshot, "秦欣欣");
+
+  const label = { number: 2, baseNumber: 1, ownerName: "秦欣欣", ownerIsUploader: false, kind: "AUDIO_REVIEW" as const };
+  assert.equal(formatClientLabel(label), "v2（老孙录音点评，基于v1）");
+  assert.equal(formatServerLabel(label), formatClientLabel(label));
 });

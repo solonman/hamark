@@ -1,5 +1,6 @@
 "use client";
 
+import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
 import { useState, type JSX, type ReactNode } from "react";
 import type { V04ChoiceValue, V04CreativeGrade, V04DraftPayloadV1, V04ShotFieldKey } from "@/lib/v04-contract";
 import type { V04UiDraft, V04UiShot, V04UiShotGroup } from "@/lib/v04-ui-model";
@@ -143,6 +144,8 @@ export type V19StudioDocumentProps = {
    * 提案里的处，只可能是生成后手改出来的，同样标「老孙已手改」。缺省即普通版本的样子。
    */
   reviewBasis?: ReadonlyMap<string, V19ReviewBasisEntry>;
+  /** 点评版的归属人（老孙本人，或替他上传的秦欣欣），拼进「X已手改」。缺省按老孙。 */
+  reviewOwnerName?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -356,7 +359,7 @@ function V19FinalTraceRows({
           ? (row.actorName || "原稿")
           : row.source === "FINAL_DIRECT"
             ? `${row.actorName}·直接修改`
-            : isV19ReviewSource(row, reviewVersionNumbers) ? `${row.actorName}录音点评` : row.actorName;
+            : isV19ReviewSource(row, reviewVersionNumbers) ? `${AUDIO_REVIEW_CRITIC_NAME}录音点评` : row.actorName;
         return (
           <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowPending}`}>
             <span className={styles.finalTraceVersion}>{versionTag}</span>
@@ -373,7 +376,7 @@ function V19FinalTraceRows({
         );
       })}
       {reviewRows.map((row) => {
-        const reviewer = reviewerNames?.get(row.reviewVersionId) || "老孙";
+        const reviewer = reviewerNames?.get(row.reviewVersionId) || AUDIO_REVIEW_CRITIC_NAME;
         // 主导路径细项、辅助路径在集成版里是整组一个键：采纳会把这一组都换成点评版的写法。
         const wholeGroup = row.targetKey === "path.primaryDetails" || row.targetKey === "path.auxiliaryTypes";
         return (
@@ -443,6 +446,7 @@ export default function V19StudioDocument({
   final,
   caseTitle,
   reviewBasis,
+  reviewOwnerName,
 }: V19StudioDocumentProps): JSX.Element {
   const setFactText = (key: "commercialIntent" | "storySummary" | "creativeMotif" | "tensionButton" | "creativeThinkingChain" | "carrierExplanation" | "creativeContract" | "gradeReason") =>
     (value: string) => onChange((next) => { next[key] = value; });
@@ -602,7 +606,7 @@ export default function V19StudioDocument({
   function basisBadges(keys: readonly string[], changed = true): ReactNode {
     if (!reviewBasis || !diff || !changed) return undefined;
     const entry = keys.map((key) => reviewBasis.get(key)).find((item): item is V19ReviewBasisEntry => Boolean(item));
-    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>老孙已手改</span>;
+    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>{reviewOwnerName || AUDIO_REVIEW_CRITIC_NAME}已手改</span>;
     if (!entry) return handEdited;
     return (
       <>
