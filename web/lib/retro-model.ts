@@ -279,6 +279,8 @@ export type RetroCaseReview = {
   /** 经过：只能改，不能删（规格 6.6）。 */
   process: string;
   processSources: RetroSource[];
+  /** 老孙在草稿里改过「经过」（RetroItem.edited 的对应物；「经过」不是条目，没有 edited 字段）。 */
+  processEdited?: boolean;
   disputes: RetroItem[];
   founderPoints: RetroItem[];
   suggestions: RetroItem[];
@@ -486,7 +488,16 @@ export type RetroJobView = {
   /** 「修订已发布内容」时的来源版本号。 */
   revisingFromVersion: number | null;
   /** 只有老孙能拿到，且只在 PENDING_REVIEW 时有。 */
-  draft: { minutes: RetroMinutes; methods: RetroMethods; revision: number; quotedSegments: Record<string, RetroQuotedSegment[]> } | null;
+  draft: {
+    minutes: RetroMinutes;
+    methods: RetroMethods;
+    revision: number;
+    quotedSegments: Record<string, RetroQuotedSegment[]>;
+    /** 出处标记要用的录音信息（同 RetroPublicationView.recordingRefs）。 */
+    recordingRefs: RetroCaseInMinutes["recordingRefs"];
+    /** 草稿纳入的案例与生成时冻结的序号。 */
+    caseNumbers: Record<string, number>;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };
