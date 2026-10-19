@@ -279,6 +279,8 @@ export type RetroCaseReview = {
   /** 经过：只能改，不能删（规格 6.6）。 */
   process: string;
   processSources: RetroSource[];
+  /** 老孙在草稿里改过「经过」（RetroItem.edited 的对应物；「经过」不是条目，没有 edited 字段）。 */
+  processEdited?: boolean;
   disputes: RetroItem[];
   founderPoints: RetroItem[];
   suggestions: RetroItem[];
@@ -500,8 +502,10 @@ export type RetroJobView = {
     methods: RetroMethods;
     revision: number;
     quotedSegments: Record<string, RetroQuotedSegment[]>;
-    /** 出处标记要用的「案例 N · 第 M 段」信息；草稿的出处标记依赖它，没给时只能写「案例 N」。 */
-    recordingRefs?: RetroCaseInMinutes["recordingRefs"];
+    /** 出处标记要用的录音信息（同 RetroPublicationView.recordingRefs）。 */
+    recordingRefs: RetroCaseInMinutes["recordingRefs"];
+    /** 草稿纳入的案例与生成时冻结的序号。 */
+    caseNumbers: Record<string, number>;
     roundRefs?: RetroRoundRefs;
   } | null;
   createdAt: string;
@@ -696,3 +700,11 @@ export type RetroRecordingResponse = { recording: RetroRecordingView };
 
 /** 回收站、删除回合、删除附件、回合排序的响应。 */
 export type RetroOkResponse = { ok: true };
+
+// 月度整理接口的返回（/api/retro-months/**）：GET 月份页直接返回 RetroMonthView，GET publications/[n] 直接返回 RetroPublicationView。
+/** POST jobs → 201。待审阅时「重新生成」= 先 ABANDON 当前任务，再 POST GENERATE（直接 GENERATE 会 409）。 */
+export type RetroStartJobResponse = { job: RetroJobView };
+/** POST jobs/[jobId]（RETRY / ABANDON / PUBLISH）；PUBLISH 时带 publicationVersion。 */
+export type RetroJobActionResponse = { job: RetroJobView; publicationVersion?: number };
+/** PATCH jobs/[jobId]/draft；ADD 时 itemId 是新条目的 id。 */
+export type RetroDraftPatchResponse = { job: RetroJobView; itemId: string | null };
