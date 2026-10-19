@@ -225,6 +225,12 @@ const GRADE_OPTIONS = [
 
 const PATH_OPTIONS = V04_UI_PATHS.map((item) => ({ value: item.id, label: item.label }));
 
+/** 辅助里去掉主导已选的固定选项——主辅互斥是冻结合同规则（docs 合同 / listV04ContractViolations）。 */
+export function withoutV19PrimaryOverlap(auxiliary: V04ChoiceValue, primary: V04ChoiceValue): V04ChoiceValue {
+  const selectedOptionIds = auxiliary.selectedOptionIds.filter((id) => !primary.selectedOptionIds.includes(id));
+  return selectedOptionIds.length === auxiliary.selectedOptionIds.length ? auxiliary : { ...auxiliary, selectedOptionIds };
+}
+
 const PRIMARY_PATH_DETAIL_KEYS: Record<"LOVE" | "FUN" | "PERCEPTION", readonly string[]> = {
   LOVE: ["emotionalBase", "accumulation", "gapPressure", "releaseMethod", "mainCarrier"],
   FUN: ["originalExpectation", "deviation", "reveal", "reinterpretation", "mainCarrier"],
@@ -449,7 +455,13 @@ export default function V19StudioDocument({
       : [...next.carriers, carrier];
   });
 
-  const setPrimaryMechanism = (value: V04ChoiceValue) => onChange((next) => { next.primaryMechanism = value; });
+  // 冻结合同要求主辅互斥（同一选项不能既是主导又是辅助），否则整份工作稿会被
+  // 服务端拒收、之后每次自动保存都跟着失败。口径同旧工作区：选主导时把同一项从
+  // 辅助里移掉，辅助的候选里不再列出主导已选的项。
+  const setPrimaryMechanism = (value: V04ChoiceValue) => onChange((next) => {
+    next.primaryMechanism = value;
+    next.auxiliaryMechanism = withoutV19PrimaryOverlap(next.auxiliaryMechanism, value);
+  });
   const setAuxiliaryMechanism = (value: V04ChoiceValue) => onChange((next) => { next.auxiliaryMechanism = value; });
   const setStoryReference = (value: V04ChoiceValue) => onChange((next) => { next.storyReference = value; });
 
@@ -463,7 +475,9 @@ export default function V19StudioDocument({
   });
   const setBridgePrimaryRole = (bridgeId: string) => (value: V04ChoiceValue) => onChange((next) => {
     const group = next.shotGroups.find((item) => item.id === bridgeId);
-    if (group) group.primaryRole = value;
+    if (!group) return;
+    group.primaryRole = value;
+    group.auxiliaryRole = withoutV19PrimaryOverlap(group.auxiliaryRole, value);
   });
   const setBridgeAuxiliaryRole = (bridgeId: string) => (value: V04ChoiceValue) => onChange((next) => {
     const group = next.shotGroups.find((item) => item.id === bridgeId);
@@ -480,7 +494,10 @@ export default function V19StudioDocument({
     }
   });
 
-  const setPrimaryPath = (value: string) => onChange((next) => { if (isPathValue(value)) next.primaryPath = value; });
+  // 主导与辅助路径互斥：已是辅助路径的类型在下拉里不可选，这里再兜一道。
+  const setPrimaryPath = (value: string) => onChange((next) => {
+    if (isPathValue(value) && !next.auxiliaryPaths.includes(value)) next.primaryPath = value;
+  });
   const setPrimaryPathAnswer = (path: "LOVE" | "FUN" | "PERCEPTION", index: number) => (value: string) => onChange((next) => {
     next.primaryPathAnswers[path][index] = value;
   });
@@ -760,7 +777,8 @@ export default function V19StudioDocument({
                 )}
                 <ChoiceDiffNote block diff={diff} targetKey={V19_FIELD_TARGET_KEYS.facts.primaryMechanism} labels={mechanismLabels}
                   badges={basisBadges([V19_FIELD_TARGET_KEYS.facts.primaryMechanism])} />
-                <V04ChoiceOptionsRow label="辅助机制" value={draft.auxiliaryMechanism} options={V04_UI_MECHANISM_OPTIONS} multiple
+                <V04ChoiceOptionsRow label="辅助机制" value={draft.auxiliaryMechanism}
+                  options={V04_UI_MECHANISM_OPTIONS.filter((option) => !draft.primaryMechanism.selectedOptionIds.includes(option.optionId))} multiple
                   triggerId={V04_WORKSPACE_TARGETS.auxiliaryMechanism} readOnly={readOnly} onChange={setAuxiliaryMechanism}
                   {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.facts.auxiliaryMechanism, "generalMechanism")} />
                 {draft.auxiliaryMechanism.selectedOptionIds.includes("PENDING_NEW_MECHANISM") && (
@@ -885,7 +903,8 @@ export default function V19StudioDocument({
               {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole"), "bridgeCreativeRole")} />
             <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole")} labels={bridgeRoleLabels}
               badges={basisBadges([V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "primaryCreativeRole")])} />
-            <V04ChoiceField label="桥段辅助创意作用" value={group.auxiliaryRole} options={V04_UI_BRIDGE_OPTIONS} multiple max={3}
+            <V04ChoiceField label="桥段辅助创意作用" value={group.auxiliaryRole}
+              options={V04_UI_BRIDGE_OPTIONS.filter((option) => !group.primaryRole.selectedOptionIds.includes(option.optionId))} multiple max={3}
               customLabel="自定义辅助创意作用" readOnly={readOnly} onChange={setBridgeAuxiliaryRole(group.id)}
               {...finalChoiceFieldExtras(V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "auxiliaryCreativeRole"), "bridgeCreativeRole")} />
             <ChoiceDiffNote diff={diff} targetKey={V19_FIELD_TARGET_KEYS.shotGroupField(group.id, "auxiliaryCreativeRole")} labels={bridgeRoleLabels}
@@ -1002,7 +1021,11 @@ export default function V19StudioDocument({
           <div className={styles.readingCore}>
             <div>
               {labelWithComment("主导路径", V19_FIELD_TARGET_KEYS.path.primaryType)}
-              <V19EditableValue kind="select" options={PATH_OPTIONS} ariaLabel="主导路径" value={path} readOnly={readOnly}
+              <V19EditableValue kind="select"
+                options={PATH_OPTIONS.map((option) => draft.auxiliaryPaths.includes(option.value as typeof path)
+                  ? { ...option, label: `${option.label}（已是辅助路径）`, disabled: true }
+                  : option)}
+                ariaLabel="主导路径" value={path} readOnly={readOnly}
                 baseValue={(() => {
                   if (!diff || !diff.changedFields.has(V19_FIELD_TARGET_KEYS.path.primaryType)) return undefined;
                   const raw = diff.changedFields.get(V19_FIELD_TARGET_KEYS.path.primaryType);

@@ -15,6 +15,8 @@ import {
 import { blankV04Shot, locateV04Target, mintV04LocalId, numberedV04Shots, V04_LOCATED_MARK_MS, V04_WORKSPACE_TARGETS } from "@/lib/v04-ui-client-state";
 import { V04LatestSaveCoordinator } from "@/lib/v04-save-coordinator";
 import { v04UiApi } from "@/lib/v04-ui-api-client";
+import { listV04ContractViolations, type V04ContractViolation } from "@/lib/v04-contract-rules";
+import { readV04ContractViolations } from "@/lib/v04-contract-violations";
 import {
   formatV19VersionLabel,
   v19Api,
@@ -76,7 +78,7 @@ type V19SaveStatus =
   | { kind: "IDLE" }
   | { kind: "SAVING" }
   | { kind: "SAVED"; at: string }
-  | { kind: "ERROR"; message: string };
+  | { kind: "ERROR"; message: string; detail?: string };
 
 type V19Toast = { id: string; text: string };
 
@@ -126,6 +128,20 @@ export function resolveV19EditGuard(
   if (current.isMine) return { action: "PROCEED" };
   if (myVersionId) return { action: "SWITCH_TO_OWN", versionId: myVersionId };
   return { action: "PROCEED" };
+}
+
+/**
+ * 违反冻结合同的工作稿每次重试都会被同样拒收，所以提示必须点名字段，而且要
+ * 弹在眼前：保存胶囊在窄屏会被截断，只放一句短话；完整的「哪个字段、什么问题」
+ * 走 toast。改正那一处后，下一次自动保存会把攒着的修改一起带上。
+ */
+export function describeV19ContractViolations(violations: readonly V04ContractViolation[]) {
+  const names = [...new Set(violations.map((item) => item.targetLabel))];
+  const chip = names.length === 1
+    ? `「${names[0]}」不符合固定规则，改正后自动保存`
+    : `${names.length} 处不符合固定规则，改正后自动保存`;
+  const toast = `暂未保存：${violations.map((item) => `${item.targetLabel}——${item.message}`).join("；")}。改正后会自动保存，本页内容都还在。`;
+  return { chip, toast, signature: violations.map((item) => `${item.targetKey}|${item.message}`).join("\n") };
 }
 
 /**
@@ -333,6 +349,8 @@ export default function V04StudioClient({
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const saveCoordinatorRef = useRef(new V04LatestSaveCoordinator<V04UiDraft>());
   const changeSetIdsRef = useRef(new Map<number, string>());
+  // 同一组违规只弹一次 toast：违规没改掉之前，每次自动保存都会再撞一次。
+  const violationSignatureRef = useRef("");
   const [saveStatus, setSaveStatus] = useState<V19SaveStatus>({ kind: "IDLE" });
   const [loadError, setLoadError] = useState("");
   const [retryToken, setRetryToken] = useState(0);
@@ -597,6 +615,23 @@ export default function V04StudioClient({
       setSaveStatus({ kind: "SAVED", at: currentModel.current.updatedAt });
       return true;
     }
+    const reportViolations = (violations: readonly V04ContractViolation[], fallback: string) => {
+      if (!violations.length) {
+        setSaveStatus({ kind: "ERROR", message: fallback });
+        return false;
+      }
+      const described = describeV19ContractViolations(violations);
+      setSaveStatus({ kind: "ERROR", message: described.chip, detail: described.toast });
+      if (violationSignatureRef.current !== described.signature) {
+        violationSignatureRef.current = described.signature;
+        pushToast(described.toast);
+      }
+      return false;
+    };
+    // 服务端会以同样的规则拒收整份工作稿；先在本地查一遍，点名字段，不白发请求。
+    const localViolations = listV04ContractViolations(afterPayload);
+    if (localViolations.length) return reportViolations(localViolations, "");
+    violationSignatureRef.current = "";
     const changeSetId = changeSetIdsRef.current.get(attempt.version) ?? crypto.randomUUID();
     changeSetIdsRef.current.set(attempt.version, changeSetId);
     // spec 五、16: 老孙 editing the final version saves against the literal
@@ -722,6 +757,10 @@ export default function V04StudioClient({
       // `draftRef.current` nor the `draft` state is touched below, only the
       // status chip reflects the failure. The next edit — or the 重试 button
       // — re-flushes the same staged attempt automatically.
+      if (reason instanceof V04UiApiError &&
+        (reason.code === "CHOICE_RULE_VIOLATION" || reason.code === "INVALID_PAYLOAD_SCHEMA")) {
+        return reportViolations(readV04ContractViolations(reason.details), reason.message);
+      }
       const message = reason instanceof V04UiApiError ? reason.message : "保存失败，请重试，内容已保留在本机。";
       setSaveStatus({ kind: "ERROR", message });
       return false;
@@ -1843,7 +1882,7 @@ export default function V04StudioClient({
           )}
           <span className={[styles.saveChip, saveStatus.kind === "SAVING" ? styles.saveChipSaving : "", saveStatus.kind === "SAVED" ? styles.saveChipSaved : ""].filter(Boolean).join(" ")}>
             <span className={styles.saveDot} />
-            <span>
+            <span title={saveStatus.kind === "ERROR" ? (saveStatus.detail ?? saveStatus.message) : undefined}>
               {saveStatus.kind === "SAVING" && "保存中…"}
               {saveStatus.kind === "SAVED" && `已自动保存至 ${formatV19CurrentVersionShortLabel(model.current)} · ${formatV19Clock(saveStatus.at)}`}
               {saveStatus.kind === "ERROR" && saveStatus.message}

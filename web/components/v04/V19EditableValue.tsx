@@ -15,6 +15,8 @@ export type V19EditableKind = "text" | "textarea" | "timecode" | "select";
 export type V19EditableOption = {
   value: string;
   label: string;
+  /** 合同不允许的取值（例如已是辅助路径的类型不能再当主导）：照常列出，但不可选。 */
+  disabled?: boolean;
 };
 
 export type V19EditableProps = {
@@ -297,7 +299,7 @@ export default function V19EditableValue({
           }}
         >
           {(options ?? []).map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
           ))}
         </select>
         {diffMarkup}
