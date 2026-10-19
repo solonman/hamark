@@ -53,13 +53,14 @@ test("列表、详情都复用共享的 LibraryToast 与 DeleteConfirmDialog，�
 test("V04LibraryClient 有「公共视觉库」页签，切过去把 ?library=VISUAL 写回地址栏", async () => {
   const source = await readFile(new URL("../components/v04/V04LibraryClient.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /type LibraryTab = "VIDEO" \| "REPORT" \| "VISUAL";/);
+  // 第四个页签（客户需求复盘库）加进来之后，联合类型多了 "RETRO"，公共视觉库这一支不变。
+  assert.match(source, /type LibraryTab = "VIDEO" \| "REPORT" \| "VISUAL" \| "RETRO";/);
   assert.match(source, />公共视觉库<\/button>/);
   assert.match(source, /library === "VISUAL"/);
-  // setLibrary 把 REPORT/VISUAL 都写回 URL，VIDEO 时删掉这个参数。
-  assert.match(source, /if \(next === "REPORT" \|\| next === "VISUAL"\) url\.searchParams\.set\("library", next\);/);
+  // setLibrary 把 REPORT/VISUAL（以及 RETRO）都写回 URL，VIDEO 时删掉这个参数。
+  assert.match(source, /if \(next === "REPORT" \|\| next === "VISUAL" \|\| next === "RETRO"\) url\.searchParams\.set\("library", next\);/);
   // 挂载时从 URL 读回初始页签，同样认 VISUAL。
-  assert.match(source, /initial === "REPORT" \|\| initial === "VISUAL"/);
+  assert.match(source, /initial === "REPORT" \|\| initial === "VISUAL" \|\| initial === "RETRO"/);
   // 上传按钮跟着页签走：VISUAL 页签下是「上传案例」，开关关着时 disabled。
   assert.match(source, />上传案例<\/button>/);
   assert.match(source, /公共视觉库建设中，暂不能上传/);

@@ -444,6 +444,9 @@ export type RetroLibraryResponse = { cases: RetroCaseCard[]; months: RetroMonthS
 
 export type RetroCaseCapabilities = { canEdit: boolean; canTrash: boolean; canUploadRecording: boolean };
 
+/** 出处里的「第二版」标记要用的回合信息：回合 id → 所属案例与标题（软删除的回合也要在，规格 6.7、10.3）。 */
+export type RetroRoundRefs = Record<string, { caseId: string; title: string }>;
+
 export type RetroCaseInMinutes = {
   publicationVersion: number;
   publishedAt: string;
@@ -454,6 +457,8 @@ export type RetroCaseInMinutes = {
   quotedSegments: Record<string, RetroQuotedSegment[]>;
   /** 出处标记要用的：录音 id → { caseNumber, partNo, partCount }。 */
   recordingRefs: Record<string, { caseId: string | null; caseNumber: number | null; partNo: number; partCount: number }>;
+  /** 可选；没给时回合标记只能写「对应回合」。 */
+  roundRefs?: RetroRoundRefs;
 };
 
 export type RetroCaseDetail = {
@@ -468,6 +473,8 @@ export type RetroCaseDetail = {
   turningPoints: string;
   discussionQuestions: string;
   revision: number;
+  /** 当月序号（「案例 N」，按创建先后、被删除的也占号）；可选，没给时面包屑只写「案例」。 */
+  caseNumber?: number;
   createdByName: string;
   createdAt: string;
   updatedAt: string;
@@ -499,6 +506,7 @@ export type RetroJobView = {
     recordingRefs: RetroCaseInMinutes["recordingRefs"];
     /** 草稿纳入的案例与生成时冻结的序号。 */
     caseNumbers: Record<string, number>;
+    roundRefs?: RetroRoundRefs;
   } | null;
   createdAt: string;
   updatedAt: string;
@@ -515,6 +523,7 @@ export type RetroPublicationView = {
   methods: RetroMethods;
   quotedSegments: Record<string, RetroQuotedSegment[]>;
   recordingRefs: RetroCaseInMinutes["recordingRefs"];
+  roundRefs?: RetroRoundRefs;
 };
 
 /**
