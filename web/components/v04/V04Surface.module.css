@@ -1172,6 +1172,9 @@ input.editableTimecode { padding: 5px 8px; }
 .reviewLineReviewer .reviewLineWho { color: var(--v04-subject); font-weight: 800; }
 .reviewLineText { min-width: 0; overflow-wrap: anywhere; }
 .reviewLinePlaying { background: rgb(var(--v04-accent-rgb) / .1); }
+/* 多段录音拼成一份文字稿时，段与段之间的小标题（客户需求复盘库用）。 */
+.reviewPartDivider { margin: 12px 0 4px; padding: 0 6px; color: var(--v04-subject); font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.reviewTranscriptLines > .reviewPartDivider:first-child { margin-top: 2px; }
 .surface .reviewTime {
   border: 0; background: none; padding: 0; color: var(--v04-accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 11px; line-height: 1.6; text-align: left; cursor: pointer;

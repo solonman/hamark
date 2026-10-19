@@ -9,6 +9,7 @@ import { FINAL_VERSION_SCHEMA_STATEMENTS } from "./final-version-schema";
 import { AUDIO_REVIEW_SCHEMA_STATEMENTS } from "./audio-review-schema";
 import { REPORT_FINAL_SCHEMA_STATEMENTS } from "./report-final-schema";
 import { VISUAL_SCHEMA_STATEMENTS } from "./visual-schema";
+import { RETRO_SCHEMA_STATEMENTS } from "./retro-schema";
 import { AGENT_TOKEN_SCHEMA_STATEMENTS } from "./agent-token-schema";
 
 export const BOOTSTRAP_STATEMENTS = [
@@ -567,6 +568,7 @@ export const BOOTSTRAP_STATEMENTS = [
   ...FINAL_VERSION_SCHEMA_STATEMENTS,
   ...AUDIO_REVIEW_SCHEMA_STATEMENTS,
   ...VISUAL_SCHEMA_STATEMENTS,
+  ...RETRO_SCHEMA_STATEMENTS,
   ...AGENT_TOKEN_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only
   // happens server-side through the BYPASSRLS pooler role, so RLS with no
