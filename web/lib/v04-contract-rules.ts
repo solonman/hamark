@@ -128,3 +128,66 @@ export function listV04ContractViolations(payload: V04DraftPayloadV1): V04Contra
   }
   return violations;
 }
+
+export type V04ExclusiveAdjustment = {
+  targetKey: string;
+  targetLabel: string;
+  valueType: "CHOICE_WITH_CUSTOM" | "STRUCTURE";
+  beforeValue: unknown;
+  afterValue: unknown;
+};
+
+/**
+ * 主辅互斥的三对字段（主导/辅助机制、桥段主/辅创意作用、主导/辅助路径）在服务端
+ * 「按处最后写入」合并时可能撞上：本页面看到的辅助是旧的，另一个标签页、另一台设备
+ * 或别人汇入集成版的写法已经把同一项放进了另一侧。合并结果一旦违规，整份工作稿被拒，
+ * 而这一处冲突在本页面上根本看不到、也就改不掉，之后每次自动保存都失败。
+ *
+ * 这里按界面同一条口径化解：主导优先，从辅助一侧去掉重复项（界面上辅助本来就不列出
+ * 主导已选的项）。返回被调整的辅助字段，调用方把它记进修订事件并回传给页面。
+ */
+export function resolveV04ExclusiveOverlaps(payload: V04DraftPayloadV1): {
+  payload: V04DraftPayloadV1;
+  adjustments: V04ExclusiveAdjustment[];
+} {
+  const adjustments: V04ExclusiveAdjustment[] = [];
+  const next = structuredClone(payload);
+  const trimChoice = (
+    primary: V04ChoiceValue | undefined,
+    auxiliary: V04ChoiceValue | undefined,
+    targetKey: string,
+    targetLabel: string,
+  ): V04ChoiceValue | undefined => {
+    if (!primary || !auxiliary || !Array.isArray(primary.selectedOptionIds) || !Array.isArray(auxiliary.selectedOptionIds)) {
+      return auxiliary;
+    }
+    const kept = auxiliary.selectedOptionIds.filter((id) => !primary.selectedOptionIds.includes(id));
+    if (kept.length === auxiliary.selectedOptionIds.length) return auxiliary;
+    const trimmed = { ...auxiliary, selectedOptionIds: kept };
+    adjustments.push({ targetKey, targetLabel, valueType: "CHOICE_WITH_CUSTOM", beforeValue: auxiliary, afterValue: trimmed });
+    return trimmed;
+  };
+
+  for (const group of next.script?.shotGroups ?? []) {
+    const trimmed = trimChoice(group.primaryCreativeRole, group.auxiliaryCreativeRole,
+      `shotGroup:${group.id}.auxiliaryCreativeRole`, "桥段辅助创意作用");
+    if (trimmed) group.auxiliaryCreativeRole = trimmed;
+  }
+  const facts = next.factsAndCoreJudgement;
+  if (facts) {
+    const trimmed = trimChoice(facts.mainMechanism, facts.auxiliaryMechanism,
+      "facts.auxiliaryMechanism", "auxiliaryMechanism");
+    if (trimmed) facts.auxiliaryMechanism = trimmed;
+  }
+  const path = next.perceptionPath;
+  if (path && Array.isArray(path.auxiliaryTypes) &&
+    path.auxiliaryTypes.some((item) => item.type === path.primaryType)) {
+    const before = path.auxiliaryTypes;
+    path.auxiliaryTypes = before.filter((item) => item.type !== path.primaryType);
+    adjustments.push({
+      targetKey: "path.auxiliaryTypes", targetLabel: "辅助路径", valueType: "STRUCTURE",
+      beforeValue: before, afterValue: path.auxiliaryTypes,
+    });
+  }
+  return { payload: adjustments.length ? next : payload, adjustments };
+}

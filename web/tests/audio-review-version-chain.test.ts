@@ -1043,3 +1043,42 @@ test("agent read code stays read-only and the guide and docs/23 explain review v
   const docs = await source("../../docs/23_外部Agent只读API_V0.1.md");
   for (const text of ["`类型`", "点评版", "点评录音", "不含点评版"]) assert.ok(docs.includes(text), `docs/23 must mention ${text}`);
 });
+
+// ---------------------------------------------------------------------------
+// 合并后主辅撞车：本页面看到的辅助是旧的（另一个标签页／设备已把同一项放进辅助），
+// 这次只改主导。以前整份工作稿被拒（「工作稿不符合冻结规则」），之后每次保存都失败。
+// ---------------------------------------------------------------------------
+
+test("a save whose merge would put one option in both primary and auxiliary trims the auxiliary instead of failing", async () => {
+  const state = reviewedWorkspace({ final: finalRow(homework()) });
+  const v2 = state.versions.find((row) => row.id === "v2")!;
+  v2.payload_json = edit(v2.payload_json as V04DraftPayloadV1, (draft) => {
+    draft.factsAndCoreJudgement.auxiliaryMechanism = {
+      ...emptyV04ChoiceValue(), selectedOptionIds: ["INSIGHT_RESONANCE", "METAPHOR_TRANSLATION"], customText: "保留",
+    };
+  });
+  const { db } = studioDb(state);
+  const mainMechanism = { ...emptyV04ChoiceValue(), selectedOptionIds: ["INSIGHT_RESONANCE"] };
+  const result = await saveV19VersionChanges(db, ZHAO, {
+    videoId: "video1", basedOnVersionId: "v2", changeSetId: "cs_overlap",
+    changes: [{ ...change("facts.mainMechanism", emptyV04ChoiceValue(), mainMechanism), valueType: "CHOICE_WITH_CUSTOM" }],
+    now: NOW,
+  });
+  const saved = (state.versions.find((row) => row.id === "v2")!.payload_json as V04DraftPayloadV1).factsAndCoreJudgement;
+  assert.deepEqual(saved.mainMechanism.selectedOptionIds, ["INSIGHT_RESONANCE"]);
+  assert.deepEqual(saved.auxiliaryMechanism.selectedOptionIds, ["METAPHOR_TRANSLATION"]);
+  assert.equal(saved.auxiliaryMechanism.customText, "保留");
+  assert.deepEqual(result.adjustedTargets?.map((item) => item.targetKey), ["facts.auxiliaryMechanism"]);
+  assert.deepEqual(state.revisionEvents.map((event) => event.target_key).toSorted(),
+    ["facts.auxiliaryMechanism", "facts.mainMechanism"], "the trim is recorded as its own revision event");
+});
+
+test("a plain save carries no adjustedTargets", async () => {
+  const state = reviewedWorkspace({ final: finalRow(homework()) });
+  const { db } = studioDb(state);
+  const result = await saveV19VersionChanges(db, ZHAO, {
+    videoId: "video1", basedOnVersionId: "v2", changeSetId: "cs_plain",
+    changes: [change("facts.tensionButton", "", "井盖")], now: NOW,
+  });
+  assert.equal(result.adjustedTargets, undefined);
+});

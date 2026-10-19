@@ -22,6 +22,8 @@ import {
   emptyV04DraftPayload,
   hashV04Payload,
   listV04ContractViolations,
+  foldV04ExclusiveAdjustments,
+  resolveV04ExclusiveOverlaps,
 } from "./v04-domain";
 import { V04ServiceError } from "./v04-errors";
 import { materializeV04Workspace, type V04Actor } from "./v04-workspace-service";
@@ -194,12 +196,16 @@ export type V19SaveResult = {
   updatedAt: string;
   createdVersion: boolean;
   skippedTargets?: string[];
+  /** 合并后为守住主辅互斥而改过的辅助字段（resolveV04ExclusiveOverlaps），页面据此同步。 */
+  adjustedTargets?: V19AdjustedTarget[];
   finalIntake: { merged: boolean; pending: number };
   /** 这次写进的是个人版本还是点评版；点评版不汇入集成版（docs/25 五、1）。 */
   versionKind: V19VersionKind;
 };
 
 export type V19VersionKind = "PERSONAL" | "AUDIO_REVIEW";
+
+export type V19AdjustedTarget = { targetKey: string; afterValue: unknown };
 
 export type V19CreateFromInput = {
   videoId: string;
@@ -777,8 +783,16 @@ export async function saveV19VersionChanges(
     // editor's own lag, never another editor's edit, so it must not cost them
     // the keystroke they just made. Only targets that no longer exist are
     // skipped, and they are named in the result.
-    const { payload: after, appliedChanges, skippedTargets } =
-      applyV04ChangeSetLastWriteWins(before, input.changes);
+    const merged = applyV04ChangeSetLastWriteWins(before, input.changes);
+    const { skippedTargets } = merged;
+    // 合并后主辅撞车（本页面看到的另一侧是旧的）不能让整份工作稿被拒、之后每次
+    // 保存都失败：主导优先，从辅助去掉重复项，调整回传给页面。
+    const resolved = resolveV04ExclusiveOverlaps(merged.payload);
+    const after = resolved.payload;
+    const appliedChanges = foldV04ExclusiveAdjustments(merged.appliedChanges, resolved.adjustments);
+    const adjustedTargets = resolved.adjustments.length
+      ? resolved.adjustments.map(({ targetKey, afterValue }) => ({ targetKey, afterValue }))
+      : undefined;
     try {
       assertV04PayloadContract(after);
     } catch (error) {
@@ -883,6 +897,7 @@ export async function saveV19VersionChanges(
       updatedAt: savedAt,
       createdVersion,
       skippedTargets,
+      ...(adjustedTargets ? { adjustedTargets } : {}),
       finalIntake,
       versionKind,
     };

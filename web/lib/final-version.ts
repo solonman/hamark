@@ -17,6 +17,8 @@ import {
   canonicalV04ChangeSet,
   hashV04Payload,
   listV04ContractViolations,
+  foldV04ExclusiveAdjustments,
+  resolveV04ExclusiveOverlaps,
   locateTarget,
 } from "./v04-domain";
 import { V04ServiceError } from "./v04-errors";
@@ -29,6 +31,7 @@ import {
   materializeV19FirstVersion,
   parseJsonPayload,
   resolveWorkspaceForWrite,
+  type V19AdjustedTarget,
   type WorkspaceRow,
 } from "./v19-version-chain";
 
@@ -787,6 +790,7 @@ export type V19FinalSaveResult = {
   updatedAt: string;
   createdVersion: false;
   skippedTargets?: string[];
+  adjustedTargets?: V19AdjustedTarget[];
   finalIntake: FinalIntakeResult;
 };
 
@@ -834,7 +838,15 @@ export async function saveFinalVersionDirect(
     }
 
     const before = parseJsonPayload(current.payload_json);
-    const { payload: after, appliedChanges, skippedTargets } = applyV04ChangeSetLastWriteWins(before, input.changes);
+    const merged = applyV04ChangeSetLastWriteWins(before, input.changes);
+    const { skippedTargets } = merged;
+    // 同 saveV19VersionChanges：别人的写法汇入后，老孙页面上的另一侧可能是旧的。
+    const resolved = resolveV04ExclusiveOverlaps(merged.payload);
+    const after = resolved.payload;
+    const appliedChanges = foldV04ExclusiveAdjustments(merged.appliedChanges, resolved.adjustments);
+    const adjustedTargets = resolved.adjustments.length
+      ? resolved.adjustments.map(({ targetKey, afterValue }) => ({ targetKey, afterValue }))
+      : undefined;
     try {
       assertV04PayloadContract(after);
     } catch (error) {
@@ -898,6 +910,7 @@ export async function saveFinalVersionDirect(
     return {
       versionId: current.id, versionNumber: 0 as const, revision: nextRevision, contentHash: nextHash,
       updatedAt: savedAt, createdVersion: false as const, skippedTargets,
+      ...(adjustedTargets ? { adjustedTargets } : {}),
       finalIntake: { merged: true, pending: await countPending(tx, current.id) },
     };
   });

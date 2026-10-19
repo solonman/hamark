@@ -99,6 +99,8 @@ export type V19SaveResponseBody = {
   updatedAt: string;
   createdVersion: boolean;
   skippedTargets?: string[];
+  /** 服务端合并后为守住主辅互斥而改过的辅助字段：从辅助里去掉了与主导重复的项。 */
+  adjustedTargets?: Array<{ targetKey: string; afterValue: unknown }>;
   finalIntake: { merged: boolean; pending: number };
   /** 这次写进的是个人版本还是点评版。点评版不汇入集成版，前端据此不弹汇入提示（docs/25 五、1）。 */
   versionKind?: V19VersionKind;

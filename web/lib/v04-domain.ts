@@ -12,6 +12,7 @@ import {
   type V04PerceptionType,
 } from "./v04-contract";
 import { V04_VOCABULARY_OPTIONS, type V04VocabularyFieldKey } from "./v04-vocabulary";
+import type { V04ExclusiveAdjustment } from "./v04-contract-rules";
 
 export type V04WorkflowState =
   | "NOT_STARTED"
@@ -186,7 +187,12 @@ export function assertV04PayloadContract(payload: V04DraftPayloadV1) {
   }
 }
 
-export { listV04ContractViolations, type V04ContractViolation } from "./v04-contract-rules";
+export {
+  listV04ContractViolations,
+  resolveV04ExclusiveOverlaps,
+  type V04ContractViolation,
+  type V04ExclusiveAdjustment,
+} from "./v04-contract-rules";
 
 export function hasAnyV04DraftData(payload: V04DraftPayloadV1) {
   const withoutContract = {
@@ -495,6 +501,34 @@ export function applyV04ChangeSetLastWriteWins(
     appliedChanges.push(change);
   }
   return { payload: next, appliedChanges, skippedTargets };
+}
+
+/**
+ * 把 resolveV04ExclusiveOverlaps 对辅助一侧的调整并进本次实际落库的变更：同一处
+ * 已在本次变更里，就把它的 afterValue 换成调整后的值（一处只记一条）；否则补一条，
+ * 让修订事件、审计和集成版汇入看到的都是真正写进去的内容。
+ */
+export function foldV04ExclusiveAdjustments(
+  appliedChanges: readonly V04Change[],
+  adjustments: readonly V04ExclusiveAdjustment[],
+): V04Change[] {
+  const folded = appliedChanges.map((change) => ({ ...change }));
+  for (const adjustment of adjustments) {
+    const existing = folded.find((change) => change.targetKey === adjustment.targetKey);
+    if (existing) {
+      existing.afterValue = structuredClone(adjustment.afterValue);
+      continue;
+    }
+    folded.push({
+      targetKey: adjustment.targetKey,
+      targetLabel: adjustment.targetLabel,
+      valueType: adjustment.valueType,
+      beforeValue: structuredClone(adjustment.beforeValue),
+      afterValue: structuredClone(adjustment.afterValue),
+      reason: "主辅互斥：自动去掉与主导重复的辅助项",
+    });
+  }
+  return folded;
 }
 
 const canonicalJson = (value: unknown) => JSON.stringify(stableValue(value));

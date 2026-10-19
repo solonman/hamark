@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { V04_VOCABULARY_VERSION, type V04ChoiceValue, type V04DraftPayloadV1 } from "@/lib/v04-contract";
 import {
+  applyV04PayloadValues,
   cloneV04UiDraft,
   emptyV04UiDraft,
   v04PayloadChanges,
@@ -142,6 +143,41 @@ export function describeV19ContractViolations(violations: readonly V04ContractVi
     : `${names.length} 处不符合固定规则，改正后自动保存`;
   const toast = `暂未保存：${violations.map((item) => `${item.targetLabel}——${item.message}`).join("；")}。改正后会自动保存，本页内容都还在。`;
   return { chip, toast, signature: violations.map((item) => `${item.targetKey}|${item.message}`).join("\n") };
+}
+
+/**
+ * 服务端合并时为守住主辅互斥改过的辅助字段（adjustedTargets），同步到本页面草稿。
+ * 只同步保存发出之后本页面没再动过的字段：动过的那一处，下一次保存会按本页面的
+ * 新值写入，服务端仍会按同一条规则守住互斥。
+ */
+export function applyV19AdjustedTargets(
+  draft: V04UiDraft,
+  sentDraft: V04UiDraft,
+  savedPayload: V04DraftPayloadV1,
+  targetKeys: readonly string[],
+): V04UiDraft {
+  const server = v04PayloadToUiDraft(savedPayload);
+  const next = cloneV04UiDraft(draft);
+  const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+  for (const targetKey of targetKeys) {
+    if (targetKey === "facts.auxiliaryMechanism") {
+      if (same(next.auxiliaryMechanism, sentDraft.auxiliaryMechanism)) next.auxiliaryMechanism = server.auxiliaryMechanism;
+      continue;
+    }
+    if (targetKey === "path.auxiliaryTypes") {
+      if (same(next.auxiliaryPaths, sentDraft.auxiliaryPaths)) next.auxiliaryPaths = server.auxiliaryPaths;
+      continue;
+    }
+    const group = /^shotGroup:([^.]+)\.auxiliaryCreativeRole$/.exec(targetKey);
+    if (!group) continue;
+    const local = next.shotGroups.find((item) => item.id === group[1]);
+    const sent = sentDraft.shotGroups.find((item) => item.id === group[1]);
+    const fromServer = server.shotGroups.find((item) => item.id === group[1]);
+    if (local && sent && fromServer && same(local.auxiliaryRole, sent.auxiliaryRole)) {
+      local.auxiliaryRole = fromServer.auxiliaryRole;
+    }
+  }
+  return next;
 }
 
 /**
@@ -615,16 +651,20 @@ export default function V04StudioClient({
       setSaveStatus({ kind: "SAVED", at: currentModel.current.updatedAt });
       return true;
     }
-    const reportViolations = (violations: readonly V04ContractViolation[], fallback: string) => {
+    const reportViolations = (violations: readonly V04ContractViolation[], fallback: string, fromServer = false) => {
       if (!violations.length) {
         setSaveStatus({ kind: "ERROR", message: fallback });
         return false;
       }
       const described = describeV19ContractViolations(violations);
-      setSaveStatus({ kind: "ERROR", message: described.chip, detail: described.toast });
+      // 本地检查已经放行、服务端却拒收：问题出在服务端合并后的内容，本页面看不到。
+      const toast = fromServer
+        ? `${described.toast}这一处在本页面上看不出来（服务器上的内容在别处改过），请先复制正在写的文字，再刷新页面。`
+        : described.toast;
+      setSaveStatus({ kind: "ERROR", message: described.chip, detail: toast });
       if (violationSignatureRef.current !== described.signature) {
         violationSignatureRef.current = described.signature;
-        pushToast(described.toast);
+        pushToast(toast);
       }
       return false;
     };
@@ -646,6 +686,10 @@ export default function V04StudioClient({
       });
       const latest = modelRef.current ?? currentModel;
       const createdVersion = response.createdVersion;
+      // 服务端合并后改过辅助字段：本页面记下的「已保存内容」要跟服务端实际写入的一致，
+      // 否则下一次保存又会把旧的辅助值发回去。
+      const adjusted = response.adjustedTargets ?? [];
+      const savedPayload = adjusted.length ? applyV04PayloadValues(afterPayload, adjusted) : afterPayload;
       // 老孙改的是点评版本身（docs/25 五、1）：写回的仍是点评版，视角不变——不能把
       // current 改成「我的版本」，myVersionId 也不动，更没有集成版汇入可提示。
       // 老后端不带 versionKind 时，按「写回的就是当前这一版点评版」认。
@@ -663,7 +707,7 @@ export default function V04StudioClient({
           revision: response.revision,
           contentHash: response.contentHash,
           updatedAt: response.updatedAt,
-          payload: afterPayload,
+          payload: savedPayload,
           isFinal: true,
           isMine: false,
           isVirtual: false,
@@ -679,7 +723,7 @@ export default function V04StudioClient({
           revision: response.revision,
           contentHash: response.contentHash,
           updatedAt: response.updatedAt,
-          payload: afterPayload,
+          payload: savedPayload,
           isMine: false,
           isVirtual: false,
           kind: "AUDIO_REVIEW",
@@ -691,7 +735,7 @@ export default function V04StudioClient({
           revision: response.revision,
           contentHash: response.contentHash,
           updatedAt: response.updatedAt,
-          payload: afterPayload,
+          payload: savedPayload,
           isMine: true,
           isVirtual: false,
           // 写进的是个人版本：从点评版上动手的人新建了自己的版本，也落在这里。
@@ -718,7 +762,13 @@ export default function V04StudioClient({
       };
       modelRef.current = updatedModel;
       setModelState(updatedModel);
-      savedPayloadRef.current = afterPayload;
+      savedPayloadRef.current = savedPayload;
+      if (adjusted.length) {
+        const synced = applyV19AdjustedTargets(draftRef.current, attempt.draft, savedPayload, adjusted.map((item) => item.targetKey));
+        draftRef.current = synced;
+        setDraftState(synced);
+        pushToast("这份工作稿在别处也改过，主导与辅助选了同一项：已按主导为准，从辅助里去掉重复项");
+      }
       setSaveStatus({ kind: "SAVED", at: response.updatedAt });
       if (savedIntoReview) {
         // 点评版不汇入集成版（docs/25 二、7）：不弹汇入提示，保存状态胶囊已经说明写到了哪一版。
@@ -759,7 +809,7 @@ export default function V04StudioClient({
       // — re-flushes the same staged attempt automatically.
       if (reason instanceof V04UiApiError &&
         (reason.code === "CHOICE_RULE_VIOLATION" || reason.code === "INVALID_PAYLOAD_SCHEMA")) {
-        return reportViolations(readV04ContractViolations(reason.details), reason.message);
+        return reportViolations(readV04ContractViolations(reason.details), reason.message, true);
       }
       const message = reason instanceof V04UiApiError ? reason.message : "保存失败，请重试，内容已保留在本机。";
       setSaveStatus({ kind: "ERROR", message });
