@@ -711,7 +711,7 @@ export type RetroRecordingResponse = { recording: RetroRecordingView };
 export type RetroOkResponse = { ok: true };
 
 // 月度整理接口的返回（/api/retro-months/**）：GET 月份页直接返回 RetroMonthView，GET publications/[n] 直接返回 RetroPublicationView。
-/** POST jobs → 201。待审阅时「重新生成」= 先 ABANDON 当前任务，再 POST GENERATE（直接 GENERATE 会 409）。 */
+/** POST jobs → 201。待审阅（或失败）时「重新生成」带 replaceJobId：服务端在一个事务里放弃旧任务并开新任务，失败整体回滚、草稿保留；不带它直接 GENERATE 会 409。 */
 export type RetroStartJobResponse = { job: RetroJobView };
 /** POST jobs/[jobId]（RETRY / ABANDON / PUBLISH）；PUBLISH 时带 publicationVersion。 */
 export type RetroJobActionResponse = { job: RetroJobView; publicationVersion?: number };

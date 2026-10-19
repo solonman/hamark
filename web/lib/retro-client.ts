@@ -150,7 +150,7 @@ export function createRetroApiClient(fetcher: FetchLike = fetch) {
     getPublication: async (monthKey: string, version: number, signal?: AbortSignal) =>
       unwrapRetro<RetroPublicationView>(await request(`/api/retro-months/${enc(monthKey)}/publications/${version}`, { signal }), "publication"),
     /** replaceJobId：待审阅时「重新生成」——服务端在一个事务里放弃旧任务并开新任务，失败整体回滚、草稿保留。 */
-    startJob: (monthKey: string, body: RetroStartJobRequest & { replaceJobId?: string }) =>
+    startJob: (monthKey: string, body: RetroStartJobRequest) =>
       request(`/api/retro-months/${enc(monthKey)}/jobs`, { method: "POST", body }),
     jobAction: (monthKey: string, jobId: string, action: RetroJobAction) =>
       request(`/api/retro-months/${enc(monthKey)}/jobs/${enc(jobId)}`, { method: "POST", body: { action } }),

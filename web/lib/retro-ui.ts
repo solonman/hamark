@@ -800,7 +800,7 @@ export function shouldApplyPoll(seqAtRequest: number, seqNow: number, inFlight: 
  * 吸底栏「重新生成」的闸门：读前提里的 canRegenerate／regenerateBlockedReason（有在途草稿时 canGenerate 本来就是 false，
  * 不能拿它当闸门）。字段是后端新加的，没给时放行，由服务端的事务检查兜底。
  */
-export function retroRegenerateGate(pre: RetroGeneratePreconditions & { canRegenerate?: boolean; regenerateBlockedReason?: string | null }): { ok: boolean; reason: string | null } {
+export function retroRegenerateGate(pre: RetroGeneratePreconditions): { ok: boolean; reason: string | null } {
   if (pre.canRegenerate === undefined) return { ok: true, reason: null };
   return { ok: pre.canRegenerate, reason: pre.canRegenerate ? null : pre.regenerateBlockedReason ?? "现在还不能重新生成。" };
 }
