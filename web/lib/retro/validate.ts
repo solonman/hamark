@@ -166,6 +166,36 @@ export function validateRetroRoundOrder(body: unknown, currentIds: readonly stri
 
 export const RETRO_ASSETS_PER_REQUEST_MAX = 36;
 
+/**
+ * 附件的 Content-Type 不取自用户：按扩展名映射成固定的白名单类型（规格 4.3 之外的加固）。
+ * 建条目时就用映射值，签进预签名 PUT 并通过 upload-url 返回给前端上传；GET 时再用 response-content-type 覆盖，
+ * 所以对象上存的类型即使被改过，浏览器拿到的也是这里的值。
+ */
+const RETRO_CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif",
+  mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v", webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska",
+  m4a: "audio/mp4", mp3: "audio/mpeg", wav: "audio/wav", aac: "audio/aac", flac: "audio/flac", ogg: "audio/ogg",
+  opus: "audio/ogg", amr: "audio/amr", wma: "audio/x-ms-wma", "3gp": "audio/3gpp",
+  pdf: "application/pdf", doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  key: "application/vnd.apple.keynote",
+};
+const RETRO_ALLOWED_CONTENT_TYPES = new Set(Object.values(RETRO_CONTENT_TYPE_BY_EXTENSION));
+
+/** 扩展名优先；没有扩展名（或不认识）时，只有浏览器给的类型恰好在白名单里才采用；都不行返回 null。 */
+export function retroContentTypeFor(originalName: string, browserType?: string | null): string | null {
+  const dot = originalName.lastIndexOf(".");
+  const ext = dot >= 0 ? originalName.slice(dot + 1).toLowerCase() : "";
+  const byExtension = RETRO_CONTENT_TYPE_BY_EXTENSION[ext];
+  if (byExtension) return byExtension;
+  const claimed = (browserType ?? "").trim().toLowerCase();
+  return RETRO_ALLOWED_CONTENT_TYPES.has(claimed) ? claimed : null;
+}
+
 export type NormalizedRetroAsset = {
   roundId: string | null;
   originalName: string;
@@ -202,9 +232,8 @@ export function validateRetroNewAssets(body: unknown): NormalizedRetroAsset[] {
     if (item.roundId !== null && item.roundId !== undefined && (typeof item.roundId !== "string" || !item.roundId)) {
       throw retroInvalid("附件所属的回合无效。");
     }
-    // 原样存浏览器给的类型：预签名 PUT 把 Content-Type 签进了签名里，客户端必须用同一个值上传，
-    // 这里不能替它「纠正」（点评录音是另一回事：它复用 putAudioReviewFile，两边用同一份 audioReviewContentType）。
-    const storedType = contentType || "application/octet-stream";
+    const storedType = retroContentTypeFor(originalName, contentType);
+    if (!storedType) throw retroInvalid(`不支持「${originalName}」这种文件。${RETRO_FILE_TYPES_HINT}。`);
     return {
       roundId: typeof item.roundId === "string" ? item.roundId : null,
       originalName,

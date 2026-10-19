@@ -6,10 +6,10 @@ import { after, before, describe, test, type TestContext } from "node:test";
 import pg from "pg";
 import { DbClient } from "../db";
 import { createFakeRetroAsr, type RetroAsrProvider } from "../lib/retro/asr";
-import { addRetroAssets, completeRetroAssets, loadRetroAssetTranscript, removeRetroAsset, retryRetroAssetTranscription, signRetroAssetUpload } from "../lib/retro/assets";
+import { addRetroAssets, completeRetroAssets, loadRetroAssetTranscript, removeRetroAsset, resolveRetroAssetUrl, retryRetroAssetTranscription, signRetroAssetUpload } from "../lib/retro/assets";
 import { createRetroCase, listRetroLibrary, loadRetroCaseDetail, patchRetroCase, restoreRetroCase, trashRetroCase } from "../lib/retro/cases";
 import { RetroError } from "../lib/retro/errors";
-import { createRetroRecording, loadRetroRecording, resolveRetroRecordingAudioUrl, runRetroRecordingAction } from "../lib/retro/recordings";
+import { createRetroRecording, failStaleRetroRecordingUploads, loadRetroRecording, resolveRetroRecordingAudioUrl, runRetroRecordingAction, withReviewerRemoval } from "../lib/retro/recordings";
 import { addRetroRound, deleteRetroRound, patchRetroRound, putRetroRoundLinks, reorderRetroRounds } from "../lib/retro/rounds";
 import { advanceRetroTranscription, listAdvanceableRetroTranscriptions, type RetroTranscribeDeps } from "../lib/retro/transcription";
 import type { VideoBucket } from "../storage/types";
@@ -17,12 +17,14 @@ import type { VideoBucket } from "../storage/types";
 const PREFIX = "TEST_ONLY";
 const month = "2026-10";
 
-type Actor = { userId: string; displayName: string; isAdmin: boolean };
+type Actor = { userId: string; displayName: string; isAdmin: boolean; isReviewer?: boolean };
 const OWNER: Actor = { userId: `${PREFIX}_u_owner`, displayName: `${PREFIX} 上传人`, isAdmin: false };
 const OTHER: Actor = { userId: `${PREFIX}_u_other`, displayName: `${PREFIX} 同事`, isAdmin: false };
 const ADMIN: Actor = { userId: `${PREFIX}_u_admin`, displayName: `${PREFIX} 管理员`, isAdmin: true };
 /** 没有任何权限的陌生人（不是上传者、不是案例上传者、不是管理员）。 */
 const ADMIN_LESS: Actor = { userId: `${PREFIX}_u_stranger`, displayName: `${PREFIX} 陌生人`, isAdmin: false };
+/** 老孙：不是上传者也不是管理员，只有「清理非 READY 录音」这一项特权。 */
+const SUN = { userId: `${PREFIX}_u_sun`, displayName: "老孙", isAdmin: false, isReviewer: true };
 const NOW = new Date("2026-10-19T04:00:00.000Z");
 
 class MemoryBucket {
@@ -39,7 +41,9 @@ class MemoryBucket {
   async createPresignedPutUrl(key: string) {
     return `http://local/put?key=${encodeURIComponent(key)}`;
   }
-  async createPresignedGetUrl(key: string, options?: { responseContentDisposition?: string }) {
+  getOptions: Array<{ key: string; responseContentType?: string; responseContentDisposition?: string }> = [];
+  async createPresignedGetUrl(key: string, options?: { responseContentType?: string; responseContentDisposition?: string }) {
+    this.getOptions.push({ key, responseContentType: options?.responseContentType, responseContentDisposition: options?.responseContentDisposition });
     return `http://local/get?key=${encodeURIComponent(key)}${options?.responseContentDisposition ? `&d=1` : ""}`;
   }
 }
@@ -94,7 +98,7 @@ async function cleanup() {
 
 async function seedUsers() {
   const stamp = new Date().toISOString();
-  for (const actor of [OWNER, OTHER, ADMIN, ADMIN_LESS]) {
+  for (const actor of [OWNER, OTHER, ADMIN, ADMIN_LESS, SUN]) {
     await pool!.query(
       `INSERT INTO users (id, wecom_corp_id, wecom_user_id, identity_key, display_name, status, last_login_at, last_synced_at, created_at, updated_at)
        VALUES ($1, $2, $1, $1, $3, 'ACTIVE', $4, $4, $4, $4) ON CONFLICT (id) DO NOTHING`,
@@ -288,7 +292,11 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     const signed = await signRetroAssetUpload(db, bucket as unknown as VideoBucket, OWNER, caseId, videoId);
     assert.ok(signed.uploadUrl.includes(encodeURIComponent(`retro/cases/${caseId}/assets/${videoId}/original.mp4`)));
     assert.ok(signed.coverUploadUrl?.includes("cover.jpg"));
-    assert.equal((await signRetroAssetUpload(db, bucket as unknown as VideoBucket, OWNER, caseId, pdfId)).coverUploadUrl, null);
+    assert.equal(signed.contentType, "video/mp4", "the server tells the browser which Content-Type to PUT with");
+    const pdfSigned = await signRetroAssetUpload(db, bucket as unknown as VideoBucket, OWNER, caseId, pdfId);
+    assert.equal(pdfSigned.coverUploadUrl, null);
+    assert.equal(pdfSigned.contentType, "application/pdf");
+    assert.equal((await signRetroAssetUpload(db, bucket as unknown as VideoBucket, OWNER, caseId, audioId)).contentType, "audio/mp4", ".m4a is mapped even though the browser sent an empty type");
     await expectError(() => signRetroAssetUpload(db, bucket as unknown as VideoBucket, OTHER, caseId, pdfId), 403, "FORBIDDEN");
 
     bucket.objects.set(`retro/cases/${caseId}/assets/${pdfId}/original.pdf`, 50);
@@ -494,6 +502,135 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     const stored = await pool!.query("SELECT asr_task_id, lease_until FROM retro_recordings WHERE id = $1", [recording.id]);
     assert.match(stored.rows[0].asr_task_id, /^fake-REVIEW-/);
     assert.equal(stored.rows[0].lease_until, null);
+  });
+
+  dbTest("opening an attachment answers with the whitelist Content-Type, PDF inline and Office files as downloads", async () => {
+    const { caseId } = await newCase();
+    const bucket = new MemoryBucket();
+    const { assetIds } = await addRetroAssets(db, OWNER, caseId, {
+      assets: [
+        // 浏览器说是 text/html：存的、签的、返回的都是按扩展名映射的类型。
+        { roundId: null, originalName: "客户电话.m4a", contentType: "text/html", fileSize: 10 },
+        { roundId: null, originalName: "v1.png", contentType: "text/html", fileSize: 10 },
+        { roundId: null, originalName: "brief.pdf", contentType: "text/html", fileSize: 10 },
+        { roundId: null, originalName: "方案 v2.docx", contentType: "", fileSize: 10 },
+        { roundId: null, originalName: "demo.mp4", contentType: "", fileSize: 10 },
+      ],
+    });
+    const [audio, image, pdf, docx, video] = assetIds;
+    const stored = await pool!.query("SELECT original_name, content_type FROM retro_case_assets WHERE case_id = $1 ORDER BY position", [caseId]);
+    assert.deepEqual(stored.rows.map((row) => row.content_type), [
+      "audio/mp4", "image/png", "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "video/mp4",
+    ]);
+    await pool!.query("UPDATE retro_case_assets SET upload_status = 'READY' WHERE case_id = $1", [caseId]);
+    // 对象上存的类型被改成了 text/html：打开时照样按映射值覆盖。
+    await pool!.query("UPDATE retro_case_assets SET content_type = 'text/html' WHERE case_id = $1", [caseId]);
+
+    const open = async (assetId: string, mode: "original" | "stream") => {
+      bucket.getOptions.length = 0;
+      await resolveRetroAssetUrl(db, bucket, { caseId, assetId, viewer: OTHER, mode });
+      return bucket.getOptions[0];
+    };
+    assert.equal((await open(audio, "stream")).responseContentType, "audio/mp4");
+    assert.equal((await open(video, "stream")).responseContentType, "video/mp4");
+    assert.equal((await open(image, "original")).responseContentType, "image/png");
+    const pdfOpen = await open(pdf, "original");
+    assert.equal(pdfOpen.responseContentType, "application/pdf");
+    assert.equal(pdfOpen.responseContentDisposition, "inline");
+    const docOpen = await open(docx, "original");
+    assert.match(docOpen.responseContentDisposition ?? "", /^attachment; filename=/);
+    assert.equal(docOpen.responseContentType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    // 类型不对（音频走 original、图片走 stream）仍是 404。
+    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: audio, viewer: OTHER, mode: "original" }), 404, "NOT_FOUND");
+    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: image, viewer: OTHER, mode: "stream" }), 404, "NOT_FOUND");
+  });
+
+  dbTest("a review recording stuck in UPLOADING for over an hour is failed lazily and its part number is released when needed", async () => {
+    const { caseId } = await newCase();
+    const bucket = new MemoryBucket();
+    const request = { monthKey: month, caseId, fileName: "点评.m4a", contentType: "", sizeBytes: 100 };
+    const stale = await createRetroRecording(db, bucket, OTHER, request);
+    const fresh = await createRetroRecording(db, bucket, OTHER, request);
+    const third = await createRetroRecording(db, bucket, OTHER, request);
+    // 第 3 段已经开始转写：不受影响。
+    await pool!.query("UPDATE retro_recordings SET status = 'TRANSCRIBING', uploaded_at = now() WHERE id = $1", [third.recording.id]);
+    await pool!.query("UPDATE retro_recordings SET created_at = now() - interval '61 minutes' WHERE id = $1", [stale.recording.id]);
+    await pool!.query("UPDATE retro_recordings SET created_at = now() - interval '59 minutes' WHERE id = $1", [fresh.recording.id]);
+
+    // 范围不对时不动它。
+    assert.equal(await failStaleRetroRecordingUploads(db, { caseId: "rtc_other" }), 0);
+    assert.equal(await failStaleRetroRecordingUploads(db, { caseId }), 1);
+    assert.equal(await failStaleRetroRecordingUploads(db, { caseId }), 0, "idempotent");
+    const view = (id: string) => loadRetroRecording(db, OTHER, id).then((item) => item.view);
+    const failed = await view(stale.recording.id);
+    assert.equal(failed.status, "FAILED");
+    assert.equal(failed.failReason, "上传没有完成，请重新上传");
+    assert.equal((await view(fresh.recording.id)).status, "UPLOADING");
+    assert.equal((await view(third.recording.id)).status, "TRANSCRIBING");
+    assert.equal(failed.canRemove, true, "its uploader can still clear it");
+
+    // FAILED 仍占着段号：占满时再传，会清掉「从没上传成功过」的失败行并复用它的段号。
+    const again = await createRetroRecording(db, bucket, OWNER, request);
+    assert.equal(again.recording.partNo, failed.partNo);
+    assert.equal((await view(stale.recording.id)).status, "REMOVED");
+    // 转写失败的（上传成功过）不会被这样清掉。
+    await pool!.query("UPDATE retro_recordings SET status = 'FAILED', fail_reason = '腾讯云识别失败', uploaded_at = now() WHERE id = $1", [third.recording.id]);
+    await pool!.query("UPDATE retro_recordings SET status = 'TRANSCRIBING', uploaded_at = now() WHERE id = $1", [fresh.recording.id]);
+    await pool!.query("UPDATE retro_recordings SET status = 'TRANSCRIBING', uploaded_at = now() WHERE id = $1", [again.recording.id]);
+    await expectError(() => createRetroRecording(db, bucket, OWNER, request), 409, "RECORDING_PARTS_FULL");
+    assert.equal((await view(third.recording.id)).status, "FAILED");
+
+    // 整库扫描也能扫到别的案例的陈旧行。
+    const other = await newCase();
+    const orphan = await createRetroRecording(db, bucket, OTHER, { ...request, caseId: other.caseId });
+    await pool!.query("UPDATE retro_recordings SET created_at = now() - interval '2 hours' WHERE id = $1", [orphan.recording.id]);
+    assert.ok((await failStaleRetroRecordingUploads(db)) >= 1);
+    assert.equal((await view(orphan.recording.id)).status, "FAILED");
+    // 单条读取的范围。
+    const lone = await createRetroRecording(db, bucket, OTHER, { ...request, caseId: other.caseId });
+    await pool!.query("UPDATE retro_recordings SET created_at = now() - interval '2 hours' WHERE id = $1", [lone.recording.id]);
+    assert.equal(await failStaleRetroRecordingUploads(db, { recordingId: lone.recording.id }), 1);
+  });
+
+  dbTest("the same lazy rule covers a month summary recording, and a stale one frees its part", async () => {
+    const bucket = new MemoryBucket();
+    const request = { monthKey: "2031-03", caseId: null, fileName: "总结.mp3", contentType: "audio/mpeg", sizeBytes: 50 };
+    const rows = [];
+    for (let index = 0; index < 3; index += 1) rows.push(await createRetroRecording(db, bucket, OTHER, request));
+    await pool!.query("UPDATE retro_recordings SET created_at = now() - interval '3 hours' WHERE id = $1", [rows[0].recording.id]);
+    assert.equal(await failStaleRetroRecordingUploads(db, { recordingId: rows[0].recording.id }), 1);
+    assert.equal((await createRetroRecording(db, bucket, OWNER, request)).recording.partNo, 1);
+  });
+
+  dbTest("老孙 can remove any recording that is not READY (even someone else's stale row), but not a READY one", async () => {
+    const { caseId } = await newCase();
+    const bucket = new MemoryBucket();
+    const request = { monthKey: month, caseId, fileName: "点评.m4a", contentType: "", sizeBytes: 100 };
+    const row = await createRetroRecording(db, bucket, OTHER, request);
+    await pool!.query("UPDATE retro_recordings SET created_at = now() - interval '2 hours' WHERE id = $1", [row.recording.id]);
+    await failStaleRetroRecordingUploads(db, { caseId });
+    // 陌生人不行；老孙行，并且看到的 canRemove 是 true。
+    await expectError(() => runRetroRecordingAction(db, bucket, ADMIN_LESS, row.recording.id, { action: "REMOVE" }), 403, "FORBIDDEN");
+    assert.equal((await loadRetroRecording(db, SUN, row.recording.id)).view.canRemove, true);
+    assert.equal((await runRetroRecordingAction(db, bucket, SUN, row.recording.id, { action: "REMOVE" })).view.status, "REMOVED");
+
+    // 转写中的也行（任何非 READY）；已就绪的不行。
+    const busy = await createRetroRecording(db, bucket, OTHER, request);
+    await pool!.query("UPDATE retro_recordings SET status = 'TRANSCRIBING' WHERE id = $1", [busy.recording.id]);
+    assert.equal((await runRetroRecordingAction(db, bucket, SUN, busy.recording.id, { action: "REMOVE" })).view.status, "REMOVED");
+    const done = await createRetroRecording(db, bucket, OTHER, request);
+    await pool!.query("UPDATE retro_recordings SET status = 'READY', transcript_json = '{\"segments\":[],\"durationMs\":1,\"engine\":\"x\"}'::jsonb WHERE id = $1", [done.recording.id]);
+    assert.equal((await loadRetroRecording(db, SUN, done.recording.id)).view.canRemove, false);
+    await expectError(() => runRetroRecordingAction(db, bucket, SUN, done.recording.id, { action: "REMOVE" }), 403, "FORBIDDEN");
+
+    // 案例详情里的 canRemove：路由用 withReviewerRemoval 给老孙补上非 READY 的。
+    const stuck = await createRetroRecording(db, bucket, OTHER, request);
+    const detail = (await loadRetroCaseDetail(db, bucket, caseId, SUN))!;
+    const patched = withReviewerRemoval(detail.recordings, SUN);
+    assert.equal(patched.find((item) => item.id === stuck.recording.id)?.canRemove, true);
+    assert.equal(patched.find((item) => item.id === done.recording.id)?.canRemove, false);
+    assert.deepEqual(withReviewerRemoval(detail.recordings, OTHER), detail.recordings.map((item) => item));
   });
 
   dbTest("links are written back as a whole, new ones must exist, and a deleted original shows as deleted", async () => {

@@ -17,10 +17,11 @@ export type RetroAsrKind = "REVIEW" | "SUMMARY" | "CLIENT";
 type Env = Record<string, string | undefined>;
 
 export function resolveRetroAiProvider(env: Env, localDemo: boolean): RetroAiProviderKind {
+  // 假实现只在本机演示模式里存在：生产环境即使误配了 RETRO_AI_PROVIDER=fake 也一律按 real 处理，
+  // 免得线上悄悄返回内置文字稿、不走真实转写。
+  if (!localDemo) return "real";
   const explicit = (env.RETRO_AI_PROVIDER ?? "").trim().toLowerCase();
-  if (explicit === "fake") return "fake";
-  if (explicit) return "real";
-  return localDemo ? "fake" : "real";
+  return explicit && explicit !== "fake" ? "real" : "fake";
 }
 
 export type RetroAsrProvider = {

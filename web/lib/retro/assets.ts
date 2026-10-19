@@ -6,7 +6,6 @@
 // 推进由路由用 after() 触发。
 
 import type { DbClient, QueryResultRow } from "@/db";
-import { audioReviewContentType } from "@/lib/audio-review-model";
 import {
   type RetroAssetType,
   type RetroTranscriptResponse,
@@ -26,7 +25,7 @@ import {
   retroNewId,
 } from "./keys";
 import { retroSegmentsFromStored, startRetroTranscription } from "./transcription";
-import { assertRetroAssetCapacity, validateRetroNewAssets } from "./validate";
+import { assertRetroAssetCapacity, retroContentTypeFor, validateRetroNewAssets } from "./validate";
 
 export const RETRO_UPLOAD_URL_TTL_SECONDS = 600;
 export const RETRO_STREAM_URL_TTL_SECONDS = 15 * 60;
@@ -109,7 +108,7 @@ export async function signRetroAssetUpload(
         expiresInSeconds: RETRO_UPLOAD_URL_TTL_SECONDS,
       })
     : null;
-  return { uploadUrl, coverUploadUrl };
+  return { uploadUrl, coverUploadUrl, contentType: row.content_type || "application/octet-stream" };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,20 +268,15 @@ export async function resolveRetroAssetUrl(
   const streamable = type === "VIDEO" || type === "AUDIO";
   if (input.mode === "stream" ? !streamable : streamable) throw retroNotFound("附件类型不对。");
 
+  // 浏览器拿到的 Content-Type 一律是白名单映射值（按扩展名），不信对象上存的那个。
+  const fixedType = retroContentTypeFor(row.original_name, row.content_type);
+  const typeOverride = fixedType ? { responseContentType: fixedType } : {};
+
   if (input.mode === "stream") {
-    // 音频存进去的 Content-Type 可能是 application/octet-stream（浏览器给不出 MIME，常见于 .m4a / .amr），
-    // <audio> 在个别浏览器里不认，播放时按扩展名补一个正确的。
-    const audioType = type === "AUDIO" && !row.content_type.toLowerCase().startsWith("audio/")
-      ? audioReviewContentType(row.original_name, row.content_type)
-      : null;
-    return bucket.createPresignedGetUrl(row.object_key, {
-      expiresInSeconds: RETRO_STREAM_URL_TTL_SECONDS,
-      ...(audioType ? { responseContentType: audioType } : {}),
-    });
+    return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_STREAM_URL_TTL_SECONDS, ...typeOverride });
   }
   if (type === "DOC") {
-    // PDF 在新标签页由浏览器打开；Word／Excel／PPT 点开是下载。存进去的 Content-Type 来自浏览器、不一定可靠，
-    // 所以用 response-content-* 参数在响应头上覆盖。
+    // PDF 在新标签页由浏览器打开；Word／Excel／PPT 点开是下载。
     return row.doc_format === "PDF"
       ? bucket.createPresignedGetUrl(row.object_key, {
           expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS,
@@ -291,10 +285,11 @@ export async function resolveRetroAssetUrl(
         })
       : bucket.createPresignedGetUrl(row.object_key, {
           expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS,
+          ...typeOverride,
           responseContentDisposition: retroAttachmentDisposition(row.original_name || "附件"),
         });
   }
-  return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS });
+  return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS, ...typeOverride });
 }
 
 // ---------------------------------------------------------------------------

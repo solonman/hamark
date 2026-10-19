@@ -88,7 +88,8 @@ test("the case input hash ignores the frozen number but follows content, model a
 test("provider: fake by default in local demo, real elsewhere, explicit value wins", () => {
   assert.equal(resolveRetroAiProvider({}, true), "fake");
   assert.equal(resolveRetroAiProvider({}, false), "real");
-  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, false), "fake");
+  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, true), "fake");
+  assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "fake" }, false), "real", "production ignores fake");
   assert.equal(resolveRetroAiProvider({ RETRO_AI_PROVIDER: "real" }, true), "real");
   assert.deepEqual(readRetroAiConfig({}, false).missing, ["DEEPSEEK_API_KEY"]);
   assert.equal(readRetroAiConfig({ DEEPSEEK_API_KEY: "k" }, true).provider, "fake", "a configured key is not used in local demo unless asked");
