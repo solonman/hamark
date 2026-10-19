@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type JSX, type KeyboardEvent, type PointerEvent, type RefObject, type SyntheticEvent } from "react";
+import { Fragment, useCallback, useRef, useState, type JSX, type KeyboardEvent, type PointerEvent, type RefObject, type SyntheticEvent } from "react";
 import { formatAudioClock, type AudioReviewOpinionKind, type AudioReviewSegment } from "@/lib/audio-review-model";
 import { activeAudioReviewSegmentId, splitAudioReviewCorrections } from "@/lib/audio-review-ui";
 import styles from "./V04Surface.module.css";
@@ -248,33 +248,53 @@ export function AudioReviewCorrectedText({ text, corrections }: {
 export function V19AudioReviewTranscript({
   segments,
   playback,
+  summary,
+  defaultOpen = false,
+  activeId,
+  dividers,
+  onSeek,
 }: {
   segments: readonly AudioReviewSegment[];
   playback: AudioReviewPlayback;
+  /** 复用方（客户需求复盘库）自己的标题；不传就是点评改写那一句。 */
+  summary?: string;
+  /** 默认展开。 */
+  defaultOpen?: boolean;
+  /** 高亮哪一句。不传＝播放时按进度算；传了（含 null）就以它为准，供「去听原声」跳转后暂停也能高亮。 */
+  activeId?: number | null;
+  /** 某句之前插一条分段标题（多段录音拼成一份文字稿时：「第 2 段 · 文件名」）。键是 segment.id。 */
+  dividers?: ReadonlyMap<number, string>;
+  /** 点时间点要做什么；不传就是在当前这段录音里跳转。 */
+  onSeek?: (segment: AudioReviewSegment) => void;
 }): JSX.Element {
-  const activeId = playback.playing ? activeAudioReviewSegmentId(segments, playback.currentMs) : null;
+  const resolvedActiveId = activeId !== undefined
+    ? activeId
+    : playback.playing ? activeAudioReviewSegmentId(segments, playback.currentMs) : null;
   return (
-    <details className={styles.reviewTranscript}>
-      <summary>完整文字稿（{segments.length} 段 · 说话人自动区分 · 虚线下划线＝按词表校正过的听写）</summary>
+    <details className={styles.reviewTranscript} open={defaultOpen || undefined}>
+      <summary>{summary ?? `完整文字稿（${segments.length} 段 · 说话人自动区分 · 虚线下划线＝按词表校正过的听写）`}</summary>
       <div className={styles.reviewTranscriptLines}>
         {segments.map((segment) => (
-          <div
-            key={segment.id}
-            className={[
-              styles.reviewLine,
-              segment.isReviewer ? styles.reviewLineReviewer : "",
-              activeId === segment.id ? styles.reviewLinePlaying : "",
-            ].filter(Boolean).join(" ")}
-          >
-            <button type="button" className={styles.reviewTime} onClick={() => playback.seek(segment.startMs)}
-              title="从这里开始播放">
-              {formatAudioClock(segment.startMs)}
-            </button>
-            <span className={styles.reviewLineWho} title={segment.speaker}>{segment.speaker}</span>
-            <span className={styles.reviewLineText}>
-              <AudioReviewCorrectedText text={segment.text} corrections={segment.corrections} />
-            </span>
-          </div>
+          <Fragment key={segment.id}>
+            {dividers?.has(segment.id) ? <p className={styles.reviewPartDivider}>{dividers.get(segment.id)}</p> : null}
+            <div
+              data-segment-id={segment.id}
+              className={[
+                styles.reviewLine,
+                segment.isReviewer ? styles.reviewLineReviewer : "",
+                resolvedActiveId === segment.id ? styles.reviewLinePlaying : "",
+              ].filter(Boolean).join(" ")}
+            >
+              <button type="button" className={styles.reviewTime} onClick={() => (onSeek ? onSeek(segment) : playback.seek(segment.startMs))}
+                title="从这里开始播放">
+                {formatAudioClock(segment.startMs)}
+              </button>
+              <span className={styles.reviewLineWho} title={segment.speaker}>{segment.speaker}</span>
+              <span className={styles.reviewLineText}>
+                <AudioReviewCorrectedText text={segment.text} corrections={segment.corrections} />
+              </span>
+            </div>
+          </Fragment>
         ))}
         {segments.length === 0 && <p className={styles.reviewHint}>这段录音没有转写出文字。</p>}
       </div>

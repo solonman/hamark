@@ -5,6 +5,7 @@ import { isAppAdmin } from "@/lib/admin";
 import { requirePageUser } from "@/lib/current-user";
 import { isReportFeatureEnabled } from "@/lib/report-model";
 import { isVisualFeatureEnabled } from "@/lib/visual-contract";
+import { isRetroFeatureEnabled } from "@/lib/retro-model";
 import { canAccessV04Surface } from "@/lib/v04-gray-access";
 import V04LibraryClient from "@/components/v04/V04LibraryClient";
 import V04BrowserCompatibilityGate from "@/components/v04/V04BrowserCompatibilityGate";
@@ -44,6 +45,7 @@ export default async function Home() {
           formal
           reportLibraryEnabled={isReportFeatureEnabled()}
           visualLibraryEnabled={isVisualFeatureEnabled()}
+          retroLibraryEnabled={isRetroFeatureEnabled()}
         />
       </V04BrowserCompatibilityGate>
     );

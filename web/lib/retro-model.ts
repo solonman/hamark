@@ -426,6 +426,11 @@ export type RetroCaseCard = {
   createdByName: string;
   createdAt: string;
   canManage: boolean;
+  /**
+   * 前端检索用的全文（需求、回合文字、结果、转折、讨论问题拼起来，规格 10.1「搜需求与回合文字」）。
+   * 可选：服务端没给时，前端只能搜卡片上已有的字段。
+   */
+  searchText?: string;
 };
 
 /** 月份标题行上的成果状态（规格 10.1）。 */
@@ -440,6 +445,9 @@ export type RetroLibraryResponse = { cases: RetroCaseCard[]; months: RetroMonthS
 
 export type RetroCaseCapabilities = { canEdit: boolean; canTrash: boolean; canUploadRecording: boolean };
 
+/** 出处里的「第二版」标记要用的回合信息：回合 id → 所属案例与标题（软删除的回合也要在，规格 6.7、10.3）。 */
+export type RetroRoundRefs = Record<string, { caseId: string; title: string }>;
+
 export type RetroCaseInMinutes = {
   publicationVersion: number;
   publishedAt: string;
@@ -450,6 +458,8 @@ export type RetroCaseInMinutes = {
   quotedSegments: Record<string, RetroQuotedSegment[]>;
   /** 出处标记要用的：录音 id → { caseNumber, partNo, partCount }。 */
   recordingRefs: Record<string, { caseId: string | null; caseNumber: number | null; partNo: number; partCount: number }>;
+  /** 可选；没给时回合标记只能写「对应回合」。 */
+  roundRefs?: RetroRoundRefs;
 };
 
 export type RetroCaseDetail = {
@@ -464,6 +474,8 @@ export type RetroCaseDetail = {
   turningPoints: string;
   discussionQuestions: string;
   revision: number;
+  /** 当月序号（「案例 N」，按创建先后、被删除的也占号）；可选，没给时面包屑只写「案例」。 */
+  caseNumber?: number;
   createdByName: string;
   createdAt: string;
   updatedAt: string;
@@ -486,7 +498,15 @@ export type RetroJobView = {
   /** 「修订已发布内容」时的来源版本号。 */
   revisingFromVersion: number | null;
   /** 只有老孙能拿到，且只在 PENDING_REVIEW 时有。 */
-  draft: { minutes: RetroMinutes; methods: RetroMethods; revision: number; quotedSegments: Record<string, RetroQuotedSegment[]> } | null;
+  draft: {
+    minutes: RetroMinutes;
+    methods: RetroMethods;
+    revision: number;
+    quotedSegments: Record<string, RetroQuotedSegment[]>;
+    /** 出处标记要用的「案例 N · 第 M 段」信息；草稿的出处标记依赖它，没给时只能写「案例 N」。 */
+    recordingRefs?: RetroCaseInMinutes["recordingRefs"];
+    roundRefs?: RetroRoundRefs;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -502,6 +522,7 @@ export type RetroPublicationView = {
   methods: RetroMethods;
   quotedSegments: Record<string, RetroQuotedSegment[]>;
   recordingRefs: RetroCaseInMinutes["recordingRefs"];
+  roundRefs?: RetroRoundRefs;
 };
 
 /**

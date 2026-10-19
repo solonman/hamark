@@ -35,6 +35,7 @@ import ReportUploadDialog from "@/components/report/library/ReportUploadDialog";
 import type { ReportReplaceTarget } from "@/lib/report-library-view";
 import VisualLibrary from "@/components/visual/VisualLibrary";
 import VisualUploadDialog from "@/components/visual/VisualUploadDialog";
+import RetroLibrary from "@/components/retro/RetroLibrary";
 import styles from "./V04Surface.module.css";
 
 /** 卡片上的时间只需要「哪天几点」，精确到秒反而挤占版面。 */
@@ -47,8 +48,8 @@ function formatV19CardTime(iso: string): string {
 
 type V04LibraryCase = { item: V04UiCase; video: VideoItem };
 
-/** 本站现在有三条线：片子、报告、公共视觉案例。首页先分库，再谈单个案例。 */
-type LibraryTab = "VIDEO" | "REPORT" | "VISUAL";
+/** 本站现在有四条线：片子、报告、公共视觉案例、客户需求复盘。首页先分库，再谈单个案例。 */
+type LibraryTab = "VIDEO" | "REPORT" | "VISUAL" | "RETRO";
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "--:--";
@@ -172,7 +173,7 @@ function CaseRating({ engagement }: { engagement: CaseEngagement }) {
   );
 }
 
-export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false, visualLibraryEnabled = false }: {
+export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false, visualLibraryEnabled = false, retroLibraryEnabled = false }: {
   viewerName: string;
   formal?: boolean;
   user?: UserMenuUser;
@@ -180,6 +181,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   reportLibraryEnabled?: boolean;
   /** 公共视觉库的总开关（PUBLIC_VISUAL_LIBRARY_ENABLED）。关闭时 VISUAL 页签保持占位空态，同 REPORT。 */
   visualLibraryEnabled?: boolean;
+  /** 客户需求复盘库的总开关（RETRO_LIBRARY_ENABLED）。关闭时 RETRO 页签显示「建设中」，顶栏的「新建案例」在但按不动，同 VISUAL。 */
+  retroLibraryEnabled?: boolean;
 }) {
   const tabToken = useRef(`v04-library-${crypto.randomUUID()}`);
   const [cases, setCases] = useState<V04LibraryCase[]>([]);
@@ -202,6 +205,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   const [visualRefreshToken, setVisualRefreshToken] = useState(0);
   // 新上传成功的案例 id：交给 VisualLibrary 判断要不要清掉筛选（见该组件的 revealCaseId）。
   const [visualRevealCaseId, setVisualRevealCaseId] = useState<string | null>(null);
+  // 客户需求复盘库：顶栏「新建案例」打开的对话框由 RetroLibrary 自己渲染（部门提示要用它的数据），这里只管开关。
+  const [retroNewOpen, setRetroNewOpen] = useState(false);
   const [weeklyView, setWeeklyView] = useState(false);
   // 同一张卡片上一次请求还没回来就别再发一次；换一张卡片随便点，不互相挡。
   const favoriteInFlight = useRef(new Set<string>());
@@ -249,11 +254,11 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
     snapshotWeeklyOrder(rankedGroups, (entry) => entry.item.id),
   );
 
-  // 切页签时把 ?library=REPORT/VISUAL 写回地址栏（不刷新页面），工作台/详情页的返回链接会带这个参数回来。
+  // 切页签时把 ?library=REPORT/VISUAL/RETRO 写回地址栏（不刷新页面），工作台/详情页的返回链接会带这个参数回来。
   const setLibrary = useCallback((next: LibraryTab) => {
     setLibraryState(next);
     const url = new URL(window.location.href);
-    if (next === "REPORT" || next === "VISUAL") url.searchParams.set("library", next);
+    if (next === "REPORT" || next === "VISUAL" || next === "RETRO") url.searchParams.set("library", next);
     else url.searchParams.delete("library");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
@@ -267,7 +272,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   // setLibrary 自己维护 URL，这里只在挂载时跑一次，是本页仅有的一次同步 setState。
   useEffect(() => {
     const initial = new URLSearchParams(window.location.search).get("library");
-    if (initial === "REPORT" || initial === "VISUAL") {
+    if (initial === "REPORT" || initial === "VISUAL" || initial === "RETRO") {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 从 URL 读初始页签，SSR 期间不存在更早的时机
       setLibraryState(initial);
     }
@@ -429,12 +434,17 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         <button type="button" className={library === "VIDEO" ? styles.activeNav : ""} aria-current={library === "VIDEO" ? "page" : undefined} onClick={() => setLibrary("VIDEO")}>视频库</button>
         <button type="button" className={library === "REPORT" ? styles.activeNav : ""} aria-current={library === "REPORT" ? "page" : undefined} onClick={() => setLibrary("REPORT")}>报告库</button>
         <button type="button" className={library === "VISUAL" ? styles.activeNav : ""} aria-current={library === "VISUAL" ? "page" : undefined} onClick={() => setLibrary("VISUAL")}>公共视觉库</button>
+        <button type="button" className={library === "RETRO" ? styles.activeNav : ""} aria-current={library === "RETRO" ? "page" : undefined} onClick={() => setLibrary("RETRO")}>客户需求复盘库</button>
         {formal ? null : <span>UI PROTOTYPE</span>}
       </nav>
-      {/* 上传按钮跟着当前库走：站里现在有三种可反写／可收集的东西，「上传作品」说不清是哪一种。
-          报告库、公共视觉库开关关着的时候按钮在，但按不动——它说明的是形状，不是承诺。 */}
+      {/* 上传按钮跟着当前库走：站里现在有四种可反写／可收集的东西，「上传作品」说不清是哪一种。
+          报告库、公共视觉库、客户需求复盘库开关关着的时候按钮在，但按不动——它说明的是形状，不是承诺。 */}
       <div className={styles.siteUtilities}>{formal ? (library === "VIDEO"
         ? <button type="button" onClick={() => setShowUpload(true)}>上传视频</button>
+        : library === "RETRO"
+          ? (retroLibraryEnabled
+            ? <button type="button" onClick={() => setRetroNewOpen(true)}>新建案例</button>
+            : <button type="button" disabled title="客户需求复盘库建设中">新建案例</button>)
         : library === "VISUAL"
           ? (visualLibraryEnabled
             ? <button type="button" onClick={() => setVisualUploadOpen(true)}>上传案例</button>
@@ -471,6 +481,21 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         <span>◫</span>
         <h2>公共视觉库建设中</h2>
         <p>公共视觉库和视频库、报告库并列，收集户外广告、公共艺术、商业展陈的案例。等这里开放，会列出可以查看的案例。</p>
+        <button type="button" onClick={() => setLibrary("VIDEO")}>先去视频库</button>
+      </section>
+    </>) : library === "RETRO" ? (retroLibraryEnabled ? (
+      <RetroLibrary
+        refreshToken={0}
+        newCaseOpen={retroNewOpen}
+        onNewCaseClose={() => setRetroNewOpen(false)}
+        onRequestNew={() => setRetroNewOpen(true)}
+      />
+    ) : <>
+      <section className={styles.libraryHero}><p>CLIENT NEEDS REVIEW LIBRARY</p><h1>把每一次客户需求，<br />复盘成能传下去的判断。</h1></section>
+      <section className={styles.emptyState}>
+        <span>◫</span>
+        <h2>客户需求复盘库建设中</h2>
+        <p>客户需求复盘库和视频库、报告库、公共视觉库并列，收集每月复盘会上的真实案例，整理成教学纪要和方法提取记录。等这里开放，会列出可以查看的案例。</p>
         <button type="button" onClick={() => setLibrary("VIDEO")}>先去视频库</button>
       </section>
     </>) : <>
