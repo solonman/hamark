@@ -126,7 +126,7 @@ export default function RetroCaseDialog({
                   list={listId}
                   maxLength={RETRO_LIMITS.departmentMax}
                   value={draft.department}
-                  placeholder="如：策划一部"
+                  placeholder="如：服务一组"
                   onChange={(event) => update("department", event.target.value)}
                 />
                 <datalist id={listId}>{departments.map((name) => <option key={name} value={name} />)}</datalist>
