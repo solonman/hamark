@@ -13,7 +13,7 @@ import pg from "pg";
 import { DbClient } from "../db";
 import type { LlmOutcome } from "../lib/audio-review/deepseek";
 import { loadRetroCaseInMinutes, loadRetroMonthAiState, loadRetroMonthBadges } from "../lib/retro/month-ai";
-import { RetroMonthError } from "../lib/retro/month-errors";
+import { RetroError } from "../lib/retro/errors";
 import { buildFakeRetroOutput } from "../lib/retro/month-fake";
 import type { RetroLlmProvider, RetroStepContext } from "../lib/retro/month-providers";
 import { advanceAndRelay, consumeRetroRelayToken, issueRetroRelayToken, signRetroRelayToken } from "../lib/retro/month-relay";
@@ -39,8 +39,8 @@ const loopback = (() => {
 })();
 const skip = url && loopback ? false : "RETRO_TEST_DATABASE_URL (loopback TEST_ONLY database) not provided";
 
-const SUN: RetroMonthActor = { userId: "TEST_ONLY_u_sun", displayName: "老孙", identityKey: "TEST_ONLY:sun", email: null };
-const LIU: RetroMonthActor = { userId: "TEST_ONLY_u_liu", displayName: "刘梦娜", identityKey: "TEST_ONLY:liu", email: null };
+const SUN: RetroMonthActor = { userId: "TEST_ONLY_u_sun", displayName: "老孙", identityKey: "TEST_ONLY:sun" };
+const LIU: RetroMonthActor = { userId: "TEST_ONLY_u_liu", displayName: "刘梦娜", identityKey: "TEST_ONLY:liu" };
 const START = Date.parse("2091-06-01T08:00:00.000Z");
 const SECRET = "TEST_ONLY_relay_secret_0123456789abcdef";
 
@@ -184,7 +184,7 @@ async function generate(month: string, llm: RetroLlmProvider) {
 const failure = (reason: string, retryable = true): LlmOutcome => ({ ok: false, reason, retryable, status: 503, durationMs: 1 });
 
 function rejectsWith(promise: Promise<unknown>, status: number, pattern?: RegExp) {
-  return assert.rejects(promise, (error: unknown) => error instanceof RetroMonthError && error.status === status && (!pattern || pattern.test(error.message)));
+  return assert.rejects(promise, (error: unknown) => error instanceof RetroError && error.status === status && (!pattern || pattern.test(error.message)));
 }
 
 // ---------------------------------------------------------------------------

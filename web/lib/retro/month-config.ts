@@ -3,8 +3,7 @@
 
 import { DEFAULT_DEEPSEEK_BASE_URL, DEFAULT_DEEPSEEK_MODEL } from "@/lib/audio-review/config";
 import { isLocalDemoMode } from "@/lib/local-demo";
-
-export type RetroAiProviderKind = "real" | "fake";
+import { resolveRetroAiProvider, type RetroAiProviderKind } from "./asr";
 
 export type RetroAiConfig = {
   provider: RetroAiProviderKind;
@@ -23,13 +22,10 @@ const read = (env: Env, name: string) => env[name]?.trim() || "";
 /** 本机演示模式下没配 RETRO_RELAY_SECRET 时用的固定密钥。只在本机演示模式下生效，线上绝不会用到。 */
 export const RETRO_RELAY_DEV_SECRET = "retro-relay-local-demo-only-not-a-secret";
 
-/** `RETRO_AI_PROVIDER=fake` 走本地假实现；本机演示模式下没写这个变量时默认就是 fake。写成其它非空值一律走真实提供方。 */
-export function resolveRetroAiProvider(env: Env, localDemo: boolean): RetroAiProviderKind {
-  const explicit = read(env, "RETRO_AI_PROVIDER").toLowerCase();
-  if (explicit === "fake") return "fake";
-  if (explicit) return "real";
-  return localDemo ? "fake" : "real";
-}
+// 选提供方与转写共用一份规则（lib/retro/asr.ts 的 resolveRetroAiProvider）：RETRO_AI_PROVIDER=fake 走本地假实现；
+// 本机演示模式下没写这个变量时默认就是 fake；写成其它非空值一律走真实提供方。
+export { resolveRetroAiProvider };
+export type { RetroAiProviderKind };
 
 export function resolveRetroRelaySecret(env: Env, localDemo: boolean): string | null {
   const secret = read(env, "RETRO_RELAY_SECRET");

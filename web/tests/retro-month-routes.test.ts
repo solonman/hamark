@@ -36,29 +36,23 @@ function inOrder(text: string, markers: string[], label: string) {
 }
 
 for (const route of ROUTES) {
-  test(`${route.file} ${route.method}: the feature flag is the first statement`, async () => {
-    const body = handler(codeOnly(await source(route.file)), route.method);
-    const first = body.slice(body.indexOf(") {") + 3).trim().split("\n")[0].trim();
-    assert.equal(first, "if (!isRetroFeatureEnabled()) return retroFeatureDisabledResponse();");
-  });
-
   test(`${route.file} ${route.method}: checks run in the documented order`, async () => {
     const body = handler(codeOnly(await source(route.file)), route.method);
-    if (route.kind === "read") {
-      inOrder(body, ["isRetroFeatureEnabled()", "requireApiUser(request)", "retroMonthHandle("], route.file);
-      assert.equal(body.includes("requireSameOriginMutation"), false);
-    } else if (route.kind === "reviewer") {
-      inOrder(body, [
-        "isRetroFeatureEnabled()",
-        "requireSameOriginMutation(request)",
-        "requireApiUser(request)",
-        "if (!isCaseReviewer(user.displayName)) return retroMonthErrorResponse(retroMonthForbidden());",
-        "retroMonthHandle(",
-        "readRetroJsonBody(request)",
-      ], route.file);
+    if (route.kind === "relay") {
+      inOrder(body, ["request.headers.get(RETRO_RELAY_HEADER)", "if (!token) return notFound();", "if (!isRetroFeatureEnabled()) return notFound();", "consumeRetroRelayToken(", "if (!consumed) return notFound();", "scheduleRetroMonthAdvance("], route.file);
+      assert.equal(body.includes("retroRoute("), false, "the relay endpoint must not depend on a login session");
+      assert.equal(body.includes("requireApiUser"), false);
+      return;
+    }
+    // 共用外壳 retroRoute 负责同源 → 登录 → 开关（tests/retro-routes.test.ts 断言外壳本身）；它必须是第一句。
+    const first = body.slice(body.indexOf(") {") + 3).trim().split("\n")[0].trim();
+    assert.match(first, new RegExp(`^return retroRoute\\(request, \\{ mutation: ${route.method !== "GET"} \\}, async \\(`));
+    if (route.kind === "reviewer") {
+      inOrder(body, ["retroRoute(request, { mutation: true }", "requireRetroReviewer(viewer);", "requireRetroMonthKey(", "readRetroJsonBody(request)"], route.file);
+      const afterShell = body.slice(body.indexOf("=> {") + 4).trim();
+      assert.ok(afterShell.startsWith("requireRetroReviewer(viewer);"), `${route.file}: 老孙 is checked before any business code`);
     } else {
-      inOrder(body, ["isRetroFeatureEnabled()", "request.headers.get(RETRO_RELAY_HEADER)", "consumeRetroRelayToken(", "if (!consumed) return notFound();", "scheduleRetroMonthAdvance("], route.file);
-      assert.equal(body.includes("requireApiUser"), false, "the relay endpoint must not depend on a login session");
+      assert.equal(body.includes("requireRetroReviewer"), false);
     }
   });
 
@@ -68,11 +62,20 @@ for (const route of ROUTES) {
   });
 }
 
+test("the shared shell checks same-origin, then login, then the feature flag, before the business code", async () => {
+  const shell = codeOnly(await source("lib/retro/route.ts"));
+  inOrder(handler(shell, "retroRoute"), ["v04Route(request, { mutation: options.mutation, requireFeature: false }", "if (!isRetroFeatureEnabled())", "operation({"], "retroRoute");
+  const api = codeOnly(await source("lib/v04-api.ts"));
+  inOrder(handler(api, "requireV04Actor"), ["requireSameOriginMutation(request)", "getCurrentUserFromRequest(request)"], "requireV04Actor");
+  const monthRoute = codeOnly(await source("lib/retro/month-route.ts"));
+  assert.match(monthRoute, /if \(!viewer\.isReviewer\) throw retroForbidden\(RETRO_REVIEWER_ONLY\);/);
+});
+
 test("services re-check 老孙 themselves, so a forgotten route check still answers 403", async () => {
   const service = codeOnly(await source("lib/retro/month-service.ts"));
   for (const name of ["startRetroMonthJob", "runRetroMonthJobAction", "publishRetroMonthJob", "patchRetroDraft"]) {
     const body = handler(service, name);
-    assert.ok(body.indexOf("if (!isCaseReviewer(actor.displayName)) throw retroMonthForbidden();") >= 0, name);
+    assert.ok(body.indexOf("if (!isCaseReviewer(actor.displayName)) throw retroForbidden(RETRO_REVIEWER_ONLY);") >= 0, name);
   }
 });
 

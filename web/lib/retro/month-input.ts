@@ -13,6 +13,7 @@ import {
   type RetroRecordingStatus,
   type RetroTranscriptSegment,
 } from "@/lib/retro-model";
+import { RETRO_RECORDING_COLUMNS, type RetroRecordingRow } from "./views";
 import {
   truncateClientAudio,
   type RetroGenerateSnapshot,
@@ -30,10 +31,9 @@ export function toIso(value: unknown): string {
   return "";
 }
 
+/** retro_recordings / retro_case_assets 的 transcript_json 都是 { segments, durationMs, engine }（同录音点评）。 */
 export function parseRetroTranscriptSegments(value: unknown): RetroTranscriptSegment[] {
-  const raw = typeof value === "string" ? (() => { try { return JSON.parse(value) as unknown; } catch { return null; } })() : value;
-  if (Array.isArray(raw)) return parseStoredTranscript({ segments: raw })?.segments ?? [];
-  return parseStoredTranscript(raw)?.segments ?? [];
+  return parseStoredTranscript(value)?.segments ?? [];
 }
 
 function parseTags(value: unknown): string[] {
@@ -69,7 +69,8 @@ export type RetroMonthRecordingFact = {
   createdAt: string;
   removedAt: string | null;
   segments: RetroTranscriptSegment[] | null;
-  speakerLabels: Record<string, string> | null;
+  /** 原始行：整场总结录音交给 lib/retro/views.ts 的 toRetroRecordingView 映射。 */
+  row: RetroRecordingRow;
 };
 
 export type RetroMonthClientAudioFact = { id: string; caseId: string; uploadStatus: string; transcribeStatus: string };
@@ -86,12 +87,7 @@ export type RetroMonthFacts = {
 type CaseRow = QueryResultRow & {
   id: string; department: string; client_name: string; title: string; created_at: unknown; deleted_at: unknown; round_count: number | string;
 };
-type RecordingRow = QueryResultRow & {
-  id: string; case_id: string | null; part_no: number; status: RetroRecordingStatus; fail_reason: string | null;
-  audio_file_name: string; audio_size_bytes: number | string; audio_duration_ms: number | null;
-  uploaded_by_user_id: string; uploaded_by_name: string; created_at: unknown; removed_at: unknown;
-  transcript_json: unknown; speaker_labels_json: unknown;
-};
+type RecordingRow = RetroRecordingRow & { removed_at: unknown };
 
 export async function loadRetroMonthFacts(db: DbClient, monthKey: string): Promise<RetroMonthFacts> {
   const caseRows = (await db.prepare(
@@ -100,8 +96,7 @@ export async function loadRetroMonthFacts(db: DbClient, monthKey: string): Promi
     FROM retro_cases c WHERE c.month_key = ? ORDER BY c.created_at ASC, c.id ASC`,
   ).bind(monthKey).all<CaseRow>()).results;
   const recordingRows = (await db.prepare(
-    `SELECT id, case_id, part_no, status, fail_reason, audio_file_name, audio_size_bytes, audio_duration_ms,
-      uploaded_by_user_id, uploaded_by_name, created_at, removed_at, transcript_json, speaker_labels_json
+    `SELECT ${RETRO_RECORDING_COLUMNS}, removed_at
     FROM retro_recordings WHERE month_key = ? ORDER BY case_id NULLS LAST, part_no ASC, created_at ASC`,
   ).bind(monthKey).all<RecordingRow>()).results;
   const assetRows = (await db.prepare(
@@ -125,7 +120,7 @@ export async function loadRetroMonthFacts(db: DbClient, monthKey: string): Promi
       id: row.id,
       caseId: row.case_id,
       partNo: Number(row.part_no),
-      status: row.status,
+      status: row.status as RetroRecordingStatus,
       failReason: row.fail_reason,
       fileName: row.audio_file_name,
       sizeBytes: Number(row.audio_size_bytes) || 0,
@@ -135,17 +130,10 @@ export async function loadRetroMonthFacts(db: DbClient, monthKey: string): Promi
       createdAt: toIso(row.created_at),
       removedAt: row.removed_at ? toIso(row.removed_at) : null,
       segments: row.status === "READY" ? parseRetroTranscriptSegments(row.transcript_json) : null,
-      speakerLabels: parseLabels(row.speaker_labels_json),
+      row,
     })),
     clientAudio: assetRows.map((row) => ({ id: row.id, caseId: row.case_id, uploadStatus: row.upload_status, transcribeStatus: row.transcribe_status })),
   };
-}
-
-function parseLabels(value: unknown): Record<string, string> | null {
-  const raw = typeof value === "string" ? (() => { try { return JSON.parse(value) as unknown; } catch { return null; } })() : value;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const entries = Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string");
-  return entries.length ? Object.fromEntries(entries) : null;
 }
 
 export const liveRetroCases = (facts: RetroMonthFacts) => facts.cases.filter((item) => !item.deleted);

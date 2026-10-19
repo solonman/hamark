@@ -10,7 +10,6 @@ import type {
   RetroMonthCaseRow,
   RetroMonthView,
   RetroPublicationView,
-  RetroRecordingView,
   RetroStoredPublicationCases,
   RetroStoredQuotes,
 } from "@/lib/retro-model";
@@ -23,8 +22,9 @@ import {
   retroRecordingBadge,
   toIso,
   type RetroMonthFacts,
-  type RetroMonthRecordingFact,
 } from "./month-input";
+import { canRemoveRetroRecording, type RetroViewer } from "./access";
+import { toRetroRecordingView } from "./views";
 import {
   loadLiveRetroJob,
   parseDraft,
@@ -35,7 +35,7 @@ import {
 } from "./month-service";
 import { analyzedCases, parseJsonColumn, parseRetroSnapshot } from "./month-snapshot";
 
-export type RetroMonthViewer = { userId: string; displayName: string; isAdmin: boolean };
+export type RetroMonthViewer = Pick<RetroViewer, "userId" | "displayName" | "isAdmin">;
 
 // ---------------------------------------------------------------------------
 // 任务
@@ -139,26 +139,6 @@ export async function listRetroPublicationVersions(db: DbClient, monthKey: strin
 // 月份页
 // ---------------------------------------------------------------------------
 
-export function toRetroRecordingView(recording: RetroMonthRecordingFact, monthKey: string, viewer: RetroMonthViewer): RetroRecordingView {
-  return {
-    id: recording.id,
-    monthKey,
-    caseId: recording.caseId,
-    partNo: recording.partNo,
-    status: recording.status,
-    failReason: recording.failReason,
-    fileName: recording.fileName,
-    sizeBytes: recording.sizeBytes,
-    durationMs: recording.durationMs,
-    audioUrl: `/api/retro-recordings/${recording.id}/audio`,
-    uploadedByName: recording.uploadedByName,
-    createdAt: recording.createdAt,
-    canRemove: viewer.isAdmin || recording.uploadedByUserId === viewer.userId,
-    segments: recording.segments,
-    speakerLabels: recording.speakerLabels,
-  };
-}
-
 export type RetroMonthAiStateInternal = {
   job: RetroJobView | null;
   liveJobRow: RetroJobRow | null;
@@ -206,7 +186,8 @@ export async function loadRetroMonthView(
   const summaryRecordings = activeRecordings
     .filter((recording) => recording.caseId == null)
     .sort((a, b) => a.partNo - b.partNo)
-    .map((recording) => toRetroRecordingView(recording, monthKey, viewer));
+    // 整场总结没有案例上传者：能移除的是这段录音的上传者和系统管理员（规格 4.5）。
+    .map((recording) => toRetroRecordingView(recording.row, canRemoveRetroRecording(recording, null, viewer)));
   const totalDurationMs = activeRecordings
     .filter((recording) => recording.caseId == null || liveIds.has(recording.caseId))
     .reduce((sum, recording) => sum + (recording.durationMs ?? 0), 0);

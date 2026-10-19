@@ -23,13 +23,7 @@ import {
 } from "@/lib/retro-model";
 import { normalizeRetroExtraction, type RetroExtractionOutput, type RetroSpeakers } from "./extraction";
 import { applyRetroDraftPatch, collectRetroDraftSources, normalizeDraftPatchRequest, type RetroDraft } from "./month-draft";
-import {
-  RetroMonthError,
-  retroMonthBadRequest,
-  retroMonthConflict,
-  retroMonthForbidden,
-  retroMonthNotFound,
-} from "./month-errors";
+import { RetroError, retroConflict, retroForbidden, retroInvalid, retroNotFound } from "./errors";
 import { buildRetroGenerateSnapshot, computeRetroPreconditions, loadRetroMonthFacts } from "./month-input";
 import type { RetroLlmProvider } from "./month-providers";
 import {
@@ -63,13 +57,15 @@ import {
   type RetroSynthesisContext,
 } from "./synthesis";
 
+export const RETRO_REVIEWER_ONLY = "只有老孙可以生成、审阅和发布本月纪要。";
 export const RETRO_MONTH_DEADLINE_MS = 280_000;
 export const RETRO_MONTH_LEASE_SECONDS = 290;
 export const RETRO_MONTH_MIN_LLM_WINDOW_MS = 245_000;
 export const RETRO_MONTH_LLM_TIMEOUT_MS = 240_000;
 export const RETRO_MONTH_MAX_LLM_ATTEMPTS = 2;
 
-export type RetroMonthActor = { userId: string; displayName: string; identityKey: string; email: string | null };
+/** 与 V04Actor 兼容（路由外壳 retroRoute 给的就是它）。 */
+export type RetroMonthActor = { userId: string; displayName: string; identityKey: string };
 
 export type RetroMonthDeps = {
   llm: RetroLlmProvider;
@@ -180,7 +176,7 @@ async function insertRetroAudit(db: DbClient, actor: RetroMonthActor, action: st
   await db.prepare(
     `INSERT INTO audit_logs (id, actor_email, action, object_type, object_id, detail_json)
     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).bind(`audit_${randomUUID()}`, actor.email ?? actor.identityKey, action, objectType, objectId,
+  ).bind(`audit_${randomUUID()}`, actor.identityKey, action, objectType, objectId,
     JSON.stringify({ ...detail, actorUserId: actor.userId, actorName: actor.displayName })).run();
 }
 
@@ -237,10 +233,10 @@ export async function startRetroMonthJob(
   actor: RetroMonthActor,
   input: { monthKey: string; body: unknown; llmModel: string; now?: Date },
 ): Promise<StartJobResult> {
-  if (!isCaseReviewer(actor.displayName)) throw retroMonthForbidden();
+  if (!isCaseReviewer(actor.displayName)) throw retroForbidden(RETRO_REVIEWER_ONLY);
   const mode = (input.body && typeof input.body === "object" ? (input.body as { mode?: unknown }).mode : undefined);
   if (mode === "REVISE_PUBLISHED") return startRevision(db, actor, input.monthKey);
-  if (mode !== "GENERATE") throw retroMonthBadRequest("mode 只能是 GENERATE 或 REVISE_PUBLISHED。");
+  if (mode !== "GENERATE") throw retroInvalid("mode 只能是 GENERATE 或 REVISE_PUBLISHED。");
 
   const now = input.now ?? new Date();
   const jobId = newRetroJobId();
@@ -248,9 +244,9 @@ export async function startRetroMonthJob(
     const live = await loadLiveRetroJob(tx, input.monthKey);
     const facts = await loadRetroMonthFacts(tx, input.monthKey);
     const preconditions = computeRetroPreconditions(facts, Boolean(live));
-    if (!preconditions.canGenerate) throw retroMonthConflict(preconditions.blockedReason ?? "现在还不能生成。", live ? "JOB_EXISTS" : "NOT_READY");
+    if (!preconditions.canGenerate) throw retroConflict(live ? "JOB_EXISTS" : "NOT_READY", preconditions.blockedReason ?? "现在还不能生成。");
     const snapshot = await buildRetroGenerateSnapshot(tx, input.monthKey, now);
-    if (!analyzedCases(snapshot).length) throw retroMonthConflict("点评录音的文字稿都是空的，没有可以提炼的内容。", "NOT_READY");
+    if (!analyzedCases(snapshot).length) throw retroConflict("NOT_READY", "点评录音的文字稿都是空的，没有可以提炼的内容。");
 
     // 逐案缓存：之前任务里输入没变的案例直接复用，不再调模型（规格 6.3）。
     const cache: RetroExtractionsStore = { cases: {} };
@@ -276,7 +272,7 @@ export async function startRetroMonthJob(
       hashRetroSnapshot(snapshot, { model: input.llmModel, prompts: RETRO_PROMPT_VERSIONS }),
       JSON.stringify(cache), input.llmModel, JSON.stringify(RETRO_PROMPT_VERSIONS), actor.userId,
     ).first<QueryResultRow & { id: string }>();
-    if (!inserted) throw retroMonthConflict("本月已有一个整理任务，先完成或放弃它。", "JOB_EXISTS");
+    if (!inserted) throw retroConflict("JOB_EXISTS", "本月已有一个整理任务，先完成或放弃它。");
     await insertRetroAudit(tx, actor, "RETRO_MONTH_JOB_STARTED", "RETRO_MONTH_JOB", jobId, {
       monthKey: input.monthKey,
       mode: "GENERATE",
@@ -292,12 +288,12 @@ async function startRevision(db: DbClient, actor: RetroMonthActor, monthKey: str
   const jobId = newRetroJobId();
   await db.withTransaction(async (tx) => {
     const live = await loadLiveRetroJob(tx, monthKey);
-    if (live) throw retroMonthConflict("本月已有一个整理任务，先完成或放弃它。", "JOB_EXISTS");
+    if (live) throw retroConflict("JOB_EXISTS", "本月已有一个整理任务，先完成或放弃它。");
     const publication = await tx.prepare(
       `SELECT id, version_number, case_ids_json, minutes_json, methods_json, quoted_segments_json
       FROM retro_month_publications WHERE month_key = ? ORDER BY version_number DESC LIMIT 1`,
     ).bind(monthKey).first<QueryResultRow & { id: string; version_number: number; case_ids_json: unknown; minutes_json: unknown; methods_json: unknown; quoted_segments_json: unknown }>();
-    if (!publication) throw retroMonthConflict("本月还没有发布过，不能修订。", "NOT_PUBLISHED");
+    if (!publication) throw retroConflict("NOT_PUBLISHED", "本月还没有发布过，不能修订。");
     const snapshot: RetroRevisionSnapshot = {
       kind: "REVISION",
       monthKey,
@@ -318,7 +314,7 @@ async function startRevision(db: DbClient, actor: RetroMonthActor, monthKey: str
       jobId, monthKey, publication.id, JSON.stringify(snapshot), hashRetroSnapshot(snapshot),
       JSON.stringify(parseJsonColumn(publication.minutes_json)), JSON.stringify(parseJsonColumn(publication.methods_json)), actor.userId,
     ).first<QueryResultRow & { id: string }>();
-    if (!inserted) throw retroMonthConflict("本月已有一个整理任务，先完成或放弃它。", "JOB_EXISTS");
+    if (!inserted) throw retroConflict("JOB_EXISTS", "本月已有一个整理任务，先完成或放弃它。");
     await insertRetroAudit(tx, actor, "RETRO_MONTH_REVISION_STARTED", "RETRO_MONTH_JOB", jobId, {
       monthKey,
       basedOnPublicationId: publication.id,
@@ -341,21 +337,21 @@ export async function runRetroMonthJobAction(
   actor: RetroMonthActor,
   input: { monthKey: string; jobId: string; body: unknown },
 ): Promise<JobActionResult> {
-  if (!isCaseReviewer(actor.displayName)) throw retroMonthForbidden();
+  if (!isCaseReviewer(actor.displayName)) throw retroForbidden(RETRO_REVIEWER_ONLY);
   const action = input.body && typeof input.body === "object" ? (input.body as { action?: unknown }).action : undefined;
   if (action === "PUBLISH") return publishRetroMonthJob(db, actor, input);
   const row = await loadRetroJob(db, input.jobId);
-  if (!row || row.month_key !== input.monthKey) throw retroMonthNotFound();
+  if (!row || row.month_key !== input.monthKey) throw retroNotFound("整理任务不存在。");
 
   if (action === "RETRY") {
-    if (row.status !== "FAILED" || !row.failed_step) throw retroMonthConflict("只有失败的任务可以重试。");
+    if (row.status !== "FAILED" || !row.failed_step) throw retroConflict("INVALID_STATE", "只有失败的任务可以重试。");
     const updated = await db.prepare(
       `UPDATE retro_month_jobs SET status = ?, failed_step = NULL, fail_reason = NULL, llm_attempts = 0,
         lease_until = NULL, updated_at = now()
       WHERE id = ? AND status = 'FAILED'
       RETURNING id`,
     ).bind(RETRY_STATUS[row.failed_step], row.id).first<QueryResultRow & { id: string }>();
-    if (!updated) throw retroMonthConflict("任务的状态刚刚变了，请刷新后重试。");
+    if (!updated) throw retroConflict("INVALID_STATE", "任务的状态刚刚变了，请刷新后重试。");
     await insertRetroAudit(db, actor, "RETRO_MONTH_JOB_RETRIED", "RETRO_MONTH_JOB", row.id, {
       monthKey: row.month_key, failedStep: row.failed_step, progressIndex: Number(row.progress_index),
     });
@@ -364,18 +360,18 @@ export async function runRetroMonthJobAction(
 
   if (action === "ABANDON") {
     if (row.status === "ABANDONED") return { jobId: row.id, advance: false };
-    if (row.status === "PUBLISHED") throw retroMonthConflict("已经发布的任务不能放弃。");
+    if (row.status === "PUBLISHED") throw retroConflict("INVALID_STATE", "已经发布的任务不能放弃。");
     const updated = await db.prepare(
       `UPDATE retro_month_jobs SET status = 'ABANDONED', abandoned_at = now(), lease_until = NULL, updated_at = now()
       WHERE id = ? AND status NOT IN ('PUBLISHED', 'ABANDONED')
       RETURNING id`,
     ).bind(row.id).first<QueryResultRow & { id: string }>();
-    if (!updated) throw retroMonthConflict("任务的状态刚刚变了，请刷新后重试。");
+    if (!updated) throw retroConflict("INVALID_STATE", "任务的状态刚刚变了，请刷新后重试。");
     await insertRetroAudit(db, actor, "RETRO_MONTH_JOB_ABANDONED", "RETRO_MONTH_JOB", row.id, { monthKey: row.month_key, fromStatus: row.status });
     return { jobId: row.id, advance: false };
   }
 
-  throw retroMonthBadRequest("action 只能是 RETRY、ABANDON 或 PUBLISH。");
+  throw retroInvalid("action 只能是 RETRY、ABANDON 或 PUBLISH。");
 }
 
 /**
@@ -388,19 +384,19 @@ export async function publishRetroMonthJob(
   actor: RetroMonthActor,
   input: { monthKey: string; jobId: string },
 ): Promise<JobActionResult> {
-  if (!isCaseReviewer(actor.displayName)) throw retroMonthForbidden();
+  if (!isCaseReviewer(actor.displayName)) throw retroForbidden(RETRO_REVIEWER_ONLY);
   const version = await db.withTransaction(async (tx) => {
     const row = await loadRetroJob(tx, input.jobId, true);
-    if (!row || row.month_key !== input.monthKey) throw retroMonthNotFound();
+    if (!row || row.month_key !== input.monthKey) throw retroNotFound("整理任务不存在。");
     if (row.status === "PUBLISHED") {
       const existing = await tx.prepare(`SELECT version_number FROM retro_month_publications WHERE job_id = ? LIMIT 1`)
         .bind(row.id).first<QueryResultRow & { version_number: number }>();
       if (existing) return Number(existing.version_number);
     }
-    if (row.status !== "PENDING_REVIEW") throw retroMonthConflict("草稿还没有生成好，或者已经放弃，不能发布。");
+    if (row.status !== "PENDING_REVIEW") throw retroConflict("INVALID_STATE", "草稿还没有生成好，或者已经放弃，不能发布。");
     const draft = parseDraft(row);
     const snapshot = parseRetroSnapshot(row.input_snapshot_json);
-    if (!draft || !snapshot) throw retroMonthConflict("草稿数据损坏，请重新生成。");
+    if (!draft || !snapshot) throw retroConflict("INVALID_STATE", "草稿数据损坏，请重新生成。");
     const store = parseExtractionsStore(row.extractions_json);
 
     const caseIds: RetroStoredPublicationCases = snapshot.kind === "REVISION"
@@ -455,7 +451,7 @@ export async function publishRetroMonthJob(
       WHERE id = ? AND status = 'PENDING_REVIEW'
       RETURNING id`,
     ).bind(row.id).first<QueryResultRow & { id: string }>();
-    if (!published) throw retroMonthConflict("任务的状态刚刚变了，请刷新后重试。");
+    if (!published) throw retroConflict("INVALID_STATE", "任务的状态刚刚变了，请刷新后重试。");
     await insertRetroAudit(tx, actor, "RETRO_MONTH_PUBLISHED", "RETRO_MONTH_PUBLICATION", publicationId, {
       monthKey: row.month_key,
       versionNumber,
@@ -479,24 +475,24 @@ export async function patchRetroDraft(
   actor: RetroMonthActor,
   input: { monthKey: string; jobId: string; body: unknown },
 ): Promise<{ itemId: string | null; revision: number }> {
-  if (!isCaseReviewer(actor.displayName)) throw retroMonthForbidden();
+  if (!isCaseReviewer(actor.displayName)) throw retroForbidden(RETRO_REVIEWER_ONLY);
   const patch = normalizeDraftPatchRequest(input.body);
   return db.withTransaction(async (tx) => {
     const row = await loadRetroJob(tx, input.jobId, true);
-    if (!row || row.month_key !== input.monthKey) throw retroMonthNotFound();
-    if (row.status !== "PENDING_REVIEW") throw retroMonthConflict("现在没有可以修改的草稿。");
+    if (!row || row.month_key !== input.monthKey) throw retroNotFound("整理任务不存在。");
+    if (row.status !== "PENDING_REVIEW") throw retroConflict("INVALID_STATE", "现在没有可以修改的草稿。");
     if (Number(row.draft_revision) !== patch.revision) {
-      throw new RetroMonthError(409, "REVISION_CONFLICT", "草稿已经在别处改过了，请刷新后再改。");
+      throw new RetroError(409, "REVISION_CONFLICT", "草稿已经在别处改过了，请刷新后再改。");
     }
     const draft = parseDraft(row);
-    if (!draft) throw retroMonthConflict("草稿数据损坏，请重新生成。");
+    if (!draft) throw retroConflict("INVALID_STATE", "草稿数据损坏，请重新生成。");
     const { draft: next, itemId } = applyRetroDraftPatch(draft, patch);
     const updated = await tx.prepare(
       `UPDATE retro_month_jobs SET minutes_json = ?::jsonb, methods_json = ?::jsonb, draft_revision = draft_revision + 1, updated_at = now()
       WHERE id = ? AND status = 'PENDING_REVIEW' AND draft_revision = ?
       RETURNING draft_revision`,
     ).bind(JSON.stringify(next.minutes), JSON.stringify(next.methods), row.id, patch.revision).first<QueryResultRow & { draft_revision: number }>();
-    if (!updated) throw new RetroMonthError(409, "REVISION_CONFLICT", "草稿已经在别处改过了，请刷新后再改。");
+    if (!updated) throw new RetroError(409, "REVISION_CONFLICT", "草稿已经在别处改过了，请刷新后再改。");
     return { itemId, revision: Number(updated.draft_revision) };
   });
 }

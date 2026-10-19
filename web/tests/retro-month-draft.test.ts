@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyRetroDraftPatch, normalizeDraftPatchRequest, type RetroDraft } from "../lib/retro/month-draft";
-import { RetroMonthError } from "../lib/retro/month-errors";
+import { RetroError } from "../lib/retro/errors";
 
 const item = (id: string, text = id) => ({ id, text, sources: [{ kind: "REVIEW" as const, recordingId: "rtr", segmentIds: [1], caseId: "rtc_a" }], origin: "AI" as const, edited: false });
 
@@ -29,7 +29,7 @@ const patch = (body: Record<string, unknown>) => normalizeDraftPatchRequest({ re
 const apply = (body: Record<string, unknown>, base = draft()) => applyRetroDraftPatch(base, patch(body), (prefix) => `${prefix}-new`);
 
 function rejects(fn: () => unknown, status: number, pattern?: RegExp) {
-  assert.throws(fn, (error: unknown) => error instanceof RetroMonthError && error.status === status && (!pattern || pattern.test(error.message)));
+  assert.throws(fn, (error: unknown) => error instanceof RetroError && error.status === status && (!pattern || pattern.test(error.message)));
 }
 
 test("process can only be updated, never deleted or added", () => {

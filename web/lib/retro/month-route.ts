@@ -1,61 +1,23 @@
-// /api/retro-months/** 的公共部分：开关关闭时的 404、错误翻译（业务错误、迁移没执行回 503）、
-// 身份换算、后台推进与接力的调度。每个路由自己按「开关 → 同源 → 登录 → 老孙 → 业务」写检查顺序
-// （同公共视觉库，tests/retro-month-routes.test.ts 读源码断言）。
+// /api/retro-months/** 在共用外壳 lib/retro/route.ts（同源 → 登录 → 开关 → 业务、错误信封、503、no-store）
+// 之外需要的部分：月份参数、模型提供方、后台推进与接力的调度。
 
 import { after } from "next/server";
 import { getDbClient } from "@/db";
-import type { CurrentUser } from "@/lib/current-user";
 import { isRetroMonthKey } from "@/lib/retro-model";
+import { retroForbidden, retroNotFound } from "./errors";
 import { readRetroAiConfig, type RetroAiConfig } from "./month-config";
-import { isMissingRetroSchema, RETRO_MISSING_SCHEMA_MESSAGE, RetroMonthError } from "./month-errors";
 import { createRetroLlmProvider } from "./month-providers";
 import { advanceAndRelay } from "./month-relay";
-import { RETRO_MONTH_DEADLINE_MS, type RetroMonthActor, type RetroMonthDeps } from "./month-service";
-
-export function retroFeatureDisabledResponse() {
-  return Response.json({ error: "客户需求复盘库建设中。", code: "NOT_FOUND" }, { status: 404, headers: { "Cache-Control": "no-store" } });
-}
-
-export function retroMonthErrorResponse(error: RetroMonthError) {
-  return Response.json({ error: error.message, code: error.code }, { status: error.status, headers: { "Cache-Control": "no-store" } });
-}
-
-/** 业务代码的外壳：翻译错误、加 no-store。 */
-export async function retroMonthHandle(operation: () => Promise<Response>): Promise<Response> {
-  let response: Response;
-  try {
-    response = await operation();
-  } catch (error) {
-    if (error instanceof RetroMonthError) return retroMonthErrorResponse(error);
-    if (isMissingRetroSchema(error)) {
-      return Response.json({ error: RETRO_MISSING_SCHEMA_MESSAGE, code: "RETRO_NOT_READY" }, { status: 503, headers: { "Cache-Control": "no-store" } });
-    }
-    console.error("[retro-month] 接口出错", error);
-    return Response.json({ error: "服务暂时出错，请稍后重试。", code: "INTERNAL" }, { status: 500, headers: { "Cache-Control": "no-store" } });
-  }
-  try {
-    response.headers.set("Cache-Control", "no-store");
-  } catch {
-    // 个别响应的头不可改。
-  }
-  return response;
-}
+import { RETRO_MONTH_DEADLINE_MS, RETRO_REVIEWER_ONLY, type RetroMonthDeps } from "./month-service";
 
 export function requireRetroMonthKey(value: string): string {
-  if (!isRetroMonthKey(value)) throw new RetroMonthError(404, "NOT_FOUND", "月份格式不对。");
+  if (!isRetroMonthKey(value)) throw retroNotFound("月份格式不对。");
   return value;
 }
 
-export function retroMonthActor(user: CurrentUser): RetroMonthActor {
-  return { userId: user.id, displayName: user.displayName, identityKey: user.identityKey, email: user.email };
-}
-
-export async function readRetroJsonBody(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return null;
-  }
+/** 生成、审阅、发布类接口：只有老孙（服务层还会再查一次）。 */
+export function requireRetroReviewer(viewer: { isReviewer: boolean }) {
+  if (!viewer.isReviewer) throw retroForbidden(RETRO_REVIEWER_ONLY);
 }
 
 export function createRetroMonthDeps(config: RetroAiConfig = readRetroAiConfig()): RetroMonthDeps {

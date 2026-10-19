@@ -17,7 +17,7 @@ import {
   type RetroSource,
 } from "@/lib/retro-model";
 import { isDimension, isKind, isTransfer } from "./extraction";
-import { RetroMonthError, retroMonthBadRequest } from "./month-errors";
+import { RetroError, retroInvalid } from "./errors";
 import { orderRetroCandidates } from "./synthesis";
 
 export type RetroDraft = { minutes: RetroMinutes; methods: RetroMethods };
@@ -35,28 +35,28 @@ const CASE_SECTIONS = ["case.process", "case.disputes", "case.founderPoints", "c
 
 export function normalizeDraftPatchRequest(body: unknown): NormalizedDraftPatch {
   const input = (body && typeof body === "object" ? body : {}) as Partial<RetroDraftPatchRequest>;
-  if (typeof input.section !== "string" || !(input.section in RETRO_DRAFT_SECTIONS)) throw retroMonthBadRequest("不认识要修改的部分。");
-  if (input.op !== "UPDATE" && input.op !== "DELETE" && input.op !== "ADD") throw retroMonthBadRequest("不支持的修改操作。");
+  if (typeof input.section !== "string" || !(input.section in RETRO_DRAFT_SECTIONS)) throw retroInvalid("不认识要修改的部分。");
+  if (input.op !== "UPDATE" && input.op !== "DELETE" && input.op !== "ADD") throw retroInvalid("不支持的修改操作。");
   const revision = Number(input.revision);
-  if (!Number.isSafeInteger(revision) || revision < 1) throw retroMonthBadRequest("缺少有效的 revision。");
+  if (!Number.isSafeInteger(revision) || revision < 1) throw retroInvalid("缺少有效的 revision。");
   const section = input.section as RetroDraftSection;
   const isCase = (CASE_SECTIONS as readonly string[]).includes(section);
   const caseId = typeof input.caseId === "string" && input.caseId.trim() ? input.caseId.trim() : null;
-  if (isCase && !caseId) throw retroMonthBadRequest("修改案例回顾要带 caseId。");
+  if (isCase && !caseId) throw retroInvalid("修改案例回顾要带 caseId。");
   const itemId = typeof input.itemId === "string" && input.itemId.trim() ? input.itemId.trim() : null;
-  if ((input.op === "UPDATE" || input.op === "DELETE") && section !== "case.process" && !itemId) throw retroMonthBadRequest("要指明修改哪一条（itemId）。");
+  if ((input.op === "UPDATE" || input.op === "DELETE") && section !== "case.process" && !itemId) throw retroInvalid("要指明修改哪一条（itemId）。");
   const value = input.value && typeof input.value === "object" ? input.value : {};
   return { section, caseId: isCase ? caseId : null, itemId, op: input.op, value, revision };
 }
 
-const notAllowed = (message: string) => new RetroMonthError(400, "DRAFT_OP_NOT_ALLOWED", message);
-const itemMissing = () => new RetroMonthError(404, "DRAFT_ITEM_NOT_FOUND", "这一条已经不在草稿里了，请刷新后再改。");
+const notAllowed = (message: string) => new RetroError(400, "DRAFT_OP_NOT_ALLOWED", message);
+const itemMissing = () => new RetroError(404, "DRAFT_ITEM_NOT_FOUND", "这一条已经不在草稿里了，请刷新后再改。");
 
 function checkedText(value: unknown, label: string, max: number, required: boolean): string {
-  if (typeof value !== "string") throw retroMonthBadRequest(`${label}格式不对。`);
+  if (typeof value !== "string") throw retroInvalid(`${label}格式不对。`);
   const text = value.trim();
-  if (required && !text) throw retroMonthBadRequest(`${label}不能为空；要去掉这一条请用删除。`);
-  if ([...text].length > max) throw retroMonthBadRequest(`${label}不能超过 ${max} 字。`);
+  if (required && !text) throw retroInvalid(`${label}不能为空；要去掉这一条请用删除。`);
+  if ([...text].length > max) throw retroInvalid(`${label}不能超过 ${max} 字。`);
   return text;
 }
 
@@ -69,19 +69,19 @@ function updateCandidate(candidate: RetroMethodCandidate, value: NormalizedDraft
   if (hasKey(value, "situation")) next.situation = checkedText(value.situation, "情境", RETRO_LIMITS.draftTextMax, false);
   if (hasKey(value, "transferNote")) next.transferNote = checkedText(value.transferNote, "迁移性说明", RETRO_LIMITS.draftTextMax, false);
   if (hasKey(value, "dimension")) {
-    if (!isDimension(value.dimension)) throw retroMonthBadRequest("维度不合法。");
+    if (!isDimension(value.dimension)) throw retroInvalid("维度不合法。");
     next.dimension = value.dimension;
   }
   if (hasKey(value, "kind")) {
-    if (!isKind(value.kind)) throw retroMonthBadRequest("类别不合法。");
+    if (!isKind(value.kind)) throw retroInvalid("类别不合法。");
     next.kind = value.kind;
   }
   if (hasKey(value, "transfer")) {
-    if (!isTransfer(value.transfer)) throw retroMonthBadRequest("迁移性不合法。");
+    if (!isTransfer(value.transfer)) throw retroInvalid("迁移性不合法。");
     next.transfer = value.transfer;
   }
-  if (!next.title) throw retroMonthBadRequest("标题不能为空。");
-  if (next.kind === "SITUATIONAL" && !next.situation.trim()) throw retroMonthBadRequest("情境判断必须写明是什么情境。");
+  if (!next.title) throw retroInvalid("标题不能为空。");
+  if (next.kind === "SITUATIONAL" && !next.situation.trim()) throw retroInvalid("情境判断必须写明是什么情境。");
   return next;
 }
 
@@ -109,7 +109,7 @@ export function applyRetroDraftPatch(
   // 案例回顾
   if (patch.section.startsWith("case.")) {
     const review = minutes.cases.find((item) => item.caseId === patch.caseId);
-    if (!review) throw new RetroMonthError(404, "DRAFT_ITEM_NOT_FOUND", "这个案例不在草稿的案例回顾里。");
+    if (!review) throw new RetroError(404, "DRAFT_ITEM_NOT_FOUND", "这个案例不在草稿的案例回顾里。");
     if (patch.section === "case.process") {
       const text = checkedText(value.text, "经过", RETRO_LIMITS.draftTextMax, false);
       if (text !== review.process) {
@@ -167,8 +167,8 @@ export function applyRetroDraftPatch(
       origin: "MANUAL",
       edited: false,
     };
-    if (!isDimension(value.dimension)) throw retroMonthBadRequest("补充方法候选要选维度。");
-    if (!isKind(value.kind)) throw retroMonthBadRequest("补充方法候选要选类别。");
+    if (!isDimension(value.dimension)) throw retroInvalid("补充方法候选要选维度。");
+    if (!isKind(value.kind)) throw retroInvalid("补充方法候选要选类别。");
     const candidate = updateCandidate(base, { transfer: "UNSURE", ...value });
     methods.candidates = orderRetroCandidates([...methods.candidates, { ...candidate, edited: false }]);
     return { draft: { minutes, methods }, itemId: id };
