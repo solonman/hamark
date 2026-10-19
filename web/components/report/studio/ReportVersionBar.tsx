@@ -137,7 +137,7 @@ export default function ReportVersionBar({
               ) : null}
               <span className={v04styles.versionTime}>{formatClock(final.updatedAt)}</span>
               <span className={v04styles.versionDesc}>
-                集成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止；只有老孙能直接编辑。
+                集成版：每一处内容都取各版本里最新的那次修改，老孙定下的写法除外；进行态自动汇入，定稿后停止；只有老孙能直接编辑。
               </span>
             </div>
           ) : null}

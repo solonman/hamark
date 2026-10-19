@@ -1128,7 +1128,7 @@ export default function V04StudioClient({
         pushToast("集成版已定稿：此后其他版本的修改不再进入集成版，只记录为「未纳入」");
       } else if (body.action === "OPEN") {
         const pending = response.final.pendingCount;
-        pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；定稿期间的 ${pending} 处修改仍待逐条采纳` : ""}`);
+        pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；未纳入的 ${pending} 处修改仍待逐条采纳` : ""}`);
       } else if (body.action === "ADOPT_REVIEW") {
         const reviewNumber = before?.versions.find((version) => version.id === body.reviewVersionId)?.number;
         pushToast(`已采纳点评版${reviewNumber ? ` v${reviewNumber} ` : ""}的写法，集成版已更新`);
@@ -2117,7 +2117,7 @@ export default function V04StudioClient({
                   ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的；老孙定下的写法不会被自动覆盖，别人的修改记为未纳入"
                   : `老孙于 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""} 定稿，此后其他版本的修改不再进入集成版`}
                 {model.final.pendingCount > 0 && (
-                  <span className={styles.finalPendingText}>；定稿期间有 {model.final.pendingCount} 处修改未纳入</span>
+                  <span className={styles.finalPendingText}>；有 {model.final.pendingCount} 处修改未纳入，待老孙采纳</span>
                 )}
               </span>
               <span className={styles.finalBannerSpacer} />

@@ -323,7 +323,7 @@ export default function ReportStudioClient({
       // 这次编辑本身就是集成版，没有"汇不汇入"这个问题。用签名去重，
       // 一串连续自动保存如果汇入结果没变就不用每次都弹一条。
       if (result.changed && !isFinalEdit) {
-        const signature = `${result.finalIntake.merged}:${result.finalIntake.pending}`;
+        const signature = `${result.finalIntake.merged}:${result.finalIntake.pending}${result.finalIntake.heldByReviewer ? `:${result.finalIntake.heldByReviewer}` : ""}`;
         if (signature !== finalIntakeSignatureRef.current) {
           finalIntakeSignatureRef.current = signature;
           pushToast(describeReportFinalIntakeToast(result.finalIntake));
@@ -498,7 +498,7 @@ export default function ReportStudioClient({
         pushToast("集成版已定稿：此后其他版本的修改不再进入集成版，只记录为「未纳入」");
       } else if (kind === "OPEN") {
         const pending = response.final.pendingCount;
-        pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；定稿期间的 ${pending} 处修改仍待逐条采纳` : ""}`);
+        pushToast(`集成版已回到进行态：此后其他版本的修改重新自动汇入${pending > 0 ? `；未纳入的 ${pending} 处修改仍待逐条采纳` : ""}`);
       } else {
         pushToast(`已采纳 ${response.adopted ?? 0} 处未纳入的修改`);
       }
@@ -797,10 +797,10 @@ export default function ReportStudioClient({
           </span>
           <span>
             {chain.final.status === "OPEN"
-              ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的"
+              ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的；老孙定下的写法不会被自动覆盖，别人的修改记为未纳入"
               : `老孙于 ${chain.final.doneAt ? formatShortDateTime(chain.final.doneAt) : ""} 定稿，此后其他版本的修改不再进入集成版`}
             {chain.final.pendingCount > 0 ? (
-              <span className={v04styles.finalPendingText}>；定稿期间有 {chain.final.pendingCount} 处修改未纳入</span>
+              <span className={v04styles.finalPendingText}>；有 {chain.final.pendingCount} 处修改未纳入，待老孙采纳</span>
             ) : null}
           </span>
           <span className={v04styles.finalBannerSpacer} />

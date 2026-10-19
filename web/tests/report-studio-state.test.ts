@@ -213,4 +213,8 @@ test("describeReportFinalIntakeToast 汇入成功：不点名具体条目（用�
 
 test("describeReportFinalIntakeToast 集成版已定稿：修改记为未纳入", () => {
   assert.equal(describeReportFinalIntakeToast({ merged: false, pending: 1 }), "集成版已定稿，这次的修改记为未纳入");
+  assert.equal(describeReportFinalIntakeToast({ merged: true, pending: 1, heldByReviewer: 1 }),
+    "这次的修改已同步进入集成版，但其中 1 处动到了老孙定下的写法，记为未纳入，由老孙决定是否采纳");
+  assert.equal(describeReportFinalIntakeToast({ merged: false, pending: 2, heldByReviewer: 2 }),
+    "这次的修改动到了老孙定下的写法，记为未纳入，由老孙决定是否采纳");
 });

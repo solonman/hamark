@@ -197,10 +197,17 @@ export function resolveReportEditReadOnly(
 
 /**
  * 普通版本保存成功后的 toast（五、17，用户决定②：不点名具体是哪个条目，
- * 统一说"这次的修改"）。`finalIntake.merged` 为 false 是因为集成版已定稿，
- * 这次的写法记成了"未纳入"，等老孙取消定稿后逐条采纳。
+ * 统一说"这次的修改"）。`finalIntake.merged` 为 false 且没有 `heldByReviewer`
+ * 是因为集成版已定稿，这次的写法记成了"未纳入"，等老孙取消定稿后逐条采纳。
+ * `heldByReviewer`（2026-10-19 老孙代表权威）：未定稿，但有几处动到了老孙定下
+ * 的写法，不自动覆盖，记为未纳入。
  */
-export function describeReportFinalIntakeToast(finalIntake: { merged: boolean; pending: number }): string {
+export function describeReportFinalIntakeToast(finalIntake: { merged: boolean; pending: number; heldByReviewer?: number }): string {
+  if (finalIntake.heldByReviewer) {
+    return finalIntake.merged
+      ? `这次的修改已同步进入集成版，但其中 ${finalIntake.heldByReviewer} 处动到了老孙定下的写法，记为未纳入，由老孙决定是否采纳`
+      : "这次的修改动到了老孙定下的写法，记为未纳入，由老孙决定是否采纳";
+  }
   return finalIntake.merged
     ? "这次的修改已同步进入集成版"
     : "集成版已定稿，这次的修改记为未纳入";

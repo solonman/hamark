@@ -585,6 +585,172 @@ export function applyReportFinalIntakeBatch(
   return { payload: next, applied: true };
 }
 
+// ---------------------------------------------------------------------------
+// 老孙代表权威（2026-10-19 用户拍板，与视频工作台同一口径）：集成版里老孙定下的写法，
+// 普通用户之后的修改不自动覆盖，记为未纳入，由老孙在溯源里决定是否采纳。
+// ---------------------------------------------------------------------------
+
+export type ReportFinalIntakeOutcome = {
+  draft: ReportFinalIntakeDraft;
+  applied: boolean;
+  /** 只有一种原因：这次修改会动到老孙定下的写法。 */
+  heldByReviewer: boolean;
+};
+
+/** 老孙定下的那些处，记成 `FIELD|<targetKey>` / `SPAN|<targetKey>`（页范围也是写法）。 */
+export const reportReviewerEntry = (kind: "FIELD" | "SPAN", targetKey: string) => `${kind}|${targetKey}`;
+
+export type ReportFinalCurrentSource = {
+  kind: string;
+  targetKey: string;
+  source: string;
+  actorName: string;
+  appliedAt: string;
+  createdAt: string;
+};
+
+/**
+ * 某一处当前采用的记录出自老孙：老孙直接改的（FINAL_DIRECT）、老孙本人写的，或老孙
+ * 后来采纳进来的未纳入记录（只有老孙能采纳；自动汇入的记录 applied_at 与 created_at
+ * 相同，采纳的记录 applied_at 更晚）。与 lib/final-version.ts 的 reviewerDecidedTargets 一致。
+ */
+export function reportReviewerDecidedTargets(rows: readonly ReportFinalCurrentSource[]): Set<string> {
+  return new Set(rows
+    .filter((row) => (row.kind === "FIELD" || row.kind === "SPAN") && (
+      row.source === "FINAL_DIRECT" ||
+      isCaseReviewer(row.actorName) ||
+      Date.parse(row.appliedAt) > Date.parse(row.createdAt)))
+    .map((row) => reportReviewerEntry(row.kind as "FIELD" | "SPAN", row.targetKey)));
+}
+
+function readFieldTarget(payload: ReportAnnotation, targetKey: string): unknown {
+  const keyed = (prefix: string) => {
+    const rest = targetKey.slice(prefix.length);
+    const sep = rest.indexOf(":");
+    return sep === -1 ? null : { id: rest.slice(0, sep), field: rest.slice(sep + 1) };
+  };
+  if (targetKey.startsWith("background.")) {
+    return (payload.background as Record<string, unknown>)[targetKey.slice("background.".length)];
+  }
+  if (targetKey.startsWith("strategy.")) {
+    return (payload.strategy as Record<string, unknown>)[targetKey.slice("strategy.".length)];
+  }
+  if (targetKey.startsWith("module:")) {
+    const key = keyed("module:");
+    const item = key && payload.modules.find((m) => m.id === key.id);
+    return item ? (item as unknown as Record<string, unknown>)[key.field] : undefined;
+  }
+  if (targetKey.startsWith("unit:")) {
+    const key = keyed("unit:");
+    const item = key && payload.units.find((u) => u.id === key.id);
+    return item ? (item as unknown as Record<string, unknown>)[key.field] : undefined;
+  }
+  if (targetKey.startsWith("page:")) {
+    const key = keyed("page:");
+    const item = key && payload.pages.find((p) => p.n === Number(key.id));
+    return item ? (item as unknown as Record<string, unknown>)[key.field] : undefined;
+  }
+  if (targetKey.startsWith("block:")) {
+    const key = keyed("block:");
+    const item = key && payload.pages.flatMap((p) => p.blocks).find((b) => b.id === key.id);
+    return item ? (item as unknown as Record<string, unknown>)[key.field] : undefined;
+  }
+  return undefined;
+}
+
+/** 一处写法此刻的样子：字段就是值；页范围是这个模块／单元的直属页（不存在则为 undefined）。 */
+function reviewerEntrySnapshot(payload: ReportAnnotation, entry: string): string {
+  const sep = entry.indexOf("|");
+  const kind = entry.slice(0, sep);
+  const targetKey = entry.slice(sep + 1);
+  if (kind === "FIELD") return JSON.stringify(readFieldTarget(payload, targetKey) ?? null);
+  const isModule = targetKey.startsWith("module:");
+  const id = targetKey.slice(targetKey.indexOf(":") + 1);
+  const exists = isModule ? payload.modules.some((m) => m.id === id) : payload.units.some((u) => u.id === id);
+  if (!exists) return "null";
+  const pages = isModule
+    ? payload.pages.filter((p) => p.mid === id && !p.uid).map((p) => p.n)
+    : payload.pages.filter((p) => p.uid === id).map((p) => p.n);
+  return JSON.stringify(pages.toSorted((a, b) => a - b));
+}
+
+/**
+ * 3.4 — 一次保存拆出来的记录怎么进集成版。
+ *
+ * - 定稿（DONE）：一条都不写，全部未纳入（原口径）。
+ * - 进行中（OPEN）且没有老孙定下的写法：与原来逐条应用完全一样。
+ * - 有老孙定下的写法时：字段直接比键，动到的记未纳入。结构记录（增删模块／单元／块、页范围）
+ *   在同一次保存里是一串互相依赖的步骤（先 INSERT 再 SPAN），拆开会留下没有页的空容器，
+ *   所以整串先试着写一遍：会改动任何一处老孙定下的字段或页范围，整串记未纳入、集成版结构
+ *   不动；这时落在新容器上、因结构没进来而找不到目标的字段记录也一并记未纳入，老孙采纳
+ *   这串时按原顺序一起补上。
+ */
+export function planReportFinalIntake(
+  payload: ReportAnnotation,
+  drafts: readonly ReportFinalIntakeDraft[],
+  status: "OPEN" | "DONE",
+  reviewerTargets: ReadonlySet<string> = new Set(),
+): { payload: ReportAnnotation; outcomes: ReportFinalIntakeOutcome[] } {
+  if (status !== "OPEN") {
+    return { payload, outcomes: drafts.map((draft) => ({ draft, applied: false, heldByReviewer: false })) };
+  }
+  if (reviewerTargets.size === 0) {
+    const batch = applyReportFinalIntakeBatch(payload, drafts, status);
+    return { payload: batch.payload, outcomes: drafts.map((draft) => ({ draft, applied: true, heldByReviewer: false })) };
+  }
+
+  const held = new Set<ReportFinalIntakeDraft>();
+  let next = payload;
+  const structural = drafts.filter((draft) => draft.kind !== "FIELD");
+  let structureHeld = false;
+  if (structural.length) {
+    let tentative = payload;
+    for (const draft of structural) tentative = applyReportFinalIntake(tentative, draft).payload;
+    structureHeld = structural.some((draft) => draft.kind === "SPAN" && reviewerTargets.has(reportReviewerEntry("SPAN", draft.targetKey))) ||
+      [...reviewerTargets].some((entry) => reviewerEntrySnapshot(payload, entry) !== reviewerEntrySnapshot(tentative, entry));
+    if (structureHeld) structural.forEach((draft) => held.add(draft));
+    else next = tentative;
+  }
+  for (const draft of drafts) {
+    if (draft.kind !== "FIELD") continue;
+    if (reviewerTargets.has(reportReviewerEntry("FIELD", draft.targetKey))) {
+      held.add(draft);
+      continue;
+    }
+    if (structureHeld && readFieldTarget(next, draft.targetKey) === undefined) {
+      held.add(draft);
+      continue;
+    }
+    next = applyReportFinalIntake(next, draft).payload;
+  }
+  return {
+    payload: next,
+    outcomes: drafts.map((draft) => held.has(draft)
+      ? { draft, applied: false, heldByReviewer: true }
+      : { draft, applied: true, heldByReviewer: false }),
+  };
+}
+
+async function loadReportReviewerDecidedTargets(db: DbClient, finalId: string): Promise<Set<string>> {
+  const rows = (await db.prepare(
+    `SELECT DISTINCT ON (kind, target_key) kind, target_key, source, actor_name, applied_at, created_at
+    FROM report_final_intakes
+    WHERE final_id = ? AND applied = true AND kind IN ('FIELD', 'SPAN')
+    ORDER BY kind, target_key, applied_at DESC, seq DESC`,
+  ).bind(finalId).all<{
+    kind: string; target_key: string; source: string; actor_name: string;
+    applied_at: string | Date; created_at: string | Date;
+  } & QueryResultRow>()).results;
+  return reportReviewerDecidedTargets(rows.map((row) => ({
+    kind: row.kind,
+    targetKey: row.target_key,
+    source: row.source,
+    actorName: row.actor_name,
+    appliedAt: new Date(row.applied_at).toISOString(),
+    createdAt: new Date(row.created_at).toISOString(),
+  })));
+}
+
 /** One `report_versions` row, flattened for the version-level replay (spec 3.3). */
 export type ReportFinalHistoryVersion = {
   id: string;
@@ -824,7 +990,12 @@ export async function ensureReportFinalVersion(
 // 3.4 — intake from a normal version save.
 // ---------------------------------------------------------------------------
 
-export type ReportFinalIntakeResult = { merged: boolean; pending: number };
+export type ReportFinalIntakeResult = {
+  merged: boolean;
+  pending: number;
+  /** 进行中却没进集成版的处数：这几处动到了老孙定下的写法，记为未纳入。 */
+  heldByReviewer?: number;
+};
 
 /**
  * Called from lib/report-version-chain.ts's saveReportVersion, inside the
@@ -858,22 +1029,27 @@ export async function intakeReportVersionIntoFinal(
   }
 
   const savedAt = iso(input.now);
-  const { payload, applied: applyNow } = applyReportFinalIntakeBatch(
-    parseJsonPayload(finalRow.payload_json), drafts, finalRow.status,
+  // 老孙代表权威：集成版里老孙定下的写法，只有老孙自己的修改能自动换掉。
+  const reviewerTargets = finalRow.status === "OPEN" && !isCaseReviewer(input.actorName)
+    ? await loadReportReviewerDecidedTargets(db, finalRow.id)
+    : new Set<string>();
+  const { payload, outcomes } = planReportFinalIntake(
+    parseJsonPayload(finalRow.payload_json), drafts, finalRow.status, reviewerTargets,
   );
-  for (const draft of drafts) {
-    await insertIntakeRow(db, finalRow.id, reportId, draft, {
+  for (const outcome of outcomes) {
+    await insertIntakeRow(db, finalRow.id, reportId, outcome.draft, {
       source: "VERSION",
       sourceVersionId: input.sourceVersionId,
       sourceVersionNumber: input.sourceVersionNumber,
       actorUserId: input.actorUserId,
       actorName: input.actorName,
-      applied: applyNow,
-      appliedAt: applyNow ? savedAt : null,
+      applied: outcome.applied,
+      appliedAt: outcome.applied ? savedAt : null,
       createdAt: savedAt,
     });
   }
-  if (applyNow) {
+  const anyApplied = outcomes.some((outcome) => outcome.applied);
+  if (anyApplied) {
     const contentHash = hashReportPayload(payload);
     await db.prepare(
       `UPDATE report_final_versions
@@ -881,7 +1057,13 @@ export async function intakeReportVersionIntoFinal(
       WHERE id = ?`,
     ).bind(JSON.stringify(payload), contentHash, savedAt, finalRow.id).run();
   }
-  return { merged: applyNow, pending: await countPending(db, finalRow.id) };
+  const pending = await countPending(db, finalRow.id);
+  const heldByReviewer = outcomes.filter((outcome) => outcome.heldByReviewer).length;
+  return {
+    merged: anyApplied,
+    pending,
+    ...(heldByReviewer ? { heldByReviewer } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

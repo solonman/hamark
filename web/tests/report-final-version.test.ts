@@ -10,6 +10,9 @@ import {
   applyReportFinalIntakeBatch,
   computeReportFinalFromHistory,
   diffReportAnnotation,
+  planReportFinalIntake,
+  reportReviewerDecidedTargets,
+  reportReviewerEntry,
   type ReportFinalHistoryVersion,
   type ReportFinalIntakeDraft,
 } from "../lib/report-final-version.ts";
@@ -668,4 +671,79 @@ test("computeReportFinalFromHistory: 第一版没有基版（basePayload=null）
   assert.equal(payload.modules[0].name, "v1第一次保存");
   assert.equal(intakes.length, 1);
   assert.equal(intakes[0].targetKey, "module:M1:name");
+});
+
+/* ============ 老孙代表权威（2026-10-19，与视频工作台同一口径） ============ */
+
+function twoModules(): ReportAnnotation {
+  return mkAnnotation({
+    modules: [mkModule("M1", { name: "老孙定的模块名" }), mkModule("M2", { name: "模块二" })],
+    pages: [mkPage(1, { mid: "M1" }), mkPage(2, { mid: "M1" }), mkPage(3, { mid: "M2" })],
+  });
+}
+
+test("planReportFinalIntake: 老孙定下的字段不被普通用户自动覆盖，其余字段照常汇入", () => {
+  const final = twoModules();
+  const user = structuredClone(final);
+  user.modules[0].name = "别人的模块名";
+  user.modules[1].name = "别人改的模块二";
+  const drafts = diffReportAnnotation(final, user);
+  const { payload, outcomes } = planReportFinalIntake(final, drafts, "OPEN", new Set([reportReviewerEntry("FIELD", "module:M1:name")]));
+  assert.equal(payload.modules[0].name, "老孙定的模块名");
+  assert.equal(payload.modules[1].name, "别人改的模块二");
+  assert.deepEqual(outcomes.map((item) => [item.draft.targetKey, item.applied, item.heldByReviewer]), [
+    ["module:M1:name", false, true],
+    ["module:M2:name", true, false],
+  ]);
+});
+
+test("planReportFinalIntake: 结构改动会挪动老孙定下的页范围时，整串结构记未纳入，集成版结构不动", () => {
+  const final = twoModules();
+  const user = structuredClone(final);
+  user.pages[1].mid = "M2"; // 第 2 页从 M1 划给 M2
+  user.modules[1].role = "别人写的作用";
+  const drafts = diffReportAnnotation(final, user);
+  assert.ok(drafts.some((draft) => draft.kind === "SPAN"));
+  const { payload, outcomes } = planReportFinalIntake(final, drafts, "OPEN", new Set([reportReviewerEntry("SPAN", "module:M1")]));
+  assert.deepEqual(pageOwners(payload, [1, 2, 3]), [[1, "M1", null], [2, "M1", null], [3, "M2", null]]);
+  assert.equal(payload.modules[1].role, "别人写的作用", "unrelated field still merges");
+  assert.ok(outcomes.filter((item) => item.draft.kind === "SPAN").every((item) => !item.applied && item.heldByReviewer));
+});
+
+test("planReportFinalIntake: 删掉含老孙写法的模块整串记未纳入；新模块上的字段跟着结构一起等老孙采纳", () => {
+  const final = twoModules();
+  const user = mkAnnotation({
+    modules: [mkModule("M2", { name: "模块二" }), mkModule("M3", { name: "新模块" })],
+    pages: [mkPage(1, { mid: "M3" }), mkPage(2, { mid: "M3" }), mkPage(3, { mid: "M2" })],
+  });
+  const drafts = diffReportAnnotation(final, user);
+  const { payload, outcomes } = planReportFinalIntake(final, drafts, "OPEN", new Set([reportReviewerEntry("FIELD", "module:M1:name")]));
+  assert.deepEqual(payload, final);
+  assert.ok(outcomes.every((item) => !item.applied && item.heldByReviewer));
+});
+
+test("planReportFinalIntake: 没有老孙定下的写法时与原来的逐条应用完全一致；定稿时一条都不写", () => {
+  const final = twoModules();
+  const user = structuredClone(final);
+  user.pages[1].mid = "M2";
+  const drafts = diffReportAnnotation(final, user);
+  const plain = planReportFinalIntake(final, drafts, "OPEN");
+  assert.deepEqual(plain.payload, applyReportFinalIntakeBatch(final, drafts, "OPEN").payload);
+  assert.ok(plain.outcomes.every((item) => item.applied));
+  const done = planReportFinalIntake(final, drafts, "DONE", new Set([reportReviewerEntry("SPAN", "module:M1")]));
+  assert.equal(done.payload, final);
+  assert.ok(done.outcomes.every((item) => !item.applied && !item.heldByReviewer));
+});
+
+test("reportReviewerDecidedTargets: 老孙直接改的、出自老孙的、老孙后来采纳的算老孙定的；只认 FIELD 与 SPAN", () => {
+  const at = "2026-10-19T08:00:00.000Z";
+  const later = "2026-10-19T09:00:00.000Z";
+  const held = reportReviewerDecidedTargets([
+    { kind: "FIELD", targetKey: "a", source: "FINAL_DIRECT", actorName: "老孙", appliedAt: at, createdAt: at },
+    { kind: "SPAN", targetKey: "module:M1", source: "VERSION", actorName: "老孙", appliedAt: at, createdAt: at },
+    { kind: "FIELD", targetKey: "c", source: "VERSION", actorName: "赵雅诗", appliedAt: later, createdAt: at },
+    { kind: "FIELD", targetKey: "d", source: "VERSION", actorName: "赵雅诗", appliedAt: at, createdAt: at },
+    { kind: "INSERT_MODULE", targetKey: "module:M9", source: "FINAL_DIRECT", actorName: "老孙", appliedAt: at, createdAt: at },
+  ]);
+  assert.deepEqual([...held].toSorted(), ["FIELD|a", "FIELD|c", "SPAN|module:M1"]);
 });
