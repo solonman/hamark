@@ -69,12 +69,13 @@ export default function RetroAudioPanel({
     seek(seekRequest.ms, false);
     void audioRef.current?.play().catch(() => { /* 自动播放被拦下：不报错 */ });
     const target = activeAudioReviewSegmentId(ownLines, seekRequest.ms);
-    const frame = requestAnimationFrame(() => {
+    // 用 setTimeout 而不是 requestAnimationFrame：后台标签页里 rAF 不触发，打开链接后不会跳到原话。
+    const frame = window.setTimeout(() => {
       const row = wrapRef.current?.querySelector<HTMLElement>(`[data-segment-id="${target}"]`);
       const box = row?.parentElement;
       if (row && box) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - 40;
     });
-    return () => cancelAnimationFrame(frame);
+    return () => window.clearTimeout(frame);
   }, [seekRequest, ownerId, ownLines, seek]);
 
   return (

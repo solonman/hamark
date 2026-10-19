@@ -128,7 +128,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
 
   // ---- 首次读取：地址栏的跳转参数只在这一刻读一次 ----
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "instant" });
     const controller = new AbortController();
     retroApi.getCase(caseId, controller.signal)
       .then((next) => {
@@ -171,31 +171,33 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     const element = document.getElementById(id);
     if (!element) return;
     pendingFocus.current = null;
-    if (target !== "background") element.scrollIntoView({ block: "center", behavior: "auto" });
+    if (target !== "background") element.scrollIntoView({ block: "center", behavior: "instant" });
     element.click();
   }, [detail]);
 
   // 滚动到录音、回合或客户录音面板。
   useEffect(() => {
     if (!scrollTarget || !detail) return;
-    const frame = requestAnimationFrame(() => {
+    // 用 setTimeout 而不是 requestAnimationFrame、用 instant 而不是 auto：后台标签页里 rAF 不触发；全站 html 开了
+    // scroll-behavior: smooth，auto 会变成平滑滚动、要逐帧渲染才走得动。「去听原声」打开的页面要直接定位到录音。
+    const frame = window.setTimeout(() => {
       if (scrollTarget.kind === "round") {
         const element = document.getElementById(`round-${scrollTarget.id}`);
         if (!element) { notify("这一回合已被删除；已发布纪要里的标记仍然保留", "warn"); return; }
-        element.scrollIntoView({ block: "center", behavior: "auto" });
+        element.scrollIntoView({ block: "center", behavior: "instant" });
         element.classList.remove(styles.flash);
         void element.offsetWidth;
         element.classList.add(styles.flash);
       } else if (scrollTarget.kind === "audio") {
         const element = document.querySelector(`[data-retro-audio-panel="${CSS.escape(scrollTarget.id)}"]`);
         if (!element) { notify("这段客户录音已被移除；已发布纪要里的原文来自发布时的快照", "warn"); return; }
-        window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 120, behavior: "auto" });
+        window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 120, behavior: "instant" });
       } else {
         const element = document.getElementById("recording");
-        if (element) window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 84, behavior: "auto" });
+        if (element) window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 84, behavior: "instant" });
       }
     });
-    return () => cancelAnimationFrame(frame);
+    return () => window.clearTimeout(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在 nonce 变化时滚一次
   }, [scrollTarget?.nonce]);
 

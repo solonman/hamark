@@ -132,7 +132,7 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
 
   // ---- 首次读取：地址栏的 ?tab=、?focus=summary&t= 只在这一刻读一次 ----
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "instant" });
     const controller = new AbortController();
     retroApi.getMonth(monthKey, controller.signal)
       .then((next) => {
@@ -158,11 +158,11 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
 
   useEffect(() => {
     if (!scrollNonce) return;
-    const frame = requestAnimationFrame(() => {
+    const frame = window.setTimeout(() => {
       const element = document.getElementById("summary");
-      if (element) window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 84, behavior: "auto" });
+      if (element) window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 84, behavior: "instant" });
     });
-    return () => cancelAnimationFrame(frame);
+    return () => window.clearTimeout(frame);
   }, [scrollNonce]);
 
   const needsPoll = view !== null && (
