@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type JSX } from "react";
 import { AUDIO_REVIEW_EXTENSIONS } from "@/lib/audio-review-model";
 import { retroApi, retroReasonText } from "@/lib/retro-client";
 import { RETRO_LIMITS, formatRetroMonth, type RetroRecordingView } from "@/lib/retro-model";
@@ -25,6 +25,7 @@ export default function RetroRecordingUploadDialog({
   nextPart,
   onClose,
   onUploaded,
+  onKept,
   onUploadingChange,
 }: {
   monthKey: string;
@@ -34,6 +35,8 @@ export default function RetroRecordingUploadDialog({
   nextPart: number;
   onClose: () => void;
   onUploaded: (recording: RetroRecordingView, fileName: string) => void;
+  /** 文件已经传完、只是「通知服务端」没成功，用户选择先关掉：这一段还在，父页面刷新一下就能看到并处理。 */
+  onKept?: () => void;
   onUploadingChange?: (uploading: boolean) => void;
 }): JSX.Element {
   const titleId = useId();
@@ -43,14 +46,21 @@ export default function RetroRecordingUploadDialog({
   const [fileName, setFileName] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  // 文件已经传完、只是收尾（UPLOADED）没成功：保留这一段，让用户重试收尾，不删已经传完的录音。
+  const [unfinished, setUnfinished] = useState<{ recording: RetroRecordingView; fileName: string } | null>(null);
   const busy = phase !== "IDLE";
   const isSummary = caseId === null;
 
+  const closeDialog = useCallback(() => {
+    if (unfinished) onKept?.();
+    onClose();
+  }, [unfinished, onKept, onClose]);
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) closeDialog(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
+  }, [busy, closeDialog]);
 
   async function start(file: File) {
     if (busy) return;
@@ -61,13 +71,17 @@ export default function RetroRecordingUploadDialog({
     setProgress(0);
     setPhase("CREATING");
     let recordingId: string | null = null;
+    let fileStored = false;
+    let createdRecording: RetroRecordingView | null = null;
     try {
       const created = await retroApi.createRecording({ monthKey, caseId, fileName: file.name, contentType: checked.contentType, sizeBytes: file.size });
       recordingId = created.recording.id;
+      createdRecording = created.recording;
       setPhase("UPLOADING");
       onUploadingChange?.(true);
       await putAudioReviewFile(created.uploadUrl, file, checked.contentType, setProgress, (request) => { requestRef.current = request; });
       requestRef.current = null;
+      fileStored = true;
       setPhase("FINISHING");
       const uploaded = await retroApi.recordingAction(recordingId, "UPLOADED");
       onUploadingChange?.(false);
@@ -77,13 +91,36 @@ export default function RetroRecordingUploadDialog({
       requestRef.current = null;
       onUploadingChange?.(false);
       const cancelled = reason instanceof DOMException && reason.name === "AbortError";
-      // 建好了行却没传完：移除它，免得占着一个段号、永远卡在「上传中」。
+      if (fileStored && createdRecording) {
+        // 文件已经在对象存储里了，只是通知服务端没成功：不删，提示服务端给的原因，提供「重试收尾」。
+        setPhase("IDLE");
+        setUnfinished({ recording: createdRecording, fileName: file.name });
+        setError(`${retroReasonText(reason, "录音已经传完，但没能交给转写。")} 录音文件已保存，可以点「重试收尾」。`);
+        return;
+      }
+      // 建好了行却没传完（传输中断或用户取消）：移除它，免得占着一个段号、永远卡在「上传中」。
       if (recordingId) {
         try { await retroApi.recordingAction(recordingId, "REMOVE"); } catch { /* 留给页面上的「移除这一段」 */ }
       }
       setPhase("IDLE");
       if (cancelled) { setFileName(""); return; }
       setError(`${retroReasonText(reason, "录音没有上传完成，请重试。")}${recordingId ? " 可以重新选择文件再试。" : ""}`);
+    }
+  }
+
+  async function retryFinish() {
+    if (!unfinished) return;
+    setError("");
+    setPhase("FINISHING");
+    setFileName(unfinished.fileName);
+    try {
+      const uploaded = await retroApi.recordingAction(unfinished.recording.id, "UPLOADED");
+      setPhase("IDLE");
+      setUnfinished(null);
+      onUploaded(uploaded ?? { ...unfinished.recording, status: "TRANSCRIBING" }, unfinished.fileName);
+    } catch (reason) {
+      setPhase("IDLE");
+      setError(`${retroReasonText(reason, "还是没能交给转写。")} 录音文件仍然保存着，可以稍后再试。`);
     }
   }
 
@@ -98,7 +135,7 @@ export default function RetroRecordingUploadDialog({
       <div
         className={report.uploadBackdrop}
         role="presentation"
-        onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}
+        onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) closeDialog(); }}
       >
         <section className={`${report.uploadDialog} ${styles.dialog}`} role="dialog" aria-modal="true" aria-labelledby={titleId} data-retro-recording-dialog>
           <div className={`${report.uploadHead} ${styles.dialogHead}`}>
@@ -106,7 +143,7 @@ export default function RetroRecordingUploadDialog({
               <small>RECORDING</small>
               <b id={titleId}>{isSummary ? `传整场总结录音 · 第 ${nextPart} 段` : `传点评录音 · 第 ${nextPart} 段`}</b>
             </div>
-            {busy ? null : <button type="button" className={report.uploadClose} onClick={onClose} aria-label="关闭上传窗口">×</button>}
+            {busy ? null : <button type="button" className={report.uploadClose} onClick={closeDialog} aria-label="关闭上传窗口">×</button>}
           </div>
           <div className={report.uploadBody}>
             <p className={report.hint}>
@@ -124,6 +161,8 @@ export default function RetroRecordingUploadDialog({
                   {phase === "FINISHING" ? "录音已传完，正在交给转写……" : "正在上传录音，传完会自动开始转写；上传期间请不要关闭页面。"}
                 </small>
               </div>
+            ) : unfinished ? (
+              <p className={report.hint}>「{unfinished.fileName}」已经传到存储里，只差最后一步交给转写。</p>
             ) : (
               <>
                 <button type="button" className={styles.fileDropBtn} onClick={() => inputRef.current?.click()}>
@@ -144,8 +183,9 @@ export default function RetroRecordingUploadDialog({
             {phase === "UPLOADING" ? (
               <button type="button" onClick={() => requestRef.current?.abort()}>取消上传</button>
             ) : (
-              <button type="button" disabled={busy} onClick={onClose}>{busy ? "请稍候…" : "取消"}</button>
+              <button type="button" disabled={busy} onClick={closeDialog}>{busy ? "请稍候…" : unfinished ? "稍后再说" : "取消"}</button>
             )}
+            {unfinished && !busy ? <button type="button" className={report.uploadGo} onClick={() => void retryFinish()}>重试收尾</button> : null}
           </div>
         </section>
       </div>

@@ -210,3 +210,33 @@ test("the in-minutes block only renders when the case is in a published version"
   assert.match(source, /if \(!minutes \|\| !ctx\) return null;/);
   assert.match(source, /看本月完整纪要 →/);
 });
+
+test("「重新生成」 is one atomic call with replaceJobId, gated by canRegenerate, and never ABANDON-then-GENERATE", async () => {
+  const month = await read("components/retro/RetroMonthClient.tsx");
+  assert.match(month, /replaceJobId: draftJob\.id/);
+  assert.match(month, /retroRegenerateGate\(/);
+  const start = month.slice(month.indexOf("async function startGenerate"), month.indexOf("function requestGenerate"));
+  assert.doesNotMatch(start, /"ABANDON"/);
+  const client = await read("lib/retro-client.ts");
+  assert.match(client, /replaceJobId\?: string/);
+});
+
+test("recording dialog: only a failed PUT or a cancel removes the row; a failed UPLOADED keeps it and offers 重试收尾", async () => {
+  const source = await read("components/retro/RetroRecordingUploadDialog.tsx");
+  assert.match(source, /fileStored = true;/);
+  assert.match(source, /if \(fileStored && createdRecording\)/);
+  const keep = source.indexOf("if (fileStored && createdRecording)");
+  const remove = source.indexOf('"REMOVE"');
+  assert(keep >= 0 && remove > keep, "the keep branch returns before the REMOVE call");
+  assert.match(source, /重试收尾/);
+  assert.match(source, /retryFinish/);
+});
+
+test("polling in both clients drops results that a save has overtaken", async () => {
+  for (const file of ["RetroCaseClient.tsx", "RetroMonthClient.tsx"]) {
+    const source = await read(`components/retro/${file}`);
+    assert.match(source, /const mutationSeq = useRef\(0\);/, file);
+    assert.match(source, /mutationSeq\.current \+= 1;/, file);
+    assert.match(source, /shouldApplyPoll\(seq, mutationSeq\.current, queued\.current\)/, file);
+  }
+});

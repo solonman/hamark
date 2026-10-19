@@ -36,6 +36,8 @@ import {
   retroMonthOverview,
   retroPreconditionItems,
   retroRecordingLabel,
+  retroRegenerateGate,
+  shouldApplyPoll,
   retroRoundHasContent,
   retroSpeakerName,
   retroVersionOptions,
@@ -421,4 +423,17 @@ test("draft patch: candidate fields are merged and flagged edited", () => {
   assert.equal(next.methods.candidates[0].title, "标题");
   assert.equal(next.methods.candidates[0].edited, true);
   assert.equal(applyRetroDraftPatch(draft, { section: "candidates", itemId: "c1", op: "DELETE" }).methods.candidates.length, 0);
+});
+
+test("regenerate gate reads canRegenerate, not canGenerate (a live draft always makes canGenerate false)", () => {
+  const pre = { canGenerate: false, blockedReason: "已有整理任务" } as never;
+  assert.deepEqual(retroRegenerateGate(pre), { ok: true, reason: null }, "field not served yet: let the server's transaction decide");
+  assert.deepEqual(retroRegenerateGate({ canGenerate: false, canRegenerate: true } as never), { ok: true, reason: null });
+  assert.deepEqual(retroRegenerateGate({ canGenerate: false, canRegenerate: false, regenerateBlockedReason: "有录音还在转写" } as never), { ok: false, reason: "有录音还在转写" });
+});
+
+test("a poll result is dropped when a save started meanwhile or is still in flight", () => {
+  assert.equal(shouldApplyPoll(3, 3, 0), true);
+  assert.equal(shouldApplyPoll(3, 4, 0), false, "a save was issued after the poll request left");
+  assert.equal(shouldApplyPoll(3, 3, 1), false, "a save is still in flight");
 });

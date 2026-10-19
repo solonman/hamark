@@ -27,6 +27,7 @@ import {
   hasPendingCaseWork,
   nextRetroPartNo,
   parseRetroCaseJump,
+  shouldApplyPoll,
   retroBasicsFromDetail,
   retroRoundHasContent,
   type RetroRoundMark,
@@ -95,6 +96,8 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const queued = useRef(0);
+  /** 每发起一次保存就加一：轮询的响应回来时序号变了，说明期间有过保存，这次结果已经过时，丢掉。 */
+  const mutationSeq = useRef(0);
 
   const applyDetail = useCallback((next: RetroCaseDetail) => {
     detailRef.current = next;
@@ -108,6 +111,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
   /** 保存请求排队一个一个发：后一个要用前一个返回后的最新 revision，不然会自己和自己 409。 */
   const enqueue = useCallback((job: () => Promise<void>): Promise<void> => {
     queued.current += 1;
+    mutationSeq.current += 1;
     const run = queue.current.catch(() => undefined).then(job).finally(() => { queued.current -= 1; });
     queue.current = run;
     return run;
@@ -207,7 +211,10 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     if (!pending) return;
     const timer = setInterval(() => {
       if (document.hidden || queued.current > 0) return;
-      void retroApi.getCase(caseId).then((next) => { if (queued.current === 0) applyDetail(next); }).catch(() => { /* 静默重试 */ });
+      const seq = mutationSeq.current;
+      void retroApi.getCase(caseId)
+        .then((next) => { if (shouldApplyPoll(seq, mutationSeq.current, queued.current)) applyDetail(next); })
+        .catch(() => { /* 静默重试 */ });
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [pending, caseId, applyDetail]);
@@ -726,6 +733,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
           caseTitle={detail.title}
           nextPart={nextPart}
           onClose={() => setRecordingUploadOpen(false)}
+          onKept={() => { void reload().catch(() => undefined); }}
           onUploaded={() => {
             setRecordingUploadOpen(false);
             notify("录音已上传，正在转写；转写完成后全员可见");
