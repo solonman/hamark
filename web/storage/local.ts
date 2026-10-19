@@ -8,6 +8,7 @@ import { localDemoAppUrl, requireLocalDemoMode } from "@/lib/local-demo";
 import type {
   ObjectBody,
   ObjectRange,
+  PresignedGetOptions,
   PresignedPutOptions,
   VideoBucket,
 } from "./types";
@@ -87,10 +88,7 @@ export class LocalVideoBucket implements VideoBucket {
     return `${localDemoAppUrl()}/api/local-assets?key=${encodeURIComponent(key)}`;
   }
 
-  async createPresignedGetUrl(
-    key: string,
-    options: { expiresInSeconds?: number; now?: Date } = {},
-  ) {
+  async createPresignedGetUrl(key: string, options: PresignedGetOptions = {}) {
     void options;
     localObjectPath(key);
     return `${localDemoAppUrl()}/api/local-assets?key=${encodeURIComponent(key)}`;
