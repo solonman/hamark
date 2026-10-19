@@ -30,6 +30,8 @@ import {
   retroMonthBadgeFromView,
   retroMonthBadgeLabel,
   retroMonthOverview,
+  shouldApplyPoll,
+  retroRegenerateGate,
   retroRecordingLabel,
   retroVersionOptions,
   type RetroSourceContext,
@@ -105,6 +107,8 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
   const jobStatuses = useRef(new Map<string, string>());
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const queued = useRef(0);
+  /** 每发起一次保存就加一：轮询的响应回来时序号变了，说明期间有过保存，这次结果已经过时，丢掉。 */
+  const mutationSeq = useRef(0);
 
   const applyView = useCallback((next: RetroMonthView, announce: boolean) => {
     viewRef.current = next;
@@ -125,6 +129,7 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
 
   const enqueue = useCallback(<T,>(job: () => Promise<T>): Promise<T> => {
     queued.current += 1;
+    mutationSeq.current += 1;
     const run = queue.current.catch(() => undefined).then(job).finally(() => { queued.current -= 1; });
     queue.current = run;
     return run;
@@ -174,10 +179,13 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
     if (!needsPoll) return;
     const timer = setInterval(() => {
       if (document.hidden || queued.current > 0) return;
-      void reload(true).catch(() => { /* 静默重试 */ });
+      const seq = mutationSeq.current;
+      void retroApi.getMonth(monthKey)
+        .then((next) => { if (shouldApplyPoll(seq, mutationSeq.current, queued.current)) applyView(next, true); })
+        .catch(() => { /* 静默重试 */ });
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [needsPoll, reload]);
+  }, [needsPoll, monthKey, applyView]);
 
   // ---------------------------------------------------------------------------
   // 页签、历史版本
@@ -267,8 +275,8 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
   async function startGenerate(fromReview: boolean) {
     const current = viewRef.current;
     const draftJob = current?.job;
-    if (fromReview && draftJob) await retroApi.jobAction(monthKey, draftJob.id, "ABANDON");
-    await retroApi.startJob(monthKey, { mode: "GENERATE" });
+    // 待审阅时重新生成：一次调用，放弃旧任务和开新任务在服务端同一个事务里，失败整体回滚、草稿保留。
+    await retroApi.startJob(monthKey, fromReview && draftJob ? { mode: "GENERATE", replaceJobId: draftJob.id } : { mode: "GENERATE" });
     setEditingKey(null);
     setAdding(null);
     await reload(false);
@@ -278,8 +286,9 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
   function requestGenerate(fromReview: boolean) {
     const current = viewRef.current;
     if (!current) return;
-    if (!current.preconditions.canGenerate) {
-      notify(current.preconditions.blockedReason ?? "还不能生成：有录音还在转写，或者当月还没有就绪的案例录音", "warn");
+    const gate = fromReview ? retroRegenerateGate(current.preconditions) : { ok: current.preconditions.canGenerate, reason: current.preconditions.blockedReason };
+    if (!gate.ok) {
+      notify(gate.reason ?? "还不能生成：有录音还在转写，或者当月还没有就绪的案例录音", "warn");
       return;
     }
     const lines = retroGenerateConfirmLines({
@@ -532,6 +541,7 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
   const latest = view.latestPublication;
   const shownPub = historyVersion !== null && historyPub?.versionNumber === historyVersion ? historyPub : latest;
   const tabs: Array<[MonthTab, string]> = [["CASES", `案例（${view.cases.length}）`], ["MINUTES", "教学纪要"], ["METHODS", "方法提取记录"]];
+  const regenerateGate = retroRegenerateGate(view.preconditions);
   const summaryNextPart = nextRetroPartNo(view.summaryRecordings) ?? 1;
 
   const publicationCtx = (pub: RetroPublicationView): RetroMinutesCtx => {
@@ -736,7 +746,15 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
         <div className={styles.draftBar} role="region" aria-label="草稿操作">
           <span><b>草稿</b> · 只有你看得到{draftSavedAt ? ` · 已保存 ${draftSavedAt}` : ""}</span>
           <button type="button" className={`${v04.reviewGhostButton} ${v04.reviewDangerButton}`} onClick={() => requestAbandon("draft")}>放弃草稿</button>
-          <button type="button" className={v04.reviewGhostButton} onClick={() => requestGenerate(true)}>重新生成</button>
+          <button
+            type="button"
+            className={v04.reviewGhostButton}
+            disabled={jobBusy || !regenerateGate.ok}
+            title={regenerateGate.reason ?? undefined}
+            onClick={() => requestGenerate(true)}
+          >
+            重新生成
+          </button>
           <button type="button" className={v04.reviewPrimaryButton} onClick={requestPublish}>发布 v{(latest?.versionNumber ?? 0) + 1}</button>
         </div>
       ) : null}
@@ -774,6 +792,7 @@ export default function RetroMonthClient({ monthKey, viewerName, user }: {
           caseId={null}
           nextPart={summaryNextPart}
           onClose={() => setUploadOpen(false)}
+          onKept={() => { void reload(false).catch(() => undefined); }}
           onUploaded={() => {
             setUploadOpen(false);
             notify("总结录音已上传，正在转写；转写完成后全员可见");

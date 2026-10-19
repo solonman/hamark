@@ -788,6 +788,23 @@ export function retroMonthBadgeFromView(view: Pick<RetroMonthView, "job" | "late
   return { state: "NONE" };
 }
 
+/**
+ * 轮询结果能不能用：发请求时记下保存序号，回来时序号变了（期间有过保存）或者还有保存在途，就丢掉这次结果，
+ * 免得把刚保存的内容盖回旧值。
+ */
+export function shouldApplyPoll(seqAtRequest: number, seqNow: number, inFlight: number): boolean {
+  return seqAtRequest === seqNow && inFlight === 0;
+}
+
+/**
+ * 吸底栏「重新生成」的闸门：读前提里的 canRegenerate／regenerateBlockedReason（有在途草稿时 canGenerate 本来就是 false，
+ * 不能拿它当闸门）。字段是后端新加的，没给时放行，由服务端的事务检查兜底。
+ */
+export function retroRegenerateGate(pre: RetroGeneratePreconditions & { canRegenerate?: boolean; regenerateBlockedReason?: string | null }): { ok: boolean; reason: string | null } {
+  if (pre.canRegenerate === undefined) return { ok: true, reason: null };
+  return { ok: pre.canRegenerate, reason: pre.canRegenerate ? null : pre.regenerateBlockedReason ?? "现在还不能重新生成。" };
+}
+
 /** 老孙是不是正在审阅草稿（接口只给他草稿内容）。 */
 export function isRetroReviewing(view: Pick<RetroMonthView, "job" | "viewer">): boolean {
   return view.viewer.isReviewer && view.job?.status === "PENDING_REVIEW" && view.job.draft !== null;

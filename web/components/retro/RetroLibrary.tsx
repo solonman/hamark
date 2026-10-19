@@ -219,6 +219,7 @@ export default function RetroLibrary({
           caseTitle={recordingCase.title}
           nextPart={1}
           onClose={() => setRecordingFor(null)}
+          onKept={() => setLocalRefresh((token) => token + 1)}
           onUploaded={() => {
             setRecordingFor(null);
             notify("录音已上传，正在转写；转写完成后全员可见");
