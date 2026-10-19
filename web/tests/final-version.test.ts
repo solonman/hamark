@@ -11,6 +11,8 @@ import {
   computeFinalFromHistory,
   decomposeV19ChangesForFinal,
   deriveFinalOrigin,
+  planFinalIntake,
+  reviewerDecidedTargets,
   type FinalHistoryEvent,
   type FinalIntakeDraft,
 } from "../lib/final-version.ts";
@@ -501,4 +503,87 @@ test("source: setFinalVersionStatus and adoptFinalIntakes both materialize the f
     const selectIndex = body.indexOf("FROM analysis_final_versions WHERE workspace_id = ? FOR UPDATE");
     assert.ok(ensureIndex < selectIndex, `${name} must materialize before the locked read`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 老孙代表权威 + 整组生效（2026-10-19 用户拍板）：集成版里老孙定下的写法，普通用户的
+// 修改不再自动覆盖，记为未纳入；同一次保存的几处先整组写入再检查一次合同。
+// ---------------------------------------------------------------------------
+
+const mech = (ids: string[]) => ({ ...emptyV04ChoiceValue(), selectedOptionIds: ids });
+const field = (targetKey: string, value: unknown): FinalIntakeDraft => ({ kind: "FIELD", targetKey, targetLabel: targetKey, value });
+
+function finalWithMechanisms(main: string[], aux: string[]): V04DraftPayloadV1 {
+  const payload = payloadWithGroups([group("g1", 0, [shot("s1", 0)])]);
+  payload.factsAndCoreJudgement.mainMechanism = mech(main);
+  payload.factsAndCoreJudgement.auxiliaryMechanism = mech(aux);
+  return payload;
+}
+
+test("planFinalIntake: 一次保存里主导、辅助一起换，整组生效，不会因先后顺序被拆成一半", () => {
+  const final = finalWithMechanisms(["REVERSAL_REINTERPRETATION"], ["INSIGHT_RESONANCE"]);
+  const { payload, outcomes } = planFinalIntake(final, [
+    field("facts.mainMechanism", mech(["INSIGHT_RESONANCE"])),
+    field("facts.auxiliaryMechanism", mech([])),
+  ], "OPEN");
+  assert.deepEqual(payload.factsAndCoreJudgement.mainMechanism.selectedOptionIds, ["INSIGHT_RESONANCE"]);
+  assert.deepEqual(payload.factsAndCoreJudgement.auxiliaryMechanism.selectedOptionIds, []);
+  assert.deepEqual(outcomes.map((item) => [item.applied, item.hold]), [[true, null], [true, null]]);
+});
+
+test("planFinalIntake: 写进去会违反合同的那一处记为未纳入（CONTRACT），不再假装已采用；其余照常写入", () => {
+  const final = finalWithMechanisms(["REVERSAL_REINTERPRETATION"], ["INSIGHT_RESONANCE"]);
+  const { payload, outcomes } = planFinalIntake(final, [
+    field("facts.mainMechanism", mech(["INSIGHT_RESONANCE"])),
+    field("facts.tensionButton", "井盖"),
+  ], "OPEN");
+  assert.deepEqual(payload.factsAndCoreJudgement.mainMechanism.selectedOptionIds, ["REVERSAL_REINTERPRETATION"]);
+  assert.equal(payload.factsAndCoreJudgement.tensionButton, "井盖");
+  assert.deepEqual(outcomes.map((item) => [item.draft.targetKey, item.applied, item.hold]), [
+    ["facts.mainMechanism", false, "CONTRACT"],
+    ["facts.tensionButton", true, null],
+  ]);
+});
+
+test("planFinalIntake: 老孙定下的那一处不被普通用户自动覆盖（REVIEWER_DECIDED），没定的照常汇入", () => {
+  const final = finalWithMechanisms([], []);
+  final.factsAndCoreJudgement.tensionButton = "老孙写的张力按钮";
+  const { payload, outcomes } = planFinalIntake(final, [
+    field("facts.tensionButton", "别人的写法"),
+    field("facts.creativeMotif", "母题"),
+  ], "OPEN", new Set(["facts.tensionButton"]));
+  assert.equal(payload.factsAndCoreJudgement.tensionButton, "老孙写的张力按钮");
+  assert.equal(payload.factsAndCoreJudgement.creativeMotif, "母题");
+  assert.deepEqual(outcomes.map((item) => [item.applied, item.hold]), [[false, "REVIEWER_DECIDED"], [true, null]]);
+});
+
+test("planFinalIntake: 删掉含老孙写法的桥段／镜头也不自动生效", () => {
+  const final = payloadWithGroups([group("g1", 0, [shot("s1", 0)]), group("g2", 1, [shot("s2", 1)])]);
+  const reviewer = new Set(["shot:s1.visualContent"]);
+  const { payload, outcomes } = planFinalIntake(final, [
+    { kind: "REMOVE_GROUP", targetKey: "shotGroup:g1", targetLabel: "桥段", value: {} },
+    { kind: "REMOVE_SHOT", targetKey: "shot:s2", targetLabel: "镜头", value: {} },
+  ], "OPEN", reviewer);
+  assert.deepEqual(payload.script.shotGroups.map((item) => item.id), ["g1", "g2"]);
+  assert.deepEqual(payload.script.shotGroups[1].shots, []);
+  assert.deepEqual(outcomes.map((item) => item.hold), ["REVIEWER_DECIDED", null]);
+});
+
+test("planFinalIntake: 定稿时一条都不写，也不标原因（原口径）", () => {
+  const final = finalWithMechanisms([], []);
+  const { payload, outcomes } = planFinalIntake(final, [field("facts.tensionButton", "x")], "DONE", new Set(["facts.tensionButton"]));
+  assert.equal(payload, final);
+  assert.deepEqual(outcomes.map((item) => [item.applied, item.hold]), [[false, null]]);
+});
+
+test("reviewerDecidedTargets: 老孙直接改的、出自老孙的、老孙后来采纳的，算老孙定的；自动汇入的普通写法不算", () => {
+  const at = "2026-10-19T08:00:00.000Z";
+  const later = "2026-10-19T09:00:00.000Z";
+  const held = reviewerDecidedTargets([
+    { targetKey: "a", source: "FINAL_DIRECT", actorName: "老孙", appliedAt: at, createdAt: at },
+    { targetKey: "b", source: "VERSION", actorName: "老孙", appliedAt: at, createdAt: at },
+    { targetKey: "c", source: "VERSION", actorName: "赵雅诗", appliedAt: later, createdAt: at },
+    { targetKey: "d", source: "VERSION", actorName: "赵雅诗", appliedAt: at, createdAt: at },
+  ]);
+  assert.deepEqual([...held].toSorted(), ["a", "b", "c"]);
 });

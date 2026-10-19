@@ -225,13 +225,25 @@ export function countV19CascadedShots(before: V04UiDraft, after: V04UiDraft): nu
  */
 export function describeV19FinalIntakeToast(
   changes: ReadonlyArray<{ targetLabel: string }>,
-  finalIntake: { merged: boolean; pending: number },
+  finalIntake: { merged: boolean; pending: number; held?: { reviewer: number; conflict: number } },
   previousSignature: string | null,
 ): { text: string; signature: string } | null {
   if (changes.length === 0) return null;
-  const signature = `${finalIntake.merged}:${finalIntake.pending}`;
+  const held = finalIntake.held;
+  const signature = `${finalIntake.merged}:${finalIntake.pending}${held ? `:${held.reviewer}:${held.conflict}` : ""}`;
   if (signature === previousSignature) return null;
   const label = changes.length === 1 ? changes[0].targetLabel : `本次的 ${changes.length} 处修改`;
+  if (held && held.reviewer + held.conflict > 0) {
+    // 集成版未定稿，但有几处没进去：老孙定下的写法不被自动覆盖；写进去会违反规则的也不写。
+    const reasons = [
+      held.reviewer ? `${held.reviewer} 处集成版里是老孙定的写法` : "",
+      held.conflict ? `${held.conflict} 处与集成版现有的主辅选项冲突` : "",
+    ].filter(Boolean).join("，");
+    const text = finalIntake.merged
+      ? `已同步进入集成版，但其中 ${reasons}，这几处记为未纳入，由老孙决定是否采纳`
+      : `「${label}」没有进入集成版：${reasons}，记为未纳入，由老孙决定是否采纳`;
+    return { text, signature };
+  }
   const text = finalIntake.merged
     ? `「${label}」的修改已同步进入集成版`
     : `集成版已定稿，「${label}」的修改未纳入集成版，等老孙取消定稿后采纳`;
@@ -1760,7 +1772,7 @@ export default function V04StudioClient({
                     )}
                     <span className={styles.versionTime}>{formatV19Clock(model.final.updatedAt)}</span>
                     <span className={styles.versionDesc}>
-                      集成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。
+                      集成版：每一处内容都取各版本里最新的那次修改，老孙定下的写法除外；进行态自动汇入，定稿后停止。
                     </span>
                   </div>
                 )}
@@ -2102,7 +2114,7 @@ export default function V04StudioClient({
               </span>
               <span>
                 {model.final.status === "OPEN"
-                  ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的"
+                  ? "各版本的每一处修改都会自动汇入这里，后改的覆盖先改的；老孙定下的写法不会被自动覆盖，别人的修改记为未纳入"
                   : `老孙于 ${model.final.doneAt ? formatShortDateTime(model.final.doneAt) : ""} 定稿，此后其他版本的修改不再进入集成版`}
                 {model.final.pendingCount > 0 && (
                   <span className={styles.finalPendingText}>；定稿期间有 {model.final.pendingCount} 处修改未纳入</span>

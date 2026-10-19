@@ -66,7 +66,11 @@ export type FinalIntakeDraft = {
   value: unknown;
 };
 
-export type FinalApplyEffect = "APPLIED" | "NOOP";
+/**
+ * APPLIED：写进去了；NOOP：目标不在（或插入的已存在），什么也没变；REJECTED：写进去会让
+ * 集成版违反冻结合同（例如主辅选了同一项），所以没写。REJECTED 的那一处不能记成「已采用」。
+ */
+export type FinalApplyEffect = "APPLIED" | "NOOP" | "REJECTED";
 
 /**
  * 3.1 — decomposes one save's applied change set into final-version intake
@@ -221,8 +225,8 @@ function finalizeApply(next: V04DraftPayloadV1, original: V04DraftPayloadV1): { 
   try {
     assertV04PayloadContract(next);
   } catch {
-    // 落库前契约不通过 → NOOP。绝不能让别人的保存因为集成版失败（spec 3.2）。
-    return { payload: original, effect: "NOOP" };
+    // 落库前契约不通过 → 不写。绝不能让别人的保存因为集成版失败（spec 3.2）。
+    return { payload: original, effect: "REJECTED" };
   }
   return { payload: next, effect: "APPLIED" };
 }
@@ -232,20 +236,29 @@ export function applyFinalIntake(
   payload: V04DraftPayloadV1,
   intake: Pick<FinalIntakeDraft, "kind" | "targetKey" | "value">,
 ): { payload: V04DraftPayloadV1; effect: FinalApplyEffect } {
+  const raw = applyFinalIntakeUnchecked(payload, intake);
+  return raw.effect === "APPLIED" ? finalizeApply(raw.payload, payload) : raw;
+}
+
+/** applyFinalIntake 去掉最后那道合同检查：一组记录先整组写完，再一起检查一次。 */
+function applyFinalIntakeUnchecked(
+  payload: V04DraftPayloadV1,
+  intake: Pick<FinalIntakeDraft, "kind" | "targetKey" | "value">,
+): { payload: V04DraftPayloadV1; effect: FinalApplyEffect } {
   const next = structuredClone(payload);
   switch (intake.kind) {
     case "FIELD": {
       const target = locateTarget(next, intake.targetKey);
       if (!target) return { payload, effect: "NOOP" };
       target.object[target.key] = structuredClone(intake.value);
-      return finalizeApply(next, payload);
+      return { payload: next, effect: "APPLIED" };
     }
     case "INSERT_GROUP": {
       const { item, afterId } = intake.value as { item: V04ShotGroupPayload; afterId: string | null };
       if (next.script.shotGroups.some((group) => group.id === item.id)) return { payload, effect: "NOOP" };
       insertAfter(next.script.shotGroups, structuredClone(item), afterId);
       reindexScript(next);
-      return finalizeApply(next, payload);
+      return { payload: next, effect: "APPLIED" };
     }
     case "INSERT_SHOT": {
       const { item, parentGroupId, afterId } = intake.value as {
@@ -258,7 +271,7 @@ export function applyFinalIntake(
       if (!parent) return { payload, effect: "NOOP" };
       insertAfter(parent.shots, structuredClone(item), afterId);
       reindexScript(next);
-      return finalizeApply(next, payload);
+      return { payload: next, effect: "APPLIED" };
     }
     case "REMOVE_GROUP": {
       const groupId = intake.targetKey.slice("shotGroup:".length);
@@ -266,7 +279,7 @@ export function applyFinalIntake(
       if (index === -1) return { payload, effect: "NOOP" };
       next.script.shotGroups.splice(index, 1);
       reindexScript(next);
-      return finalizeApply(next, payload);
+      return { payload: next, effect: "APPLIED" };
     }
     case "REMOVE_SHOT": {
       const shotId = intake.targetKey.slice("shot:".length);
@@ -281,7 +294,7 @@ export function applyFinalIntake(
       }
       if (!found) return { payload, effect: "NOOP" };
       reindexScript(next);
-      return finalizeApply(next, payload);
+      return { payload: next, effect: "APPLIED" };
     }
     default:
       return { payload, effect: "NOOP" };
@@ -307,6 +320,130 @@ export function applyFinalIntakeBatch(
     next = applyFinalIntake(next, draft).payload;
   }
   return { payload: next, applied: true };
+}
+
+/**
+ * 一条汇入没有进集成版的原因：REVIEWER_DECIDED——这一处集成版里现在是老孙定的写法
+ * （老孙代表权威，普通用户的修改不再自动覆盖它）；CONTRACT——写进去会让集成版违反冻结
+ * 合同。两种都记为「未纳入」，由老孙在溯源里决定是否采纳。
+ */
+export type FinalIntakeHold = "REVIEWER_DECIDED" | "CONTRACT";
+
+export type FinalIntakeOutcome = {
+  draft: FinalIntakeDraft;
+  applied: boolean;
+  hold: FinalIntakeHold | null;
+};
+
+/**
+ * 一条汇入会不会动到老孙定下的写法。`reviewerTargets` 是集成版里当前写法出自老孙的
+ * 那些 FIELD 键（loadReviewerDecidedTargets）。字段直接比键；删除桥段／镜头时，
+ * 里面只要有一处是老孙定的，整条删除都不自动生效——否则一删就把老孙的写法删没了。
+ */
+export function touchesReviewerDecision(
+  draft: Pick<FinalIntakeDraft, "kind" | "targetKey">,
+  reviewerTargets: ReadonlySet<string>,
+  payload: V04DraftPayloadV1,
+): boolean {
+  if (reviewerTargets.size === 0) return false;
+  if (draft.kind === "FIELD") return reviewerTargets.has(draft.targetKey);
+  const prefixes: string[] = [];
+  if (draft.kind === "REMOVE_GROUP") {
+    const groupId = draft.targetKey.slice("shotGroup:".length);
+    prefixes.push(`shotGroup:${groupId}.`);
+    const group = payload.script.shotGroups.find((item) => item.id === groupId);
+    for (const shot of group?.shots ?? []) prefixes.push(`shot:${shot.id}.`);
+  } else if (draft.kind === "REMOVE_SHOT") {
+    prefixes.push(`${draft.targetKey}.`);
+  } else {
+    return false;
+  }
+  return [...reviewerTargets].some((key) => prefixes.some((prefix) => key.startsWith(prefix)));
+}
+
+/**
+ * 3.4 — 一次保存拆出来的汇入记录怎么进集成版。
+ *
+ * - 定稿（DONE）：一条都不写，全部未纳入（原口径）。
+ * - 进行中（OPEN）：动到老孙定下写法的，记未纳入；其余先整组写入、最后只检查一次合同——
+ *   同一个人同一次保存里互相关联的几处（例如主导、辅助机制一起换）要么一起生效，不会因为
+ *   逐条写入的先后顺序被拆成一半。整组过不了合同时才退回逐条：过得了的照常写入，过不了的
+ *   记未纳入（以前是悄悄跳过却记成「已采用」）。
+ */
+export function planFinalIntake(
+  payload: V04DraftPayloadV1,
+  drafts: readonly FinalIntakeDraft[],
+  status: "OPEN" | "DONE",
+  reviewerTargets: ReadonlySet<string> = new Set(),
+): { payload: V04DraftPayloadV1; outcomes: FinalIntakeOutcome[] } {
+  if (status !== "OPEN") {
+    return { payload, outcomes: drafts.map((draft) => ({ draft, applied: false, hold: null })) };
+  }
+  const held = new Set(drafts.filter((draft) => touchesReviewerDecision(draft, reviewerTargets, payload)));
+  const candidates = drafts.filter((draft) => !held.has(draft));
+
+  let together = payload;
+  for (const draft of candidates) together = applyFinalIntakeUnchecked(together, draft).payload;
+  let next = payload;
+  const rejected = new Set<FinalIntakeDraft>();
+  if (finalizeApply(together, payload).effect === "APPLIED") {
+    next = together;
+  } else {
+    for (const draft of candidates) {
+      const result = applyFinalIntake(next, draft);
+      if (result.effect === "REJECTED") rejected.add(draft);
+      else next = result.payload;
+    }
+  }
+  return {
+    payload: next,
+    outcomes: drafts.map((draft) => held.has(draft)
+      ? { draft, applied: false, hold: "REVIEWER_DECIDED" as const }
+      : rejected.has(draft)
+        ? { draft, applied: false, hold: "CONTRACT" as const }
+        : { draft, applied: true, hold: null }),
+  };
+}
+
+/** 集成版里某一处当前采用的那条记录，用来判断它是不是老孙定下的。 */
+export type FinalCurrentFieldSource = {
+  targetKey: string;
+  source: string;
+  actorName: string;
+  appliedAt: string;
+  createdAt: string;
+};
+
+/**
+ * 「老孙定下的写法」：这一处当前采用的记录是老孙直接改的（FINAL_DIRECT）、出自老孙本人
+ * （他自己版本里写的，或他从点评版采纳的），或者是老孙后来采纳进来的未纳入记录（只有老孙
+ * 能采纳；自动汇入的记录 applied_at 与 created_at 相同，采纳的记录 applied_at 更晚）。
+ */
+export function reviewerDecidedTargets(rows: readonly FinalCurrentFieldSource[]): Set<string> {
+  return new Set(rows
+    .filter((row) => row.source === "FINAL_DIRECT" ||
+      isCaseReviewer(row.actorName) ||
+      Date.parse(row.appliedAt) > Date.parse(row.createdAt))
+    .map((row) => row.targetKey));
+}
+
+async function loadReviewerDecidedTargets(db: DbClient, finalId: string): Promise<Set<string>> {
+  const rows = (await db.prepare(
+    `SELECT DISTINCT ON (target_key) target_key, source, actor_name, applied_at, created_at
+    FROM analysis_final_intakes
+    WHERE final_id = ? AND applied = true AND kind = 'FIELD'
+    ORDER BY target_key, applied_at DESC, seq DESC`,
+  ).bind(finalId).all<{
+    target_key: string; source: string; actor_name: string;
+    applied_at: string | Date; created_at: string | Date;
+  } & QueryResultRow>()).results;
+  return reviewerDecidedTargets(rows.map((row) => ({
+    targetKey: row.target_key,
+    source: row.source,
+    actorName: row.actor_name,
+    appliedAt: new Date(row.applied_at).toISOString(),
+    createdAt: new Date(row.created_at).toISOString(),
+  })));
 }
 
 /** One `collaboration_revision_events` row, flattened for replay (spec 3.3). */
@@ -713,7 +850,12 @@ export async function ensureFinalVersion(
 // 3.4 — intake from a normal version save.
 // ---------------------------------------------------------------------------
 
-export type FinalIntakeResult = { merged: boolean; pending: number };
+export type FinalIntakeResult = {
+  merged: boolean;
+  pending: number;
+  /** 这次保存里没进集成版的处数，按原因分（只在进行中出现）；页面据此提示。 */
+  held?: { reviewer: number; conflict: number };
+};
 
 /**
  * Called from lib/v19-version-chain.ts's saveV19VersionChanges, inside the
@@ -751,23 +893,27 @@ export async function intakeIntoFinal(
   }
 
   const savedAt = iso(input.now);
-  const { payload, applied: applyNow } = applyFinalIntakeBatch(
-    parseJsonPayload(finalRow.payload_json), drafts, finalRow.status,
-  );
-  for (const draft of drafts) {
-    await insertIntakeRow(db, finalRow.id, workspace, draft, {
+  // 老孙代表权威：集成版里老孙定下的写法，只有老孙自己的修改能自动换掉。
+  const reviewerTargets = finalRow.status === "OPEN" && !isCaseReviewer(input.actorName)
+    ? await loadReviewerDecidedTargets(db, finalRow.id)
+    : new Set<string>();
+  const before = parseJsonPayload(finalRow.payload_json);
+  const { payload, outcomes } = planFinalIntake(before, drafts, finalRow.status, reviewerTargets);
+  for (const outcome of outcomes) {
+    await insertIntakeRow(db, finalRow.id, workspace, outcome.draft, {
       source: "VERSION",
       sourceVersionId: input.sourceVersionId,
       sourceVersionNumber: input.sourceVersionNumber,
       actorUserId: input.actorUserId,
       actorName: input.actorName,
       changeSetId: input.changeSetId,
-      applied: applyNow,
-      appliedAt: applyNow ? savedAt : null,
+      applied: outcome.applied,
+      appliedAt: outcome.applied ? savedAt : null,
       createdAt: savedAt,
     });
   }
-  if (applyNow) {
+  const anyApplied = outcomes.some((outcome) => outcome.applied);
+  if (anyApplied) {
     const contentHash = hashV04Payload(payload);
     await db.prepare(
       `UPDATE analysis_final_versions
@@ -775,7 +921,15 @@ export async function intakeIntoFinal(
       WHERE id = ?`,
     ).bind(JSON.stringify(payload), contentHash, savedAt, finalRow.id).run();
   }
-  return { merged: applyNow, pending: await countPending(db, finalRow.id) };
+  const pending = await countPending(db, finalRow.id);
+  if (finalRow.status !== "OPEN") return { merged: false, pending };
+  const reviewer = outcomes.filter((outcome) => outcome.hold === "REVIEWER_DECIDED").length;
+  const conflict = outcomes.filter((outcome) => outcome.hold === "CONTRACT").length;
+  return {
+    merged: anyApplied,
+    pending,
+    ...(reviewer || conflict ? { held: { reviewer, conflict } } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1034,6 +1188,8 @@ export async function adoptFinalIntakes(
         value: parseJsonValue(row.value_json),
       };
       const result = applyFinalIntake(payload, draft);
+      // 写不进去（会违反合同）的那条留在未纳入里，不能记成已采用——溯源会把它当成当前写法。
+      if (result.effect === "REJECTED") continue;
       payload = result.payload;
       await tx.prepare(
         `UPDATE analysis_final_intakes SET applied = true, applied_at = ?::timestamptz WHERE id = ?`,

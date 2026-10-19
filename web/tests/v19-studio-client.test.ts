@@ -81,7 +81,7 @@ test("source: 定稿／取消定稿 only renders for the final version view", ()
 // ---------------------------------------------------------------------------
 
 test("source: the final row's description ends at 定稿后停止, and no longer claims only 老孙 can edit it directly", () => {
-  assert.match(source, /集成版：每一处内容都取各版本里最新的那次修改；进行态自动汇入，定稿后停止。/);
+  assert.match(source, /集成版：每一处内容都取各版本里最新的那次修改，老孙定下的写法除外；进行态自动汇入，定稿后停止。/);
   assert.doesNotMatch(source, /只有老孙能直接编辑/);
 });
 
@@ -105,7 +105,7 @@ test("source: no OPEN-status pill/toast/aria-label says 进行中 — they all s
   // 进行态自动汇入 (the explainer prose, distinct from the 进行中/未定稿 pill
   // word) must survive untouched in both the version-menu row and the banner.
   assert.match(source, /进行态自动汇入，定稿后停止。/);
-  assert.match(source, /各版本的每一处修改都会自动汇入这里，后改的覆盖先改的/);
+  assert.match(source, /各版本的每一处修改都会自动汇入这里，后改的覆盖先改的；老孙定下的写法不会被自动覆盖/);
 });
 
 test("source: the OPEN status dot no longer pulses — the v04SavePulse animation is gone from .finalStatusOpen, the dot itself stays", () => {
@@ -582,4 +582,13 @@ test("style: 点评相关的按钮都挂在 .surface 下（(0,2,0)），不被 .
   for (const name of ["reviewGhostButton", "reviewPrimaryButton", "reviewEntryButton", "reviewEntryChip", "reviewAudioPlay", "reviewTime", "reviewJump", "reviewDrawerClose", "finalTraceAdoptReview"]) {
     assert.match(cssSource, new RegExp(`\\.surface \\.${name}[ ,{:]`), `${name} must be scoped under .surface`);
   }
+});
+
+test("describeV19FinalIntakeToast says which places stayed out of 集成版 and why", () => {
+  const changes = [{ targetLabel: "张力按钮" }, { targetLabel: "创意母题" }];
+  const partial = describeV19FinalIntakeToast(changes, { merged: true, pending: 1, held: { reviewer: 1, conflict: 0 } }, null);
+  assert.equal(partial?.text, "已同步进入集成版，但其中 1 处集成版里是老孙定的写法，这几处记为未纳入，由老孙决定是否采纳");
+  const none = describeV19FinalIntakeToast([changes[0]], { merged: false, pending: 2, held: { reviewer: 0, conflict: 1 } }, null);
+  assert.equal(none?.text, "「张力按钮」没有进入集成版：1 处与集成版现有的主辅选项冲突，记为未纳入，由老孙决定是否采纳");
+  assert.notEqual(partial?.signature, "true:1");
 });

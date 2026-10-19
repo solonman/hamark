@@ -237,7 +237,7 @@ type RevisionEvent = {
 type IntakeRow = {
   id: string; final_id: string; kind: string; target_key: string; target_label: string; value_json: string;
   source: string; source_version_id: string | null; source_version_number: number | null;
-  actor_user_id: string; actor_name: string; change_set_id: string | null; applied: boolean; applied_at: string | null;
+  actor_user_id: string; actor_name: string; change_set_id: string | null; applied: boolean; applied_at: string | null; created_at?: string;
 };
 
 type World = {
@@ -367,6 +367,17 @@ function studioDb(state: World) {
     },
     { match: /^SELECT applied FROM analysis_final_intakes/, first: () => null },
     {
+      // 每一处当前采用的记录（DISTINCT ON target_key，按 applied_at、seq 取最后一条）。
+      match: /^SELECT DISTINCT ON \(target_key\) target_key, source, actor_name, applied_at, created_at/,
+      all: () => {
+        const latest = new Map<string, (typeof state.intakes)[number]>();
+        for (const row of state.intakes) {
+          if (row.applied && row.kind === "FIELD") latest.set(row.target_key, row);
+        }
+        return [...latest.values()].map((row) => ({ ...row, created_at: row.created_at ?? row.applied_at }));
+      },
+    },
+    {
       match: /^SELECT COUNT\(\*\) AS count FROM analysis_final_intakes WHERE final_id = \? AND applied = false$/,
       first: () => ({ count: state.intakes.filter((row) => !row.applied).length }),
     },
@@ -383,6 +394,7 @@ function studioDb(state: World) {
         source_version_number: values[10] as number | null, actor_user_id: values[11] as string,
         actor_name: values[12] as string, change_set_id: values[13] as string | null,
         applied: values[14] as boolean, applied_at: values[15] as string | null,
+        created_at: values[16] as string,
       }),
     },
   ];
@@ -1081,4 +1093,49 @@ test("a plain save carries no adjustedTargets", async () => {
     changes: [change("facts.tensionButton", "", "井盖")], now: NOW,
   });
   assert.equal(result.adjustedTargets, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// 老孙代表权威：集成版里老孙直接改过的一处，普通用户之后的修改不自动覆盖，记为未纳入。
+// ---------------------------------------------------------------------------
+
+function laosunDirectIntake(targetKey: string, value: unknown) {
+  return {
+    id: "fi_direct", final_id: "final1", kind: "FIELD", target_key: targetKey, target_label: targetKey,
+    value_json: JSON.stringify(value), source: "FINAL_DIRECT", source_version_id: null, source_version_number: null,
+    actor_user_id: LAOSUN.userId, actor_name: LAOSUN.displayName, change_set_id: "cs_direct",
+    applied: true, applied_at: "2026-10-08T00:00:00.000Z", created_at: "2026-10-08T00:00:00.000Z",
+  };
+}
+
+test("an ordinary user's save does not overwrite what 老孙 set directly in 集成版 — it is recorded as 未纳入", async () => {
+  const final = edit(homework(), (draft) => { draft.factsAndCoreJudgement.tensionButton = "老孙定的"; });
+  const state = reviewedWorkspace({ final: finalRow(final) });
+  state.intakes.push(laosunDirectIntake("facts.tensionButton", "老孙定的"));
+  const { db } = studioDb(state);
+  const result = await saveV19VersionChanges(db, ZHAO, {
+    videoId: "video1", basedOnVersionId: "v2", changeSetId: "cs_zhao_tension",
+    changes: [change("facts.tensionButton", "", "赵雅诗的写法"), change("facts.creativeMotif", "", "母题")], now: NOW,
+  });
+  const finalFacts = (state.final!.payload_json as V04DraftPayloadV1).factsAndCoreJudgement;
+  assert.equal(finalFacts.tensionButton, "老孙定的");
+  assert.equal(finalFacts.creativeMotif, "母题");
+  assert.deepEqual(result.finalIntake, { merged: true, pending: 1, held: { reviewer: 1, conflict: 0 } });
+  const mine = state.intakes.filter((row) => row.change_set_id === "cs_zhao_tension");
+  assert.deepEqual(mine.map((row) => [row.target_key, row.applied]).toSorted(), [
+    ["facts.creativeMotif", true], ["facts.tensionButton", false],
+  ]);
+});
+
+test("老孙's own later save still replaces what he set in 集成版", async () => {
+  const final = edit(homework(), (draft) => { draft.factsAndCoreJudgement.tensionButton = "老孙定的"; });
+  const state = reviewedWorkspace({ final: finalRow(final) });
+  state.intakes.push(laosunDirectIntake("facts.tensionButton", "老孙定的"));
+  const { db } = studioDb(state);
+  const result = await saveV19VersionChanges(db, LAOSUN, {
+    videoId: "video1", basedOnVersionId: "v2", changeSetId: "cs_laosun_tension",
+    changes: [change("facts.tensionButton", "", "老孙改主意了")], now: NOW,
+  });
+  assert.equal((state.final!.payload_json as V04DraftPayloadV1).factsAndCoreJudgement.tensionButton, "老孙改主意了");
+  assert.equal(result.finalIntake.held, undefined);
 });
