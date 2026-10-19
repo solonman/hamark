@@ -504,6 +504,19 @@ export type RetroPublicationView = {
   recordingRefs: RetroCaseInMinutes["recordingRefs"];
 };
 
+/**
+ * retro_month_publications 里几列 JSON 的存储形状（发布时一次写定，之后只读）：
+ * - case_ids_json：发布那一刻纳入的案例和冻结的序号，按序号升序；
+ * - minutes_json / methods_json：RetroMinutes / RetroMethods；
+ * - quoted_segments_json：被引用片段的原文快照，以及出处标记要用的录音信息。
+ * retro_month_jobs 的 minutes_json / methods_json 草稿是同样的形状；草稿的引文在读取时现取。
+ */
+export type RetroStoredPublicationCases = { caseId: string; number: number }[];
+export type RetroStoredQuotes = {
+  segments: Record<string, RetroQuotedSegment[]>;
+  recordingRefs: RetroCaseInMinutes["recordingRefs"];
+};
+
 export type RetroMonthCaseRow = {
   id: string;
   number: number;
