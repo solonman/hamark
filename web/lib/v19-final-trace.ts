@@ -9,6 +9,7 @@
 // （`V19StudioDocument.tsx` / `V04ChoiceField.tsx` / `V04StudioClient.tsx`）
 // 只管把这里算出的结果渲染出来，不重新做推导。
 
+import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
 import type { V04DraftPayloadV1 } from "./v04-contract";
 import type { V19FinalIntake } from "./v19-ui-model";
 import { formatShortDateTime } from "./date-format";
@@ -235,7 +236,7 @@ export function describeV19FinalTraceRowLabel(
   if (row.isOrigin) return `v1 ${row.actorName} 原稿`;
   if (row.source === "FINAL_DIRECT") return `集成版 ${row.actorName} 直接修改 ${formatShortDateTime(row.createdAt)}`;
   if (isV19ReviewSource(row, reviewVersionNumbers)) {
-    return `v${row.sourceVersionNumber} ${row.actorName}录音点评 ${formatShortDateTime(row.createdAt)}`;
+    return `v${row.sourceVersionNumber} ${AUDIO_REVIEW_CRITIC_NAME}录音点评 ${formatShortDateTime(row.createdAt)}`;
   }
   return `v${row.sourceVersionNumber ?? "?"} ${row.actorName} ${formatShortDateTime(row.createdAt)}`;
 }
@@ -287,7 +288,7 @@ export function describeV19FinalTraceHoverSource(
   const who = row.source === "FINAL_DIRECT"
     ? "集成版·直接修改"
     : isV19ReviewSource(row, reviewVersionNumbers)
-      ? `v${row.sourceVersionNumber}·${row.actorName}录音点评`
+      ? `v${row.sourceVersionNumber}·${AUDIO_REVIEW_CRITIC_NAME}录音点评`
       : `v${row.sourceVersionNumber ?? "?"}·${row.actorName}`;
   return `${who} ${formatShortDateTime(row.createdAt)}`;
 }
@@ -652,7 +653,7 @@ export function deriveV19ReviewCarrierRows(candidates: readonly V19ReviewCandida
 }
 
 /** `点评版 v3 · 老孙录音点评 · 10-10 15:26`。 */
-export function describeV19ReviewCandidateLabel(row: V19ReviewCandidateRow, reviewerName = "老孙"): string {
+export function describeV19ReviewCandidateLabel(row: V19ReviewCandidateRow, reviewerName = AUDIO_REVIEW_CRITIC_NAME): string {
   const time = row.updatedAt ? ` · ${formatShortDateTime(row.updatedAt)}` : "";
-  return `点评版 v${row.reviewVersionNumber} · ${reviewerName || "老孙"}录音点评${time}`;
+  return `点评版 v${row.reviewVersionNumber} · ${reviewerName || AUDIO_REVIEW_CRITIC_NAME}录音点评${time}`;
 }

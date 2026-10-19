@@ -1,7 +1,7 @@
 // GET  /api/videos/[id]/audio-reviews/[reviewId]：任务详情（老孙看任何状态；其他人只看已生成的，否则 404）。
 //      在途且租约空闲时，响应发出后用 after() 推进一次。
-// POST /api/videos/[id]/audio-reviews/[reviewId]：{ action: UPLOADED | RETRY | ABANDON | CONFIRM }，只有老孙能调。
-// 检查顺序：同源 → 登录（audioReviewRoute / v04Route）→ 老孙 → 业务（docs/25 4.2 第 2、3 条）。
+// POST /api/videos/[id]/audio-reviews/[reviewId]：{ action: UPLOADED | RETRY | ABANDON | CONFIRM }，只有上传名单里的人（老孙、秦欣欣）能调。
+// 检查顺序：同源 → 登录（audioReviewRoute / v04Route）→ 上传名单 → 业务（docs/25 4.2 第 2、3 条）。
 
 import { getDbClient } from "@/db";
 import type { AudioReviewActionResponseBody } from "@/lib/audio-review-model";
@@ -18,7 +18,7 @@ import {
   shouldAdvanceAudioReview,
 } from "@/lib/audio-review/service";
 import { toAudioReviewView } from "@/lib/audio-review/view";
-import { isCaseReviewer } from "@/lib/case-review";
+import { isAudioReviewUploader } from "@/lib/audio-review/access";
 
 export const maxDuration = 300;
 
@@ -35,8 +35,8 @@ export async function GET(request: Request, context: Params) {
 
 export async function POST(request: Request, context: Params) {
   return audioReviewRoute(request, { mutation: true }, async ({ actor, startedAt }) => {
-    if (!isCaseReviewer(actor.displayName)) {
-      throw new AudioReviewError(403, "FORBIDDEN", "只有老孙可以处理点评录音。");
+    if (!isAudioReviewUploader(actor.displayName)) {
+      throw new AudioReviewError(403, "FORBIDDEN", "只有上传名单里的人（老孙、秦欣欣）可以处理点评录音。");
     }
     const { id, reviewId } = await context.params;
     const body = await readJsonBody(request);

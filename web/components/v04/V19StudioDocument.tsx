@@ -1,5 +1,6 @@
 "use client";
 
+import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
 import { useState, type JSX, type ReactNode } from "react";
 import type { V04ChoiceValue, V04CreativeGrade, V04DraftPayloadV1, V04ShotFieldKey } from "@/lib/v04-contract";
 import type { V04UiDraft, V04UiShot, V04UiShotGroup } from "@/lib/v04-ui-model";
@@ -139,8 +140,8 @@ export type V19StudioDocumentProps = {
    * 点评版视角下比较开启时传入（docs/25 七、6）：键是提案的细粒度键（普通条目就是
    * targetKey，主导路径细项是 `path.primaryDetails.<sub>`，辅助路径是
    * `path.auxiliaryTypes.<TYPE>.description|creativeRole`）。差异标记旁画「依据 意见 N」，
-   * `title` 是意见摘要；当前值已不是提案写法的另标「老孙已手改」。有差异却不在
-   * 提案里的处，只可能是生成后手改出来的，同样标「老孙已手改」。缺省即普通版本的样子。
+   * `title` 是意见摘要；当前值已不是提案写法的另标「已手改」。有差异却不在
+   * 提案里的处，只可能是生成后手改出来的，同样标「已手改」。缺省即普通版本的样子。
    */
   reviewBasis?: ReadonlyMap<string, V19ReviewBasisEntry>;
 };
@@ -356,7 +357,7 @@ function V19FinalTraceRows({
           ? (row.actorName || "原稿")
           : row.source === "FINAL_DIRECT"
             ? `${row.actorName}·直接修改`
-            : isV19ReviewSource(row, reviewVersionNumbers) ? `${row.actorName}录音点评` : row.actorName;
+            : isV19ReviewSource(row, reviewVersionNumbers) ? `${AUDIO_REVIEW_CRITIC_NAME}录音点评` : row.actorName;
         return (
           <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowPending}`}>
             <span className={styles.finalTraceVersion}>{versionTag}</span>
@@ -373,7 +374,7 @@ function V19FinalTraceRows({
         );
       })}
       {reviewRows.map((row) => {
-        const reviewer = reviewerNames?.get(row.reviewVersionId) || "老孙";
+        const reviewer = reviewerNames?.get(row.reviewVersionId) || AUDIO_REVIEW_CRITIC_NAME;
         // 主导路径细项、辅助路径在集成版里是整组一个键：采纳会把这一组都换成点评版的写法。
         const wholeGroup = row.targetKey === "path.primaryDetails" || row.targetKey === "path.auxiliaryTypes";
         return (
@@ -602,7 +603,8 @@ export default function V19StudioDocument({
   function basisBadges(keys: readonly string[], changed = true): ReactNode {
     if (!reviewBasis || !diff || !changed) return undefined;
     const entry = keys.map((key) => reviewBasis.get(key)).find((item): item is V19ReviewBasisEntry => Boolean(item));
-    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>老孙已手改</span>;
+    // 点评版由老孙、秦欣欣共用，生成后谁改的都算手改，不点名。
+    const handEdited = <span className={styles.diffTag} data-v19-hand-edited>已手改</span>;
     if (!entry) return handEdited;
     return (
       <>

@@ -45,11 +45,11 @@ test("the shared shell checks same-origin before login and only then runs the bu
   inOrder(shell, ["v04Route(request, { mutation: options.mutation }", "operation({ actor, requestId, startedAt })"]);
 });
 
-test("POST create: same-origin + login (mutation shell) → 老孙 → configured → business", async () => {
+test("POST create: same-origin + login (mutation shell) → 上传名单 → configured → business", async () => {
   const code = handler(codeOnly(await source(ROUTES.create)), "POST");
   inOrder(code, [
     "audioReviewRoute(request, { mutation: true }",
-    "isCaseReviewer(actor.displayName)",
+    "isAudioReviewUploader(actor.displayName)",
     "readAudioReviewConfig().configured",
     "readJsonBody(request)",
     "createAudioReview(",
@@ -59,11 +59,11 @@ test("POST create: same-origin + login (mutation shell) → 老孙 → configure
   assert.match(code, /status: 201/);
 });
 
-test("POST action: mutation shell → 老孙 → body → service; advancing is scheduled after the response", async () => {
+test("POST action: mutation shell → 上传名单 → body → service; advancing is scheduled after the response", async () => {
   const code = handler(codeOnly(await source(ROUTES.review)), "POST");
   inOrder(code, [
     "audioReviewRoute(request, { mutation: true }",
-    "isCaseReviewer(actor.displayName)",
+    "isAudioReviewUploader(actor.displayName)",
     "readJsonBody(request)",
     "runAudioReviewAction(",
     "scheduleAudioReviewAdvance(",

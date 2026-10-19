@@ -109,7 +109,10 @@ export type AudioReviewView = {
   baseVersionId: string;
   baseVersionNumber: number;
   baseOwnerName: string;
+  /** 录音里点评的人：始终是老孙（docs/25 二、1）。 */
   reviewerName: string;
+  /** 实际上传、确认的人：老孙本人，或替他上传的秦欣欣。点评版归这个人。 */
+  uploaderName: string;
   status: AudioReviewStatus;
   failedStep: AudioReviewFailedStep | null;
   failReason: string | null;

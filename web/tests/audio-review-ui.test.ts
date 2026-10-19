@@ -1,5 +1,5 @@
 // 纯函数单测：录音点评改写的前端推导（页头入口形态、轮询并回、确认面板分组、
-// 点评版正文的「依据」与「老孙已手改」、文字稿校正词切分）。见 lib/audio-review-ui.ts
+// 点评版正文的「依据」与「已手改」、文字稿校正词切分）。见 lib/audio-review-ui.ts
 // 与 docs/25_录音点评改写_实施规格_V0.1.md 二、七。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -143,14 +143,17 @@ test("inFlightAudioReviewKey 只收上传、转写、理解中的任务，排序
 // 页头入口
 // ---------------------------------------------------------------------------
 
-const someoneElses = { id: "ver-1", kind: "PERSONAL" as const, isFinal: false, ownerUserId: "u-liu" };
+const someoneElses = { id: "ver-1", kind: "PERSONAL" as const, isFinal: false, ownerName: "刘梦娜" };
 
-test("入口只给老孙看别人的普通版本：不可用、集成版、点评版、自己的版本都不出现", () => {
-  const base = { viewerUserId: "u-sun", reviews: [] };
+test("入口只在上传名单里的人看别人的普通版本时出现：不可用、集成版、点评版、老孙本人的版本都不出现", () => {
+  const base = { reviews: [] };
   assert.equal(resolveV19AudioReviewEntry({ ...base, available: false, current: someoneElses }).kind, "HIDDEN");
   assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: { ...someoneElses, isFinal: true } }).kind, "HIDDEN");
   assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: { ...someoneElses, kind: "AUDIO_REVIEW" } }).kind, "HIDDEN");
-  assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: { ...someoneElses, ownerUserId: "u-sun" } }).kind, "HIDDEN");
+  // 录音里点评的人始终是老孙：他自己的版本不挂点评，不管是谁在看。
+  assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: { ...someoneElses, ownerName: "老孙" } }).kind, "HIDDEN");
+  // 替老孙上传的秦欣欣看自己的作业时照常出现——老孙点评的可能正是她那一版。
+  assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: { ...someoneElses, ownerName: "秦欣欣" } }).kind, "UPLOAD");
   assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: someoneElses }).kind, "UPLOAD");
   // 虚拟 v1：id 为 null，只能是上传
   assert.equal(resolveV19AudioReviewEntry({ ...base, available: true, current: { ...someoneElses, id: null } }).kind, "UPLOAD");
@@ -158,7 +161,7 @@ test("入口只给老孙看别人的普通版本：不可用、集成版、点�
 
 test("入口按挂在这一版上的任务决定形态：处理中／失败／待确认／查看点评版", () => {
   const entry = (review: V19AudioReviewSummary) => resolveV19AudioReviewEntry({
-    available: true, current: someoneElses, viewerUserId: "u-sun", reviews: [review, summary({ id: "other", baseVersionId: "ver-2", status: "FAILED" })],
+    available: true, current: someoneElses, reviews: [review, summary({ id: "other", baseVersionId: "ver-2", status: "FAILED" })],
   });
   assert.equal(entry(summary({ status: "UPLOADING", step: 0 })).kind, "PROCESSING");
   assert.equal(entry(summary({ status: "UNDERSTANDING", step: 2 })).kind, "PROCESSING");

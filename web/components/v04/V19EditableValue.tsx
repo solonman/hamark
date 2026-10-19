@@ -41,7 +41,7 @@ export type V19EditableProps = {
   after?: ReactNode;
   /**
    * Extra badges drawn right after the 「已修改」 diff tag, only while that tag
-   * is shown — the review version's 「依据 意见 N」/「老孙已手改」 (docs/25 七、6).
+   * is shown — the review version's 「依据 意见 N」/「已手改」 (docs/25 七、6).
    */
   diffBadges?: ReactNode;
   /** Vetoes opening the editor. Returning false leaves the value untouched. */

@@ -727,7 +727,7 @@ test("样式：正文与「当前采用」之间不再有虚线分隔，间距�
 
 // ---------------------------------------------------------------------------
 // 录音点评改写（docs/25 七、6 / 六）：点评版比较时差异标记旁的「依据 意见 N」
-// 「老孙已手改」；集成版溯源里的点评版候选行与采纳按钮。
+// 「已手改」；集成版溯源里的点评版候选行与采纳按钮。
 // ---------------------------------------------------------------------------
 
 function diffOf(entries: Array<[string, unknown]>): V19BaseDiff {
@@ -739,7 +739,7 @@ function diffOf(entries: Array<[string, unknown]>): V19BaseDiff {
   };
 }
 
-test("点评版比较：差异标记旁画「依据 意见 N」，title 是意见摘要；当前值不是提案写法的另标「老孙已手改」", () => {
+test("点评版比较：差异标记旁画「依据 意见 N」，title 是意见摘要；当前值不是提案写法的另标「已手改」", () => {
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
     diff: diffOf([["facts.creativeMotif", "欢迎回家（原）"], ["facts.tensionButton", "原张力"]]),
     reviewBasis: new Map([
@@ -756,13 +756,13 @@ test("点评版比较：差异标记旁画「依据 意见 N」，title 是意�
   assert.ok(html.lastIndexOf("已修改", motifIndex) > 0 && html.indexOf("基版：", motifIndex) > motifIndex, "画在「已修改」与基版原文之间");
 });
 
-test("点评版比较：有差异却不在提案里的处，只可能是生成后手改出来的——标「老孙已手改」；没传 reviewBasis 时什么都不加", () => {
+test("点评版比较：有差异却不在提案里的处，只可能是生成后手改出来的——标「已手改」；没传 reviewBasis 时什么都不加", () => {
   const diff = diffOf([["facts.commercialIntent", "原商业意图"]]);
   const reviewHtml = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({ diff, reviewBasis: new Map() })));
-  assert.match(reviewHtml, /data-v19-hand-edited[^>]*>老孙已手改/);
+  assert.match(reviewHtml, /data-v19-hand-edited[^>]*>已手改/);
   assert.doesNotMatch(reviewHtml, /data-v19-basis/);
   const plainHtml = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({ diff })));
-  assert.doesNotMatch(plainHtml, /老孙已手改|依据 意见/, "普通版本的比较不受影响");
+  assert.doesNotMatch(plainHtml, /已手改|依据 意见/, "普通版本的比较不受影响");
 });
 
 test("主导路径细项：整组有差异时只给真正变了的那一格挂「已修改」与依据", () => {
@@ -778,7 +778,7 @@ test("主导路径细项：整组有差异时只给真正变了的那一格挂�
   })));
   assert.equal((html.match(/data-v19-diff="changed"/g) ?? []).length, 1, "只有情感底板这一格变了");
   assert.match(html, /依据 意见 2/);
-  assert.doesNotMatch(html, /老孙已手改/, "没变的细项不会被误标成手改");
+  assert.doesNotMatch(html, /已手改/, "没变的细项不会被误标成手改");
 });
 
 test("集成版溯源：点评版候选排在未纳入之后，老孙看得到「采纳」，别人看不到；默认视图不显示", () => {

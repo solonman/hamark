@@ -29,6 +29,7 @@ import {
   type V19VersionKind,
   type V19VersionSummary,
 } from "@/lib/v19-ui-model";
+import { AUDIO_REVIEW_CRITIC_NAME, AUDIO_REVIEW_UPLOADER_NAMES, isAudioReviewUploader } from "@/lib/audio-review/access";
 import { audioReviewApi, type AudioReviewView } from "@/lib/audio-review-model";
 import {
   audioReviewForVersion,
@@ -113,19 +114,19 @@ export type V19EditGuardDecision =
  * version — the final version has no owner, so `current.isMine` is always
  * false there and must not trigger the ordinary fork-redirect below.
  *
- * 点评版（docs/25 五、3）：`isMine` 恒为 false（它不是谁的「我的版本」），所以
- * 归属人（老孙）要靠 `ownerUserId === viewerUserId` 认出来——他直接改点评版本身，
- * 保存时 `basedOnVersionId` 就是点评版。其他人照改别人版本的规则：已有自己的
- * 版本就切回去；还没有就照常编辑，服务端以点评版为底新建他的版本。
+ * 点评版（docs/25 五、3）：`isMine` 恒为 false（它不是谁的「我的版本」）。点评版只有一个，
+ * 由上传名单里的人（老孙、秦欣欣）共用：`canEditReview` 为真时直接改点评版本身，保存时
+ * `basedOnVersionId` 就是点评版。其他人照改别人版本的规则：已有自己的版本就切回去；
+ * 还没有就照常编辑，服务端以点评版为底新建他的版本。
  */
 export function resolveV19EditGuard(
-  current: { isMine: boolean; isFinal?: boolean; kind?: V19VersionKind; ownerUserId?: string },
+  current: { isMine: boolean; isFinal?: boolean; kind?: V19VersionKind },
   myVersionId: string | null,
   canEditFinal?: boolean,
-  viewerUserId?: string,
+  canEditReview?: boolean,
 ): V19EditGuardDecision {
   if (current.isFinal) return canEditFinal ? { action: "PROCEED" } : { action: "BLOCKED_FINAL" };
-  if (current.kind === "AUDIO_REVIEW" && viewerUserId && current.ownerUserId === viewerUserId) return { action: "PROCEED" };
+  if (current.kind === "AUDIO_REVIEW" && canEditReview) return { action: "PROCEED" };
   if (current.isMine) return { action: "PROCEED" };
   if (myVersionId) return { action: "SWITCH_TO_OWN", versionId: myVersionId };
   return { action: "PROCEED" };
@@ -324,7 +325,7 @@ function draftAsSavedPayload(model: V19StudioModel, draft: V04UiDraft) {
   return preserveV19UntouchedPerceptionPath(v04UiDraftToPayload(draft, model.current.payload), model.current.payload);
 }
 
-// 点评版视角下正文的「依据 意见 N」「老孙已手改」（docs/25 七、6）。和 computeV19Diff
+// 点评版视角下正文的「依据 意见 N」「已手改」（docs/25 七、6）。和 computeV19Diff
 // 一样放在组件外：理由见上面那段关于 React Compiler 与 `.current` 的说明。
 function computeV19ReviewBasis(
   model: V19StudioModel | null,
@@ -541,6 +542,7 @@ export default function V04StudioClient({
     versionId: string | null,
     options?: {
       /** true：每人一个版本的切回提示；"review"：从点评版上动手被切回自己的版本。 */
+      /** "review"：从点评版切回自己的版本（点评版只有上传名单里的人能直接改）。 */
       announce?: boolean | "review";
       /** 进入点评版：自动打开比较并跳到第一处（docs/25 二、9）。 */
       compare?: boolean;
@@ -557,7 +559,7 @@ export default function V04StudioClient({
           ownerIsUploader: false,
         });
         pushToast(options.announce === "review"
-          ? `点评版只有老孙可以直接改：已切换到你的版本 ${label}，请在此继续编辑`
+          ? `点评版只有${AUDIO_REVIEW_UPLOADER_NAMES.join("、")}可以直接改：已切换到你的版本 ${label}，请在此继续编辑`
           : `每人只有一个版本：已切换到你的版本 ${label}，请在此继续编辑`);
       }
       if (options?.compare && next.current.baseNumber !== null) {
@@ -587,7 +589,9 @@ export default function V04StudioClient({
   const interceptForeignEdit = useCallback((): boolean => {
     const current = modelRef.current;
     if (!current) return false;
-    const decision = resolveV19EditGuard(current.current, current.myVersionId, current.viewerCapabilities.canEdit, viewerUserId);
+    const decision = resolveV19EditGuard(
+      current.current, current.myVersionId, current.viewerCapabilities.canEdit, isAudioReviewUploader(viewerName),
+    );
     if (decision.action === "PROCEED") return false;
     if (decision.action === "BLOCKED_FINAL") {
       pushToast("集成版只有老孙可以编辑。你的修改请写在自己的版本里，进行态下会自动汇入集成版");
@@ -595,7 +599,7 @@ export default function V04StudioClient({
     }
     void switchToVersion(decision.versionId, { announce: current.current.kind === "AUDIO_REVIEW" ? "review" : true });
     return true;
-  }, [switchToVersion, pushToast, viewerUserId]);
+  }, [switchToVersion, pushToast, viewerName]);
 
   // Best-effort background refresh after a save auto-creates the viewer's
   // version: only refreshes the version list / myVersionId so the panel
@@ -1571,10 +1575,11 @@ export default function V04StudioClient({
   // 锁定态就是「集成版视角下的只读」，据此区分「压根不是可编辑区」的普通只读。
   const finalLocked = isFinalVersionView && readOnly;
   const canAdoptFinal = isFinalVersionView && !readOnly;
-  // 点评版 id → 点评人：集成版溯源里点评版候选行写「老孙录音点评」（docs/25 六）。
+  // 点评版 id → 点评人：集成版溯源里点评版候选行写「老孙录音点评」（docs/25 六）。录音里点评的
+  // 始终是老孙；点评版的归属人可能是替他上传的秦欣欣，所以不取 ownerName。
   const reviewerNames = new Map(model.versions
     .filter((version): version is V19VersionSummary & { id: string } => version.kind === "AUDIO_REVIEW" && version.id !== null)
-    .map((version) => [version.id, version.ownerName]));
+    .map((version) => [version.id, AUDIO_REVIEW_CRITIC_NAME]));
   // `finalContext` (and so `locked`) must not depend on `model.finalTrace`
   // having loaded — it's an optional field on the GET response, and gating
   // the whole context on it left a colleague opening the case with no
@@ -1613,7 +1618,6 @@ export default function V04StudioClient({
   const audioEntry = resolveV19AudioReviewEntry({
     available: model.audioReviewAvailable,
     current: model.current,
-    viewerUserId,
     reviews: model.audioReviews,
   });
   const audioEntryReview = "review" in audioEntry ? audioEntry.review : null;
@@ -1622,8 +1626,6 @@ export default function V04StudioClient({
     ? audioReviewForVersion(model.audioReviews, model.current.id)
     : null;
   const reviewNotice = reviewOfCurrent?.status === "GENERATED" && reviewOfCurrent.reviewVersionId ? reviewOfCurrent : null;
-  const reviewVersionOwner = (versionId: string | null) =>
-    model.versions.find((version) => version.id === versionId)?.ownerName || "老孙";
   const reviewSummaryByVersion = new Map(model.audioReviews
     .filter((item) => item.reviewVersionId)
     .map((item) => [item.reviewVersionId as string, item]));
@@ -1724,7 +1726,7 @@ export default function V04StudioClient({
                 // 点评版：「v3 老孙录音点评 基于 v1」（docs/25 二、5）。
                 <>
                   <span className={styles.versionNum}>v{model.current.number}</span>
-                  <span className={styles.versionOwner}>{model.current.ownerName}录音点评</span>
+                  <span className={styles.versionOwner}>{AUDIO_REVIEW_CRITIC_NAME}录音点评</span>
                   {model.current.baseNumber !== null && (
                     <span className={styles.versionBase}>基于 v{model.current.baseNumber}</span>
                   )}
@@ -1791,7 +1793,7 @@ export default function V04StudioClient({
                   >
                     <span className={styles.versionNumber}>v{version.number}</span>
                     <span className={styles.versionMeta}>
-                      {version.ownerName}录音点评，基于 v{version.baseNumber ?? "?"}
+                      {AUDIO_REVIEW_CRITIC_NAME}录音点评，基于 v{version.baseNumber ?? "?"}
                     </span>
                     <AudioReviewVersionTag />
                     <span className={styles.versionTime}>{formatV19Clock(version.updatedAt)}</span>
@@ -1854,7 +1856,7 @@ export default function V04StudioClient({
                 ))}
                 <p className={styles.versionNote}>
                   进入页面默认展示你自己的版本，还没有自己的版本时展示集成版；可在此切换查看任意版本；直接编辑也会自动创建或切回你自己的版本。
-                  {hasReviewVersions && "点评版只有老孙可以直接改；其他人在上面编辑，改动进自己的版本。"}
+                  {hasReviewVersions && `点评版只有${AUDIO_REVIEW_UPLOADER_NAMES.join("、")}可以直接改；其他人在上面编辑，改动进自己的版本。`}
                 </p>
               </div>
             )}
@@ -2040,7 +2042,7 @@ export default function V04StudioClient({
         <nav className={styles.workspaceNav} aria-label="V1.9 工作台目录">
           {isReviewVersionView && (
             <button type="button" onClick={() => void locateV04Target(V19_AUDIO_REVIEW_CARD_ID)}>
-              <b>{model.current.ownerName}的录音点评</b><span>录音、意见与文字稿</span>
+              <b>{AUDIO_REVIEW_CRITIC_NAME}的录音点评</b><span>录音、意见与文字稿</span>
             </button>
           )}
           <button type="button" className={activeNavId === "module-1" ? styles.navActive : undefined} onClick={() => void locateV04Target("module-1")}>
@@ -2095,7 +2097,7 @@ export default function V04StudioClient({
             <div className={styles.reviewNotice} data-v19-review-notice>
               <AudioReviewIcon name="mic" />
               <span>
-                <b>{reviewVersionOwner(reviewNotice.reviewVersionId)}对这一版做了录音点评</b>，据此生成了点评版 v{reviewNotice.reviewVersionNumber ?? "?"}（{reviewNotice.changeCount} 处改动）。这一版保持原样。
+                <b>{AUDIO_REVIEW_CRITIC_NAME}对这一版做了录音点评</b>，据此生成了点评版 v{reviewNotice.reviewVersionNumber ?? "?"}（{reviewNotice.changeCount} 处改动）。这一版保持原样。
               </span>
               <button type="button" className={styles.reviewGhostButton}
                 onClick={() => openAudioReviewVersion(reviewNotice.reviewVersionId as string)}>去看点评版</button>

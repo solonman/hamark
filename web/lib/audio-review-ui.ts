@@ -1,8 +1,9 @@
 // 录音点评改写的前端纯函数：页头入口该是哪种形态、轮询结果怎么并回 model、
-// 确认面板怎么按意见列改动、点评版正文的「依据 意见 N」「老孙已手改」怎么算、
+// 确认面板怎么按意见列改动、点评版正文的「依据 意见 N」「已手改」怎么算、
 // 文字稿里校正过的词怎么切出来。不碰 React、不碰网络，客户端组件直接引用。
 // 见 docs/25_录音点评改写_实施规格_V0.1.md 二、七。
 
+import { isAudioReviewCriticVersion } from "@/lib/audio-review/access";
 import type { V04DraftPayloadV1 } from "@/lib/v04-contract";
 import {
   isAudioReviewInFlight,
@@ -81,13 +82,13 @@ export type V19AudioReviewEntryState =
  */
 export function resolveV19AudioReviewEntry(input: {
   available: boolean;
-  current: { id: string | null; kind: "PERSONAL" | "AUDIO_REVIEW"; isFinal: boolean; ownerUserId: string };
-  viewerUserId: string;
+  current: { id: string | null; kind: "PERSONAL" | "AUDIO_REVIEW"; isFinal: boolean; ownerName: string };
   reviews: readonly V19AudioReviewSummary[];
 }): V19AudioReviewEntryState {
-  const { available, current, viewerUserId, reviews } = input;
+  const { available, current, reviews } = input;
   if (!available || current.isFinal || current.kind !== "PERSONAL") return { kind: "HIDDEN" };
-  if (current.ownerUserId === viewerUserId) return { kind: "HIDDEN" };
+  // 录音里点评的人始终是老孙，他自己的版本不挂点评；替他上传的秦欣欣看自己的作业时照常出现。
+  if (isAudioReviewCriticVersion(current.ownerName)) return { kind: "HIDDEN" };
   const review = audioReviewForVersion(reviews, current.id);
   if (!review) return { kind: "UPLOAD" };
   if (review.status === "GENERATED") return review.reviewVersionId ? { kind: "VIEW", review } : { kind: "PROCESSING", review };
@@ -244,7 +245,7 @@ export function splitAudioReviewCorrections(
 }
 
 // ---------------------------------------------------------------------------
-// 点评版正文：「依据 意见 N」与「老孙已手改」（docs/25 二、9，七、6）
+// 点评版正文：「依据 意见 N」与「已手改」（docs/25 二、9，七、6）
 // ---------------------------------------------------------------------------
 
 export type V19ReviewBasisEntry = {
@@ -252,7 +253,7 @@ export type V19ReviewBasisEntry = {
   numbers: number[];
   /** 悬停看的意见摘要，一条意见一行。 */
   tip: string;
-  /** 点评版里这一处的当前值已经不是提案的写法——老孙生成后又手改过。 */
+  /** 点评版里这一处的当前值已经不是提案的写法——生成后又被手改过（老孙或秦欣欣）。 */
   handEdited: boolean;
 };
 
