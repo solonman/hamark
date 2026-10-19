@@ -126,7 +126,7 @@ export default function RetroCaseDialog({
                   list={listId}
                   maxLength={RETRO_LIMITS.departmentMax}
                   value={draft.department}
-                  placeholder="如：创意一部"
+                  placeholder="如：策划一部"
                   onChange={(event) => update("department", event.target.value)}
                 />
                 <datalist id={listId}>{departments.map((name) => <option key={name} value={name} />)}</datalist>
@@ -137,7 +137,7 @@ export default function RetroCaseDialog({
               <input
                 maxLength={RETRO_LIMITS.clientMax}
                 value={draft.clientName}
-                placeholder="如：某乳企"
+                placeholder="如：某地产 · 滨江项目"
                 onChange={(event) => update("clientName", event.target.value)}
               />
             </label>
@@ -146,7 +146,7 @@ export default function RetroCaseDialog({
               <input
                 maxLength={RETRO_LIMITS.titleMax}
                 value={draft.title}
-                placeholder="一句话说清这件事，如：年货节主视觉三次被否"
+                placeholder="一句话说清这件事，如：滨江项目开盘主形象三次被否"
                 onChange={(event) => update("title", event.target.value)}
               />
             </label>
@@ -154,7 +154,7 @@ export default function RetroCaseDialog({
               <small>客户服务场景 <i>选填，逗号分隔，最多 {RETRO_LIMITS.sceneTagsMax} 个</i></small>
               <input
                 value={draft.sceneTagsText}
-                placeholder="提案、改稿、客户情绪、需求变更、比稿、结案"
+                placeholder="提案、改稿、案名、开盘节点、客户情绪、需求变更、比稿"
                 onChange={(event) => update("sceneTagsText", event.target.value)}
               />
             </label>

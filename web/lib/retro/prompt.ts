@@ -25,9 +25,9 @@ import {
 } from "./month-snapshot";
 import { buildSynthesisRefIndex, type RetroSynthesisContext } from "./synthesis";
 
-export const RETRO_EXTRACT_PROMPT_VERSION = "2026-10-20.1";
-export const RETRO_MINUTES_PROMPT_VERSION = "2026-10-20.1";
-export const RETRO_METHODS_PROMPT_VERSION = "2026-10-20.1";
+export const RETRO_EXTRACT_PROMPT_VERSION = "2026-10-20.2";
+export const RETRO_MINUTES_PROMPT_VERSION = "2026-10-20.2";
+export const RETRO_METHODS_PROMPT_VERSION = "2026-10-20.2";
 
 export const RETRO_PROMPT_VERSIONS = {
   extract: RETRO_EXTRACT_PROMPT_VERSION,
@@ -42,7 +42,7 @@ export type RetroLlmMessages = { system: string; user: string };
 // ---------------------------------------------------------------------------
 
 const SCENE = `【场景】
-博加每月开一次客户服务复盘会。各部门各讲一个真实的客户服务案例（客户最初要什么、我们交了几版、客户怎么反馈、我们怎么应对、结果如何），创始人老孙通过追问、分析和点评带教。每讲完一个案例停一次录音，最后老孙的整场总结单独录一段。会后系统把录音转写成文字，你的工作是把老孙的现场带教整理成两份东西：①面向中层的「教学纪要」，②面向公司长期积累的「方法提取记录」（内容全部是「方法候选」）。你看不到任何附件（图片、PDF、视频），只能读表单里的文字和录音的转写文字稿。`;
+博加是一家房地产广告公司，客户是房地产开发商，常见工作包括楼盘推广策略、案名与主形象、开盘与各节点营销、售楼处与现场包装、楼书和各类物料、线上传播；案例里的「客户」通常指开发商的营销团队（营销总、策划经理等）。博加每月开一次客户服务复盘会。各部门各讲一个真实的客户服务案例（客户最初要什么、我们交了几版、客户怎么反馈、我们怎么应对、结果如何），创始人老孙通过追问、分析和点评带教。每讲完一个案例停一次录音，最后老孙的整场总结单独录一段。会后系统把录音转写成文字，你的工作是把老孙的现场带教整理成两份东西：①面向中层的「教学纪要」，②面向公司长期积累的「方法提取记录」（内容全部是「方法候选」）。你看不到任何附件（图片、PDF、视频），只能读表单里的文字和录音的转写文字稿。`;
 
 const HARD_RULES = `【硬约束——违反的内容会被系统直接丢弃】
 1. 只提取录音里有依据的东西。每一条方法候选、核心认识、改进事项、老孙指出的问题、改进建议都必须引用至少一句录音原话（写片段编号）；引不出来的不要写。引文由系统按片段编号从文字稿里取出展示，你不要自己写引文，也不要在文字里假装引用。
@@ -67,7 +67,7 @@ export const RETRO_DIMENSION_GUIDE: Record<keyof typeof RETRO_DIMENSION_LABELS, 
 export const RETRO_KIND_GUIDE: Record<keyof typeof RETRO_KIND_LABELS, string> = {
   METHOD: "方法：相对稳定、换一个案子也成立的思维方法；老孙说得出做法和道理。",
   INTUITION: "直觉：基于经验的专业判断，老孙自己也说不全理由（「说不太清楚，看多了就知道」）。只记他的判断和他实际说出的理由，不替他补全逻辑。",
-  SITUATIONAL: "情境：只在特定情境下才这么做的判断；situation 必须写明情境，例如「客户方刚换了市场总监」「客户当着上级发火」。",
+  SITUATIONAL: "情境：只在特定情境下才这么做的判断；situation 必须写明情境，例如「开发商刚换了营销总」「客户当着上级发火」。",
 };
 
 export const RETRO_TRANSFER_GUIDE: Record<keyof typeof RETRO_TRANSFER_LABELS, string> = {
@@ -97,7 +97,7 @@ const OUTPUT_RULE = "只输出一个 JSON 对象，不要输出解释文字，�
 
 const SPEAKER_RULE = `【认人】文字稿每句带一个 speaker，写成「<段号>:<标签>」，例如 "1:S0"、"2:S1"。标签是机器在每段录音里各自区分的，**只在同一段录音里有意义**：第 2 段的 S0 不一定是第 1 段的 S0（中途换过设备、断过重录）；标签也可能分错，或者全部相同。请按内容、逐段判断谁是老孙：他在追问、下判断、给建议、点评；汇报人在讲经过、解释自己当时的做法；其他同事多是插话、提问。speakers.founder 是一个数组，每段录音写一个最常对应老孙的「段号:标签」；labels 给其他「段号:标签」起称呼（只用「汇报人」「其他同事」这类称呼，认得出的可以写名字）。`;
 
-const MISHEARING_RULE = "【听写错字】文字稿是机器听写，同音、近音错字可能很多。按表单里的客户名、部门、案例标题、回合标题和上下文还原原意，不要被错字带偏，也不要把错字写进成果。影响理解的错字写进 corrections（segmentId、原文里一字不差的 from、还原后的 to），只记有把握的。";
+const MISHEARING_RULE = "【听写错字】文字稿是机器听写，同音、近音错字可能很多。按表单里的客户名、项目名和案名、部门、案例标题、回合标题和上下文还原原意，不要被错字带偏，也不要把错字写进成果。影响理解的错字写进 corrections（segmentId、原文里一字不差的 from、还原后的 to），只记有把握的。";
 
 // ---------------------------------------------------------------------------
 // ① 逐案提炼

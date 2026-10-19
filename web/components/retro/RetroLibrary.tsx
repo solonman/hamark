@@ -150,7 +150,7 @@ export default function RetroLibrary({
                 setQuery(event.target.value);
                 if (!composing) setCommittedQuery(event.target.value);
               }}
-              placeholder="搜索客户、标题、部门或场景"
+              placeholder="搜索客户、项目、标题、部门或场景"
             />
           </label>
         </div>

@@ -486,7 +486,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
   const savedFlash = (key: string) => (savedKey === key ? <span className={styles.savedFlash} aria-live="polite">已保存</span> : null);
 
   const closing: Array<{ label: string; field: "outcome" | "turningPoints" | "discussionQuestions"; placeholder: string }> = [
-    { label: "结果", field: "outcome", placeholder: "点击填写结果：如「客户接受第三版，项目延期两周」「仍在进行」" },
+    { label: "结果", field: "outcome", placeholder: "点击填写结果：如「客户接受第三版，开盘物料晚一周进场」「仍在进行」" },
     { label: "关键转折", field: "turningPoints", placeholder: "点击填写关键转折：你自己认为的转折点" },
     { label: "希望讨论的问题", field: "discussionQuestions", placeholder: "点击填写希望讨论的问题：想请老孙和大家一起看的问题" },
   ];
