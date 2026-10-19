@@ -415,9 +415,11 @@ export class CosVideoBucket implements VideoBucket {
     const fields = await createCosSignatureFields({
       method: "GET", url, headers, config: this.config, keyTime,
     });
-    const parameters = new URLSearchParams(url.search);
+    // 查询串要用和签名同一套编码手工拼：URLSearchParams.toString() 会把空格写成 + 、把 ~ 写成 %7E，
+    // 和签名串里按 COS 规则编码的值（空格 %20、~ 不编码）对不上，响应头覆盖参数会验签失败。
+    const parameters = new Map<string, string>(url.searchParams.entries());
     for (const [name, value] of Object.entries(fields)) parameters.set(name, value);
-    url.search = parameters.toString();
+    url.search = Array.from(parameters, ([name, value]) => `${encodePathSegment(name)}=${encodePathSegment(value)}`).join("&");
     return url.toString();
   }
 
