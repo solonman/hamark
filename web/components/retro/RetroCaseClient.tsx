@@ -41,6 +41,7 @@ import RetroRecordingModule, { type RetroRecordingJump } from "./RetroRecordingM
 import RetroRecordingUploadDialog from "./RetroRecordingUploadDialog";
 import RetroRoundCard, { type RetroAssetHost, type RetroRoundTextField } from "./RetroRoundCard";
 import RetroAssetBlock from "./RetroAssetBlock";
+import RetroAssetViewer from "./RetroAssetViewer";
 import type { RetroAudioSeekRequest } from "./RetroAudioPanel";
 import v04 from "../v04/V04Surface.module.css";
 import styles from "./Retro.module.css";
@@ -50,7 +51,20 @@ const LIBRARY_HREF = "/?library=RETRO";
 const POLL_INTERVAL_MS = 4000;
 
 type CaseField = "background" | "outcome" | "turningPoints" | "discussionQuestions";
-type ScrollTarget = { kind: "recording" | "round" | "audio"; id: string; nonce: number };
+type ScrollTarget = { kind: "recording" | "round"; id: string; nonce: number };
+/** 详情里的签名地址（文档页图 15 分钟）快过期时，打开弹层前先悄悄刷新一次。 */
+const DETAIL_STALE_MS = 10 * 60 * 1000;
+
+/** 附件所在那一处（需求凭证或某一回合）已传完的附件，按位置排好：弹层的翻页范围。 */
+function findAssetGroup(detail: RetroCaseDetail | null, assetId: string | null): RetroAssetView[] | null {
+  if (!detail || !assetId) return null;
+  for (const owner of [detail.needAssets, ...detail.rounds.map((round) => round.assets)]) {
+    if (owner.some((asset) => asset.id === assetId)) {
+      return owner.filter((asset) => asset.uploadStatus === "READY").sort((a, b) => a.position - b.position);
+    }
+  }
+  return null;
+}
 
 function stripQuery(names: string[]) {
   try {
@@ -83,11 +97,12 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
   const [recordingUploadOpen, setRecordingUploadOpen] = useState(false);
   const [recordingToRemove, setRecordingToRemove] = useState<RetroRecordingView | null>(null);
   const [recordingActionPending, setRecordingActionPending] = useState<string | null>(null);
-  const [viewer, setViewer] = useState<RetroAssetView | null>(null);
+  /** 站内弹层正在看的附件（规格 4.3）：只存 id，内容每次从最新的详情里取，轮询收口后弹层跟着更新。 */
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const loadedAt = useRef(0);
 
   // 跳转与播放（?t=、?audio=、?round=、「去听原声」）
   const [recJump, setRecJump] = useState<RetroRecordingJump | null>(null);
-  const [audioOpenId, setAudioOpenId] = useState<string | null>(null);
   const [audioSeek, setAudioSeek] = useState<RetroAudioSeekRequest | null>(null);
   const [scrollTarget, setScrollTarget] = useState<ScrollTarget | null>(null);
   const pendingFocus = useRef<string | null>(null);
@@ -101,6 +116,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
 
   const applyDetail = useCallback((next: RetroCaseDetail) => {
     detailRef.current = next;
+    loadedAt.current = Date.now();
     setDetail(next);
   }, []);
 
@@ -146,9 +162,13 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
           notify("案例已创建，接着把需求和过程填上");
           stripQuery(["created"]);
         } else if (jump.audioAssetId) {
-          setAudioOpenId(jump.audioAssetId);
-          setAudioSeek({ ownerId: jump.audioAssetId, ms: (jump.seconds ?? 0) * 1000, nonce });
-          setScrollTarget({ kind: "audio", id: jump.audioAssetId, nonce });
+          // 客户录音在站内弹层里播放：找到就打开并跳到时间点，找不到（已移除）给一句提示。
+          if (findAssetGroup(next, jump.audioAssetId)) {
+            setViewerId(jump.audioAssetId);
+            setAudioSeek({ ownerId: jump.audioAssetId, ms: (jump.seconds ?? 0) * 1000, nonce });
+          } else {
+            notify("这段客户录音已被移除；已发布纪要里的原文来自发布时的快照", "warn");
+          }
         } else if (jump.seconds !== null) {
           setRecJump({ partNo: jump.partNo, ms: jump.seconds * 1000, nonce });
           setScrollTarget({ kind: "recording", id: "recording", nonce });
@@ -179,7 +199,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     element.click();
   }, [detail]);
 
-  // 滚动到录音、回合或客户录音面板。
+  // 滚动到点评录音或回合。
   useEffect(() => {
     if (!scrollTarget || !detail) return;
     // 用 setTimeout 而不是 requestAnimationFrame、用 instant 而不是 auto：后台标签页里 rAF 不触发；全站 html 开了
@@ -192,10 +212,6 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
         element.classList.remove(styles.flash);
         void element.offsetWidth;
         element.classList.add(styles.flash);
-      } else if (scrollTarget.kind === "audio") {
-        const element = document.querySelector(`[data-retro-audio-panel="${CSS.escape(scrollTarget.id)}"]`);
-        if (!element) { notify("这段客户录音已被移除；已发布纪要里的原文来自发布时的快照", "warn"); return; }
-        window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 120, behavior: "instant" });
       } else {
         const element = document.getElementById("recording");
         if (element) window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - 84, behavior: "instant" });
@@ -205,7 +221,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在 nonce 变化时滚一次
   }, [scrollTarget?.nonce]);
 
-  // 录音或客户录音转写还没到终态：可见时每 4 秒悄悄拉一次；有保存请求在途时跳过，免得把还没落库的改动盖掉。
+  // 录音或客户录音转写还没到终态、文档还在生成预览：可见时每 4 秒悄悄拉一次；有保存请求在途时跳过，免得把还没落库的改动盖掉。
   const pending = detail ? hasPendingCaseWork(detail) : false;
   useEffect(() => {
     if (!pending) return;
@@ -229,15 +245,8 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     return () => { cancelled = true; };
   }, [editBasicsOpen]);
 
-  // 大图／视频查看：锁滚动、Esc 关闭。
-  useEffect(() => {
-    if (!viewer) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setViewer(null); };
-    document.addEventListener("keydown", onKey);
-    return () => { document.body.style.overflow = previous; document.removeEventListener("keydown", onKey); };
-  }, [viewer]);
+  // 弹层的翻页范围；看着的附件被删掉（或刷新后不见了）时取不到，弹层自己不渲染。
+  const viewerGroup = useMemo(() => findAssetGroup(detail, viewerId), [detail, viewerId]);
 
   // ---------------------------------------------------------------------------
   // 原位编辑
@@ -410,10 +419,17 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     }
   }
 
-  const toggleAudio = useCallback((asset: RetroAssetView) => {
+  /** 点任何附件格：打开站内弹层。详情拿到太久了（页图签名快过期）就顺手刷新一次，不挡着打开。 */
+  const openAsset = useCallback((asset: RetroAssetView) => {
     setAudioSeek(null);
-    setAudioOpenId((current) => (current === asset.id ? null : asset.id));
-  }, []);
+    setViewerId(asset.id);
+    if (Date.now() - loadedAt.current > DETAIL_STALE_MS && queued.current === 0) {
+      const seq = mutationSeq.current;
+      void retroApi.getCase(caseId)
+        .then((next) => { if (shouldApplyPoll(seq, mutationSeq.current, queued.current)) applyDetail(next); })
+        .catch(() => { /* 刷新失败就用手上的 */ });
+    }
+  }, [caseId, applyDetail]);
 
   // 同一页上的「去听原声」：本页自己处理，不整页跳转。
   const listenHere = useCallback((view: RetroSourceView): boolean => {
@@ -421,15 +437,18 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     if (!current || view.caseId !== current.id) return false;
     const nonce = Date.now();
     if (view.kind === "CLIENT" && view.assetId) {
-      setAudioOpenId(view.assetId);
+      if (!findAssetGroup(current, view.assetId)) {
+        notify("这段客户录音已被移除；已发布纪要里的原文来自发布时的快照", "warn");
+        return true;
+      }
+      setViewerId(view.assetId);
       setAudioSeek({ ownerId: view.assetId, ms: view.startMs, nonce });
-      setScrollTarget({ kind: "audio", id: view.assetId, nonce });
       return true;
     }
     setRecJump({ partNo: view.partNo, ms: view.startMs, nonce });
     setScrollTarget({ kind: "recording", id: "recording", nonce });
     return true;
-  }, []);
+  }, [notify]);
   const roundJumpHere = useCallback((mark: RetroRoundMark): boolean => {
     const current = detailRef.current;
     if (!current || mark.caseId !== current.id) return false;
@@ -441,12 +460,9 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     caseId,
     notify,
     refresh: reload,
-    onOpenMedia: setViewer,
-    audioOpenId,
-    audioSeek,
-    onToggleAudio: toggleAudio,
+    onOpen: openAsset,
     onRetryTranscript: (asset) => { void retryAssetTranscript(asset); },
-  }), [caseId, notify, reload, audioOpenId, audioSeek, toggleAudio, retryAssetTranscript]);
+  }), [caseId, notify, reload, openAsset, retryAssetTranscript]);
 
   // ---------------------------------------------------------------------------
   // 渲染
@@ -557,10 +573,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
             variant="need"
             notify={notify}
             refresh={reload}
-            onOpenMedia={setViewer}
-            audioOpenId={audioOpenId}
-            audioSeek={audioSeek}
-            onToggleAudio={toggleAudio}
+            onOpen={openAsset}
             onRetryTranscript={(asset) => { void retryAssetTranscript(asset); }}
           />
         </section>
@@ -742,33 +755,15 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
         />
       ) : null}
 
-      {viewer ? (
-        <div className={styles.ov} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewer(null); }}>
-          <div className={styles.ovbox} role="dialog" aria-modal="true" aria-label={viewer.type === "VIDEO" ? "播放视频" : "查看图片"}>
-            <div className={styles.ovhead}>
-              <b>{viewer.type === "VIDEO" ? "视频" : "图片"}</b>
-              <span className={styles.ovheadT}>{viewer.originalName} · {detail.title}</span>
-              {viewer.type === "IMAGE" ? <a className={styles.smBtn} href={viewer.openUrl} target="_blank" rel="noopener noreferrer">查看原图</a> : null}
-              <button type="button" className={styles.smBtn} autoFocus onClick={() => setViewer(null)}>关闭 esc</button>
-            </div>
-            <div className={styles.viewerBody} data-v04-scheme="dark">
-              <div className={styles.viewerImage}>
-                {viewer.type === "VIDEO" ? (
-                  <video controls autoPlay preload="metadata" poster={viewer.thumbnailUrl ?? undefined} src={viewer.openUrl} />
-                ) : viewer.derivativeStatus === "READY" && viewer.displayUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- 展示图来自对象存储签名 URL，不走 next/image 的远程域名白名单
-                  <img src={viewer.displayUrl} alt="" />
-                ) : (
-                  <div className={styles.viewerNote}>
-                    <b>{viewer.derivativeStatus === "FAILED" ? "预览生成失败" : "正在生成预览"}</b>
-                    <small>{viewer.derivativeStatus === "FAILED" ? (viewer.derivativeError || "处理失败；可以查看原图") : "稍后再看，或者直接查看原图"}</small>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <RetroAssetViewer
+        group={viewerGroup}
+        assetId={viewerId}
+        canEdit={canEdit}
+        audioSeek={audioSeek}
+        onNavigate={(assetId) => { setAudioSeek(null); setViewerId(assetId); }}
+        onClose={() => { setViewerId(null); setAudioSeek(null); }}
+        onRetryTranscript={(asset) => { void retryAssetTranscript(asset); }}
+      />
 
       <LibraryToastStack toasts={toasts} />
     </main>

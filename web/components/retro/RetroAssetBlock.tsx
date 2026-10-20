@@ -5,16 +5,14 @@ import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { retroApi, retroReasonText } from "@/lib/retro-client";
 import { RETRO_FILE_ACCEPT, RETRO_LIMITS, formatRetroClock, type RetroAssetView, type RetroNewAssetInput } from "@/lib/retro-model";
-import { buildClientTranscript, checkRetroAttachFile, docFormatLabel, remainingRetroAssetSlots } from "@/lib/retro-ui";
+import { checkRetroAttachFile, docFormatLabel, remainingRetroAssetSlots } from "@/lib/retro-ui";
 import { AudioReviewIcon } from "../v04/V19AudioReviewParts";
-import RetroAudioPanel, { type RetroAudioSeekRequest } from "./RetroAudioPanel";
 import {
   putFile,
   readAudioMetadata,
   readImageDimensions,
   readVideoMetadata,
   runWithConcurrency,
-  triggerDownload,
 } from "./retro-upload";
 import v04 from "../v04/V04Surface.module.css";
 import styles from "./Retro.module.css";
@@ -31,7 +29,7 @@ type LocalUpload = {
 
 const DOC_COLOR: Record<string, string> = { PDF: "#ff8f7d", DOC: "#8db4ff", XLS: "#7fd19a", PPT: "#ffb36b" };
 
-function DocIcon({ label }: { label: string }): JSX.Element {
+export function DocIcon({ label }: { label: string }): JSX.Element {
   return (
     <svg viewBox="0 0 26 30" fill="none" aria-hidden="true">
       <path d="M3 1.5h13l7.5 7.5v19.5H3z" stroke="#b9bbb2" strokeWidth="1.4" />
@@ -43,7 +41,8 @@ function DocIcon({ label }: { label: string }): JSX.Element {
 
 /**
  * 附件区（规格 4.3）：「任务与最初需求」的需求凭证和每个回合共用，规则完全一样——图片、视频、音频、文档，每处 ≤12 个。
- * 格子：图片缩略图／视频封面带 ▶／音频格带时长与转写状态（点开是播放条 + 文字稿）／文档格是类型图标加文件名。
+ * 格子：图片缩略图／视频封面带 ▶／音频格带时长与转写状态／文档格是类型图标加文件名（带预览状态）。
+ * 点任何格子都交给 onOpen，由案例页那一个站内弹层（RetroAssetViewer）预览（规格 4.3「全部在站内弹层预览」）。
  * 上传：建附件行 → 用到哪个签哪个 → 同时传 3 个 → complete 核对；部分失败时格子上重传或去掉。
  * 移除是真删，对话框当场提示。有权限的人看到「＋ 附件」和每格的 ×，其他人纯阅读。
  */
@@ -55,10 +54,7 @@ export default function RetroAssetBlock({
   variant,
   notify,
   refresh,
-  onOpenMedia,
-  audioOpenId,
-  audioSeek,
-  onToggleAudio,
+  onOpen,
   onRetryTranscript,
 }: {
   caseId: string;
@@ -69,10 +65,7 @@ export default function RetroAssetBlock({
   variant: "need" | "round";
   notify: (message: string, tone?: "plain" | "warn") => void;
   refresh: () => Promise<void>;
-  onOpenMedia: (asset: RetroAssetView) => void;
-  audioOpenId: string | null;
-  audioSeek: RetroAudioSeekRequest | null;
-  onToggleAudio: (asset: RetroAssetView) => void;
+  onOpen: (asset: RetroAssetView) => void;
   onRetryTranscript: (asset: RetroAssetView) => void;
 }): JSX.Element | null {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -86,7 +79,6 @@ export default function RetroAssetBlock({
   const sorted = [...assets].sort((a, b) => a.position - b.position);
   const slots = remainingRetroAssetSlots(sorted.length);
   const failedCount = sorted.filter((asset) => asset.uploadStatus !== "READY" && uploads[asset.id]?.state !== "UPLOADING").length;
-  const openAudio = sorted.find((asset) => asset.id === audioOpenId && asset.type === "AUDIO" && asset.uploadStatus === "READY") ?? null;
 
   if (!sorted.length && !editable) return null;
 
@@ -199,11 +191,7 @@ export default function RetroAssetBlock({
 
   function openAsset(asset: RetroAssetView) {
     if (asset.uploadStatus !== "READY") return;
-    if (asset.type === "AUDIO") onToggleAudio(asset);
-    else if (asset.type === "DOC") {
-      if (asset.docFormat === "PDF") window.open(asset.openUrl, "_blank", "noopener,noreferrer");
-      else triggerDownload(asset.openUrl, asset.originalName);
-    } else onOpenMedia(asset);
+    onOpen(asset);
   }
 
   async function removeAsset(asset: RetroAssetView) {
@@ -232,7 +220,7 @@ export default function RetroAssetBlock({
   function tile(asset: RetroAssetView): JSX.Element {
     const local = uploads[asset.id];
     const ready = asset.uploadStatus === "READY";
-    const openLabel = asset.type === "AUDIO" ? "播放" : asset.type === "DOC" ? (asset.docFormat === "PDF" ? "打开" : "下载") : asset.type === "VIDEO" ? "播放" : "查看";
+    const openLabel = asset.type === "AUDIO" || asset.type === "VIDEO" ? "播放" : asset.type === "DOC" ? "预览" : "查看";
     const xButton = editable ? (
       <button type="button" className={styles.x} aria-label={`移除 ${asset.originalName}`} title="移除" onClick={() => requestRemove(asset)}>×</button>
     ) : null;
@@ -249,7 +237,13 @@ export default function RetroAssetBlock({
       return (
         <li key={asset.id} className={`${styles.assetTile} ${styles.docTile}`} data-v04-scheme="dark">
           {open}
-          <span className={styles.pdfIcon}><DocIcon label={docFormatLabel(asset.docFormat)} /><span>{asset.originalName}</span></span>
+          <span className={styles.pdfIcon}>
+            <DocIcon label={docFormatLabel(asset.docFormat)} />
+            <span>{asset.originalName}</span>
+            {ready && asset.derivativeStatus === "PENDING" ? <em className={styles.docState}><span className={`${v04.reviewSpin} ${styles.spinSmall}`} aria-hidden="true" />生成预览中</em> : null}
+            {ready && asset.derivativeStatus === "FAILED" ? <em className={`${styles.docState} ${styles.bad}`}>预览失败</em> : null}
+            {ready && asset.derivativeStatus === "READY" && asset.pages?.length ? <em className={styles.docState}>{asset.pages.length} 页</em> : null}
+          </span>
           {stateLayer}{xButton}
         </li>
       );
@@ -261,7 +255,7 @@ export default function RetroAssetBlock({
         : t?.status === "FAILED" ? <button type="button" className={styles.tileRetry} onClick={() => onRetryTranscript(asset)}>转写失败 · 重试</button>
         : <span className={styles.audioDur}>{t?.durationMs ? formatRetroClock(t.durationMs) : asset.durationSeconds ? formatRetroClock(asset.durationSeconds * 1000) : "--:--"} · 文字稿</span>;
       return (
-        <li key={asset.id} className={`${styles.assetTile} ${styles.docTile} ${styles.audioTile} ${openAudio?.id === asset.id ? styles.on : ""}`.trim()} data-v04-scheme="dark">
+        <li key={asset.id} className={`${styles.assetTile} ${styles.docTile} ${styles.audioTile}`} data-v04-scheme="dark">
           {open}
           <span className={styles.pdfIcon}>
             <span className={styles.audioIcon}><AudioReviewIcon name="mic" /></span>
@@ -321,11 +315,6 @@ export default function RetroAssetBlock({
         accept={RETRO_FILE_ACCEPT}
         onChange={(event) => { void handleRefill(event.target.files); event.target.value = ""; }}
       />
-      {openAudio ? (
-        <div data-retro-audio-panel={openAudio.id}>
-          <AssetAudio asset={openAudio} seek={audioSeek} onClose={() => onToggleAudio(openAudio)} />
-        </div>
-      ) : null}
       {failedCount ? <p className={styles.formErrorText}>有 {failedCount} 个没传上：可以在格子上重传，或者去掉。</p> : null}
       <DeleteConfirmDialog
         open={removing !== null}
@@ -341,40 +330,5 @@ export default function RetroAssetBlock({
         onCancel={() => setRemoving(null)}
       />
     </div>
-  );
-}
-
-/** 附件里的客户录音：播放条 + 文字稿（全员可见）。转写中、转写失败只给一句说明。 */
-function AssetAudio({ asset, seek, onClose }: { asset: RetroAssetView; seek: RetroAudioSeekRequest | null; onClose: () => void }): JSX.Element {
-  const t = asset.transcribe;
-  if (t?.status === "FAILED") {
-    return <p className={styles.recNote}>这段客户录音转写失败，没有文字稿，也不会进入 AI 提炼。可以在格子上重试。</p>;
-  }
-  if (!t || t.status !== "READY" || !t.segments) {
-    return (
-      <p className={styles.recNote}>
-        <span className={`${v04.reviewSpin} ${styles.spinSmall}`} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 6 }} />
-        转写中，完成后文字稿出现在这里。
-      </p>
-    );
-  }
-  const lines = buildClientTranscript(asset.id, t.segments);
-  return (
-    <RetroAudioPanel
-      ownerId={asset.id}
-      src={asset.openUrl}
-      fileName={asset.originalName}
-      durationMs={t.durationMs ?? (asset.durationSeconds ? asset.durationSeconds * 1000 : null)}
-      lines={lines}
-      summary={`文字稿（${lines.length} 句 · 说话人自动区分 · 全员可见）`}
-      seekRequest={seek}
-      extra={(
-        <div className={styles.recParts}>
-          <span className={styles.recMeta}>客户录音 · 转写完成</span>
-          <span className={styles.grow} />
-          <button type="button" className={v04.reviewGhostButton} onClick={onClose}>收起</button>
-        </div>
-      )}
-    />
   );
 }

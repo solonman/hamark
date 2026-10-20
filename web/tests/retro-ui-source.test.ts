@@ -130,7 +130,51 @@ test("dark islands are marked: text cover, attachment tiles, link thumbnails, vi
   assert.equal((sources.get("RetroAssetBlock.tsx")!.match(/data-v04-scheme="dark"/g) ?? []).length, 3, "doc, audio and image/video tiles");
   assert.match(sources.get("RetroRoundCard.tsx")!, /styles\.linkThumb\} data-v04-scheme="dark"/);
   assert.match(sources.get("RetroLinkPicker.tsx")!, /styles\.linkThumb\} data-v04-scheme="dark"/);
-  assert.match(sources.get("RetroCaseClient.tsx")!, /styles\.viewerBody\} data-v04-scheme="dark"/);
+  // 附件弹层：图片、视频、文档的图区都是深色岛，文档缩略条也是。
+  const viewer = sources.get("RetroAssetViewer.tsx")!;
+  assert.equal((viewer.match(/className=\{styles\.viewerBody\} data-v04-scheme="dark"/g) ?? []).length, 3, "image, video and document stages");
+  assert.match(viewer, /className=\{styles\.pageStrip\} ref=\{stripRef\} data-v04-scheme="dark"/);
+  // 卡片：图片封面和文字封面都是深色岛。
+  assert.equal((sources.get("RetroCard.tsx")!.match(/report\.cover[^>]*data-v04-scheme="dark"/g) ?? []).length, 2, "photo and text covers");
+});
+
+test("every attachment opens the one in-site modal: it reuses the .ov frame, and video, audio and documents all go through it (docs/26 4.3)", async () => {
+  const sources = await retroSources();
+  const viewer = sources.get("RetroAssetViewer.tsx")!;
+  const detail = sources.get("RetroCaseClient.tsx")!;
+  const block = sources.get("RetroAssetBlock.tsx")!;
+  // 同一套 .ov 外框：眉头类型、序号、文件名、下载原文件、关闭 esc。
+  for (const name of ["ov", "ovbox", "ovhead", "ovheadT", "ovCount", "smBtn"]) assert.match(viewer, new RegExp(`styles\\.${name}\\b`), name);
+  assert.match(viewer, /\{index \+ 1\} \/ \{siblings\.length\}/);
+  assert.match(viewer, />下载原文件</);
+  assert.match(viewer, />关闭 esc</);
+  assert.match(viewer, /href=\{asset\.openUrl\}/, "download goes through original");
+  // 四类都在弹层里：视频 <video controls> 带截帧 poster、音频是录音条 + 文字稿、文档逐页大图。
+  assert.match(viewer, /<video key=\{asset\.id\} controls[^>]*poster=\{asset\.thumbnailUrl/);
+  assert.match(viewer, /src=\{asset\.streamUrl/);
+  assert.match(viewer, /<RetroAudioPanel/);
+  assert.match(viewer, /buildClientTranscript/);
+  assert.match(viewer, /page\.largeUrl/);
+  assert.match(viewer, /正在生成预览/);
+  assert.match(viewer, /预览生成失败/);
+  assert.match(viewer, /重试转写/);
+  // 文档翻页到首尾不回绕：只在范围内才翻。
+  assert.match(viewer, /next >= 0 && next < pages\.length/);
+  assert.match(viewer, /disabled=\{pageIndex <= 0\}/);
+  assert.match(viewer, /disabled=\{pageIndex >= last\}/);
+  // 键盘监听只挂一次（空依赖，按 ref 读状态）；打开时锁 body 滚动；点遮罩关闭。
+  assert.equal((viewer.match(/addEventListener\("keydown"/g) ?? []).length, 1);
+  assert.match(viewer, /const onKey = \(event: KeyboardEvent\) => keyRef\.current\(event\);[\s\S]{0,160}\}, \[\]\);/);
+  assert.match(viewer, /document\.body\.style\.overflow = "hidden"/);
+  assert.match(viewer, /event\.target === event\.currentTarget\) onClose\(\)/);
+  // 案例页只放一个弹层，格子只交给 onOpen；不再新标签打开 PDF、不再直接下载、不再格内展开录音。
+  assert.equal((detail.match(/<RetroAssetViewer/g) ?? []).length, 1);
+  assert.doesNotMatch(detail, /addEventListener\("keydown"/, "the page does not hang a second key listener");
+  assert.doesNotMatch(detail, /styles\.ov\b/, "no second copy of the modal frame on the page");
+  assert.match(block, /onOpen\(asset\)/);
+  assert.doesNotMatch(block, /window\.open|triggerDownload|RetroAudioPanel|audioOpenId/);
+  // Keynote 不收：文件选择框的 accept 来自 RETRO_FILE_ACCEPT（里面已经没有 .key）。
+  assert.match(block, /accept=\{RETRO_FILE_ACCEPT\}/);
 });
 
 test("no hard-coded colours in the components, except the file-type icon inside the dark attachment tile", async () => {
