@@ -285,6 +285,9 @@ export function checkRetroAttachFile(file: { name: string; type: string; size: n
   const classified = classifyRetroFile(file.name, file.type);
   if (!classified) return { ok: false, reason: `不支持这种文件：${file.name}。支持图片、视频、音频，以及 PDF、Word、Excel、PPT 文档。` };
   if (file.size <= 0) return { ok: false, reason: `「${file.name}」是空文件。` };
+  if (classified.type === "IMAGE" && file.size > RETRO_LIMITS.imageMaxBytes) {
+    return { ok: false, reason: `「${file.name}」超过 20MB，生成不了在线预览；请压缩后再传。` };
+  }
   return { ok: true, type: classified.type };
 }
 

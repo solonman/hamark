@@ -23,12 +23,12 @@ export function retroViewerKindLabel(asset: Pick<RetroAssetView, "type" | "docFo
 
 /**
  * 附件的站内弹层（docs/26 4.3「全部在站内弹层预览」）：案例页上只有这一个，点任何附件格都开它。
- * 外框是报告工作台的 .ov 一组（眉头：类型、同一处同类附件里的序号「2 / 5」、文件名、「下载原文件」「关闭 esc」）：
+ * 外框是报告工作台的 .ov 一组（眉头：类型、同一处同类附件里的序号「2 / 5」、文件名、「关闭 esc」；不提供下载，同视频库、报告库）：
  * - 图片：大图，←→ 在同一处（需求凭证或同一回合）的图片间翻；
  * - 视频：<video controls>，截帧作 poster；关闭（卸载）即停止播放；
  * - 客户录音：录音条 + 文字稿（RetroAudioPanel）；转写中、失败照旧显示，失败可重试；
  * - 文档：逐页大图，←→／按钮翻页，到首尾不回绕（同报告库 ReportPageModal），底部缩略条；
- *   转换中显示「正在生成预览」（案例页按 4 秒轮询刷新），失败显示原因和「下载原文件」。
+ *   转换中显示「正在生成预览」（案例页按 4 秒轮询刷新），失败显示原因。
  * 键盘监听在组件挂载时只挂一次（按 ref 读当前状态）；打开时锁 body 滚动；点遮罩关闭。
  */
 export default function RetroAssetViewer({
@@ -103,9 +103,6 @@ export default function RetroAssetViewer({
   if (!asset) return null;
 
   const kind = retroViewerKindLabel(asset);
-  const download = (
-    <a className={styles.smBtn} href={asset.openUrl} download={asset.originalName} rel="noopener">下载原文件</a>
-  );
 
   let body: JSX.Element;
   let foot: JSX.Element | null = null;
@@ -121,7 +118,7 @@ export default function RetroAssetViewer({
           ) : (
             <div className={styles.viewerNote}>
               <b>{asset.derivativeStatus === "FAILED" ? "预览生成失败" : "正在生成预览"}</b>
-              <small>{asset.derivativeStatus === "FAILED" ? (asset.derivativeError || "处理失败；可以下载原文件查看") : "稍后再看，或者先下载原文件"}</small>
+              <small>{asset.derivativeStatus === "FAILED" ? (asset.derivativeError || "这张图片没能生成预览。") : "稍后再看。"}</small>
             </div>
           )}
         </div>
@@ -155,7 +152,7 @@ export default function RetroAssetViewer({
       stage = (
         <div className={styles.viewerNote}>
           <b><span className={`${v04.reviewSpin} ${styles.spinSmall}`} aria-hidden="true" /> 正在生成预览</b>
-          <small>文档正在转成逐页图片，完成后自动出现在这里；也可以先下载原文件。</small>
+          <small>文档正在转成逐页图片，完成后自动出现在这里。</small>
         </div>
       );
     } else if (asset.derivativeStatus === "FAILED") {
@@ -163,22 +160,20 @@ export default function RetroAssetViewer({
         <div className={styles.viewerNote}>
           <b>预览生成失败</b>
           <small>{asset.derivativeError || "这份文档没能转成逐页图片。"}</small>
-          <span>{download}</span>
         </div>
       );
     } else if (!page) {
       stage = (
         <div className={styles.viewerNote}>
           <b>这份文档没有可预览的页面</b>
-          <small>可以下载原文件查看。</small>
-          <span>{download}</span>
+          <small>数据万象没有转换出页面。</small>
         </div>
       );
     } else if (!page.ok || !page.largeUrl) {
       stage = (
         <div className={styles.viewerNote}>
           <b>第 {page.pageNo} 页转换失败</b>
-          <small>其它页可以照常翻看；这一页请下载原文件查看。</small>
+          <small>其它页可以照常翻看。</small>
         </div>
       );
     } else {
@@ -240,7 +235,6 @@ export default function RetroAssetViewer({
           <b>{kind}</b>
           {siblings.length > 1 ? <span className={styles.ovCount}>{index + 1} / {siblings.length}</span> : null}
           <span className={styles.ovheadT} title={asset.originalName}>{asset.originalName}</span>
-          {download}
           <button type="button" className={styles.smBtn} autoFocus onClick={onClose}>关闭 esc</button>
         </div>
         {body}

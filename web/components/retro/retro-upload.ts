@@ -69,13 +69,3 @@ function readMediaMetadata(file: Blob, tag: "video" | "audio"): Promise<{ durati
 export const readVideoMetadata = (file: Blob) => readMediaMetadata(file, "video");
 export const readAudioMetadata = (file: Blob) => readMediaMetadata(file, "audio");
 
-/** 下载（Word／Excel／PPT 浏览器打不开，点开就是下载；服务端回 Content-Disposition: attachment）。 */
-export function triggerDownload(url: string, fileName: string) {
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.rel = "noopener";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-}

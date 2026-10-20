@@ -241,7 +241,7 @@ export async function checkRetroDocPreview(
   const pageCount = spreadsheet ? pageOutcomes.length : merged.pageCount;
   const pages = retroDocPagesFromCi(pageOutcomes);
   if (!pages.some((page) => page.ok)) {
-    await markDocFailed(db, asset.id, "数据万象没有转换出可以预览的页面；可以下载原文件查看。");
+    await markDocFailed(db, asset.id, "数据万象没有转换出可以预览的页面。");
     return;
   }
   await db.prepare(

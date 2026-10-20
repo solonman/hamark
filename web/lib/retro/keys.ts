@@ -60,11 +60,6 @@ function retroAssetApiBase(caseId: string, assetId: string): string {
   return `/api/retro-cases/${encodeURIComponent(caseId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
-/** 「下载原文件」：所有类型都走 original，以附件方式下载（规格 4.3「全部在站内弹层预览」）。 */
-export function retroAssetOpenPath(caseId: string, assetId: string): string {
-  return `${retroAssetApiBase(caseId, assetId)}/original`;
-}
-
 /** 站内播放：只有视频、音频有，走 stream。 */
 export function retroAssetStreamPath(caseId: string, assetId: string, type: RetroAssetType): string | null {
   return type === "VIDEO" || type === "AUDIO" ? `${retroAssetApiBase(caseId, assetId)}/stream` : null;

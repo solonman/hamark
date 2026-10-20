@@ -12,7 +12,6 @@ import {
   isUniqueViolation,
 } from "../lib/retro/errors";
 import {
-  retroAssetOpenPath,
   retroAssetOriginalKey,
   retroAssetPageKey,
   retroAssetPageTemplate,
@@ -20,7 +19,6 @@ import {
   retroRecordingObjectKey,
 } from "../lib/retro/keys";
 import { nextRetroPartNo } from "../lib/retro/recordings";
-import { retroAttachmentDisposition } from "../lib/retro/assets";
 import { buildRetroHotwords, shouldAdvanceRetroTranscription } from "../lib/retro/transcription";
 import {
   assertRetroAssetCapacity,
@@ -215,10 +213,9 @@ test("each owner (the need module, and each round) holds at most 12 attachments"
   assert.doesNotThrow(() => assertRetroAssetCapacity(new Map([["r1", 12]]), [{ roundId: "r2" }], label));
 });
 
-test("keys live under retro/; every type downloads through original, only video and audio stream", () => {
+test("keys live under retro/; there is no download path, only video and audio stream", () => {
   assert.equal(retroAssetOriginalKey("rtc_1", "rta_1", "客户电话.M4A"), "retro/cases/rtc_1/assets/rta_1/original.m4a");
   assert.equal(retroRecordingObjectKey("rtr_9"), "retro/recordings/rtr_9/original");
-  assert.equal(retroAssetOpenPath("c", "a"), "/api/retro-cases/c/assets/a/original");
   assert.equal(retroAssetStreamPath("c", "a", "IMAGE"), null);
   assert.equal(retroAssetStreamPath("c", "a", "DOC"), null);
   assert.equal(retroAssetStreamPath("c", "a", "VIDEO"), "/api/retro-cases/c/assets/a/stream");
@@ -228,12 +225,6 @@ test("keys live under retro/; every type downloads through original, only video 
   assert.equal(retroAssetPageKey("c", "a", 3, "small"), "retro/cases/c/assets/a/pages/p3.jpg");
   assert.equal(retroAssetPageTemplate("c", "a", "large"), "retro/cases/c/assets/a/pages/p${Number}@2x.jpg");
   assert.equal(retroAssetPageTemplate("c", "a", "small"), "retro/cases/c/assets/a/pages/p${Number}.jpg");
-});
-
-test("office documents download with an ASCII fallback and a UTF-8 file name", () => {
-  const header = retroAttachmentDisposition("方案 v2.docx");
-  assert.match(header, /^attachment; filename="__ v2\.docx"; filename\*=UTF-8''%E6%96%B9%E6%A1%88%20v2\.docx$/);
-  assert.doesNotMatch(retroAttachmentDisposition('a";b.docx'), /filename="a";/);
 });
 
 // ---------------------------------------------------------------------------
@@ -429,4 +420,11 @@ test("a transcribing row is advanced only when its lease is free", () => {
   assert.equal(shouldAdvanceRetroTranscription({ status: "TRANSCRIBING", lease_until: new Date(now + 1000) }, now), false);
   assert.equal(shouldAdvanceRetroTranscription({ status: "READY", lease_until: null }, now), false);
   assert.equal(shouldAdvanceRetroTranscription({ status: "FAILED", lease_until: null }, now), false);
+});
+
+test("images over 20MB are refused at upload: without a download path they could never be viewed", () => {
+  const big = { assets: [{ roundId: null, originalName: "现场.jpg", contentType: "image/jpeg", fileSize: 21 * 1024 * 1024 }] };
+  assert.throws(() => validateRetroNewAssets(big), /超过 20MB，生成不了在线预览/);
+  const ok = { assets: [{ roundId: null, originalName: "现场.jpg", contentType: "image/jpeg", fileSize: 19 * 1024 * 1024 }] };
+  assert.equal(validateRetroNewAssets(ok).length, 1);
 });

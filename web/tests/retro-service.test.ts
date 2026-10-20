@@ -322,11 +322,10 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     assert.equal(asReader.rounds[0].assets.length, 0, "the 12 images were never uploaded");
     const audioView = asEditor.needAssets.find((item) => item.id === audioId)!;
     assert.equal(audioView.transcribe?.status, "TRANSCRIBING");
-    assert.equal(audioView.openUrl, `/api/retro-cases/${caseId}/assets/${audioId}/original`, "download the original file");
+    assert.equal("openUrl" in audioView, false, "no download path (same as the video and report libraries)");
     assert.equal(audioView.streamUrl, `/api/retro-cases/${caseId}/assets/${audioId}/stream`, "play in the site");
     assert.equal(audioView.pages, null, "only documents have pages");
     const pdfView = asEditor.needAssets.find((item) => item.id === pdfId)!;
-    assert.equal(pdfView.openUrl, `/api/retro-cases/${caseId}/assets/${pdfId}/original`);
     assert.equal(pdfView.streamUrl, null);
     // 文档 complete 后进入「正在生成预览」（PENDING），页还没有。
     assert.equal(pdfView.derivativeStatus, "PENDING");
@@ -597,29 +596,18 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     // 对象上存的类型被改成了 text/html：打开时照样按映射值覆盖。
     await pool!.query("UPDATE retro_case_assets SET content_type = 'text/html' WHERE case_id = $1", [caseId]);
 
-    const open = async (assetId: string, mode: "original" | "stream") => {
+    const open = async (assetId: string) => {
       bucket.getOptions.length = 0;
-      await resolveRetroAssetUrl(db, bucket, { caseId, assetId, viewer: OTHER, mode });
+      await resolveRetroAssetUrl(db, bucket, { caseId, assetId, viewer: OTHER });
       return bucket.getOptions[0];
     };
-    assert.equal((await open(audio, "stream")).responseContentType, "audio/mp4");
-    assert.equal((await open(video, "stream")).responseContentType, "video/mp4");
-    assert.equal((await open(image, "original")).responseContentType, "image/png");
-    // 「下载原文件」：预览改走站内弹层，original 对所有类型都以附件方式下载（PDF 也不再内联）。
-    const pdfOpen = await open(pdf, "original");
-    assert.equal(pdfOpen.responseContentType, "application/pdf");
-    assert.match(pdfOpen.responseContentDisposition ?? "", /^attachment; filename="brief\.pdf"/);
-    const docOpen = await open(docx, "original");
-    assert.match(docOpen.responseContentDisposition ?? "", /^attachment; filename=/);
-    assert.equal(docOpen.responseContentType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    for (const assetId of [audio, image, video]) {
-      assert.match((await open(assetId, "original")).responseContentDisposition ?? "", /^attachment; filename=/, assetId);
-    }
-    assert.equal((await open(audio, "original")).responseContentType, "audio/mp4");
-    // 站内播放的 stream 不带下载头；图片、文档没有 stream（404）。
-    assert.equal((await open(video, "stream")).responseContentDisposition, undefined);
-    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: image, viewer: OTHER, mode: "stream" }), 404, "NOT_FOUND");
-    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: pdf, viewer: OTHER, mode: "stream" }), 404, "NOT_FOUND");
+    assert.equal((await open(audio)).responseContentType, "audio/mp4");
+    assert.equal((await open(video)).responseContentType, "video/mp4");
+    // 站内播放不带下载头；图片、文档没有任何直出原件的地址（404），只看派生图／逐页图。
+    assert.equal((await open(video)).responseContentDisposition, undefined);
+    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: image, viewer: OTHER }), 404, "NOT_FOUND");
+    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: pdf, viewer: OTHER }), 404, "NOT_FOUND");
+    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: docx, viewer: OTHER }), 404, "NOT_FOUND");
   });
 
   dbTest("a review recording stuck in UPLOADING for over an hour is failed lazily and its part number is released when needed", async () => {

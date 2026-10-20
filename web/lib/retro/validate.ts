@@ -228,6 +228,9 @@ export function validateRetroNewAssets(body: unknown): NormalizedRetroAsset[] {
     if (!classified) throw retroInvalid(`不支持「${originalName}」这种文件。${RETRO_FILE_TYPES_HINT}。`);
     const fileSize = Number(item.fileSize);
     if (!Number.isSafeInteger(fileSize) || fileSize <= 0) throw retroInvalid(`「${originalName}」的文件大小无效。`);
+    if (classified.type === "IMAGE" && fileSize > RETRO_LIMITS.imageMaxBytes) {
+      throw retroInvalid(`「${originalName}」超过 20MB，生成不了在线预览；请压缩后再传。`);
+    }
     if (classified.type === "AUDIO" && fileSize > RETRO_LIMITS.recordingMaxBytes) {
       throw retroInvalid(`「${originalName}」超过 500MB，录音文件不能超过 500MB。`);
     }

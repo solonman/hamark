@@ -90,6 +90,8 @@ export const RETRO_TRANSFER_LABELS: Record<RetroMethodTransfer, string> = {
 // ---------------------------------------------------------------------------
 
 export const RETRO_LIMITS = {
+  /** 图片上限：数据万象只处理 20MB 以内的图，超了出不了预览；复盘库不提供原文件下载，所以上传时就拦下。 */
+  imageMaxBytes: 20 * 1024 * 1024,
   departmentMax: 30,
   clientMax: 60,
   titleMax: 80,
@@ -367,8 +369,6 @@ export type RetroAssetView = {
   thumbnailUrl: string | null;
   /** 图片 1600w；其它类型为 null。 */
   displayUrl: string | null;
-  /** 「下载原文件」：所有类型都走 …/original，以附件方式下载（预览一律在站内弹层里看）。 */
-  openUrl: string;
   /** 站内播放：视频、音频走 …/stream；其它类型为 null。 */
   streamUrl: string | null;
   /**

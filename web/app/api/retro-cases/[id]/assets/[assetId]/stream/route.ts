@@ -8,7 +8,7 @@ export const maxDuration = 300;
 export async function GET(request: Request, context: { params: Promise<{ id: string; assetId: string }> }) {
   return retroRoute(request, { mutation: false }, async ({ viewer }) => {
     const { id, assetId } = await context.params;
-    const location = await resolveRetroAssetUrl(getDbClient(), lazyRetroBucket, { caseId: id, assetId, viewer, mode: "stream" });
+    const location = await resolveRetroAssetUrl(getDbClient(), lazyRetroBucket, { caseId: id, assetId, viewer });
     return new Response(null, {
       status: 302,
       headers: {

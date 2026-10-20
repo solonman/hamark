@@ -18,7 +18,7 @@ import {
 import { VISUAL_SUBDOMAIN_SPECS, isVisualSubdomain } from "@/lib/visual-contract";
 import type { VideoBucket } from "@/storage/types";
 import { retroDocPagesFromStored } from "./doc-preview";
-import { retroAssetOpenPath, retroAssetStreamPath, retroRecordingAudioPath } from "./keys";
+import { retroAssetStreamPath, retroRecordingAudioPath } from "./keys";
 import { retroSegmentsFromStored } from "./transcription";
 
 export const RETRO_SIGNED_URL_TTL_SECONDS = 3 * 60 * 60;
@@ -97,7 +97,6 @@ export async function buildRetroAssetViews(bucket: SigningBucket, rows: readonly
       derivativeError: row.derivative_error,
       thumbnailUrl,
       displayUrl,
-      openUrl: retroAssetOpenPath(row.case_id, row.id),
       streamUrl: retroAssetStreamPath(row.case_id, row.id, type),
       pages: type === "DOC" ? await buildRetroDocPages(bucket, row) : null,
       transcribe: type === "AUDIO"

@@ -26,7 +26,6 @@ const ROUTES: RouteSpec[] = [
   { file: `${CASES}/[id]/assets/complete/route.ts`, methods: [{ name: "POST", mutation: true }], external: true },
   { file: `${CASES}/[id]/assets/[assetId]/route.ts`, methods: [{ name: "DELETE", mutation: true }], external: true },
   { file: `${CASES}/[id]/assets/[assetId]/upload-url/route.ts`, methods: [{ name: "POST", mutation: true }], external: true },
-  { file: `${CASES}/[id]/assets/[assetId]/original/route.ts`, methods: [{ name: "GET", mutation: false }], external: true },
   { file: `${CASES}/[id]/assets/[assetId]/stream/route.ts`, methods: [{ name: "GET", mutation: false }], external: true },
   { file: `${CASES}/[id]/assets/[assetId]/transcript/route.ts`, methods: [{ name: "GET", mutation: false }, { name: "POST", mutation: true }], external: true },
   { file: `${RECORDINGS}/route.ts`, methods: [{ name: "POST", mutation: true }], external: true },
@@ -105,10 +104,9 @@ test("write routes after() schedule transcription and image derivatives instead 
   assert.match(shell, /after\(async \(\) => \{[\s\S]*advanceRetroTranscription\([\s\S]*startedAt \+ RETRO_TRANSCRIBE_DEADLINE_MS/);
 });
 
-test("stream and original redirect with 302, the recording audio with 307", async () => {
-  for (const file of ["original", "stream"]) {
-    assert.match(codeOnly(await source(`../${CASES}/[id]/assets/[assetId]/${file}/route.ts`)), /status: 302/);
-  }
+test("stream redirects with 302, the recording audio with 307; there is no original/download route", async () => {
+  assert.match(codeOnly(await source(`../${CASES}/[id]/assets/[assetId]/stream/route.ts`)), /status: 302/);
+  await assert.rejects(source(`../${CASES}/[id]/assets/[assetId]/original/route.ts`), "no download path, same as the video and report libraries");
   assert.match(codeOnly(await source(`../${RECORDINGS}/[id]/audio/route.ts`)), /status: 307/);
 });
 

@@ -143,12 +143,12 @@ test("every attachment opens the one in-site modal: it reuses the .ov frame, and
   const viewer = sources.get("RetroAssetViewer.tsx")!;
   const detail = sources.get("RetroCaseClient.tsx")!;
   const block = sources.get("RetroAssetBlock.tsx")!;
-  // 同一套 .ov 外框：眉头类型、序号、文件名、下载原文件、关闭 esc。
+  // 同一套 .ov 外框：眉头类型、序号、文件名、关闭 esc；不提供下载（同视频库、报告库）。
   for (const name of ["ov", "ovbox", "ovhead", "ovheadT", "ovCount", "smBtn"]) assert.match(viewer, new RegExp(`styles\\.${name}\\b`), name);
   assert.match(viewer, /\{index \+ 1\} \/ \{siblings\.length\}/);
-  assert.match(viewer, />下载原文件</);
+  assert.doesNotMatch(viewer, />[^<{]*下载[^<]*</, "no download button");
+  assert.doesNotMatch(viewer, /\bdownload=/, "no download attribute");
   assert.match(viewer, />关闭 esc</);
-  assert.match(viewer, /href=\{asset\.openUrl\}/, "download goes through original");
   // 四类都在弹层里：视频 <video controls> 带截帧 poster、音频是录音条 + 文字稿、文档逐页大图。
   assert.match(viewer, /<video key=\{asset\.id\} controls[^>]*poster=\{asset\.thumbnailUrl/);
   assert.match(viewer, /src=\{asset\.streamUrl/);

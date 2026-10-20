@@ -155,8 +155,8 @@ async function processImage(db: DbClient, row: PendingImageRow): Promise<void> {
     }
     console.log(`[${row.id}] 派生图完成。`);
   } catch (error) {
-    // sharp 读不了（比如部分 HEIC 变体、损坏文件）就判 FAILED，原图仍然可以查看。
-    await markFailed(db, row.id, "本机脚本处理不了这种格式；可以查看原图");
+    // sharp 读不了（比如部分 HEIC 变体、损坏文件）就判 FAILED。
+    await markFailed(db, row.id, "本机脚本处理不了这种格式。");
     console.error(`[${row.id}] sharp 处理失败：`, error);
   }
 }
@@ -223,7 +223,7 @@ async function processDoc(db: DbClient, row: PendingDocRow): Promise<void> {
       .run();
     console.log(`[${row.id}] 文档占位页图完成（${pages.length} 页）。`);
   } catch (error) {
-    await markFailed(db, row.id, "本机脚本没能生成占位页图；可以下载原文件查看");
+    await markFailed(db, row.id, "本机脚本没能生成占位页图。");
     console.error(`[${row.id}] 占位页图生成失败：`, error);
   }
 }

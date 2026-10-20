@@ -31,7 +31,6 @@ import { assertRetroAssetCapacity, retroContentTypeFor, validateRetroNewAssets }
 
 export const RETRO_UPLOAD_URL_TTL_SECONDS = 600;
 export const RETRO_STREAM_URL_TTL_SECONDS = 15 * 60;
-export const RETRO_ORIGINAL_URL_TTL_SECONDS = 3 * 60 * 60;
 
 type Editor = Pick<RetroViewer, "userId" | "isAdmin">;
 
@@ -251,8 +250,8 @@ export async function removeRetroAsset(
 }
 
 // ---------------------------------------------------------------------------
-// 打开：original 是「下载原文件」，所有类型都以附件方式下载（预览一律在站内弹层里看，规格 4.3）；
-// stream 是视频、音频的站内播放。302 到新签的地址。
+// 打开：只有 stream——视频、音频的站内播放，302 到新签的地址。不提供原文件下载（同视频库、报告库，
+// 2026-10-20 项目负责人定）：图片看派生图，文档看逐页图，都在站内弹层里。
 // ---------------------------------------------------------------------------
 
 type OpenRow = QueryResultRow & {
@@ -265,16 +264,10 @@ type OpenRow = QueryResultRow & {
   upload_status: string;
 };
 
-/** Content-Disposition 里文件名要同时给 ASCII 兜底和 UTF-8 编码版（RFC 6266）。 */
-export function retroAttachmentDisposition(fileName: string): string {
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\;]/g, "_");
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`;
-}
-
 export async function resolveRetroAssetUrl(
   db: DbClient,
   bucket: Pick<VideoBucket, "createPresignedGetUrl">,
-  input: { caseId: string; assetId: string; viewer: Editor; mode: "original" | "stream" },
+  input: { caseId: string; assetId: string; viewer: Editor },
 ): Promise<string> {
   const head = await loadRetroCaseHead(db, input.caseId);
   if (!head || head.deleted) throw retroNotFound("案例不存在或已进入回收站。");
@@ -284,21 +277,13 @@ export async function resolveRetroAssetUrl(
   ).bind(input.assetId, input.caseId).first<OpenRow>();
   if (!row || (!canEdit && row.upload_status !== "READY")) throw retroNotFound("附件不存在。");
   const type = row.type as RetroAssetType;
-  const streamable = type === "VIDEO" || type === "AUDIO";
-  if (input.mode === "stream" && !streamable) throw retroNotFound("附件类型不对。");
+  if (type !== "VIDEO" && type !== "AUDIO") throw retroNotFound("附件类型不对。");
 
   // 浏览器拿到的 Content-Type 一律是白名单映射值（按扩展名），不信对象上存的那个。
   const fixedType = retroContentTypeFor(row.original_name, row.content_type);
   const typeOverride = fixedType ? { responseContentType: fixedType } : {};
 
-  if (input.mode === "stream") {
-    return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_STREAM_URL_TTL_SECONDS, ...typeOverride });
-  }
-  return bucket.createPresignedGetUrl(row.object_key, {
-    expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS,
-    ...typeOverride,
-    responseContentDisposition: retroAttachmentDisposition(row.original_name || "附件"),
-  });
+  return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_STREAM_URL_TTL_SECONDS, ...typeOverride });
 }
 
 // ---------------------------------------------------------------------------
