@@ -11,7 +11,14 @@ import {
   isMissingRetroSchema,
   isUniqueViolation,
 } from "../lib/retro/errors";
-import { retroAssetOpenPath, retroAssetOriginalKey, retroRecordingObjectKey } from "../lib/retro/keys";
+import {
+  retroAssetOpenPath,
+  retroAssetOriginalKey,
+  retroAssetPageKey,
+  retroAssetPageTemplate,
+  retroAssetStreamPath,
+  retroRecordingObjectKey,
+} from "../lib/retro/keys";
 import { nextRetroPartNo } from "../lib/retro/recordings";
 import { retroAttachmentDisposition } from "../lib/retro/assets";
 import { buildRetroHotwords, shouldAdvanceRetroTranscription } from "../lib/retro/transcription";
@@ -152,7 +159,7 @@ test("attachments are classified image / video / audio / document and everything
     ["brief.pdf", "application/pdf", "DOC", "PDF"],
     ["方案.docx", "", "DOC", "WORD"],
     ["预算.xlsx", "", "DOC", "EXCEL"],
-    ["提案.key", "", "DOC", "PPT"],
+    ["提案.pptx", "", "DOC", "PPT"],
   ];
   for (const [name, type, kind, format] of cases) {
     const [normalised] = validateRetroNewAssets({ assets: [asset(name, { contentType: type })] });
@@ -162,6 +169,13 @@ test("attachments are classified image / video / audio / document and everything
   for (const name of ["动图.gif", "logo.svg", "压缩包.zip", "脚本.js", "无扩展名"]) {
     rejects(() => validateRetroNewAssets({ assets: [asset(name)] }), /支持图片、视频、音频，以及 PDF、Word、Excel、PPT 文档/);
   }
+});
+
+test("Keynote is refused with its own hint: export PDF or PPTX first (数据万象不能转换 .key)", () => {
+  rejects(() => validateRetroNewAssets({ assets: [asset("提案.key")] }), /「提案\.key」：Keynote 不能在线预览，请导出 PDF 或 PPTX 再传/);
+  rejects(() => validateRetroNewAssets({ assets: [asset("提案.KEY")] }), /Keynote 不能在线预览/);
+  rejects(() => validateRetroNewAssets({ assets: [asset("无扩展名", { contentType: "application/vnd.apple.keynote" })] }), /Keynote 不能在线预览/);
+  assert.equal(retroContentTypeFor("提案.key", "application/vnd.apple.keynote"), null, ".key is no longer in the whitelist");
 });
 
 test("the stored content type is a fixed whitelist value mapped from the extension, never what the browser claims", () => {
@@ -201,13 +215,19 @@ test("each owner (the need module, and each round) holds at most 12 attachments"
   assert.doesNotThrow(() => assertRetroAssetCapacity(new Map([["r1", 12]]), [{ roundId: "r2" }], label));
 });
 
-test("keys live under retro/ and the open path depends on the type", () => {
+test("keys live under retro/; every type downloads through original, only video and audio stream", () => {
   assert.equal(retroAssetOriginalKey("rtc_1", "rta_1", "客户电话.M4A"), "retro/cases/rtc_1/assets/rta_1/original.m4a");
   assert.equal(retroRecordingObjectKey("rtr_9"), "retro/recordings/rtr_9/original");
-  assert.equal(retroAssetOpenPath("c", "a", "IMAGE"), "/api/retro-cases/c/assets/a/original");
-  assert.equal(retroAssetOpenPath("c", "a", "DOC"), "/api/retro-cases/c/assets/a/original");
-  assert.equal(retroAssetOpenPath("c", "a", "VIDEO"), "/api/retro-cases/c/assets/a/stream");
-  assert.equal(retroAssetOpenPath("c", "a", "AUDIO"), "/api/retro-cases/c/assets/a/stream");
+  assert.equal(retroAssetOpenPath("c", "a"), "/api/retro-cases/c/assets/a/original");
+  assert.equal(retroAssetStreamPath("c", "a", "IMAGE"), null);
+  assert.equal(retroAssetStreamPath("c", "a", "DOC"), null);
+  assert.equal(retroAssetStreamPath("c", "a", "VIDEO"), "/api/retro-cases/c/assets/a/stream");
+  assert.equal(retroAssetStreamPath("c", "a", "AUDIO"), "/api/retro-cases/c/assets/a/stream");
+  // 文档逐页预览：pages/p{N}@2x.jpg（1600w）与 p{N}.jpg（480w），数据万象模板用 ${Number}。
+  assert.equal(retroAssetPageKey("c", "a", 3, "large"), "retro/cases/c/assets/a/pages/p3@2x.jpg");
+  assert.equal(retroAssetPageKey("c", "a", 3, "small"), "retro/cases/c/assets/a/pages/p3.jpg");
+  assert.equal(retroAssetPageTemplate("c", "a", "large"), "retro/cases/c/assets/a/pages/p${Number}@2x.jpg");
+  assert.equal(retroAssetPageTemplate("c", "a", "small"), "retro/cases/c/assets/a/pages/p${Number}.jpg");
 });
 
 test("office documents download with an ASCII fallback and a UTF-8 file name", () => {

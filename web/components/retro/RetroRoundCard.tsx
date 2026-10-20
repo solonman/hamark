@@ -10,17 +10,14 @@ import {
 } from "@/lib/retro-model";
 import V19EditableValue from "../v04/V19EditableValue";
 import RetroAssetBlock from "./RetroAssetBlock";
-import type { RetroAudioSeekRequest } from "./RetroAudioPanel";
 import styles from "./Retro.module.css";
 
 export type RetroAssetHost = {
   caseId: string;
   notify: (message: string, tone?: "plain" | "warn") => void;
   refresh: () => Promise<void>;
-  onOpenMedia: (asset: RetroAssetView) => void;
-  audioOpenId: string | null;
-  audioSeek: RetroAudioSeekRequest | null;
-  onToggleAudio: (asset: RetroAssetView) => void;
+  /** 点任何附件格都打开站内弹层（规格 4.3「全部在站内弹层预览」）。 */
+  onOpen: (asset: RetroAssetView) => void;
   onRetryTranscript: (asset: RetroAssetView) => void;
 };
 
@@ -121,10 +118,7 @@ export default function RetroRoundCard({
             variant="round"
             notify={assetHost.notify}
             refresh={assetHost.refresh}
-            onOpenMedia={assetHost.onOpenMedia}
-            audioOpenId={assetHost.audioOpenId}
-            audioSeek={assetHost.audioSeek}
-            onToggleAudio={assetHost.onToggleAudio}
+            onOpen={assetHost.onOpen}
             onRetryTranscript={assetHost.onRetryTranscript}
           />
           {links.length || editable ? (

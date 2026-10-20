@@ -2,6 +2,7 @@
 //   retro/cases/{caseId}/assets/{assetId}/original.<ext>   附件原件（需求凭证与回合附件同一目录，归属看 round_id）
 //   retro/cases/{caseId}/assets/{assetId}/cover.jpg        视频封面（浏览器截帧）
 //   retro/cases/{caseId}/assets/{assetId}/thumb.jpg|display.jpg   图片派生图
+//   retro/cases/{caseId}/assets/{assetId}/pages/p{N}@2x.jpg|p{N}.jpg   文档逐页预览（1600w 大图、480w 小图，N 从 1 起）
 //   retro/recordings/{id}/original                          点评录音
 
 import type { RetroAssetType } from "@/lib/retro-model";
@@ -27,6 +28,21 @@ export function retroAssetDisplayKey(caseId: string, assetId: string): string {
   return `${retroAssetDir(caseId, assetId)}/display.jpg`;
 }
 
+export type RetroPageSize = "large" | "small";
+
+export function retroAssetPagesDir(caseId: string, assetId: string): string {
+  return `${retroAssetDir(caseId, assetId)}/pages/`;
+}
+
+/** 数据万象 doc_jobs 的输出模板：`${Number}` 由数据万象换成页号（从 1 起）。 */
+export function retroAssetPageTemplate(caseId: string, assetId: string, size: RetroPageSize): string {
+  return `${retroAssetPagesDir(caseId, assetId)}p\${Number}${size === "large" ? "@2x" : ""}.jpg`;
+}
+
+export function retroAssetPageKey(caseId: string, assetId: string, pageNo: number, size: RetroPageSize): string {
+  return `${retroAssetPagesDir(caseId, assetId)}p${pageNo}${size === "large" ? "@2x" : ""}.jpg`;
+}
+
 export function retroRecordingObjectKey(recordingId: string): string {
   return `retro/recordings/${recordingId}/original`;
 }
@@ -35,10 +51,18 @@ export function retroRecordingAudioPath(recordingId: string): string {
   return `/api/retro-recordings/${encodeURIComponent(recordingId)}/audio`;
 }
 
-/** 站内打开地址：图片原图、PDF、Office 下载走 original；视频、音频走 stream（规格 4.3、九）。 */
-export function retroAssetOpenPath(caseId: string, assetId: string, type: RetroAssetType): string {
-  const base = `/api/retro-cases/${encodeURIComponent(caseId)}/assets/${encodeURIComponent(assetId)}`;
-  return type === "VIDEO" || type === "AUDIO" ? `${base}/stream` : `${base}/original`;
+function retroAssetApiBase(caseId: string, assetId: string): string {
+  return `/api/retro-cases/${encodeURIComponent(caseId)}/assets/${encodeURIComponent(assetId)}`;
+}
+
+/** 「下载原文件」：所有类型都走 original，以附件方式下载（规格 4.3「全部在站内弹层预览」）。 */
+export function retroAssetOpenPath(caseId: string, assetId: string): string {
+  return `${retroAssetApiBase(caseId, assetId)}/original`;
+}
+
+/** 站内播放：只有视频、音频有，走 stream。 */
+export function retroAssetStreamPath(caseId: string, assetId: string, type: RetroAssetType): string | null {
+  return type === "VIDEO" || type === "AUDIO" ? `${retroAssetApiBase(caseId, assetId)}/stream` : null;
 }
 
 /** 新行 id：前缀 + UUID（案例 rtc、回合 rnd、附件 rta、录音 rtr）。自己写一份，免得拉进只能在 Next 里加载的会话模块。 */

@@ -1,5 +1,5 @@
-// GET /api/retro-cases/[id]/assets/[assetId]/original：图片原图、PDF（内联，新标签页打开）、
-// Word／Excel／PPT（以附件下载）。只对能看这个案例的人放行，302 到新签的地址。
+// GET /api/retro-cases/[id]/assets/[assetId]/original：「下载原文件」。所有类型都以附件方式下载
+// （预览一律在站内弹层里看，docs/26 4.3）。只对能看这个案例的人放行，302 到新签的地址。
 import { getDbClient } from "@/db";
 import { resolveRetroAssetUrl } from "@/lib/retro/assets";
 import { lazyRetroBucket, retroRoute } from "@/lib/retro/route";

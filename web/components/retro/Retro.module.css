@@ -52,6 +52,11 @@
 .coverTrack li[data-fb="1"] i { background: #10110f; box-shadow: 0 0 0 2px #dfff4f; }
 .coverTrack li[data-empty="1"] i { background: transparent; box-shadow: inset 0 0 0 1px #8b8e83; }
 .coverTrack span { overflow: hidden; max-width: 100%; color: #b9bbb2; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+/* 图片封面（规格 10.2，2026-10-20）：报告库 .cover 的 4:3 骨架 + .coverImage（object-fit: cover），
+   部门 chip、录音标记叠在图上；底部渐变（.cover::after）上写客户名和回合轨迹。深色岛，用变量。 */
+.coverPhotoClient { position: absolute; left: 18px; right: 18px; bottom: 42px; z-index: 3; overflow: hidden; margin: 0; color: var(--v04-ink); font-size: 20px; font-weight: 900; letter-spacing: -.03em; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 8px rgb(var(--v04-shadow-rgb) / .6); }
+.root .coverPhoto { color: var(--v04-ink); text-decoration: none; }
+.root .coverPhoto::after { background: linear-gradient(180deg, transparent 40%, rgb(var(--v04-shadow-rgb) / .78)); }
 
 /* 卡片上「传点评录音」快捷按钮：报告库 .retryButton 的字号会被 .surface button 压掉，补到 (0,2,0)。 */
 .root .quickBtn { font-size: 10.5px; }
@@ -383,6 +388,34 @@
 .viewerImage { position: relative; width: min(100%, 900px); aspect-ratio: 4 / 3; max-height: 100%; border: 1px solid rgba(255,255,255,.12); overflow: hidden; }
 .viewerImage img, .viewerImage video { display: block; width: 100%; height: 100%; object-fit: contain; background: #080907; }
 .viewerNote { display: grid; place-content: center; gap: 8px; width: 100%; height: 100%; color: #a3a69b; font-size: 12px; text-align: center; }
+.viewerNote b { display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--v04-ink); font-size: 13px; }
+.viewerNote small { max-width: 420px; color: var(--v04-muted); font-size: 11.5px; line-height: 1.6; }
+.viewerNote .spinSmall { width: 12px; height: 12px; border-width: 1.5px; }
+
+/* ---------------- 附件弹层（docs/26 4.3「全部在站内弹层预览」）：同一套 .ov 外框，按类型换主体 ----------------
+   图区（图片、视频、文档页）在 .viewerBody 里，是深色岛（元素上 data-v04-scheme="dark"），这里只用 --v04-* 变量；
+   客户录音的主体跟着主题走（录音条与文字稿是站里的 V19AudioReview* 原件）。按钮规则套 .root，特异性 (0,2,0)。 */
+.ovCount { flex: none; color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; white-space: nowrap; }
+.root .smBtn:disabled { cursor: default; opacity: .38; }
+.root .viewerNav { position: absolute; top: 50%; z-index: 3; display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--v04-line); border-radius: 50%; background: rgb(var(--v04-panel-rgb) / .72); color: var(--v04-ink); font-size: 22px; line-height: 1; transform: translateY(-50%); cursor: pointer; }
+.root .viewerNav:hover:not(:disabled) { border-color: rgb(var(--v04-accent-rgb) / .6); color: var(--v04-accent); }
+.root .viewerNav:disabled { cursor: default; opacity: .28; }
+.root .viewerNav[data-dir="prev"] { left: 14px; }
+.root .viewerNav[data-dir="next"] { right: 14px; }
+.viewerPage { position: absolute; inset: 20px 66px; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; }
+.viewerPage img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 10px 40px rgb(var(--v04-shadow-rgb) / .5); }
+.viewerAudio { display: grid; flex: 1; min-height: 0; align-content: start; gap: 12px; overflow: auto; padding: 18px 20px 24px; }
+.ovfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 9px 15px; border-top: 1px solid var(--v04-line); }
+.ovfootNav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ovfootCnt { padding: 0 4px; color: var(--v04-ink-dim); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; white-space: nowrap; }
+.pageStrip { display: flex; flex: 1 1 220px; gap: 4px; min-width: 0; overflow-x: auto; padding: 3px 2px; border-radius: 6px; background: var(--v04-sunken); }
+.root .pageCell { position: relative; display: grid; flex: none; width: 46px; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border: 1px solid var(--v04-line); border-radius: 4px; background: var(--v04-panel-deep); color: var(--v04-muted); padding: 0; font-size: 9px; cursor: pointer; }
+.root .pageCell img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.root .pageCell[data-on="1"] { border-color: var(--v04-accent); box-shadow: 0 0 0 1px var(--v04-accent); }
+/* 文档格上的预览状态（深色岛里，用变量）。 */
+.docState { display: inline-flex; align-items: center; gap: 4px; color: var(--v04-muted); font-size: 9px; font-style: normal; }
+.docState.bad { color: var(--v04-danger-2); }
+.docState .spinSmall { width: 9px; height: 9px; border-width: 1.5px; }
 
 @media (max-width: 960px) {
   .monthHero { grid-template-columns: 1fr; gap: 0; }
@@ -421,6 +454,19 @@
   .draftBar > span { flex-basis: 100%; }
   .linkCards { grid-template-columns: 1fr; }
   .viewerBody { padding: 12px; }
+  /* 390 宽：弹层铺满屏幕，眉头两行（文件名单独一行），翻页按钮缩小，不横向溢出。 */
+  .ovbox { width: 100vw; height: 100dvh; border: 0; border-radius: 0; }
+  .ovhead { flex-wrap: wrap; gap: 6px 8px; padding: 8px 12px; }
+  .ovheadT { flex-basis: 100%; order: 9; }
+  .ovhead b { margin-right: auto; }
+  .root .viewerNav { width: 34px; height: 34px; font-size: 18px; }
+  .root .viewerNav[data-dir="prev"] { left: 6px; }
+  .root .viewerNav[data-dir="next"] { right: 6px; }
+  .viewerPage { inset: 12px 44px; }
+  .viewerAudio { padding: 14px 12px 20px; }
+  .ovfoot { gap: 8px; padding: 8px 12px; }
+  .ovfootNav { width: 100%; justify-content: space-between; }
+  .root .ovfootNav .smBtn { padding: 6px 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .roundCard.flash { animation: none; }

@@ -17,10 +17,12 @@ import type { VideoBucket } from "@/storage/types";
 import { canEditRetroCase, type RetroViewer } from "./access";
 import { loadRetroCaseHead, requireEditableRetroCase, touchRetroCase } from "./case-head";
 import { retroConflict, retroInvalid, retroNotFound } from "./errors";
+import { retroDocPagesFromStored } from "./doc-preview";
 import {
   retroAssetCoverKey,
   retroAssetDisplayKey,
   retroAssetOriginalKey,
+  retroAssetPageKey,
   retroAssetThumbKey,
   retroNewId,
 } from "./keys";
@@ -122,6 +124,8 @@ export type RetroCompleteOutcome = {
   transcribingAssetIds: string[];
   /** 这次有图片进入 PENDING，路由在 ci 模式下要触发派生图。 */
   hasPendingImages: boolean;
+  /** 这次有文档进入 PENDING（等逐页预览），路由在 ci 模式下要提交数据万象文档转换。 */
+  hasPendingDocs: boolean;
 };
 
 type CompleteRow = QueryResultRow & { id: string; type: string; object_key: string; file_size: number | string; upload_status: string };
@@ -144,7 +148,7 @@ export async function completeRetroAssets(
   const wanted = requested ? new Set(requested as string[]) : null;
   const targets = rows.filter((row) => (wanted ? wanted.has(row.id) : row.upload_status !== "READY"));
 
-  const outcome: RetroCompleteOutcome = { missing: [], transcribingAssetIds: [], hasPendingImages: false };
+  const outcome: RetroCompleteOutcome = { missing: [], transcribingAssetIds: [], hasPendingImages: false, hasPendingDocs: false };
   for (const asset of targets) {
     if (asset.upload_status === "READY") continue;
     const object = await bucket.head(asset.object_key);
@@ -180,8 +184,16 @@ export async function completeRetroAssets(
         ).bind(object.size, asset.id).run();
         outcome.hasPendingImages = true;
       }
+    } else if (asset.type === "DOC") {
+      // 文档要转成逐页图片才能在站内预览（规格 4.3）：PENDING 表示「正在生成预览」。
+      await db.prepare(
+        `UPDATE retro_case_assets SET upload_status = 'READY', file_size = ?, derivative_status = 'PENDING', derivative_error = NULL,
+           derivative_requested_at = NULL, ci_job_large = NULL, ci_job_small = NULL, ci_checked_at = NULL,
+           page_count = 0, pages_json = NULL, updated_at = now() WHERE id = ?`,
+      ).bind(object.size, asset.id).run();
+      outcome.hasPendingDocs = true;
     } else {
-      // AUDIO、DOC 没有派生图：直接就绪。
+      // AUDIO 没有派生图：直接就绪，进入转写。
       await db.prepare(
         `UPDATE retro_case_assets SET upload_status = 'READY', file_size = ?, derivative_status = 'READY',
            derivative_error = NULL, updated_at = now() WHERE id = ?`,
@@ -208,8 +220,8 @@ export async function removeRetroAsset(
 ): Promise<{ ok: true }> {
   const objectKeys = await db.withTransaction(async (tx) => {
     await requireEditableRetroCase(tx, caseId, viewer, { lock: true });
-    const target = await tx.prepare(`SELECT id, round_id, object_key FROM retro_case_assets WHERE id = ? AND case_id = ?`)
-      .bind(assetId, caseId).first<QueryResultRow & { id: string; round_id: string | null; object_key: string }>();
+    const target = await tx.prepare(`SELECT id, round_id, object_key, page_count, pages_json FROM retro_case_assets WHERE id = ? AND case_id = ?`)
+      .bind(assetId, caseId).first<QueryResultRow & { id: string; round_id: string | null; object_key: string; page_count: number | null; pages_json: unknown }>();
     if (!target) throw retroNotFound("附件不存在或已移除。");
     await tx.prepare(`DELETE FROM retro_case_assets WHERE id = ? AND case_id = ?`).bind(assetId, caseId).run();
     // 同一归属里剩下的重新排成 0..n-1。
@@ -220,12 +232,18 @@ export async function removeRetroAsset(
       await tx.prepare(`UPDATE retro_case_assets SET position = ? WHERE id = ?`).bind(index, siblings.results[index].id).run();
     }
     await touchRetroCase(tx, caseId);
-    return [
+    // 文档的逐页预览：按页数把两档页图都删掉（存了数据万象给的键就用存的，没存就按约定文件名）。
+    const pageKeys = retroDocPagesFromStored(target.pages_json, caseId, assetId).flatMap((page) => [page.thumbKey, page.largeKey]);
+    for (let pageNo = 1; pageNo <= (Number(target.page_count) || 0); pageNo += 1) {
+      pageKeys.push(retroAssetPageKey(caseId, assetId, pageNo, "small"), retroAssetPageKey(caseId, assetId, pageNo, "large"));
+    }
+    return [...new Set([
       target.object_key,
       retroAssetCoverKey(caseId, assetId),
       retroAssetThumbKey(caseId, assetId),
       retroAssetDisplayKey(caseId, assetId),
-    ];
+      ...pageKeys.filter((key): key is string => Boolean(key)),
+    ])];
   });
   // 无论附件当时传到哪一步，这几个键有几个算几个：delete 对不存在的对象本身是幂等的。
   await Promise.all(objectKeys.map((key) => bucket.delete(key).catch(() => undefined)));
@@ -233,7 +251,8 @@ export async function removeRetroAsset(
 }
 
 // ---------------------------------------------------------------------------
-// 打开：图片原图、PDF 内联、Office 下载（original）；视频、音频（stream）。302 到新签的地址。
+// 打开：original 是「下载原文件」，所有类型都以附件方式下载（预览一律在站内弹层里看，规格 4.3）；
+// stream 是视频、音频的站内播放。302 到新签的地址。
 // ---------------------------------------------------------------------------
 
 type OpenRow = QueryResultRow & {
@@ -266,7 +285,7 @@ export async function resolveRetroAssetUrl(
   if (!row || (!canEdit && row.upload_status !== "READY")) throw retroNotFound("附件不存在。");
   const type = row.type as RetroAssetType;
   const streamable = type === "VIDEO" || type === "AUDIO";
-  if (input.mode === "stream" ? !streamable : streamable) throw retroNotFound("附件类型不对。");
+  if (input.mode === "stream" && !streamable) throw retroNotFound("附件类型不对。");
 
   // 浏览器拿到的 Content-Type 一律是白名单映射值（按扩展名），不信对象上存的那个。
   const fixedType = retroContentTypeFor(row.original_name, row.content_type);
@@ -275,21 +294,11 @@ export async function resolveRetroAssetUrl(
   if (input.mode === "stream") {
     return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_STREAM_URL_TTL_SECONDS, ...typeOverride });
   }
-  if (type === "DOC") {
-    // PDF 在新标签页由浏览器打开；Word／Excel／PPT 点开是下载。
-    return row.doc_format === "PDF"
-      ? bucket.createPresignedGetUrl(row.object_key, {
-          expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS,
-          responseContentType: "application/pdf",
-          responseContentDisposition: "inline",
-        })
-      : bucket.createPresignedGetUrl(row.object_key, {
-          expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS,
-          ...typeOverride,
-          responseContentDisposition: retroAttachmentDisposition(row.original_name || "附件"),
-        });
-  }
-  return bucket.createPresignedGetUrl(row.object_key, { expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS, ...typeOverride });
+  return bucket.createPresignedGetUrl(row.object_key, {
+    expiresInSeconds: RETRO_ORIGINAL_URL_TTL_SECONDS,
+    ...typeOverride,
+    responseContentDisposition: retroAttachmentDisposition(row.original_name || "附件"),
+  });
 }
 
 // ---------------------------------------------------------------------------

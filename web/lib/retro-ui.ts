@@ -5,7 +5,9 @@
 
 import {
   RETRO_LIMITS,
+  RETRO_KEYNOTE_REFUSAL,
   classifyRetroFile,
+  isRetroKeynoteFile,
   isRetroJobLive,
   currentRetroMonthKey,
   formatRetroClock,
@@ -279,6 +281,7 @@ export type RetroAttachCheck =
   | { ok: false; reason: string };
 
 export function checkRetroAttachFile(file: { name: string; type: string; size: number }): RetroAttachCheck {
+  if (isRetroKeynoteFile(file.name, file.type)) return { ok: false, reason: `「${file.name}」：${RETRO_KEYNOTE_REFUSAL}。` };
   const classified = classifyRetroFile(file.name, file.type);
   if (!classified) return { ok: false, reason: `不支持这种文件：${file.name}。支持图片、视频、音频，以及 PDF、Word、Excel、PPT 文档。` };
   if (file.size <= 0) return { ok: false, reason: `「${file.name}」是空文件。` };
@@ -309,11 +312,15 @@ export function isRetroRecordingBusy(status: RetroRecordingView["status"]): bool
   return status === "UPLOADING" || status === "TRANSCRIBING";
 }
 
-/** 案例上还有没到终态的点评录音或客户录音转写。 */
+/** 案例上还有没到终态的点评录音、客户录音转写，或还在生成预览的文档。 */
 export function hasPendingCaseWork(detail: Pick<RetroCaseDetail, "recordings" | "needAssets" | "rounds">): boolean {
   if (detail.recordings.some((recording) => isRetroRecordingBusy(recording.status))) return true;
   const assets = [...detail.needAssets, ...detail.rounds.flatMap((round) => round.assets)];
-  return assets.some((asset) => asset.type === "AUDIO" && asset.uploadStatus === "READY" && asset.transcribe?.status === "TRANSCRIBING");
+  return assets.some((asset) => asset.uploadStatus === "READY" && (
+    (asset.type === "AUDIO" && asset.transcribe?.status === "TRANSCRIBING")
+    // 文档还在生成逐页预览（规格 4.3）：详情接口会顺手向数据万象查一次并收口。
+    || (asset.type === "DOC" && asset.derivativeStatus === "PENDING")
+  ));
 }
 
 /** 一个案例（或整场总结）下还能传的段号：最多 3 段，满了返回 null（规格 5.1）。 */

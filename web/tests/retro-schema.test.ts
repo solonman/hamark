@@ -13,6 +13,8 @@ import {
   RETRO_METHOD_KINDS,
   RETRO_METHOD_TRANSFERS,
   RETRO_RECORDING_STATUSES,
+  RETRO_DOC_PREVIEW_STATEMENTS,
+  RETRO_LIBRARY_STATEMENTS,
   RETRO_SCHEMA_STATEMENTS,
   RETRO_SCHEMA_TABLES,
   RETRO_TRANSCRIBE_STATUSES,
@@ -28,8 +30,11 @@ import {
   RETRO_METHOD_TRANSFER_LIST,
   RETRO_RECORDING_STATUS_LIST,
   RETRO_TRANSCRIBE_STATUS_LIST,
+  RETRO_FILE_ACCEPT,
+  RETRO_KEYNOTE_REFUSAL,
   classifyRetroFile,
   currentRetroMonthKey,
+  isRetroKeynoteFile,
   formatRetroMonth,
   formatRetroSourceLabel,
   retroCaseNumbers,
@@ -40,10 +45,11 @@ const source = async (path: string) => readFile(new URL(path, import.meta.url), 
 const normalise = (text: string) => text.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim();
 const schema = RETRO_SCHEMA_STATEMENTS.join("\n");
 
-test("every retro schema statement appears verbatim (modulo whitespace) in the frozen migration, in order, and nothing else", async () => {
-  const sql = normalise(await source("../db/migrations/2026-10-19-retro-library.sql"));
+/** 一份冻结迁移必须恰好是这组语句（按顺序、忽略空白和注释），外加 BEGIN/COMMIT，别无他物。 */
+function assertMigrationMatches(sqlText: string, statements: readonly string[]) {
+  const sql = normalise(sqlText);
   let cursor = 0;
-  for (const statement of RETRO_SCHEMA_STATEMENTS) {
+  for (const statement of statements) {
     const expected = normalise(statement);
     const at = sql.indexOf(expected, cursor);
     assert.ok(at >= 0, `frozen SQL is missing or out of order: ${expected.slice(0, 90)}…`);
@@ -52,8 +58,30 @@ test("every retro schema statement appears verbatim (modulo whitespace) in the f
   assert.match(sql, /^BEGIN;/);
   assert.match(sql, /COMMIT;$/);
   let rest = sql;
-  for (const statement of RETRO_SCHEMA_STATEMENTS) rest = rest.replace(normalise(statement), "");
+  for (const statement of statements) rest = rest.replace(normalise(statement), "");
   assert.equal(rest.replace(/BEGIN;|COMMIT;|;|\s/g, ""), "");
+}
+
+test("the original library statements appear verbatim (modulo whitespace) in 2026-10-19-retro-library.sql, in order, and nothing else", async () => {
+  assertMigrationMatches(await source("../db/migrations/2026-10-19-retro-library.sql"), RETRO_LIBRARY_STATEMENTS);
+});
+
+test("the doc-preview statements appear verbatim in 2026-10-20-retro-doc-preview.sql, in order, and nothing else", async () => {
+  assertMigrationMatches(await source("../db/migrations/2026-10-20-retro-doc-preview.sql"), RETRO_DOC_PREVIEW_STATEMENTS);
+});
+
+test("the two migrations together cover every schema statement, library first, nothing twice", () => {
+  assert.deepEqual([...RETRO_SCHEMA_STATEMENTS], [...RETRO_LIBRARY_STATEMENTS, ...RETRO_DOC_PREVIEW_STATEMENTS]);
+  assert.equal(new Set(RETRO_SCHEMA_STATEMENTS).size, RETRO_SCHEMA_STATEMENTS.length);
+  // 文档预览只加列、可重复执行、不改旧数据。
+  for (const statement of RETRO_DOC_PREVIEW_STATEMENTS) {
+    assert.match(statement, /^ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS /);
+  }
+  const added = RETRO_DOC_PREVIEW_STATEMENTS.join("\n");
+  for (const column of ["ci_job_large TEXT", "ci_job_small TEXT", "ci_checked_at TIMESTAMPTZ", "page_count INTEGER NOT NULL DEFAULT 0", "pages_json JSONB"]) {
+    assert.ok(added.includes(column), column);
+  }
+  assert.doesNotMatch(added, /UPDATE|DELETE|DROP/);
 });
 
 test("the schema module is expanded in bootstrap after the visual schema", async () => {
@@ -102,7 +130,13 @@ test("file classification follows spec 4.3: images, video, audio, documents; SVG
   assert.deepEqual(classifyRetroFile("需求说明.docx", ""), { type: "DOC", docFormat: "WORD" });
   assert.deepEqual(classifyRetroFile("报价.xlsx", ""), { type: "DOC", docFormat: "EXCEL" });
   assert.deepEqual(classifyRetroFile("提案.pptx", ""), { type: "DOC", docFormat: "PPT" });
-  assert.deepEqual(classifyRetroFile("提案.key", ""), { type: "DOC", docFormat: "PPT" });
+  // Keynote 不再收（数据万象不能转换它，2026-10-20）。
+  assert.equal(classifyRetroFile("提案.key", ""), null);
+  assert.equal(classifyRetroFile("提案.KEY", "application/vnd.apple.keynote"), null);
+  assert.ok(isRetroKeynoteFile("提案.Key"));
+  assert.ok(!isRetroKeynoteFile("提案.pptx"));
+  assert.doesNotMatch(RETRO_FILE_ACCEPT, /\.key\b/);
+  assert.match(RETRO_KEYNOTE_REFUSAL, /请导出 PDF 或 PPTX 再传/);
   assert.equal(classifyRetroFile("logo.svg", "image/svg+xml"), null);
   assert.equal(classifyRetroFile("动图.gif", ""), null);
   assert.equal(classifyRetroFile("压缩包.zip", "application/zip"), null);

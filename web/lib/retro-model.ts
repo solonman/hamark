@@ -162,7 +162,6 @@ const DOC_EXT: Record<string, RetroDocFormat> = {
   xlsx: "EXCEL",
   ppt: "PPT",
   pptx: "PPT",
-  key: "PPT",
 };
 
 export const RETRO_FILE_ACCEPT = [
@@ -171,6 +170,13 @@ export const RETRO_FILE_ACCEPT = [
 ].join(",");
 
 export const RETRO_FILE_TYPES_HINT = "支持图片、视频、音频，以及 PDF、Word、Excel、PPT 文档";
+
+/** Keynote 不再收（2026-10-20）：数据万象不能把它转成逐页图片，站内没法预览。 */
+export const RETRO_KEYNOTE_REFUSAL = "Keynote 不能在线预览，请导出 PDF 或 PPTX 再传";
+
+export function isRetroKeynoteFile(originalName: string, contentType?: string | null): boolean {
+  return extensionOf(originalName) === "key" || (contentType ?? "").toLowerCase().trim() === "application/vnd.apple.keynote";
+}
 
 function extensionOf(name: string) {
   const dot = name.lastIndexOf(".");
@@ -184,6 +190,7 @@ export function classifyRetroFile(originalName: string, contentType?: string | n
   const ext = extensionOf(originalName);
   const type = (contentType ?? "").toLowerCase().trim();
   if (type === "image/svg+xml" || type === "image/gif" || ext === "svg" || ext === "gif") return null;
+  if (isRetroKeynoteFile(originalName, contentType)) return null;
   if (DOC_EXT[ext]) return { type: "DOC", docFormat: DOC_EXT[ext] };
   if (IMAGE_EXT.includes(ext)) return { type: "IMAGE", docFormat: null };
   if (AUDIO_EXT.includes(ext)) return { type: "AUDIO", docFormat: null };
@@ -360,11 +367,20 @@ export type RetroAssetView = {
   thumbnailUrl: string | null;
   /** 图片 1600w；其它类型为 null。 */
   displayUrl: string | null;
-  /** 站内地址：图片原图、PDF、Office 下载走 …/original；视频、音频走 …/stream。 */
+  /** 「下载原文件」：所有类型都走 …/original，以附件方式下载（预览一律在站内弹层里看）。 */
   openUrl: string;
+  /** 站内播放：视频、音频走 …/stream；其它类型为 null。 */
+  streamUrl: string | null;
+  /**
+   * 文档逐页预览（只有 DOC 有，其它类型为 null）：转换就绪才有页，转换中、失败是空数组，状态看 derivativeStatus。
+   * 页图是 15 分钟的签名地址；ok 为 false 的页没有图（这一页转换失败）。
+   */
+  pages: RetroDocPageView[] | null;
   /** 只有 AUDIO 有。 */
   transcribe: RetroTranscribeView | null;
 };
+
+export type RetroDocPageView = { pageNo: number; thumbUrl: string | null; largeUrl: string | null; ok: boolean };
 
 export type RetroLinkView = {
   kind: RetroLinkKind;
@@ -417,6 +433,8 @@ export type RetroRecordingBadge =
   | { state: "FAILED" }
   | { state: "READY"; parts: number; durationMs: number };
 
+export type RetroCaseCover = { url: string; kind: "IMAGE" | "VIDEO" | "DOC" };
+
 export type RetroCaseCard = {
   id: string;
   monthKey: string;
@@ -429,6 +447,11 @@ export type RetroCaseCard = {
   roundTrack: { title: string; hasFeedback: boolean }[];
   hasOutcome: boolean;
   recording: RetroRecordingBadge;
+  /**
+   * 卡片封面图（规格 10.2）：按「需求凭证 → 第 1 回合 → …」、每处按位置，取第一张就绪图片的 480w；
+   * 没有图片取第一个视频的截帧；再没有取第一个就绪文档第 1 页的小图。都没有为 null（文字封面）。
+   */
+  cover: RetroCaseCover | null;
   createdByName: string;
   createdAt: string;
   canManage: boolean;

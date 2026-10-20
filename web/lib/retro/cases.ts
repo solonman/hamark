@@ -8,6 +8,7 @@ import type { DbClient, QueryResultRow } from "@/db";
 import { isoOrNull } from "@/lib/audio-review/view";
 import {
   type RetroCaseCard,
+  type RetroCaseCover,
   type RetroCaseDetail,
   type RetroCaseBasicsInput,
   type RetroCreateCaseResponse,
@@ -22,11 +23,13 @@ import type { VideoBucket } from "@/storage/types";
 import { canEditRetroCase, canRemoveRetroRecording, type RetroViewer } from "./access";
 import { requireEditableRetroCase, loadRetroCaseHead } from "./case-head";
 import { retroConflict, retroNotFound, retroForbidden } from "./errors";
+import { pickRetroCaseCover, type RetroCoverCandidate } from "./cover";
 import { loadRetroCaseInMinutes, loadRetroMonthBadges } from "./month-ai";
 import {
   RETRO_ASSET_COLUMNS,
   RETRO_RECORDING_COLUMNS,
   RETRO_ROUND_COLUMNS,
+  RETRO_SIGNED_URL_TTL_SECONDS,
   buildRetroAssetViews,
   buildRetroLinkViews,
   toRetroRecordingView,
@@ -119,9 +122,13 @@ export function retroRecordingBadge(recordings: ReadonlyArray<{ status: RetroRec
   return { state: "READY", parts: ready.length, durationMs: ready.reduce((sum, item) => sum + (item.durationMs ?? 0), 0) };
 }
 
-export async function listRetroLibrary(db: DbClient, viewer: Pick<RetroViewer, "userId" | "isAdmin">): Promise<RetroLibraryResponse> {
+export async function listRetroLibrary(
+  db: DbClient,
+  viewer: Pick<RetroViewer, "userId" | "isAdmin">,
+  bucket: SigningBucket,
+): Promise<RetroLibraryResponse> {
   const liveCases = `SELECT id FROM retro_cases WHERE deleted_at IS NULL`;
-  const [casesResult, roundsResult, recordingsResult] = await Promise.all([
+  const [casesResult, roundsResult, recordingsResult, coverResult] = await Promise.all([
     db.prepare(
       `SELECT id, month_key, department, client_name, title, scene_tags_json, background, outcome,
               created_by_user_id, created_by_name, created_at
@@ -135,6 +142,20 @@ export async function listRetroLibrary(db: DbClient, viewer: Pick<RetroViewer, "
       `SELECT case_id, status, audio_duration_ms FROM retro_recordings
        WHERE case_id IS NOT NULL AND status <> 'REMOVED' AND case_id IN (${liveCases})`,
     ).all<QueryResultRow & { case_id: string; status: string; audio_duration_ms: number | null }>(),
+    // 封面候选（规格 10.2）：一次查出全部案例里已就绪的图片、视频、文档（只带第 1 页），不按案例逐个查。
+    // 已删除回合上的附件不算（详情页上也看不到它们）。
+    db.prepare(
+      `SELECT a.id, a.case_id, r.position AS round_position, a.position, a.type, a.upload_status, a.derivative_status,
+              a.thumbnail_key, a.pages_json -> 0 AS first_page
+       FROM retro_case_assets a
+       LEFT JOIN retro_case_rounds r ON r.id = a.round_id
+       WHERE a.case_id IN (${liveCases}) AND a.type IN ('IMAGE', 'VIDEO', 'DOC')
+         AND a.upload_status = 'READY' AND a.derivative_status = 'READY'
+         AND (a.round_id IS NULL OR r.deleted_at IS NULL)`,
+    ).all<QueryResultRow & {
+      id: string; case_id: string; round_position: number | null; position: number; type: string;
+      upload_status: string; derivative_status: string; thumbnail_key: string | null; first_page: unknown;
+    }>(),
   ]);
 
   const roundsByCase = new Map<string, typeof roundsResult.results>();
@@ -151,6 +172,33 @@ export async function listRetroLibrary(db: DbClient, viewer: Pick<RetroViewer, "
     else recordingsByCase.set(row.case_id, [entry]);
   }
 
+  const coverCandidates = new Map<string, RetroCoverCandidate[]>();
+  for (const row of coverResult.results) {
+    const candidate: RetroCoverCandidate = {
+      id: row.id,
+      caseId: row.case_id,
+      roundPosition: row.round_position === null ? null : Number(row.round_position),
+      position: Number(row.position),
+      type: row.type,
+      uploadStatus: row.upload_status,
+      derivativeStatus: row.derivative_status,
+      thumbnailKey: row.thumbnail_key,
+      firstPage: row.first_page,
+    };
+    const list = coverCandidates.get(row.case_id);
+    if (list) list.push(candidate);
+    else coverCandidates.set(row.case_id, [candidate]);
+  }
+  const coverByCase = new Map<string, RetroCaseCover>();
+  await Promise.all(casesResult.results.map(async (row) => {
+    const pick = pickRetroCaseCover(coverCandidates.get(row.id) ?? []);
+    if (!pick) return;
+    coverByCase.set(row.id, {
+      url: await bucket.createPresignedGetUrl(pick.key, { expiresInSeconds: RETRO_SIGNED_URL_TTL_SECONDS }),
+      kind: pick.kind,
+    });
+  }));
+
   const cases = casesResult.results.map((row): RetroCaseCard => {
     const rounds = roundsByCase.get(row.id) ?? [];
     const searchText = [row.background, ...rounds.flatMap((round) => [round.title, round.delivery_text, round.feedback_text, round.response_text])]
@@ -166,6 +214,7 @@ export async function listRetroLibrary(db: DbClient, viewer: Pick<RetroViewer, "
       roundTrack: rounds.map((round) => ({ title: round.title, hasFeedback: round.feedback_text.trim().length > 0 })),
       hasOutcome: row.outcome.trim().length > 0,
       recording: retroRecordingBadge(recordingsByCase.get(row.id) ?? []),
+      cover: coverByCase.get(row.id) ?? null,
       createdByName: row.created_by_name,
       createdAt: isoOrNull(row.created_at) ?? "",
       canManage: canEditRetroCase({ createdByUserId: row.created_by_user_id }, viewer),

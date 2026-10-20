@@ -4,10 +4,12 @@
 import { audioReviewContentType } from "@/lib/audio-review-model";
 import {
   RETRO_FILE_TYPES_HINT,
+  RETRO_KEYNOTE_REFUSAL,
   RETRO_LIMITS,
   RETRO_LINK_KIND_LIST,
   classifyRetroFile,
   currentRetroMonthKey,
+  isRetroKeynoteFile,
   isRetroMonthKey,
   parseRetroSceneTags,
   shiftRetroMonthKey,
@@ -182,7 +184,6 @@ const RETRO_CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ppt: "application/vnd.ms-powerpoint",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  key: "application/vnd.apple.keynote",
 };
 const RETRO_ALLOWED_CONTENT_TYPES = new Set(Object.values(RETRO_CONTENT_TYPE_BY_EXTENSION));
 
@@ -222,6 +223,7 @@ export function validateRetroNewAssets(body: unknown): NormalizedRetroAsset[] {
     const originalName = typeof item.originalName === "string" ? item.originalName.trim().slice(0, 200) : "";
     if (!originalName) throw retroInvalid("缺少文件名。");
     const contentType = typeof item.contentType === "string" ? item.contentType.trim() : "";
+    if (isRetroKeynoteFile(originalName, contentType)) throw retroInvalid(`「${originalName}」：${RETRO_KEYNOTE_REFUSAL}。`);
     const classified = classifyRetroFile(originalName, contentType);
     if (!classified) throw retroInvalid(`不支持「${originalName}」这种文件。${RETRO_FILE_TYPES_HINT}。`);
     const fileSize = Number(item.fileSize);

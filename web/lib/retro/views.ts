@@ -7,6 +7,7 @@ import {
   type RetroAssetType,
   type RetroAssetView,
   type RetroDocFormat,
+  type RetroDocPageView,
   type RetroLinkKind,
   type RetroLinkView,
   type RetroRecordingStatus,
@@ -16,7 +17,8 @@ import {
 } from "@/lib/retro-model";
 import { VISUAL_SUBDOMAIN_SPECS, isVisualSubdomain } from "@/lib/visual-contract";
 import type { VideoBucket } from "@/storage/types";
-import { retroAssetOpenPath, retroRecordingAudioPath } from "./keys";
+import { retroDocPagesFromStored } from "./doc-preview";
+import { retroAssetOpenPath, retroAssetStreamPath, retroRecordingAudioPath } from "./keys";
 import { retroSegmentsFromStored } from "./transcription";
 
 export const RETRO_SIGNED_URL_TTL_SECONDS = 3 * 60 * 60;
@@ -29,7 +31,7 @@ type SigningBucket = Pick<VideoBucket, "createPresignedGetUrl">;
 
 export const RETRO_ASSET_COLUMNS = `id, case_id, round_id, type, doc_format, position, object_key, thumbnail_key, display_key,
   original_name, content_type, file_size, width, height, duration_seconds, upload_status, derivative_status,
-  derivative_error, transcribe_status, transcribe_fail_reason, audio_duration_ms, transcript_json`;
+  derivative_error, transcribe_status, transcribe_fail_reason, audio_duration_ms, transcript_json, page_count, pages_json`;
 
 export type RetroAssetRow = QueryResultRow & {
   id: string;
@@ -54,7 +56,21 @@ export type RetroAssetRow = QueryResultRow & {
   transcribe_fail_reason: string | null;
   audio_duration_ms: number | null;
   transcript_json: unknown;
+  page_count: number | null;
+  pages_json: unknown;
 };
+
+/** 文档逐页预览的签名地址：15 分钟（同视频、音频的站内播放）。详情页打开弹层前会按需刷新。 */
+export const RETRO_PAGE_URL_TTL_SECONDS = 15 * 60;
+
+async function buildRetroDocPages(bucket: SigningBucket, row: RetroAssetRow): Promise<RetroDocPageView[]> {
+  if (row.derivative_status !== "READY") return [];
+  const sign = (key: string | null) => (key ? bucket.createPresignedGetUrl(key, { expiresInSeconds: RETRO_PAGE_URL_TTL_SECONDS }) : null);
+  return Promise.all(retroDocPagesFromStored(row.pages_json, row.case_id, row.id).map(async (page) => {
+    const [thumbUrl, largeUrl] = await Promise.all([sign(page.thumbKey), sign(page.largeKey)]);
+    return { pageNo: page.pageNo, ok: page.ok, thumbUrl, largeUrl };
+  }));
+}
 
 export async function buildRetroAssetViews(bucket: SigningBucket, rows: readonly RetroAssetRow[]): Promise<RetroAssetView[]> {
   return Promise.all(rows.map(async (row): Promise<RetroAssetView> => {
@@ -81,7 +97,9 @@ export async function buildRetroAssetViews(bucket: SigningBucket, rows: readonly
       derivativeError: row.derivative_error,
       thumbnailUrl,
       displayUrl,
-      openUrl: retroAssetOpenPath(row.case_id, row.id, type),
+      openUrl: retroAssetOpenPath(row.case_id, row.id),
+      streamUrl: retroAssetStreamPath(row.case_id, row.id, type),
+      pages: type === "DOC" ? await buildRetroDocPages(bucket, row) : null,
       transcribe: type === "AUDIO"
         ? {
             status: transcribeStatus,

@@ -59,6 +59,7 @@ function card(overrides: Partial<RetroCaseCard> = {}): RetroCaseCard {
     roundTrack: [{ title: "第 1 版", hasFeedback: true }],
     hasOutcome: false,
     recording: { state: "NONE" },
+    cover: null,
     createdByName: "刘梦娜",
     createdAt: "2026-10-10T08:00:00.000Z",
     canManage: true,
@@ -183,6 +184,9 @@ test("attachment check mirrors classifyRetroFile: SVG/GIF and unknown types refu
   assert.equal(bad.ok, false);
   assert.equal(checkRetroAttachFile({ name: "a.zip", type: "application/zip", size: 5 }).ok, false);
   assert.equal(checkRetroAttachFile({ name: "a.mp3", type: "audio/mpeg", size: 0 }).ok, false);
+  const keynote = checkRetroAttachFile({ name: "提案.key", type: "", size: 5 });
+  assert.equal(keynote.ok, false);
+  assert.match(keynote.ok ? "" : keynote.reason, /Keynote 不能在线预览，请导出 PDF 或 PPTX 再传/);
 });
 
 function recording(overrides: Partial<RetroRecordingView> = {}): RetroRecordingView {
@@ -232,12 +236,20 @@ test("transcript: parts are joined in order, dividers only when several parts, i
   assert.equal(client[0].ownerId, "ast_1");
 });
 
-test("pending work includes recordings and client audio still transcribing", () => {
+test("pending work includes recordings, client audio still transcribing and documents still converting", () => {
   const base = { recordings: [], needAssets: [], rounds: [] as never[] };
   assert.equal(hasPendingCaseWork(base), false);
   assert.equal(hasPendingCaseWork({ ...base, recordings: [recording({ status: "TRANSCRIBING" })] }), true);
   const audio = { type: "AUDIO", uploadStatus: "READY", transcribe: { status: "TRANSCRIBING" } } as never;
   assert.equal(hasPendingCaseWork({ ...base, needAssets: [audio] }), true);
+  // 文档还在生成逐页预览：也要轮询（详情接口顺手向数据万象收口）。
+  const pendingDoc = { type: "DOC", uploadStatus: "READY", derivativeStatus: "PENDING" } as never;
+  const readyDoc = { type: "DOC", uploadStatus: "READY", derivativeStatus: "READY" } as never;
+  const failedDoc = { type: "DOC", uploadStatus: "READY", derivativeStatus: "FAILED" } as never;
+  assert.equal(hasPendingCaseWork({ ...base, rounds: [{ assets: [pendingDoc] }] as never }), true);
+  assert.equal(hasPendingCaseWork({ ...base, needAssets: [readyDoc, failedDoc] }), false);
+  // 图片的派生图不在这里轮询（本机演示要跑脚本才会出）。
+  assert.equal(hasPendingCaseWork({ ...base, needAssets: [{ type: "IMAGE", uploadStatus: "READY", derivativeStatus: "PENDING" } as never] }), false);
 });
 
 const ctx: RetroSourceContext = {

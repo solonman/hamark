@@ -105,8 +105,8 @@ export async function resolveCiQueueId(
 // 提交计划：大图、小图两份任务的参数，纯函数、单测直接覆盖对象键与 ImageParams。
 // ---------------------------------------------------------------------------
 
-const LARGE_IMAGE_PARAMS = "imageMogr2/thumbnail/1600x/quality/85";
-const SMALL_IMAGE_PARAMS = "imageMogr2/thumbnail/480x/quality/80";
+export const LARGE_IMAGE_PARAMS = "imageMogr2/thumbnail/1600x/quality/85";
+export const SMALL_IMAGE_PARAMS = "imageMogr2/thumbnail/480x/quality/80";
 
 export type DocProcessJobPlan = {
   srcObjectKey: string;
