@@ -153,6 +153,10 @@ export function validateNewVisualAssets(
     if (asset.type === "IMAGE" && !isAllowedVisualImage(asset.originalName, asset.contentType)) {
       return { ok: false, error: `不支持的图片格式：${asset.originalName || "未命名文件"}。` };
     }
+    // 超过数据万象 20MB 上限的图出不了预览图，又不提供原图查看，传上来就永远看不了：上传时就拦下。
+    if (asset.type === "IMAGE" && isOversizedForVisualDerivative(Number(asset.fileSize) || 0)) {
+      return { ok: false, error: `「${asset.originalName || "未命名文件"}」超过 20MB，生成不了在线预览；请压缩后再传。` };
+    }
   }
   const added = countVisualAssetsByType(assets);
   const totalVideos = existing.videos + added.videos;
@@ -275,9 +279,9 @@ export function isOversizedForVisualDerivative(fileSizeBytes: number): boolean {
   return fileSizeBytes > VISUAL_LIMITS.derivativeMaxBytes;
 }
 
-/** 卡片与舞台的失败文案：「原图 26.3 MB，超过 20 MB 的处理上限；可以查看原图」，保留一位小数。 */
+/** 卡片与舞台的失败文案：「原图 26.3 MB，超过 20 MB 的处理上限，生成不了预览」，保留一位小数。 */
 export function formatVisualOversizeReason(fileSizeBytes: number): string {
   const mb = fileSizeBytes / (1024 * 1024);
   const limitMb = VISUAL_LIMITS.derivativeMaxBytes / (1024 * 1024);
-  return `原图 ${mb.toFixed(1)} MB，超过 ${limitMb} MB 的处理上限；可以查看原图`;
+  return `原图 ${mb.toFixed(1)} MB，超过 ${limitMb} MB 的处理上限，生成不了预览`;
 }

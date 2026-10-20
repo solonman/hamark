@@ -362,7 +362,7 @@ export default function VisualCaseClient({ caseId, viewerName, user }: {
               <div key={label}><small>{label}</small><p>{value}</p></div>
             ))}
           </div>
-          <p className={styles.readingNote}>仅公司内部学习使用，不对外公开分享。图片先看 480w 缩略图与 1600w 展示图，「查看原图」才读取原始文件。</p>
+          <p className={styles.readingNote}>仅公司内部学习使用，不对外公开分享。图片只在站内看 480w 缩略图与 1600w 展示图，不提供原图查看和下载。</p>
         </section>
       </div>
 
@@ -389,9 +389,6 @@ export default function VisualCaseClient({ caseId, viewerName, user }: {
                 <span className={styles.ovheadT}>{detail.title}</span>
                 <button type="button" className={styles.smBtn} disabled={viewerOverlay.index === 0} onClick={() => viewerStep(-1)}>← 上一张</button>
                 <button type="button" className={styles.smBtn} disabled={viewerOverlay.index === imageAssets.length - 1} onClick={() => viewerStep(1)}>下一张 →</button>
-                {imageAssets[viewerOverlay.index]?.originalPath ? (
-                  <a className={styles.smBtn} href={imageAssets[viewerOverlay.index]!.originalPath!} target="_blank" rel="noopener noreferrer">查看原图</a>
-                ) : null}
                 <button type="button" className={styles.smBtn} ref={viewerCloseRef} onClick={closeViewer}>关闭 esc</button>
               </div>
               <div className={styles.viewerBody} data-v04-scheme="dark">
@@ -405,7 +402,7 @@ export default function VisualCaseClient({ caseId, viewerName, user }: {
                     <div className={styles.viewerImage}>
                       <div className={`${styles.stagePlaceholder} ${asset.derivativeStatus === "FAILED" ? styles.failed : ""}`.trim()}>
                         <b>{asset.derivativeStatus === "FAILED" ? "预览生成失败" : "正在生成预览"}</b>
-                        <small>{asset.derivativeStatus === "FAILED" ? (asset.derivativeError || "处理失败；可以查看原图") : "稍后再看"}</small>
+                        <small>{asset.derivativeStatus === "FAILED" ? (asset.derivativeError || "这张图片没能生成预览。") : "稍后再看"}</small>
                       </div>
                     </div>
                   );
@@ -465,10 +462,7 @@ function StageMedia({ asset, onOpenViewer, imageAssets }: {
     return (
       <div className={`${styles.stagePlaceholder} ${styles.failed}`}>
         <b>预览生成失败</b>
-        <small>{asset.derivativeError || "处理失败；可以查看原图"}</small>
-        <div className={styles.stageTools}>
-          {asset.originalPath ? <a href={asset.originalPath} target="_blank" rel="noopener noreferrer">查看原图</a> : null}
-        </div>
+        <small>{asset.derivativeError || "这张图片没能生成预览。"}</small>
       </div>
     );
   }
@@ -487,7 +481,6 @@ function StageMedia({ asset, onOpenViewer, imageAssets }: {
       ) : null}
       <div className={styles.stageTools}>
         <button type="button" onClick={() => onOpenViewer(imageIndex)}>全屏查看</button>
-        {asset.originalPath ? <a href={asset.originalPath} target="_blank" rel="noopener noreferrer">查看原图</a> : null}
       </div>
     </>
   );

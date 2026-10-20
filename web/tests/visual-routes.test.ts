@@ -25,7 +25,6 @@ const ROUTES: RouteSpec[] = [
   { file: `${ROUTE_ROOT}/[id]/assets/[assetId]/route.ts`, methods: [{ name: "DELETE", mutation: true }] },
   { file: `${ROUTE_ROOT}/[id]/assets/[assetId]/upload-url/route.ts`, methods: [{ name: "POST", mutation: true }] },
   { file: `${ROUTE_ROOT}/[id]/assets/[assetId]/stream/route.ts`, methods: [{ name: "GET", mutation: false }] },
-  { file: `${ROUTE_ROOT}/[id]/assets/[assetId]/original/route.ts`, methods: [{ name: "GET", mutation: false }] },
   { file: `${ROUTE_ROOT}/[id]/favorite/route.ts`, methods: [{ name: "POST", mutation: true }] },
   { file: `${ROUTE_ROOT}/[id]/trash/route.ts`, methods: [{ name: "POST", mutation: true }] },
   { file: `${ROUTE_ROOT}/[id]/restore/route.ts`, methods: [{ name: "POST", mutation: true }] },
@@ -82,7 +81,6 @@ test("every route that needs to know isAdmin calls isAppAdmin(user) fresh, not a
     `${ROUTE_ROOT}/[id]/assets/[assetId]/route.ts`,
     `${ROUTE_ROOT}/[id]/assets/[assetId]/upload-url/route.ts`,
     `${ROUTE_ROOT}/[id]/assets/[assetId]/stream/route.ts`,
-    `${ROUTE_ROOT}/[id]/assets/[assetId]/original/route.ts`,
     `${ROUTE_ROOT}/[id]/trash/route.ts`,
     `${ROUTE_ROOT}/[id]/restore/route.ts`,
   ];
@@ -100,15 +98,11 @@ test("the complete route's 409 error envelope carries {error, status, missing} f
   );
 });
 
-test("stream and original asset routes redirect (302) to a freshly signed URL rather than proxying bytes", async () => {
-  for (const file of [
-    `${ROUTE_ROOT}/[id]/assets/[assetId]/stream/route.ts`,
-    `${ROUTE_ROOT}/[id]/assets/[assetId]/original/route.ts`,
-  ]) {
-    const text = await source(`../${file}`);
-    assert.match(text, /status: 302/);
-    assert.match(text, /Location: location/);
-  }
+test("the stream route redirects (302) to a freshly signed URL; there is no original-image route (no download, 2026-10-20)", async () => {
+  const text = await source(`../${ROUTE_ROOT}/[id]/assets/[assetId]/stream/route.ts`);
+  assert.match(text, /status: 302/);
+  assert.match(text, /Location: location/);
+  await assert.rejects(source(`../${ROUTE_ROOT}/[id]/assets/[assetId]/original/route.ts`));
 });
 
 test("GET routes set Cache-Control: no-store on their response", async () => {

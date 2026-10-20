@@ -289,8 +289,6 @@ export type VisualAssetView = {
   displayUrl: string | null;
   /** 视频：站内播放地址 /api/visual-cases/{id}/assets/{assetId}/stream（302 到新签的地址）；图片为 null。 */
   streamPath: string | null;
-  /** 图片：查看原图 /api/visual-cases/{id}/assets/{assetId}/original（302）；视频为 null。 */
-  originalPath: string | null;
 };
 
 /**
@@ -316,7 +314,5 @@ export type VisualErrorResponse = { error: string };
 
 export const visualStreamPath = (caseId: string, assetId: string) =>
   `/api/visual-cases/${encodeURIComponent(caseId)}/assets/${encodeURIComponent(assetId)}/stream`;
-export const visualOriginalPath = (caseId: string, assetId: string) =>
-  `/api/visual-cases/${encodeURIComponent(caseId)}/assets/${encodeURIComponent(assetId)}/original`;
 export const visualDetailHref = (caseId: string) => `/visual/${encodeURIComponent(caseId)}`;
 export const VISUAL_LIBRARY_HREF = "/?library=VISUAL";

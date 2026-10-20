@@ -9,7 +9,6 @@
 import { getVideoBucket, type DbClient, type QueryResultRow } from "@/db";
 import { newId } from "@/lib/current-user";
 import {
-  visualOriginalPath,
   visualStreamPath,
   type VisualAssetType,
   type VisualCarrierCounts,
@@ -576,7 +575,6 @@ export async function loadVisualCaseDetail(
         thumbnailUrl,
         displayUrl,
         streamPath: type === "VIDEO" ? visualStreamPath(caseId, asset.id) : null,
-        originalPath: type === "IMAGE" ? visualOriginalPath(caseId, asset.id) : null,
       };
     }),
   );
@@ -878,7 +876,7 @@ export async function restoreVisualCase(db: DbClient, input: { caseId: string; a
 }
 
 // ---------------------------------------------------------------------------
-// 视频站内播放／图片查看原图（规格五 GET .../stream、GET .../original）：
+// 视频站内播放（规格五 GET .../stream）；不提供原图查看和下载（2026-10-20，与视频库、报告库、复盘库统一）：
 // 只对能看这条案例的人放行，302 到新签的地址。
 // ---------------------------------------------------------------------------
 
@@ -913,12 +911,4 @@ export async function resolveVisualAssetStreamUrl(
 ): Promise<string> {
   const asset = await loadVisibleVisualAsset(db, input, "VIDEO");
   return getVideoBucket().createPresignedGetUrl(asset.object_key, { expiresInSeconds: STREAM_URL_TTL_SECONDS });
-}
-
-export async function resolveVisualAssetOriginalUrl(
-  db: DbClient,
-  input: { caseId: string; assetId: string; viewer: VisualViewer },
-): Promise<string> {
-  const asset = await loadVisibleVisualAsset(db, input, "IMAGE");
-  return getVideoBucket().createPresignedGetUrl(asset.object_key, { expiresInSeconds: SIGNED_URL_TTL_SECONDS });
 }

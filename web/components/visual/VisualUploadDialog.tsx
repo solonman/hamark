@@ -343,6 +343,10 @@ export default function VisualUploadDialog({
         notify(`不支持这种文件：${file.name}`);
         continue;
       }
+      if (type === "IMAGE" && file.size > VISUAL_LIMITS.derivativeMaxBytes) {
+        notify(`「${file.name}」超过 20MB，生成不了在线预览；请压缩后再传。`);
+        continue;
+      }
       if (type === "VIDEO") {
         if (room.videos <= 0) { skippedVideos += 1; continue; }
         room = { ...room, videos: room.videos - 1 };
@@ -702,6 +706,7 @@ export default function VisualUploadDialog({
       if (!file) return item;
       const type = classifyVisualFile(file.name, file.type);
       if (!type) { notify(`不支持这种文件：${file.name}`); return item; }
+      if (type === "IMAGE" && file.size > VISUAL_LIMITS.derivativeMaxBytes) { notify(`「${file.name}」超过 20MB，生成不了在线预览；请压缩后再传。`); return item; }
       return { ...item, file };
     });
     setMissing(filled);

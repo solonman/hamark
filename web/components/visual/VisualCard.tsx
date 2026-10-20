@@ -68,7 +68,7 @@ function VisualCover({ item, notify }: { item: VisualCaseListItem; notify: (mess
     state = (
       <div className={`${report.coverState} ${report.coverStateFailed}`}>
         <b>预览生成失败</b>
-        <small>{cover.derivativeError || "处理失败；可以查看原图"}</small>
+        <small>{cover.derivativeError || "这张图片没能生成预览"}</small>
       </div>
     );
   } else {

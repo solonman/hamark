@@ -384,5 +384,12 @@ test("images at or under the 20 MB cap are eligible for derivative generation; o
 
 test("the oversize reason reports the original size to one decimal place in MB", () => {
   const bytes = 26.3 * 1024 * 1024;
-  assert.equal(formatVisualOversizeReason(bytes), "原图 26.3 MB，超过 20 MB 的处理上限；可以查看原图");
+  assert.equal(formatVisualOversizeReason(bytes), "原图 26.3 MB，超过 20 MB 的处理上限，生成不了预览");
+});
+
+test("images over 20MB are refused at upload: there is no original-image view to fall back on", () => {
+  const big = validateNewVisualAssets([{ type: "IMAGE", originalName: "街景.jpg", contentType: "image/jpeg", fileSize: 21 * 1024 * 1024 }]);
+  assert.equal(big.ok, false);
+  assert.match(big.ok ? "" : big.error, /超过 20MB，生成不了在线预览/);
+  assert.equal(validateNewVisualAssets([{ type: "IMAGE", originalName: "街景.jpg", contentType: "image/jpeg", fileSize: 19 * 1024 * 1024 }]).ok, true);
 });
