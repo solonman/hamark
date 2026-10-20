@@ -159,3 +159,13 @@ test("cover skips anything not ready, images without a thumbnail, videos without
   const foreign = candidate({ id: "docX", type: "DOC", firstPage: { pageNo: 1, ok: true, thumbKey: "retro/cases/other/assets/y/pages/p1.jpg" } });
   assert.deepEqual(pickRetroCaseCover([foreign]), { key: `retro/cases/${CASE}/assets/docX/pages/p1.jpg`, kind: "DOC" });
 });
+
+test("documents marked READY with no pages and no job are requeued on detail read (never converted, e.g. uploaded before previews shipped)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../lib/retro/doc-preview.ts", import.meta.url), "utf8");
+  const poll = source.slice(source.indexOf("export async function pollRetroDocPreviews"));
+  assert.match(poll, /await requeueNeverConvertedDocs\(db, caseId\);/);
+  const requeue = source.slice(source.indexOf("export async function requeueNeverConvertedDocs"), source.indexOf("export async function pollRetroDocPreviews"));
+  assert.match(requeue, /SET derivative_status = 'PENDING'/);
+  assert.match(requeue, /derivative_status = 'READY'\s+AND pages_json IS NULL AND page_count = 0 AND ci_job_large IS NULL/);
+});

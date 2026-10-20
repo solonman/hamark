@@ -242,11 +242,25 @@ function isoText(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
+/**
+ * 「已就绪」却一页都没有、也从没提交过转换任务的文档，说明从来没转过（例如文档预览上线前传的，
+ * 当时文档不转换、直接记成就绪）：改回 PENDING，交给后面的提交兜底去转。规则对任何漏转的文档都成立，
+ * 同步执行，这样这次详情响应就是「正在生成预览」，前端会照常轮询。
+ */
+export async function requeueNeverConvertedDocs(db: DbClient, caseId: string): Promise<void> {
+  await db.prepare(
+    `UPDATE retro_case_assets SET derivative_status = 'PENDING', derivative_error = NULL, derivative_requested_at = NULL, updated_at = now()
+     WHERE case_id = ? AND type = 'DOC' AND upload_status = 'READY' AND derivative_status = 'READY'
+       AND pages_json IS NULL AND page_count = 0 AND ci_job_large IS NULL`,
+  ).bind(caseId).run();
+}
+
 /** 案例详情 GET 时调用（只在 ci 模式）：对 PENDING、已提交的文档按节流查一次。吞掉异常，纯读接口不因数据万象抖动报错。 */
 export async function pollRetroDocPreviews(db: DbClient, caseId: string, options: { fetchImpl?: CiFetch; now?: Date } = {}): Promise<void> {
   if (!isRetroDerivativeCiMode()) return;
   const now = options.now ?? new Date();
   try {
+    await requeueNeverConvertedDocs(db, caseId);
     const rows = await db.prepare(
       `SELECT id, derivative_status, ci_job_large, ci_job_small, ci_checked_at FROM retro_case_assets
        WHERE case_id = ? AND type = 'DOC' AND upload_status = 'READY' AND derivative_status = 'PENDING'
