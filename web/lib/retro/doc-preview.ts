@@ -12,7 +12,7 @@
 // 合并两个任务结果直接复用报告库的 mergeCiJobResults，CI 客户端复用 lib/report-ci.ts。
 
 import type { DbClient, QueryResultRow } from "@/db";
-import { getDocJob, submitDocJob, type CiFetch } from "@/lib/report-ci";
+import { getDocJob, submitDocJob, type CiFetch, type DocJobPage } from "@/lib/report-ci";
 import {
   LARGE_IMAGE_PARAMS,
   SMALL_IMAGE_PARAMS,
@@ -32,6 +32,40 @@ import { retroAssetPageKey, retroAssetPagesDir, retroAssetPageTemplate } from ".
 // 纯函数
 // ---------------------------------------------------------------------------
 
+const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "xlsm", "xlsb", "xlt", "xltx", "csv", "et", "ett"]);
+
+/** 表格按工作表输出，文件名里多一个 ${SheetID}。 */
+export function isRetroSpreadsheet(originalName: string): boolean {
+  return SPREADSHEET_EXTENSIONS.has(visualObjectExtension(originalName));
+}
+
+/**
+ * 表格的两份结果按 TgtUri 配对：每个工作表各自从第 1 页编号，PageNo 会重复，不能像报告库那样按页号合并。
+ * 去掉大图的 @2x 后同名即为同一页；按「工作表、页」排序后重新编成 1…N。
+ */
+export function pairRetroSpreadsheetPages(large: readonly DocJobPage[], small: readonly DocJobPage[]): CiPageOutcome[] {
+  const clean = (uri: string) => uri.replace(/^\/+/, "");
+  const keyOf = (uri: string) => clean(uri).replace(/@2x(?=\.jpg$)/, "");
+  const smallByKey = new Map(small.map((page) => [keyOf(page.tgtUri), clean(page.tgtUri)]));
+  const largeByKey = new Map(large.map((page) => [keyOf(page.tgtUri), clean(page.tgtUri)]));
+  const order = (key: string) => {
+    const match = /s(\d+)p(\d+)\.jpg$/.exec(key);
+    return match ? [Number(match[1]), Number(match[2])] : [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
+  };
+  const keys = [...new Set([...largeByKey.keys(), ...smallByKey.keys()])].sort((a, b) => {
+    const [aSheet, aPage] = order(a);
+    const [bSheet, bPage] = order(b);
+    return aSheet - bSheet || aPage - bPage || a.localeCompare(b);
+  });
+  return keys.map((key, index) => {
+    const largeKey = largeByKey.get(key);
+    const thumbKey = smallByKey.get(key);
+    return largeKey && thumbKey
+      ? { pageNo: index + 1, renderStatus: "OK" as const, thumbKey, largeKey }
+      : { pageNo: index + 1, renderStatus: "FAILED" as const, thumbKey: "", largeKey: "" };
+  });
+}
+
 /** 大图、小图两份 doc_jobs 的参数。源类型取原文件扩展名（原件对象键是 original.<ext>）。 */
 export function planRetroDocSubmission(asset: {
   caseId: string;
@@ -40,17 +74,18 @@ export function planRetroDocSubmission(asset: {
   originalName: string;
 }): DocProcessSubmissionPlan {
   const srcType = visualObjectExtension(asset.originalName);
+  const spreadsheet = isRetroSpreadsheet(asset.originalName);
   return {
     large: {
       srcObjectKey: asset.objectKey,
       srcType,
-      outputObjectTemplate: retroAssetPageTemplate(asset.caseId, asset.assetId, "large"),
+      outputObjectTemplate: retroAssetPageTemplate(asset.caseId, asset.assetId, "large", spreadsheet),
       imageParams: LARGE_IMAGE_PARAMS,
     },
     small: {
       srcObjectKey: asset.objectKey,
       srcType,
-      outputObjectTemplate: retroAssetPageTemplate(asset.caseId, asset.assetId, "small"),
+      outputObjectTemplate: retroAssetPageTemplate(asset.caseId, asset.assetId, "small", spreadsheet),
       imageParams: SMALL_IMAGE_PARAMS,
     },
   };
@@ -171,7 +206,7 @@ export async function submitRetroDocPreview(
  */
 export async function checkRetroDocPreview(
   db: DbClient,
-  asset: { id: string; ciJobLarge: string; ciJobSmall: string },
+  asset: { id: string; ciJobLarge: string; ciJobSmall: string; originalName?: string },
   options: { fetchImpl?: CiFetch } = {},
 ): Promise<void> {
   let cosConfig: CosConfig;
@@ -198,7 +233,13 @@ export async function checkRetroDocPreview(
     await markDocFailed(db, asset.id, merged.reason);
     return;
   }
-  const pages = retroDocPagesFromCi(merged.pages);
+  const spreadsheet = Boolean(asset.originalName && isRetroSpreadsheet(asset.originalName))
+    && large.result.state === "Success" && small.result.state === "Success";
+  const pageOutcomes = spreadsheet && large.result.state === "Success" && small.result.state === "Success"
+    ? pairRetroSpreadsheetPages(large.result.pages, small.result.pages)
+    : merged.pages;
+  const pageCount = spreadsheet ? pageOutcomes.length : merged.pageCount;
+  const pages = retroDocPagesFromCi(pageOutcomes);
   if (!pages.some((page) => page.ok)) {
     await markDocFailed(db, asset.id, "数据万象没有转换出可以预览的页面；可以下载原文件查看。");
     return;
@@ -208,7 +249,7 @@ export async function checkRetroDocPreview(
      SET derivative_status = 'READY', derivative_error = NULL, page_count = ?, pages_json = ?::jsonb,
          ci_checked_at = now(), updated_at = now()
      WHERE id = ? AND derivative_status = 'PENDING'`,
-  ).bind(merged.pageCount, JSON.stringify(pages), asset.id).run();
+  ).bind(pageCount, JSON.stringify(pages), asset.id).run();
 }
 
 type PendingDocRow = QueryResultRow & { id: string; case_id: string; object_key: string; original_name: string };
@@ -235,7 +276,7 @@ export async function runRetroDocPreviewsForCase(db: DbClient, caseId: string, o
   for (const row of rows.results) await submitRetroDocPreview(db, toDocAsset(row), options);
 }
 
-type PollRow = QueryResultRow & { id: string; derivative_status: string; ci_job_large: string | null; ci_job_small: string | null; ci_checked_at: unknown };
+type PollRow = QueryResultRow & { id: string; original_name: string; derivative_status: string; ci_job_large: string | null; ci_job_small: string | null; ci_checked_at: unknown };
 
 function isoText(value: unknown): string | null {
   if (value instanceof Date) return value.toISOString();
@@ -246,12 +287,15 @@ function isoText(value: unknown): string | null {
  * 「已就绪」却一页都没有、也从没提交过转换任务的文档，说明从来没转过（例如文档预览上线前传的，
  * 当时文档不转换、直接记成就绪）：改回 PENDING，交给后面的提交兜底去转。规则对任何漏转的文档都成立，
  * 同步执行，这样这次详情响应就是「正在生成预览」，前端会照常轮询。
+ * 提交阶段就失败（没拿到任务 id）的文档，过 10 分钟后打开详情也会再提交一次——这类失败多半是配置或参数问题，
+ * 修好之后不用重传；数据万象没有因此计费。转换阶段失败的（拿到过任务 id）不重试。
  */
 export async function requeueNeverConvertedDocs(db: DbClient, caseId: string): Promise<void> {
   await db.prepare(
     `UPDATE retro_case_assets SET derivative_status = 'PENDING', derivative_error = NULL, derivative_requested_at = NULL, updated_at = now()
-     WHERE case_id = ? AND type = 'DOC' AND upload_status = 'READY' AND derivative_status = 'READY'
-       AND pages_json IS NULL AND page_count = 0 AND ci_job_large IS NULL`,
+     WHERE case_id = ? AND type = 'DOC' AND upload_status = 'READY' AND ci_job_large IS NULL AND pages_json IS NULL AND page_count = 0
+       AND (derivative_status = 'READY'
+         OR (derivative_status = 'FAILED' AND (derivative_requested_at IS NULL OR derivative_requested_at < now() - interval '10 minutes')))`,
   ).bind(caseId).run();
 }
 
@@ -262,7 +306,7 @@ export async function pollRetroDocPreviews(db: DbClient, caseId: string, options
   try {
     await requeueNeverConvertedDocs(db, caseId);
     const rows = await db.prepare(
-      `SELECT id, derivative_status, ci_job_large, ci_job_small, ci_checked_at FROM retro_case_assets
+      `SELECT id, original_name, derivative_status, ci_job_large, ci_job_small, ci_checked_at FROM retro_case_assets
        WHERE case_id = ? AND type = 'DOC' AND upload_status = 'READY' AND derivative_status = 'PENDING'
          AND ci_job_large IS NOT NULL AND ci_job_small IS NOT NULL`,
     ).bind(caseId).all<PollRow>();
@@ -272,7 +316,7 @@ export async function pollRetroDocPreviews(db: DbClient, caseId: string, options
       ciJobSmall: row.ci_job_small,
       ciCheckedAt: isoText(row.ci_checked_at),
     }, now));
-    await Promise.all(due.map((row) => checkRetroDocPreview(db, { id: row.id, ciJobLarge: row.ci_job_large!, ciJobSmall: row.ci_job_small! }, options)
+    await Promise.all(due.map((row) => checkRetroDocPreview(db, { id: row.id, ciJobLarge: row.ci_job_large!, ciJobSmall: row.ci_job_small!, originalName: row.original_name }, options)
       .catch((error) => console.error(`[retro asset ${row.id}] 数据万象文档转换轮询失败：`, error))));
   } catch (error) {
     console.error("[retro] 文档预览轮询失败", error);

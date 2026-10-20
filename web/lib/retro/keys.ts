@@ -35,8 +35,13 @@ export function retroAssetPagesDir(caseId: string, assetId: string): string {
 }
 
 /** 数据万象 doc_jobs 的输出模板：`${Number}` 由数据万象换成页号（从 1 起）。 */
-export function retroAssetPageTemplate(caseId: string, assetId: string, size: RetroPageSize): string {
-  return `${retroAssetPagesDir(caseId, assetId)}p\${Number}${size === "large" ? "@2x" : ""}.jpg`;
+/**
+ * 数据万象 doc_jobs 的输出模板。表格（Excel、CSV）必须带 ${SheetID}，否则数据万象直接拒收
+ * （「Output.Object must contain ${SheetID}」）；读回时用查询结果里的 TgtUri，不靠这里猜文件名。
+ */
+export function retroAssetPageTemplate(caseId: string, assetId: string, size: RetroPageSize, spreadsheet = false): string {
+  const name = spreadsheet ? "s${SheetID}p${Number}" : "p${Number}";
+  return `${retroAssetPagesDir(caseId, assetId)}${name}${size === "large" ? "@2x" : ""}.jpg`;
 }
 
 export function retroAssetPageKey(caseId: string, assetId: string, pageNo: number, size: RetroPageSize): string {

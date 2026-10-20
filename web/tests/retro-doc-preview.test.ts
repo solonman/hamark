@@ -167,5 +167,40 @@ test("documents marked READY with no pages and no job are requeued on detail rea
   assert.match(poll, /await requeueNeverConvertedDocs\(db, caseId\);/);
   const requeue = source.slice(source.indexOf("export async function requeueNeverConvertedDocs"), source.indexOf("export async function pollRetroDocPreviews"));
   assert.match(requeue, /SET derivative_status = 'PENDING'/);
-  assert.match(requeue, /derivative_status = 'READY'\s+AND pages_json IS NULL AND page_count = 0 AND ci_job_large IS NULL/);
+  assert.match(requeue, /ci_job_large IS NULL AND pages_json IS NULL AND page_count = 0/);
+  assert.match(requeue, /derivative_status = 'READY'/);
+  assert.match(requeue, /derivative_status = 'FAILED' AND \(derivative_requested_at IS NULL OR derivative_requested_at < now\(\) - interval '10 minutes'\)/);
+});
+
+test("spreadsheets: the output template carries ${SheetID}; other documents do not", async () => {
+  const { planRetroDocSubmission } = await import("../lib/retro/doc-preview");
+  const xlsx = planRetroDocSubmission({ caseId: "rtc_1", assetId: "ast_1", objectKey: "retro/cases/rtc_1/assets/ast_1/original.xlsx", originalName: "考勤.xlsx" });
+  assert.match(xlsx.large.outputObjectTemplate, /pages\/s\$\{SheetID\}p\$\{Number\}@2x\.jpg$/);
+  assert.match(xlsx.small.outputObjectTemplate, /pages\/s\$\{SheetID\}p\$\{Number\}\.jpg$/);
+  const docx = planRetroDocSubmission({ caseId: "rtc_1", assetId: "ast_2", objectKey: "retro/cases/rtc_1/assets/ast_2/original.docx", originalName: "需求.docx" });
+  assert.doesNotMatch(docx.large.outputObjectTemplate, /SheetID/);
+});
+
+test("spreadsheet pages pair by file name across sheets and renumber 1…N (PageNo repeats per sheet)", async () => {
+  const { pairRetroSpreadsheetPages } = await import("../lib/retro/doc-preview");
+  const dir = "/retro/cases/rtc_1/assets/ast_1/pages/";
+  const large = [
+    { pageNo: 1, tgtUri: `${dir}s2p1@2x.jpg` },
+    { pageNo: 1, tgtUri: `${dir}s1p1@2x.jpg` },
+    { pageNo: 2, tgtUri: `${dir}s1p2@2x.jpg` },
+  ];
+  const small = [
+    { pageNo: 1, tgtUri: `${dir}s1p1.jpg` },
+    { pageNo: 2, tgtUri: `${dir}s1p2.jpg` },
+    { pageNo: 1, tgtUri: `${dir}s2p1.jpg` },
+  ];
+  const pages = pairRetroSpreadsheetPages(large, small);
+  assert.deepEqual(pages.map((page) => [page.pageNo, page.renderStatus, page.largeKey.split("/").pop()]), [
+    [1, "OK", "s1p1@2x.jpg"],
+    [2, "OK", "s1p2@2x.jpg"],
+    [3, "OK", "s2p1@2x.jpg"],
+  ]);
+  assert.equal(pages[0].thumbKey, "retro/cases/rtc_1/assets/ast_1/pages/s1p1.jpg", "leading slash stripped");
+  const missing = pairRetroSpreadsheetPages(large, small.slice(0, 2));
+  assert.equal(missing[2].renderStatus, "FAILED");
 });
