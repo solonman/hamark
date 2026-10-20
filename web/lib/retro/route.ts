@@ -1,7 +1,7 @@
 // 客户需求复盘库接口的统一外壳：同源 → 登录（沿用 v04Route 的会话校验，不要求 V0.4 灰度）→ 开关 → 业务。
 // 业务错误翻成与录音点评相同的错误信封 `{ error: { code, message, requestId } }`；
 // 迁移没执行回 503 并提示执行哪个文件；开关关着回 404。所有响应 `Cache-Control: no-store`。
-// 后台推进（转写、图片派生图）用 after() 挂在响应之后。
+// 后台推进（转写、图片派生图、文档逐页预览的提交）用 after() 挂在响应之后。
 
 import { after } from "next/server";
 import { getDbClient, getVideoBucket, type DbClient } from "@/db";
@@ -14,6 +14,7 @@ import type { VideoBucket } from "@/storage/types";
 import { loadRetroViewer, type RetroViewer } from "./access";
 import { createRetroAsrProvider, type RetroAsrKind } from "./asr";
 import { isRetroDerivativeCiMode, runRetroDerivativesForCase, runStaleRetroDerivatives } from "./derivatives";
+import { runRetroDocPreviewsForCase } from "./doc-preview";
 import {
   RETRO_MISSING_SCHEMA_MESSAGE,
   RetroError,
@@ -122,4 +123,20 @@ export function scheduleRetroDerivativesForCase(db: DbClient, caseId: string) {
 
 export function scheduleStaleRetroDerivatives(db: DbClient, options: { caseId?: string } = {}) {
   if (isRetroDerivativeCiMode()) after(() => runStaleRetroDerivatives(db, options));
+}
+
+/**
+ * 文档逐页预览（只在 ci 模式；script 模式靠 npm run retro:derivatives:local 生成占位页图）：
+ * complete 后提交数据万象 doc_jobs；详情 GET 也调一次，兜住提交失败过、又已经过了 60 秒还没提交的文档。
+ * 收口（查任务结果）不在这里，在详情 GET 里同步做（pollRetroDocPreviews），这样那次响应就是最新状态。
+ */
+export function scheduleRetroDocPreviewsForCase(db: DbClient, caseId: string) {
+  if (!isRetroDerivativeCiMode()) return;
+  after(async () => {
+    try {
+      await runRetroDocPreviewsForCase(db, caseId);
+    } catch (error) {
+      console.error("[retro] 文档预览提交失败", error);
+    }
+  });
 }

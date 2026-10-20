@@ -1,5 +1,5 @@
 // POST /api/retro-cases/[id]/assets/complete：用 head() 核对刚传上去的附件，缺的列在 missing 里（200）。
-// 之后在响应发出后：图片派生图（ci 模式）、客户录音转写各推进一次。
+// 之后在响应发出后：图片派生图、文档逐页预览（都只在 ci 模式）、客户录音转写各推进一次。
 import { getDbClient } from "@/db";
 import { completeRetroAssets } from "@/lib/retro/assets";
 import {
@@ -7,6 +7,7 @@ import {
   readRetroJsonBody,
   retroRoute,
   scheduleRetroDerivativesForCase,
+  scheduleRetroDocPreviewsForCase,
   scheduleRetroTranscription,
 } from "@/lib/retro/route";
 
@@ -18,6 +19,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const db = getDbClient();
     const outcome = await completeRetroAssets(db, lazyRetroBucket, viewer, id, await readRetroJsonBody(request));
     if (outcome.hasPendingImages) scheduleRetroDerivativesForCase(db, id);
+    if (outcome.hasPendingDocs) scheduleRetroDocPreviewsForCase(db, id);
     for (const assetId of outcome.transcribingAssetIds) scheduleRetroTranscription("ASSET", assetId, "CLIENT", startedAt);
     return Response.json({ missing: outcome.missing });
   });

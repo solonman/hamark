@@ -177,13 +177,13 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     assert.equal(detail.inMinutes, null);
     assert.deepEqual(detail.viewerCapabilities, { canEdit: true, canTrash: true, canUploadRecording: true });
 
-    const library = await listRetroLibrary(db, OWNER);
+    const library = await listRetroLibrary(db, OWNER, new MemoryBucket());
     const card = library.cases.find((item) => item.id === created.caseId);
     assert.ok(card);
     assert.equal(card.canManage, true);
     assert.deepEqual(card.roundTrack, [{ title: "第 1 版", hasFeedback: false }]);
     assert.deepEqual(card.recording, { state: "NONE" });
-    assert.equal((await listRetroLibrary(db, OTHER)).cases.find((item) => item.id === created.caseId)?.canManage, false);
+    assert.equal((await listRetroLibrary(db, OTHER, new MemoryBucket())).cases.find((item) => item.id === created.caseId)?.canManage, false);
     const summary = library.months.find((item) => item.monthKey === month);
     assert.ok(summary && summary.caseCount >= 1);
     assert.deepEqual(summary.badge, { state: "NONE" });
@@ -223,7 +223,7 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
 
     assert.deepEqual(await trashRetroCase(db, OWNER, caseId), { ok: true });
     assert.equal(await loadRetroCaseDetail(db, new MemoryBucket(), caseId, OWNER), null);
-    assert.ok(!(await listRetroLibrary(db, OWNER)).cases.some((item) => item.id === caseId));
+    assert.ok(!(await listRetroLibrary(db, OWNER, new MemoryBucket())).cases.some((item) => item.id === caseId));
     await expectError(() => trashRetroCase(db, OWNER, caseId), 404, "NOT_FOUND");
     await expectError(() => restoreRetroCase(db, OTHER, caseId), 403, "FORBIDDEN");
     assert.deepEqual(await restoreRetroCase(db, OWNER, caseId), { ok: true });
@@ -257,7 +257,7 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     assert.ok(soft.rows[0].deleted_at, "the round row is kept so published 「第 N 版」 markers still resolve");
     await expectError(() => deleteRetroRound(db, OWNER, caseId, firstRoundId), 404, "NOT_FOUND");
 
-    const library = await listRetroLibrary(db, OWNER);
+    const library = await listRetroLibrary(db, OWNER, new MemoryBucket());
     assert.deepEqual(library.cases.find((item) => item.id === caseId)?.roundTrack.map((item) => item.title), ["电话沟通", "第 2 版"]);
   });
 
@@ -322,8 +322,16 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     assert.equal(asReader.rounds[0].assets.length, 0, "the 12 images were never uploaded");
     const audioView = asEditor.needAssets.find((item) => item.id === audioId)!;
     assert.equal(audioView.transcribe?.status, "TRANSCRIBING");
-    assert.equal(audioView.openUrl, `/api/retro-cases/${caseId}/assets/${audioId}/stream`);
-    assert.equal(asEditor.needAssets.find((item) => item.id === pdfId)!.openUrl, `/api/retro-cases/${caseId}/assets/${pdfId}/original`);
+    assert.equal(audioView.openUrl, `/api/retro-cases/${caseId}/assets/${audioId}/original`, "download the original file");
+    assert.equal(audioView.streamUrl, `/api/retro-cases/${caseId}/assets/${audioId}/stream`, "play in the site");
+    assert.equal(audioView.pages, null, "only documents have pages");
+    const pdfView = asEditor.needAssets.find((item) => item.id === pdfId)!;
+    assert.equal(pdfView.openUrl, `/api/retro-cases/${caseId}/assets/${pdfId}/original`);
+    assert.equal(pdfView.streamUrl, null);
+    // 文档 complete 后进入「正在生成预览」（PENDING），页还没有。
+    assert.equal(pdfView.derivativeStatus, "PENDING");
+    assert.deepEqual(pdfView.pages, []);
+    assert.equal(first.hasPendingDocs, true);
     const videoView = asEditor.needAssets.find((item) => item.id === videoId)!;
     assert.equal(videoView.derivativeStatus, "READY");
     assert.ok(videoView.thumbnailUrl);
@@ -335,6 +343,68 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     const left = await pool!.query("SELECT id, position FROM retro_case_assets WHERE case_id = $1 AND round_id IS NULL ORDER BY position", [caseId]);
     assert.deepEqual(left.rows.map((row) => [row.id, row.position]), [[audioId, 0], [videoId, 1]]);
     await expectError(() => removeRetroAsset(db, bucket, OWNER, caseId, pdfId), 404, "NOT_FOUND");
+  });
+
+  dbTest("documents: READY pages are signed per page, the card cover follows need → rounds and image → video → document, removal deletes page images", async () => {
+    const { caseId, firstRoundId } = await newCase(OWNER, `${PREFIX} 封面`);
+    const bucket = new MemoryBucket();
+    const { assetIds } = await addRetroAssets(db, OWNER, caseId, {
+      assets: [
+        { roundId: null, originalName: "需求.pptx", contentType: "", fileSize: 10 },
+        { roundId: firstRoundId, originalName: "第一版.png", contentType: "image/png", fileSize: 10 },
+        { roundId: null, originalName: "现场.mp4", contentType: "video/mp4", fileSize: 10 },
+      ],
+    });
+    const [docId, imageId, videoId] = assetIds;
+    const dir = `retro/cases/${caseId}/assets/${docId}/pages`;
+    for (const [id, name] of [[docId, "original.pptx"], [imageId, "original.png"], [videoId, "original.mp4"]]) {
+      bucket.objects.set(`retro/cases/${caseId}/assets/${id}/${name}`, 10);
+    }
+    const done = await completeRetroAssets(db, bucket, OWNER, caseId, {});
+    assert.equal(done.hasPendingDocs, true);
+    assert.equal(done.hasPendingImages, true);
+    // 什么都还没就绪（视频没截到帧、图片和文档还在 PENDING）：文字封面。
+    let card = (await listRetroLibrary(db, OWNER, bucket)).cases.find((item) => item.id === caseId)!;
+    assert.equal(card.cover, null);
+
+    // 数据万象（或本机脚本）收口：两页，第 2 页失败。
+    await pool!.query(
+      `UPDATE retro_case_assets SET derivative_status = 'READY', page_count = 2, pages_json = $2::jsonb WHERE id = $1`,
+      [docId, JSON.stringify([{ pageNo: 1, ok: true, thumbKey: `${dir}/p1.jpg`, largeKey: `${dir}/p1@2x.jpg` }, { pageNo: 2, ok: false }])],
+    );
+    bucket.getOptions.length = 0;
+    const detail = (await loadRetroCaseDetail(db, bucket, caseId, OTHER))!;
+    const doc = detail.needAssets.find((item) => item.id === docId)!;
+    assert.equal(doc.derivativeStatus, "READY");
+    assert.deepEqual(doc.pages?.map((page) => [page.pageNo, page.ok, Boolean(page.thumbUrl), Boolean(page.largeUrl)]), [[1, true, true, true], [2, false, false, false]]);
+    assert.ok(doc.pages?.[0].largeUrl?.includes(encodeURIComponent(`${dir}/p1@2x.jpg`)));
+    assert.equal(detail.rounds[0].assets.find((item) => item.id === imageId)?.pages, null);
+
+    // 只有文档就绪：封面是文档第 1 页的小图。
+    card = (await listRetroLibrary(db, OWNER, bucket)).cases.find((item) => item.id === caseId)!;
+    assert.deepEqual(card.cover?.kind, "DOC");
+    assert.ok(card.cover?.url.includes(encodeURIComponent(`${dir}/p1.jpg`)));
+    // 视频有了截帧：视频排在文档前面。
+    await pool!.query(`UPDATE retro_case_assets SET derivative_status = 'READY', thumbnail_key = $2 WHERE id = $1`, [videoId, `retro/cases/${caseId}/assets/${videoId}/cover.jpg`]);
+    card = (await listRetroLibrary(db, OWNER, bucket)).cases.find((item) => item.id === caseId)!;
+    assert.equal(card.cover?.kind, "VIDEO");
+    // 第 1 回合的图片就绪：图片优先于需求凭证里的视频和文档。
+    await pool!.query(`UPDATE retro_case_assets SET derivative_status = 'READY', thumbnail_key = $2 WHERE id = $1`, [imageId, `retro/cases/${caseId}/assets/${imageId}/thumb.jpg`]);
+    card = (await listRetroLibrary(db, OWNER, bucket)).cases.find((item) => item.id === caseId)!;
+    assert.equal(card.cover?.kind, "IMAGE");
+    assert.ok(card.cover?.url.includes(encodeURIComponent(`retro/cases/${caseId}/assets/${imageId}/thumb.jpg`)));
+    // 图片所在的回合被删除：它不再当封面。
+    await pool!.query(`UPDATE retro_case_rounds SET deleted_at = now() WHERE id = $1`, [firstRoundId]);
+    card = (await listRetroLibrary(db, OWNER, bucket)).cases.find((item) => item.id === caseId)!;
+    assert.equal(card.cover?.kind, "VIDEO");
+
+    // 移除文档：两档页图一起删。
+    await removeRetroAsset(db, bucket, OWNER, caseId, docId);
+    for (const key of [`${dir}/p1.jpg`, `${dir}/p1@2x.jpg`, `${dir}/p2.jpg`, `${dir}/p2@2x.jpg`]) assert.ok(bucket.deleted.includes(key), key);
+
+    // 重新 complete 不会把就绪的文档打回 PENDING（只处理还没传完的）。
+    const again = await completeRetroAssets(db, bucket, OWNER, caseId, {});
+    assert.equal(again.hasPendingDocs, false);
   });
 
   dbTest("a customer recording transcribes with the fake ASR in two polls and is visible to everyone; FAILED can retry", async () => {
@@ -479,9 +549,9 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     // 转完之后不再推进。
     assert.deepEqual(await advanceRetroTranscription(db, "RECORDING", recording.id, { deadline: clock.now + 280_000, deps, kind: "REVIEW" }), { advanced: false, status: null });
     // 卡片上的录音标记。
-    const card = (await listRetroLibrary(db, OWNER)).cases.find((item) => item.id === caseId)!;
+    const card = (await listRetroLibrary(db, OWNER, new MemoryBucket())).cases.find((item) => item.id === caseId)!;
     assert.deepEqual(card.recording, { state: "READY", parts: 1, durationMs: 702_000 });
-    const summary = (await listRetroLibrary(db, OWNER)).months.find((item) => item.monthKey === month)!;
+    const summary = (await listRetroLibrary(db, OWNER, new MemoryBucket())).months.find((item) => item.monthKey === month)!;
     assert.ok(summary.recordedCaseCount >= 1, "a case with a transcribed review recording counts as recorded");
   });
 
@@ -504,7 +574,7 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     assert.equal(stored.rows[0].lease_until, null);
   });
 
-  dbTest("opening an attachment answers with the whitelist Content-Type, PDF inline and Office files as downloads", async () => {
+  dbTest("opening an attachment answers with the whitelist Content-Type; original is always a download, stream only for media", async () => {
     const { caseId } = await newCase();
     const bucket = new MemoryBucket();
     const { assetIds } = await addRetroAssets(db, OWNER, caseId, {
@@ -535,15 +605,21 @@ describe("retro service (local Postgres)", { concurrency: false }, () => {
     assert.equal((await open(audio, "stream")).responseContentType, "audio/mp4");
     assert.equal((await open(video, "stream")).responseContentType, "video/mp4");
     assert.equal((await open(image, "original")).responseContentType, "image/png");
+    // 「下载原文件」：预览改走站内弹层，original 对所有类型都以附件方式下载（PDF 也不再内联）。
     const pdfOpen = await open(pdf, "original");
     assert.equal(pdfOpen.responseContentType, "application/pdf");
-    assert.equal(pdfOpen.responseContentDisposition, "inline");
+    assert.match(pdfOpen.responseContentDisposition ?? "", /^attachment; filename="brief\.pdf"/);
     const docOpen = await open(docx, "original");
     assert.match(docOpen.responseContentDisposition ?? "", /^attachment; filename=/);
     assert.equal(docOpen.responseContentType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    // 类型不对（音频走 original、图片走 stream）仍是 404。
-    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: audio, viewer: OTHER, mode: "original" }), 404, "NOT_FOUND");
+    for (const assetId of [audio, image, video]) {
+      assert.match((await open(assetId, "original")).responseContentDisposition ?? "", /^attachment; filename=/, assetId);
+    }
+    assert.equal((await open(audio, "original")).responseContentType, "audio/mp4");
+    // 站内播放的 stream 不带下载头；图片、文档没有 stream（404）。
+    assert.equal((await open(video, "stream")).responseContentDisposition, undefined);
     await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: image, viewer: OTHER, mode: "stream" }), 404, "NOT_FOUND");
+    await expectError(() => resolveRetroAssetUrl(db, bucket, { caseId, assetId: pdf, viewer: OTHER, mode: "stream" }), 404, "NOT_FOUND");
   });
 
   dbTest("a review recording stuck in UPLOADING for over an hour is failed lazily and its part number is released when needed", async () => {

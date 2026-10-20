@@ -1,7 +1,9 @@
 // 客户需求复盘库的地基：案例、回合、附件（需求凭证与回合附件同表）、关联作品、点评录音、
 // 月度整理任务、已发布版本、方法候选。见 docs/26_客户需求复盘库_实施规格_V0.1.md 八、数据。
 //
-// 与 db/migrations/2026-10-19-retro-library.sql 逐条一致（tests/retro-schema.test.ts 断言）。
+// 与生产迁移逐条一致（tests/retro-schema.test.ts 断言）：RETRO_LIBRARY_STATEMENTS 对应
+// db/migrations/2026-10-19-retro-library.sql，RETRO_DOC_PREVIEW_STATEMENTS 对应
+// db/migrations/2026-10-20-retro-doc-preview.sql；两份合起来就是 RETRO_SCHEMA_STATEMENTS。
 // 是独立表族，不挂 V0.4 契约、不建版本链（规格 4.1，理由同 docs/22 2.3）。
 // 时间列一律 TIMESTAMPTZ + now()，不写 CURRENT_TIMESTAMP（会被 normalizeSql 改写成文本，docs/25 3.2）。
 // 已发布版本与方法候选只增不改；二期方法库在它们上面另建审定关系，不回写这里。
@@ -39,7 +41,7 @@ export const RETRO_METHOD_TRANSFERS = ["TRANSFERABLE", "CASE_ONLY", "UNSURE"] as
 
 const list = (values: readonly string[]) => values.map((value) => `'${value}'`).join(", ");
 
-export const RETRO_SCHEMA_STATEMENTS = [
+export const RETRO_LIBRARY_STATEMENTS = [
   // 案例主表。month_key 是复盘月份（YYYY-MM），按它归组；background（任务与最初需求）选填（规格 4.2）。
   `CREATE TABLE IF NOT EXISTS retro_cases (
     id TEXT PRIMARY KEY,
@@ -232,3 +234,19 @@ export const RETRO_SCHEMA_STATEMENTS = [
   END
   $retro_schema_revoke_public_roles$`,
 ] as const;
+
+/**
+ * 文档逐页预览（docs/26 4.3「全部在站内弹层预览」，2026-10-20）：PDF／Word／Excel／PPT complete 后
+ * 由数据万象 doc_jobs 转成逐页图片（大图 1600w、小图 480w 两个任务），没有回调，详情接口顺手轮询收口。
+ * derivative_status 复用为转换状态（PENDING／READY／FAILED），失败原因写 derivative_error。
+ * pages_json 每页 { pageNo, ok }（转换成功时另带两档对象键）。只加列，可重复执行，不改旧数据。
+ */
+export const RETRO_DOC_PREVIEW_STATEMENTS = [
+  `ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS ci_job_large TEXT`,
+  `ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS ci_job_small TEXT`,
+  `ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS ci_checked_at TIMESTAMPTZ`,
+  `ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS page_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS pages_json JSONB`,
+] as const;
+
+export const RETRO_SCHEMA_STATEMENTS = [...RETRO_LIBRARY_STATEMENTS, ...RETRO_DOC_PREVIEW_STATEMENTS] as const;
