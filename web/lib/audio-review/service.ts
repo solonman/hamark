@@ -1,5 +1,7 @@
 // 录音点评改写的服务层（docs/25 四）：建任务（含虚拟 v1 物化）、UPLOADED / RETRY / ABANDON /
 // CONFIRM 四个动作、后台推进 advanceAudioReview，以及工作台需要的摘要。
+// 点评可以是录音，也可以是文档（docs/25 二之二）：来源按 audio_content_type 区分，文档在 TRANSCRIBING
+// 这一步不调转写，而是从存储取回文件、解析成按段落切好的文字稿（document.ts）。
 //
 // 推进模型（4.3）：没有常驻进程。每次 UPLOADED、RETRY 和 GET 都在响应发出后用 after() 调一次
 // advanceAudioReview，deadline = 请求开始 + 280 秒。进门先抢租约（290 秒），抢不到说明另一次推进
@@ -10,15 +12,23 @@
 import { randomUUID } from "node:crypto";
 import type { DbClient, QueryResultRow } from "@/db";
 import {
+  AUDIO_REVIEW_DOCUMENT_MAX_BYTES,
   AUDIO_REVIEW_MAX_BYTES,
   audioReviewContentType,
+  audioReviewDocumentContentType,
+  audioReviewSourceKindOf,
   type AudioReviewActionRequestBody,
   type AudioReviewFailedStep,
   type AudioReviewStatus,
   type CreateAudioReviewRequestBody,
   type V19AudioReviewSummary,
 } from "@/lib/audio-review-model";
-import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewCriticVersion, isAudioReviewUploader } from "./access";
+import {
+  AUDIO_REVIEW_CRITIC_NAME,
+  AUDIO_REVIEW_VERSION_LABEL,
+  isAudioReviewCriticVersion,
+  isAudioReviewUploader,
+} from "./access";
 import {
   V04_PAYLOAD_SCHEMA_VERSION,
   V04_TAXONOMY_VERSION,
@@ -41,10 +51,17 @@ import {
   type WorkspaceRow,
 } from "@/lib/v19-version-chain";
 import type { V04Actor } from "@/lib/v04-workspace-service";
-import type { VideoBucket } from "@/storage/types";
+import type { PresignedGetOptions, VideoBucket } from "@/storage/types";
 import type { AudioReviewConfig } from "./config";
 import { isAudioReviewAvailable } from "./config";
 import { parseModelJsonContent } from "./deepseek";
+import {
+  AUDIO_REVIEW_DOCUMENT_ENGINE,
+  AUDIO_REVIEW_DOCUMENT_REASONS,
+  audioReviewDocumentSegments,
+  parseAudioReviewDocument,
+  readAudioReviewObjectBytes,
+} from "./document";
 import { AudioReviewError, isMissingAudioReviewSchema } from "./errors";
 import {
   AUDIO_REVIEW_PROMPT_VERSION,
@@ -84,7 +101,8 @@ const POLL_MARGIN_MS = 1_000;
 
 export type AudioReviewDeps = {
   providers: AudioReviewProviders;
-  bucket: Pick<VideoBucket, "createPresignedPutUrl" | "createPresignedGetUrl" | "head">;
+  /** get 只给文档用：TRANSCRIBING 时取回文件解析（录音交给腾讯云按预签名地址下载）。 */
+  bucket: Pick<VideoBucket, "createPresignedPutUrl" | "createPresignedGetUrl" | "head" | "get">;
   sleep: (ms: number) => Promise<void>;
   clock: () => number;
   log?: (message: string, detail?: unknown) => void;
@@ -93,14 +111,33 @@ export type AudioReviewDeps = {
 export const newAudioReviewId = () => `arv_${randomUUID()}`;
 export const audioReviewObjectKey = (reviewId: string) => `audio-reviews/${reviewId}/original`;
 
+/** RFC 5987 的 filename*：encodeURIComponent 之外再转义 ' ( ) * 。 */
+function encodeRfc5987(value: string) {
+  return encodeURIComponent(value).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * 原文件链接（GET …/audio）的响应头覆盖。文档以附件下载、带上原文件名——.txt 在浏览器里直接打开
+ * 常是乱码，「可下载原文件」（docs/25 二之二 3）要的是下载；录音不覆盖，<audio> 要内联播放。
+ * 本机存储忽略这一项。
+ */
+export function audioReviewOriginalFileOverrides(
+  row: Pick<AudioReviewRow, "audio_content_type" | "audio_file_name">,
+): Pick<PresignedGetOptions, "responseContentDisposition"> {
+  if (audioReviewSourceKindOf(row.audio_content_type) !== "DOCUMENT") return {};
+  const extension = row.audio_file_name.toLowerCase().split(".").pop() ?? "";
+  const fallback = `review${/^[a-z0-9]{1,8}$/.test(extension) ? `.${extension}` : ""}`;
+  return { responseContentDisposition: `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(row.audio_file_name)}` };
+}
+
 const ADVANCEABLE: readonly AudioReviewStatus[] = ["TRANSCRIBING", "UNDERSTANDING"];
 
 function forbidden() {
-  return new AudioReviewError(403, "FORBIDDEN", "只有上传名单里的人（老孙、秦欣欣）可以上传和处理点评录音。");
+  return new AudioReviewError(403, "FORBIDDEN", "只有上传名单里的人（老孙、秦欣欣）可以上传和处理点评。");
 }
 
 function notFound() {
-  return new AudioReviewError(404, "AUDIO_REVIEW_NOT_FOUND", "点评录音不存在。");
+  return new AudioReviewError(404, "AUDIO_REVIEW_NOT_FOUND", "点评不存在。");
 }
 
 function invalidState(message: string) {
@@ -185,20 +222,47 @@ export type NormalizedCreateInput = {
   sizeBytes: number;
 };
 
+/** 常有人直接拖进来、但读不了的文档格式：给一句能照着做的话，而不是「只能上传录音」。 */
+const UNSUPPORTED_DOCUMENT_EXTENSIONS = ["pdf", "doc"];
+const OTHER_DOCUMENT_EXTENSIONS = ["docm", "dot", "dotx", "wps", "rtf", "odt", "pages"];
+
+function invalidFile(message: string) {
+  return new AudioReviewError(400, "INVALID_AUDIO_FILE", message);
+}
+
+/**
+ * 录音或文档（docs/25 二之二）。文件名扩展名能推出文档类型（.docx / .txt / .md）就按文档：
+ * Content-Type 用服务端推出来的（浏览器给的不可靠），上限 20MB；否则按原来的录音规则。
+ * 错误码沿用 INVALID_AUDIO_FILE，不新增。
+ */
 export function normalizeCreateAudioReviewBody(body: unknown): NormalizedCreateInput {
   const input = (body && typeof body === "object" ? body : {}) as Partial<CreateAudioReviewRequestBody>;
   const fileName = typeof input.fileName === "string" ? input.fileName.trim().slice(0, 200) : "";
-  if (!fileName) throw new AudioReviewError(400, "INVALID_AUDIO_FILE", "缺少录音文件名。");
-  const contentType = audioReviewContentType(fileName, typeof input.contentType === "string" ? input.contentType : "");
-  if (!contentType) {
-    throw new AudioReviewError(400, "INVALID_AUDIO_FILE", "只能上传录音文件（m4a、mp3、wav、aac、flac、ogg、amr、wma、3gp、mp4 等）。");
-  }
+  if (!fileName) throw invalidFile("缺少文件名。");
   const sizeBytes = Number(input.sizeBytes);
-  if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
-    throw new AudioReviewError(400, "INVALID_AUDIO_FILE", "录音文件大小无效。");
-  }
-  if (sizeBytes > AUDIO_REVIEW_MAX_BYTES) {
-    throw new AudioReviewError(400, "INVALID_AUDIO_FILE", "录音文件不能超过 500MB。");
+  const documentType = audioReviewDocumentContentType(fileName);
+  let contentType: string;
+  if (documentType) {
+    contentType = documentType;
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) throw invalidFile("文档大小无效（是空文件吗？）。");
+    if (sizeBytes > AUDIO_REVIEW_DOCUMENT_MAX_BYTES) {
+      throw invalidFile(`文档不能超过 ${AUDIO_REVIEW_DOCUMENT_MAX_BYTES / 1024 / 1024}MB。`);
+    }
+  } else {
+    const extension = fileName.toLowerCase().split(".").pop() ?? "";
+    if (UNSUPPORTED_DOCUMENT_EXTENSIONS.includes(extension)) {
+      throw invalidFile("暂不支持 PDF / 老格式 .doc，请另存为 .docx 或直接粘贴文字。");
+    }
+    if (OTHER_DOCUMENT_EXTENSIONS.includes(extension)) {
+      throw invalidFile("暂不支持这种文档格式，请另存为 .docx 或直接粘贴文字。");
+    }
+    const audioType = audioReviewContentType(fileName, typeof input.contentType === "string" ? input.contentType : "");
+    if (!audioType) {
+      throw invalidFile("只能上传录音（m4a、mp3、wav、aac、flac、ogg、amr、wma、3gp、mp4 等）或文档（.docx、.txt、.md）。");
+    }
+    contentType = audioType;
+    if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) throw invalidFile("录音文件大小无效。");
+    if (sizeBytes > AUDIO_REVIEW_MAX_BYTES) throw invalidFile("录音文件不能超过 500MB。");
   }
   let baseVersionId: string | null = null;
   if (input.baseVersionId !== null && input.baseVersionId !== undefined) {
@@ -254,25 +318,25 @@ export async function createAudioReview(
     await assertVideoAvailable(tx, input.videoId);
     const workspace = await workspaceForVideo(tx, input.videoId, true);
     if (!workspace) {
-      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", "这份作业还没有任何内容，不能上传点评录音。");
+      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", "这份作业还没有任何内容，不能上传点评。");
     }
     const base = await resolveBaseVersion(tx, workspace, body.baseVersionId, now);
     if (!base || base.workspace_id !== workspace.id || base.video_id !== input.videoId) {
       throw new V04ServiceError("VERSION_NOT_FOUND", "被点评的版本不存在，请刷新页面后重试。");
     }
     if ((base.version_kind ?? "PERSONAL") !== "PERSONAL") {
-      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", "点评版不能再上传点评录音。");
+      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", "点评版不能再上传点评。");
     }
-    // 录音里点评的人始终是老孙：他自己的版本不挂点评。替他上传的人（秦欣欣）自己的作业可以——
+    // 点评的人始终是老孙：他自己的版本不挂点评。替他上传的人（秦欣欣）自己的作业可以——
     // 老孙点评的可能正是她那一版。
     if (isAudioReviewCriticVersion(base.owner_name_snapshot)) {
-      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", `不能给${AUDIO_REVIEW_CRITIC_NAME}自己的版本上传点评录音。`);
+      throw new AudioReviewError(409, "AUDIO_REVIEW_NOT_ALLOWED", `不能给${AUDIO_REVIEW_CRITIC_NAME}自己的版本上传点评。`);
     }
     const live = await tx.prepare(
       `SELECT id FROM audio_reviews WHERE base_version_id = ? AND status <> 'ABANDONED' LIMIT 1`,
     ).bind(base.id).first<{ id: string } & QueryResultRow>();
     if (live) {
-      throw new AudioReviewError(409, "AUDIO_REVIEW_EXISTS", "这一版已经有一份点评录音在处理或已生成点评版；要重传请先放弃当前这份。");
+      throw new AudioReviewError(409, "AUDIO_REVIEW_EXISTS", "这一版已经有一份点评在处理或已生成点评版；要重传请先放弃当前这份。");
     }
     const basePayload = parseJsonPayload(base.payload_json);
     const inserted = await tx.prepare(
@@ -289,7 +353,7 @@ export async function createAudioReview(
       body.sizeBytes,
     ).first<{ id: string } & QueryResultRow>();
     if (!inserted) {
-      throw new AudioReviewError(409, "AUDIO_REVIEW_EXISTS", "这一版已经有一份点评录音在处理或已生成点评版；要重传请先放弃当前这份。");
+      throw new AudioReviewError(409, "AUDIO_REVIEW_EXISTS", "这一版已经有一份点评在处理或已生成点评版；要重传请先放弃当前这份。");
     }
     await insertAudit(tx, actor, "V19_AUDIO_REVIEW_CREATED", "AUDIO_REVIEW", reviewId, {
       workspaceId: workspace.id,
@@ -343,14 +407,14 @@ async function verifyUploadAndStart(
   try {
     head = await deps.bucket.head(row.audio_object_key);
   } catch {
-    throw new AudioReviewError(503, "STORAGE_UNAVAILABLE", "暂时无法核对录音文件，请稍后重试。");
+    throw new AudioReviewError(503, "STORAGE_UNAVAILABLE", "暂时无法核对上传的文件，请稍后重试。");
   }
   const fromFailed = row.status === "FAILED";
   const condition = fromFailed ? `status = 'FAILED' AND failed_step = 'UPLOAD'` : `status = 'UPLOADING'`;
   if (!head || Number(head.size) !== Number(row.audio_size_bytes)) {
     const reason = !head
-      ? "没有找到上传的录音文件，请重新上传。"
-      : "录音文件不完整（大小与上传前不符），请重新上传。";
+      ? "没有找到上传的文件，请重新上传。"
+      : "文件不完整（大小与上传前不符），请重新上传。";
     await db.prepare(
       `UPDATE audio_reviews SET status = 'FAILED', failed_step = 'UPLOAD', fail_reason = ?, updated_at = now()
       WHERE id = ? AND ${condition}`,
@@ -407,7 +471,7 @@ export async function runAudioReviewAction(
     if (row.status !== "UPLOADING") {
       // 重复上报（比如网络重试）：已经往下走了就原样返回。
       if (row.status === "FAILED" || row.status === "ABANDONED") {
-        throw invalidState("这份点评录音已经失败或放弃，不能再标记为已上传。");
+        throw invalidState("这份点评已经失败或放弃，不能再标记为已上传。");
       }
       return { row, advance: ADVANCEABLE.includes(row.status) };
     }
@@ -417,12 +481,12 @@ export async function runAudioReviewAction(
   }
 
   if (action === "RETRY") {
-    if (row.status !== "FAILED") throw invalidState("只有处理失败的点评录音可以重试。");
+    if (row.status !== "FAILED") throw invalidState("只有处理失败的点评可以重试。");
     let advance = false;
     if (row.failed_step === "UPLOAD") {
       advance = await verifyUploadAndStart(db, row, deps);
     } else if (row.failed_step === "TRANSCRIBE") {
-      // 从转写重来：重新提交任务（上次的任务可能已经失败或过期）。
+      // 从转写重来：录音重新提交任务（上次的任务可能已经失败或过期）；文档重新取回文件解析。
       const updated = await db.prepare(
         `UPDATE audio_reviews SET status = 'TRANSCRIBING', failed_step = NULL, fail_reason = NULL,
           asr_task_id = NULL, asr_submitted_at = NULL, asr_checked_at = NULL, lease_until = NULL, updated_at = now()
@@ -452,7 +516,7 @@ export async function runAudioReviewAction(
       WHERE id = ? AND status NOT IN ('GENERATED', 'ABANDONED')
       RETURNING id`,
     ).bind(row.id).first<{ id: string } & QueryResultRow>();
-    if (!updated) throw invalidState("点评录音的状态刚刚变了，请刷新后重试。");
+    if (!updated) throw invalidState("点评的状态刚刚变了，请刷新后重试。");
     await insertAudit(db, actor, "V19_AUDIO_REVIEW_ABANDONED", "AUDIO_REVIEW", row.id, { fromStatus: row.status });
     return { row: await reload(), advance: false };
   }
@@ -543,7 +607,7 @@ export async function confirmAudioReview(
         `revision_event_${randomUUID()}`, workspace.id, workspace.active_round_id, workspace.canonical_annotation_id,
         changeSetId, change.targetKey, change.targetLabel, change.valueType,
         JSON.stringify(change.beforeValue ?? null), JSON.stringify(change.afterValue ?? null),
-        row.id, change.reason ?? "录音点评", actor.userId, actor.displayName, versionId,
+        row.id, change.reason ?? AUDIO_REVIEW_VERSION_LABEL, actor.userId, actor.displayName, versionId,
       ).run();
     }
 
@@ -564,7 +628,7 @@ export async function confirmAudioReview(
       WHERE id = ? AND status = 'PENDING_CONFIRM'
       RETURNING id`,
     ).bind(versionId, JSON.stringify(selectedIds), row.id).first<{ id: string } & QueryResultRow>();
-    if (!generated) throw invalidState("点评录音的状态刚刚变了，请刷新后重试。");
+    if (!generated) throw invalidState("点评的状态刚刚变了，请刷新后重试。");
     return versionId;
   });
   const row = await loadAudioReview(db, input.videoId, input.reviewId);
@@ -611,7 +675,10 @@ export async function advanceAudioReview(
   let step: AudioReviewFailedStep = leased.status === "TRANSCRIBING" ? "TRANSCRIBE" : "UNDERSTAND";
   try {
     if (current.status === "TRANSCRIBING") {
-      current = await runTranscription(db, current, options);
+      // 文档的「转写」就是读取文字：不调腾讯云，解析完在同一次调用里接着理解。
+      current = audioReviewSourceKindOf(current.audio_content_type) === "DOCUMENT"
+        ? await runDocumentReading(db, current, options)
+        : await runTranscription(db, current, options);
       step = "UNDERSTAND";
     }
     if (current?.status === "UNDERSTANDING") {
@@ -714,6 +781,44 @@ async function runTranscription(
   }
 }
 
+/**
+ * 文档的 TRANSCRIBING（docs/25 二之二 5）：从存储取回文件 → 解析成段落 → 写进 transcript_json
+ * （startMs/endMs 记 0、说话人记 S0、engine 记 DOCUMENT，audio_duration_ms 留空）→ UNDERSTANDING。
+ * 读不到文件、读不出字、超长、文件损坏都转 FAILED(TRANSCRIBE) 并写明原因；RETRY 回到这里重新解析。
+ */
+async function runDocumentReading(
+  db: DbClient,
+  row: AudioReviewRow,
+  options: { deadline: number; deps: AudioReviewDeps },
+): Promise<AudioReviewRow | null> {
+  const fail = async (reason: string) => {
+    await failStep(db, row.id, "TRANSCRIBING", "TRANSCRIBE", reason);
+    return null;
+  };
+  let bytes: Uint8Array | null;
+  try {
+    const object = await options.deps.bucket.get(row.audio_object_key);
+    if (!object.body) return fail(AUDIO_REVIEW_DOCUMENT_REASONS.missing);
+    bytes = await readAudioReviewObjectBytes(object.body, AUDIO_REVIEW_DOCUMENT_MAX_BYTES);
+  } catch (error) {
+    options.deps.log?.("[audio-review] 读取文档失败", error);
+    return fail(AUDIO_REVIEW_DOCUMENT_REASONS.storage);
+  }
+  if (!bytes) return fail(AUDIO_REVIEW_DOCUMENT_REASONS.tooLarge);
+  const parsed = parseAudioReviewDocument(bytes, row.audio_content_type);
+  if (!parsed.ok) return fail(parsed.reason);
+  const transcript = {
+    segments: audioReviewDocumentSegments(parsed.paragraphs),
+    durationMs: null,
+    engine: AUDIO_REVIEW_DOCUMENT_ENGINE,
+  };
+  return db.prepare(
+    `UPDATE audio_reviews SET status = 'UNDERSTANDING', transcript_json = ?::jsonb, audio_duration_ms = NULL, updated_at = now()
+    WHERE id = ? AND status = 'TRANSCRIBING'
+    RETURNING ${AUDIO_REVIEW_COLUMNS}`,
+  ).bind(JSON.stringify(transcript), row.id).first<AudioReviewRow>();
+}
+
 type LlmCallRecord = {
   attempt: number;
   ok: boolean;
@@ -757,7 +862,7 @@ async function runUnderstanding(
     }
     const transcript = parseStoredTranscript(current.transcript_json);
     if (!transcript || transcript.segments.length === 0) {
-      await failStep(db, current.id, "UNDERSTANDING", "UNDERSTAND", "文字稿为空，无法理解点评。请重试转写或重新上传。");
+      await failStep(db, current.id, "UNDERSTANDING", "UNDERSTAND", "文字稿为空，无法理解点评。请重试或重新上传。");
       return null;
     }
     const snapshot = parseJsonPayload(current.base_payload_json as V04DraftPayloadV1 | string);
@@ -765,7 +870,8 @@ async function runUnderstanding(
     const context: AudioReviewPromptContext = {
       snapshot,
       segments: transcript.segments,
-      // 不管谁上传，录音里点评的人都是老孙（reviewer_name 记的是上传人）。
+      sourceKind: audioReviewSourceKindOf(current.audio_content_type),
+      // 不管谁上传，点评的人都是老孙（reviewer_name 记的是上传人）。
       reviewerName: AUDIO_REVIEW_CRITIC_NAME,
       revieweeName: current.base_owner_name,
       baseVersionNumber: Number(current.base_version_number),

@@ -477,7 +477,7 @@ test("server and client formatV19VersionLabel agree, review versions included", 
     { number: 5, baseNumber: 2, ownerName: "赵雅诗", ownerIsUploader: false, kind: "PERSONAL" as const },
   ];
   for (const input of inputs) assert.equal(formatV19VersionLabel(input), formatV19VersionLabelClient(input));
-  assert.equal(formatV19VersionLabel(inputs[3]), "v3（老孙录音点评，基于v1）");
+  assert.equal(formatV19VersionLabel(inputs[3]), "v3（老孙点评，基于v1）");
 });
 
 // ---------------------------------------------------------------------------

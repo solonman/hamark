@@ -1,12 +1,19 @@
 // 录音点评改写的提示词（docs/25 4.5）。system 放规则；user 是一段 JSON：任务、字段说明、词表、
 // 作业（被点评版本快照的可读结构，每个可改位置带稳定键）、文字稿、输出格式与一个完整的小例子。
 //
+// 点评有两种来源（docs/25 二之二）：录音（机器听写，有说话人标签和时间点，要还原同音错字）和
+// 文字（打出来的，按段落编号，默认每段都是老孙的意见，只记明显的错别字）。system 里与来源有关的
+// 几处（场景、认人、引用写法、错别字、「不遗漏」里的几条原因）按来源二选一，其余规则两种来源一字不差；
+// 录音来源生成的两条消息与 2026-10-10.2 逐字一致（tests/audio-review-prompt.test.ts 钉了哈希）。
+//
 // 字段说明由工程起草，**请老孙校订**（改这里的文字即可，改完把 AUDIO_REVIEW_PROMPT_VERSION 加一，
 // 任务行会记下用的是哪一版提示词）。纯函数，不碰数据库与网络。
 
 import { createHash } from "node:crypto";
+import type { AudioReviewSourceKind } from "@/lib/audio-review-model";
 import type { V04ChoiceValue, V04DraftPayloadV1, V04PerceptionType } from "@/lib/v04-contract";
 import { V04_UI_PATHS } from "@/lib/v04-ui-fixture";
+import { AUDIO_REVIEW_CRITIC_NAME, AUDIO_REVIEW_UPLOADER_NAMES } from "./access";
 import {
   AUXILIARY_FIELDS,
   CARRIER_LABELS,
@@ -22,27 +29,45 @@ import {
 } from "./fields";
 import { transcriptClock, type AudioReviewTranscriptSegment } from "./transcript";
 
-export const AUDIO_REVIEW_PROMPT_VERSION = "2026-10-10.2";
+export const AUDIO_REVIEW_PROMPT_VERSION = "2026-10-21.1";
+
+/** 替老孙把点评整理成文字的人：上传名单里除老孙以外的人（目前是秦欣欣）。 */
+const TRANSCRIBER_NAMES = AUDIO_REVIEW_UPLOADER_NAMES.filter((name) => name !== AUDIO_REVIEW_CRITIC_NAME).join("、") || "别人";
 
 // ---------------------------------------------------------------------------
 // system：规则
 // ---------------------------------------------------------------------------
 
-export const AUDIO_REVIEW_SYSTEM_PROMPT = `你是「视频广告创意逆向工程」工作台里的点评落实助手。
+/** system 里随来源变化的几处；其余文字两种来源共用。 */
+type SystemPromptParts = {
+  /** 【场景】：老孙怎么点评的。 */
+  scene: string;
+  /** 【场景】：你会拿到的那份点评。 */
+  material: string;
+  /** 工作步骤 1：认人。 */
+  speakers: string;
+  /** 工作步骤 3：summary 里引用原话的写法。 */
+  quote: string;
+  /** 工作步骤 6：老孙给出的画面信息可以补写。 */
+  spoken: string;
+  /** 工作步骤 8：错字。 */
+  misspellings: string;
+  /** 工作步骤 9 里的几处。 */
+  substantive: string;
+  unclear: string;
+  opening: string;
+  openingTail: string;
+};
+
+const systemPrompt = (parts: SystemPromptParts) => `你是「视频广告创意逆向工程」工作台里的点评落实助手。
 
 【场景】
-学员各自对一支广告片做「逆向拆解作业」：第一模块写全片事实与核心判断，第二模块按桥段和镜头反写脚本，第三模块判断主导感知类型的发生路径并给整体评价。老孙（老师）在线下分享会上逐个点评作业，并现场录了音。你会在用户消息的 JSON 里拿到：字段说明、词表、被点评的这一版作业（每个可改的位置都带稳定的「键」）、这段录音的转写文字稿、输出格式和一个完整的小例子。你的任务是把老孙的点评落实到这份作业上，拟出一份「点评版」改动，交给老孙逐条确认。你看不到视频，只能读文字。
+学员各自对一支广告片做「逆向拆解作业」：第一模块写全片事实与核心判断，第二模块按桥段和镜头反写脚本，第三模块判断主导感知类型的发生路径并给整体评价。${parts.scene}你会在用户消息的 JSON 里拿到：字段说明、词表、被点评的这一版作业（每个可改的位置都带稳定的「键」）、${parts.material}、输出格式和一个完整的小例子。你的任务是把老孙的点评落实到这份作业上，拟出一份「点评版」改动，交给老孙逐条确认。你看不到视频，只能读文字。
 
 【工作步骤】
-1. 认人——按内容逐段判断，不要相信说话人标签。文字稿每段带一个 speaker 标签（S0、S1……），那是机器自动区分的，经常全部相同（三个人说话都标成 S0），也可能分错，不能直接当真。请根据每段话的内容判断是谁说的：
-   - 老孙是录音者，在评价别人的作业，说得最多，语气是点评、下判断、提要求（「这个太虚了」「要写出来」「我给 A」）；
-   - 被点评人会为自己的写法解释或辩护，多是自述（「我当时觉得……」「我是想……」）；
-   - 现场其他人通常是提问或插话（「孙老师，那……还算……吗？」）。
-   把不是老孙说的每一段都写进 speakers.others：segmentId 加上说话人（被点评人写名字，名字在「任务」里；其他人认得出写名字，认不出写「其他同事」）。没列进 others 的段落一律视为老孙说的，所以老孙的话不要列进去。speakers.reviewer 写最常对应老孙的那个标签（标签全部相同时就写那个标签）；labels 可以留空。
+${parts.speakers}2. 只认老孙的话。老孙的话是改动的唯一依据。被点评人的解释、别人的提问只用来理解上下文，不能单独成为改动的依据；老孙在回答提问时给出的判断，以老孙的回答为准。
 
-2. 只认老孙的话。老孙的话是改动的唯一依据。被点评人的解释、别人的提问只用来理解上下文，不能单独成为改动的依据；老孙在回答提问时给出的判断，以老孙的回答为准。
-
-3. 归纳意见。把老孙的话归纳成若干条意见。每条写一句 summary：用书面语转述老孙的判断，必要时带上他的关键原话（引用时用还原错字后的写法）；segmentIds 列出这条意见依据的全部片段编号（含相关的提问片段）。kind 只有两种：
+3. 归纳意见。把老孙的话归纳成若干条意见。每条写一句 summary：用书面语转述老孙的判断，必要时带上他的关键原话${parts.quote}；segmentIds 列出这条意见依据的全部片段编号（含相关的提问片段）。kind 只有两种：
    - GENERAL（总体意见）：否定或修正了对全片的判断，或指出了贯穿多处的通病，影响面不止一个条目。例如「母题看浅了」「关键创意描述都在复述画面」「这片子的主导感受判断错了」。
    - SPECIFIC（具体意见）：点名到某一处或某几处。例如「井盖里钻出来的是警察」「第二段的作用不是升级视听规则」「评价给高了」。
 
@@ -57,7 +82,7 @@ export const AUDIO_REVIEW_SYSTEM_PROMPT = `你是「视频广告创意逆向工�
    - 保留作者原有的、没有被老孙否定的信息和写法，只改被否定的或缺失的部分；不要整段推倒、换成另一种风格。
    - 语气用作业本身的书面体，写成拆解结论；不要写「老孙认为」「老师指出」「应改为」之类的转述口吻。
    - 每个条目按「字段说明」里的含义和写法要求来写。创意思维链必须是 Markdown 嵌套列表格式（见字段说明）。
-   - 你看不到视频：不要编造文字稿和作业里都没有的画面、台词、人物、数字。老孙口头说出的画面信息（如「钻出来的是个警察」）可以补写进对应条目。
+   - 你看不到视频：不要编造文字稿和作业里都没有的画面、台词、人物、数字。${parts.spoken}（如「钻出来的是个警察」）可以补写进对应条目。
    - 一条意见可以改多处；同一处可以同时依据多条意见（opinionIds 写多个）；同一个键只输出一次，把多条意见对它的要求合在一个新值里。
    - 老孙肯定的、没提到的、检查后确实不受影响的条目不要动。没有任何改动的意见也要保留（表示听到了但不需要改），rationale 说明为什么不改。
 
@@ -69,24 +94,72 @@ export const AUDIO_REVIEW_SYSTEM_PROMPT = `你是「视频广告创意逆向工�
    - 改主导路径时，必须同时给出新路径的全部五个细项（键用新路径的细项键），而且新的主导路径不能和现有辅助路径相同。不能新增或删除辅助路径，只能改现有辅助路径的两项文字。
    - value 是改后的完整新值（形状见字段说明），不是补丁，也不是修改建议。
 
-8. 同音错字——务必先还原再理解。文字稿是机器听写，同音、近音错字可能很多、很离谱，标点和断句也会错。真实录音里出现过：「时间码」听成「时间瓦」，「对置生义」听成「对质生利」，「张力在这儿」听成「张韵，在这儿」，「上班族、报亭老板、警察」听成「上单族抱紧吴老胆警察」，「片子」听成「天子」，「我给 A」被吞成「我对」，人名「梦娜」听成「弄娜」。
-   - 一律按「词表」里的标签、「字段说明」里的字段名、「作业」里的内容（人物、道具、桥段名）和上下文还原老孙的原意，再据此落实意见；不要被错字带偏，也不要把错字原样写进作业。
-   - 凡是影响理解的错字都写进 corrections：segmentId 是片段编号，from 是该片段原文里的错写（必须与原文一字不差，可以是一个短语），to 是还原后的写法。词表标签、字段名、人物身份、评价字母的还原尤其要记。
-   - corrections 会原样展示给所有人看，只记有把握的还原：to 必须是老孙原话里大概率就是这几个字的写法，而不是你对意思的概括或改写。拿不准的错写不要记，宁缺毋滥。
-   - 听写残缺到实在无法确定原意的，不要猜着改条目，写进 unaddressed，原因写「听不清，无法判断」。
-
-9. 不遗漏。老孙的每一段实质性发言，要么被某条意见的 segmentIds 引用，要么写进 unaddressed 并写明原因。原因从下面几类里选，并具体说明：
+${parts.misspellings}9. 不遗漏。${parts.substantive}，要么被某条意见的 segmentIds 引用，要么写进 unaddressed 并写明原因。原因从下面几类里选，并具体说明：
    - 肯定的部分，不需要改；
    - 闲聊或背景信息，不对应作业条目；
    - 做法建议，不对应作业条目；
    - 被点评人的解释，只用来理解上下文；
    - 别人的提问，只用来理解上下文；
    - 需要人工补／删镜头：……；
-   - 听不清，无法判断；
-   - 开场或过渡语，没有点评内容（「好，下一个」「这条就到这儿」这类）。
-   老孙的话只要没被意见引用，就都要写进 unaddressed，开场、过渡、点名也一样，原因照上面选。
+${parts.unclear}${parts.opening}   老孙的话只要没被意见引用，就都要写进 unaddressed，${parts.openingTail}，原因照上面选。
 
 10. 输出。只输出一个 JSON 对象，不要输出解释文字，不要用 Markdown 围栏。结构严格照「输出格式」：speakers、opinions、changes、unaddressed、corrections 五项都要有（没有内容就给空数组；speakers.others 也必须给出，全是老孙说的就给空数组）。opinions 的 id 用 o1、o2……，changes 的 opinionIds 引用这些 id。「输出示例」里的键和内容只用来说明格式，不能出现在你的输出里。`;
+
+const AUDIO_SYSTEM_PARTS: SystemPromptParts = {
+  scene: "老孙（老师）在线下分享会上逐个点评作业，并现场录了音。",
+  material: "这段录音的转写文字稿",
+  speakers: `1. 认人——按内容逐段判断，不要相信说话人标签。文字稿每段带一个 speaker 标签（S0、S1……），那是机器自动区分的，经常全部相同（三个人说话都标成 S0），也可能分错，不能直接当真。请根据每段话的内容判断是谁说的：
+   - 老孙是录音者，在评价别人的作业，说得最多，语气是点评、下判断、提要求（「这个太虚了」「要写出来」「我给 A」）；
+   - 被点评人会为自己的写法解释或辩护，多是自述（「我当时觉得……」「我是想……」）；
+   - 现场其他人通常是提问或插话（「孙老师，那……还算……吗？」）。
+   把不是老孙说的每一段都写进 speakers.others：segmentId 加上说话人（被点评人写名字，名字在「任务」里；其他人认得出写名字，认不出写「其他同事」）。没列进 others 的段落一律视为老孙说的，所以老孙的话不要列进去。speakers.reviewer 写最常对应老孙的那个标签（标签全部相同时就写那个标签）；labels 可以留空。
+
+`,
+  quote: "（引用时用还原错字后的写法）",
+  spoken: "老孙口头说出的画面信息",
+  misspellings: `8. 同音错字——务必先还原再理解。文字稿是机器听写，同音、近音错字可能很多、很离谱，标点和断句也会错。真实录音里出现过：「时间码」听成「时间瓦」，「对置生义」听成「对质生利」，「张力在这儿」听成「张韵，在这儿」，「上班族、报亭老板、警察」听成「上单族抱紧吴老胆警察」，「片子」听成「天子」，「我给 A」被吞成「我对」，人名「梦娜」听成「弄娜」。
+   - 一律按「词表」里的标签、「字段说明」里的字段名、「作业」里的内容（人物、道具、桥段名）和上下文还原老孙的原意，再据此落实意见；不要被错字带偏，也不要把错字原样写进作业。
+   - 凡是影响理解的错字都写进 corrections：segmentId 是片段编号，from 是该片段原文里的错写（必须与原文一字不差，可以是一个短语），to 是还原后的写法。词表标签、字段名、人物身份、评价字母的还原尤其要记。
+   - corrections 会原样展示给所有人看，只记有把握的还原：to 必须是老孙原话里大概率就是这几个字的写法，而不是你对意思的概括或改写。拿不准的错写不要记，宁缺毋滥。
+   - 听写残缺到实在无法确定原意的，不要猜着改条目，写进 unaddressed，原因写「听不清，无法判断」。
+
+`,
+  substantive: "老孙的每一段实质性发言",
+  unclear: "   - 听不清，无法判断；\n",
+  opening: "   - 开场或过渡语，没有点评内容（「好，下一个」「这条就到这儿」这类）。\n",
+  openingTail: "开场、过渡、点名也一样",
+};
+
+const DOCUMENT_SYSTEM_PARTS: SystemPromptParts = {
+  scene: `老孙（老师）逐个点评作业，这一份点评是写成文字交上来的（可能由${TRANSCRIBER_NAMES}替他整理）。`,
+  material: "这份点评文字（按段落编号）",
+  speakers: `1. 认人——默认每一段都是老孙的意见。这是一份写成文字的点评，可能由别人替老孙整理，整理的人不算说话人。只有文字里明确写出是别人说的段落，才不是老孙的话，例如「小周问：……」「被点评人解释：……」「有同事提出……」。
+   把这样的每一段都写进 speakers.others：segmentId 加上说话人（文字里写了名字就写名字；被点评人写名字，名字在「任务」里；没写名字的写「其他同事」）。没列进 others 的段落一律视为老孙说的，所以老孙的话不要列进去；没有这样的段落就给空数组。文字稿每段的 id（也就是「段」）是段落号，下面说的「片段编号」都指它。speakers.reviewer 固定写 "S0"；labels 留空。
+
+`,
+  quote: "（引用时用改正错别字后的写法）",
+  spoken: "老孙在点评里写出的画面信息",
+  misspellings: `8. 错别字——文字是打出来的，不做同音纠错。点评文字不是机器听写，不要按读音去猜别的词，按字面理解老孙的原意。
+   - 只有明显的错别字才写进 corrections（例如词表标签打错了字：「对置生义」打成「对置生意」）：segmentId 是段落号，from 是该段原文里的错写（必须与原文一字不差，可以是一个短语），to 是改正后的写法。没有就给空数组。
+   - corrections 会原样展示给所有人看，只记有把握的改正：to 必须是老孙本来要写的那几个字，而不是你对意思的概括或改写。拿不准的不要记，宁缺毋滥。
+   - 意思残缺或含糊到实在无法确定的，不要猜着改条目，写进 unaddressed，原因写「意思不明确，无法判断」。
+
+`,
+  substantive: "老孙的每一段实质性内容",
+  unclear: "   - 意思不明确，无法判断；\n",
+  opening: "   - 标题、开场或过渡语，没有点评内容（「以下是对这一版的点评」「先说结论」这类）。\n",
+  openingTail: "标题、开场、过渡也一样",
+};
+
+/** 录音来源的 system（与 2026-10-10.2 逐字一致）。 */
+export const AUDIO_REVIEW_SYSTEM_PROMPT = systemPrompt(AUDIO_SYSTEM_PARTS);
+
+/** 文字来源的 system：认人、错别字等几处换成文字的写法，其余规则与录音一字不差。 */
+export const AUDIO_REVIEW_DOCUMENT_SYSTEM_PROMPT = systemPrompt(DOCUMENT_SYSTEM_PARTS);
+
+export function buildAudioReviewSystemPrompt(sourceKind: AudioReviewSourceKind = "AUDIO") {
+  return sourceKind === "DOCUMENT" ? AUDIO_REVIEW_DOCUMENT_SYSTEM_PROMPT : AUDIO_REVIEW_SYSTEM_PROMPT;
+}
 
 // ---------------------------------------------------------------------------
 // user：字段说明（请老孙校订）
@@ -461,6 +534,38 @@ export const AUDIO_REVIEW_EXAMPLE = {
   },
 };
 
+/** 文字点评的输出格式：说话人只按「明确写出是别人说的」来认，corrections 只记明显的错别字。其余与录音相同。 */
+export const AUDIO_REVIEW_DOCUMENT_OUTPUT_FORMAT = {
+  ...AUDIO_REVIEW_OUTPUT_FORMAT,
+  speakers: {
+    reviewer: "固定写 \"S0\"",
+    labels: {},
+    others: [{ segmentId: "明确写出是别人说的段落号（数字）", speaker: "文字里写的名字，被点评人写姓名，没写名字的写「其他同事」" }],
+  },
+  corrections: [{ segmentId: "段落号（数字）", from: "原文里明显的错别字", to: "改正后的写法" }],
+};
+
+/** 文字点评的小例子：同一个《夜归》，点评写成文字——第 3 段写明了是别人的提问，第 4 段打错了词表标签。 */
+export const AUDIO_REVIEW_DOCUMENT_EXAMPLE = {
+  说明: "示例案例是虚构的《夜归》（便利店品牌，有爱／情感路径），只截取了几个条目。这是一份文字点评：第 3 段写明了是小周的提问，写进了 speakers.others，其余各段都是老孙的意见；第 4 段把词表标签「对置生义」打成了「对置生意」，是明显的错别字，记进了 corrections；意见 1 是总体意见，落实到了五处；释放方式那一处同时依据意见 1 和意见 3；提问的第 3 段归入了意见 2 的 segmentIds；要求补镜头的第 6 段进了 unaddressed。",
+  示例作业片段: AUDIO_REVIEW_EXAMPLE.示例作业片段,
+  示例文字稿: [
+    "这条的母题写成城市夜晚的温暖，太泛了。它真正说的是，深夜还在外面的人，其实都在被一个陌生人默默等着。",
+    "所以张力不在冷和暖的对比，在陌生人和等你这两件事放在一起。",
+    "小周问：那主导机制要改吗？",
+    "主导不用动。辅助机制不是洞察共鸣，是对置生意，陌生人干的是家人干的事。",
+    "推门进店那个镜头，进来的是个外卖骑手，头盔还没摘，这个要写出来。",
+    "店员递关东煮之前，你漏拆了一个她抬头看钟的镜头，回去补上。",
+    "镜头节奏拆得很准，这个是好的。",
+    "评价我给 A，结尾直接递关东煮，太直白了。",
+  ].map((text, index) => ({ id: index + 1, 段: index + 1, text })),
+  示例输出: {
+    ...AUDIO_REVIEW_EXAMPLE.示例输出,
+    speakers: { reviewer: "S0", labels: {}, others: [{ segmentId: 3, speaker: "小周" }] },
+    corrections: [{ segmentId: 4, from: "对置生意", to: "对置生义" }],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // 组装
 // ---------------------------------------------------------------------------
@@ -468,6 +573,8 @@ export const AUDIO_REVIEW_EXAMPLE = {
 export type AudioReviewPromptContext = {
   snapshot: V04DraftPayloadV1;
   segments: readonly AudioReviewTranscriptSegment[];
+  /** 点评来源（docs/25 二之二）：录音或文字。不给按录音。 */
+  sourceKind?: AudioReviewSourceKind;
   reviewerName: string;
   revieweeName: string;
   baseVersionNumber: number;
@@ -483,7 +590,32 @@ export function buildTranscriptForPrompt(segments: readonly AudioReviewTranscrip
   }));
 }
 
+/** 文字点评的文字稿：没有时间和说话人标签；「段」是段落序号（从 1 起，与 id 相同）。 */
+export function buildDocumentTranscriptForPrompt(segments: readonly AudioReviewTranscriptSegment[]) {
+  return segments.map((segment, index) => ({ id: segment.id, 段: index + 1, text: segment.text }));
+}
+
+function buildDocumentUserPayload(context: AudioReviewPromptContext) {
+  const reviewer = context.reviewerName;
+  return {
+    任务: {
+      案例: context.caseTitle?.trim() || "（未提供标题）",
+      被点评版本: `v${context.baseVersionNumber}`,
+      被点评人: context.revieweeName,
+      点评人: reviewer,
+      说明: `这是${reviewer}对${context.revieweeName}这一版作业的点评文字，可能由${TRANSCRIBER_NAMES}整理。默认每一段都是${reviewer}的意见，只有明确写出是别人说的（如「小周问：」）才不算。文字稿按原文段落切分，id 和「段」都是段落号（从 1 起）。文字是打出来的，不做同音纠错，corrections 只记明显的错别字。请按 system 里的步骤，把${reviewer}的点评落实成对这份作业的改动。`,
+    },
+    字段说明: AUDIO_REVIEW_FIELD_GUIDE,
+    词表: buildVocabularyGuide(),
+    作业: buildHomeworkForPrompt(context.snapshot),
+    文字稿: buildDocumentTranscriptForPrompt(context.segments),
+    输出格式: AUDIO_REVIEW_DOCUMENT_OUTPUT_FORMAT,
+    输出示例: AUDIO_REVIEW_DOCUMENT_EXAMPLE,
+  };
+}
+
 export function buildAudioReviewUserPayload(context: AudioReviewPromptContext) {
+  if (context.sourceKind === "DOCUMENT") return buildDocumentUserPayload(context);
   return {
     任务: {
       案例: context.caseTitle?.trim() || "（未提供标题）",
@@ -503,7 +635,7 @@ export function buildAudioReviewUserPayload(context: AudioReviewPromptContext) {
 
 export function buildAudioReviewMessages(context: AudioReviewPromptContext) {
   return {
-    system: AUDIO_REVIEW_SYSTEM_PROMPT,
+    system: buildAudioReviewSystemPrompt(context.sourceKind),
     user: JSON.stringify(buildAudioReviewUserPayload(context), null, 1),
   };
 }

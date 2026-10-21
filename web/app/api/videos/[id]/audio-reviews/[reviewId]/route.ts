@@ -36,7 +36,7 @@ export async function GET(request: Request, context: Params) {
 export async function POST(request: Request, context: Params) {
   return audioReviewRoute(request, { mutation: true }, async ({ actor, startedAt }) => {
     if (!isAudioReviewUploader(actor.displayName)) {
-      throw new AudioReviewError(403, "FORBIDDEN", "只有上传名单里的人（老孙、秦欣欣）可以处理点评录音。");
+      throw new AudioReviewError(403, "FORBIDDEN", "只有上传名单里的人（老孙、秦欣欣）可以处理点评。");
     }
     const { id, reviewId } = await context.params;
     const body = await readJsonBody(request);

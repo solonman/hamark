@@ -232,7 +232,7 @@ test("detail changes stay separate in the proposal and merge into one primaryDet
   assert.equal(changes.length, 1);
   assert.equal(changes[0].targetKey, "path.primaryDetails");
   assert.equal(changes[0].valueType, "STRUCTURE");
-  assert.equal(changes[0].reason, "录音点评 意见 1、2");
+  assert.equal(changes[0].reason, "老孙点评 意见 1、2");
   assert.deepEqual(payload.perceptionPath.primaryDetails, {
     ...sample.snapshot.perceptionPath.primaryDetails,
     reveal: "原来全城都在陪孩子玩。",

@@ -1,7 +1,9 @@
 // 文字点评（docs/25 二之二）：读文档。.docx 自己解 ZIP（存储 / 压缩两种方法、数据描述符、注释、
 // 损坏、加密、老格式 .doc、不是 Word），按 <w:p> 取段落（表格、制表、换行、实体、修订、文本框）；
-// .txt / .md 的 UTF-8 / BOM / GB18030 / UTF-16；统一切段、空文档、超长；读存储流的上限。
+// .txt / .md 的 UTF-8 / BOM / GB18030 / UTF-16；统一切段、空文档、超长；读存储流的上限；
+// 以及文档段落全记 0 毫秒时，意见和「没落到条目的话」按段落顺序编号。
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   AUDIO_REVIEW_DOCUMENT_MAX_CHARS,
@@ -24,8 +26,16 @@ import {
   readZipEntry,
   splitAudioReviewDocumentParagraphs,
 } from "../lib/audio-review/document";
+import { buildFakeModelOutput } from "../lib/audio-review/fake";
+import { normalizeAudioReviewProposal } from "../lib/audio-review/proposal";
 import { parseStoredTranscript } from "../lib/audio-review/transcript";
+import { audioReviewSpeakerNames } from "../lib/audio-review/view";
+import type { V04DraftPayloadV1 } from "../lib/v04-contract";
 import { buildDocx, buildZip, relsXml, wordDocumentXml, wordParagraph } from "./audio-review-docx-fixtures";
+
+const sample = JSON.parse(readFileSync(new URL("../scripts/fixtures/audio-review-sample.json", import.meta.url), "utf8")) as {
+  snapshot: V04DraftPayloadV1;
+};
 
 const DOCX = AUDIO_REVIEW_DOCX_CONTENT_TYPE;
 const utf8 = (text: string) => new TextEncoder().encode(text);
@@ -233,4 +243,57 @@ test("reading a stored object collects every chunk and stops past the cap", asyn
   });
   assert.deepEqual([...(await readAudioReviewObjectBytes(stream([[1, 2], [3], [], [4, 5]]), 5))!], [1, 2, 3, 4, 5]);
   assert.equal(await readAudioReviewObjectBytes(stream([[1, 2], [3, 4], [5, 6]]), 5), null);
+});
+
+// ---------------------------------------------------------------------------
+// 文档段落都在 0 毫秒：按段落顺序编号；说话人默认全是老孙
+// ---------------------------------------------------------------------------
+
+test("with every paragraph at 0 ms, opinions and unaddressed remarks are ordered by paragraph number", () => {
+  const segments = audioReviewDocumentSegments([
+    "开头：以下是对 v1 的点评。",
+    "母题看浅了，真正的母题是大人被允许重新当一回孩子，这一点要贯穿全篇。",
+    "小周问：主导机制要改吗？",
+    "评价给高了，我给 A，结尾处理太常见了。",
+    "下次拆之前先完整看三遍再动笔，别边看边写，这是做法上的建议。",
+  ]);
+  const proposal = normalizeAudioReviewProposal({
+    speakers: { reviewer: "S0", labels: {}, others: [{ segmentId: 3, speaker: "小周" }] },
+    opinions: [
+      { id: "late", kind: "SPECIFIC", summary: "评价给高了", segmentIds: [4] },
+      { id: "early", kind: "GENERAL", summary: "母题看浅了", segmentIds: [2, 3] },
+    ],
+    changes: [
+      { key: "facts.overallCreativeRating", value: "A", opinionIds: ["late"] },
+      { key: "facts.creativeMotif", value: "让最体面的大人被允许重新当一回孩子", opinionIds: ["early"] },
+    ],
+    unaddressed: [{ segmentIds: [5], reason: "做法建议，不对应作业条目。" }, { segmentIds: [1], reason: "开场，没有点评内容。" }],
+    corrections: [],
+  }, { snapshot: sample.snapshot, segments, reviewerName: "老孙" });
+  assert.deepEqual(proposal.opinions.map((opinion) => [opinion.number, opinion.summary]), [[1, "母题看浅了"], [2, "评价给高了"]]);
+  assert.deepEqual(proposal.unaddressed.map((entry) => entry.segmentIds), [[1], [5]]);
+
+  // 视图：只有模型在 others 里列出的段落算别人，其余都是老孙。
+  const names = audioReviewSpeakerNames(segments, proposal, "老孙", "DOCUMENT");
+  assert.deepEqual(segments.map((segment) => [names.nameOf(segment), names.isReviewer(segment)]), [
+    ["老孙", true], ["老孙", true], ["小周", false], ["老孙", true], ["老孙", true],
+  ]);
+  // 还没有提案时也全是老孙。
+  const before = audioReviewSpeakerNames(segments, null, "老孙", "DOCUMENT");
+  assert.ok(segments.every((segment) => before.isReviewer(segment) && before.nameOf(segment) === "老孙"));
+});
+
+test("fake understanding on a document cites real paragraphs, lists nobody else and records no misspellings", () => {
+  const segments = audioReviewDocumentSegments(["第一段点评内容", "第二段点评内容", "第三段点评内容"]);
+  const raw = buildFakeModelOutput({ snapshot: sample.snapshot, segments, revieweeName: "刘梦娜", sourceKind: "DOCUMENT" });
+  assert.deepEqual(raw.speakers.others, []);
+  assert.deepEqual(raw.corrections, []);
+  for (const opinion of raw.opinions) for (const id of opinion.segmentIds) assert.ok([1, 2, 3].includes(id));
+  const proposal = normalizeAudioReviewProposal(raw, { snapshot: sample.snapshot, segments, reviewerName: "老孙" });
+  assert.ok(proposal.changes.length > 10);
+  assert.equal(proposal.opinions.length, 5);
+  // 录音来源的假理解原样不变。
+  const audio = buildFakeModelOutput({ snapshot: sample.snapshot, segments, revieweeName: "刘梦娜" });
+  assert.equal(audio.speakers.others.length, 2);
+  assert.equal(audio.corrections.length, 1);
 });

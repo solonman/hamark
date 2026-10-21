@@ -5,6 +5,9 @@
 //     覆盖总体意见（多处改动）、具体意见（单处）、选项字段、评价、细项、镜头字段和「没落到条目的话」，
 //     再交给 proposal.ts 走同一套校验。
 // 整个流程（上传后）大约 10 秒走完。
+// 文字点评（docs/25 二之二）不经过这里的假转写：流水线直接从存储（本机是 LocalVideoBucket）取回文件，
+// 用 document.ts 真实解析；假理解照旧按快照生成提案，只是把意见引用的片段换成文档里真有的段落号、
+// 不列别人的话、不记错字（假理解看不懂内容，宁可都算老孙的）。
 
 import type { V04ChoiceValue, V04DraftPayloadV1, V04PerceptionType } from "@/lib/v04-contract";
 import type { AsrDescribeOutcome, AsrSubmitOutcome } from "./tencent-asr";
@@ -102,7 +105,35 @@ function firstFree(field: "bridgeCreativeRole" | "generalMechanism", candidates:
   return label(field, id);
 }
 
-export function buildFakeModelOutput(context: Pick<AudioReviewPromptContext, "snapshot" | "segments" | "revieweeName">) {
+export function buildFakeModelOutput(
+  context: Pick<AudioReviewPromptContext, "snapshot" | "segments" | "revieweeName" | "sourceKind">,
+) {
+  const output = buildFakeAudioModelOutput(context);
+  return context.sourceKind === "DOCUMENT" ? fitFakeOutputToDocument(output, context.segments) : output;
+}
+
+type FakeModelOutput = ReturnType<typeof buildFakeAudioModelOutput>;
+
+/**
+ * 文字点评：意见 N 引用第 N 段（段落不够时轮着用），其余段落进「没落到条目的话」；
+ * others、corrections 都是录音那段话特有的，去掉。
+ */
+function fitFakeOutputToDocument(output: FakeModelOutput, segments: readonly AudioReviewTranscriptSegment[]): FakeModelOutput {
+  const ids = segments.map((segment) => segment.id);
+  const speakers = { reviewer: "S0", labels: {}, others: [] };
+  if (ids.length === 0) return { ...output, speakers, unaddressed: [], corrections: [] };
+  const opinions = output.opinions.map((opinion, index) => ({ ...opinion, segmentIds: [ids[index % ids.length]] }));
+  const cited = new Set(opinions.flatMap((opinion) => opinion.segmentIds));
+  return {
+    ...output,
+    speakers,
+    opinions,
+    unaddressed: ids.filter((id) => !cited.has(id)).map((id) => ({ segmentIds: [id], reason: "闲聊或背景信息，不对应作业条目。" })),
+    corrections: [],
+  };
+}
+
+function buildFakeAudioModelOutput(context: Pick<AudioReviewPromptContext, "snapshot" | "segments" | "revieweeName">) {
   const snapshot: V04DraftPayloadV1 = context.snapshot;
   const facts = snapshot.factsAndCoreJudgement;
   const groups = snapshot.script.shotGroups;
@@ -195,7 +226,7 @@ export function buildFakeModelOutput(context: Pick<AudioReviewPromptContext, "sn
   return {
     speakers: {
       reviewer: "S0",
-      labels: { S1: context.revieweeName || "被点评人", S2: "王一凡" },
+      labels: { S1: context.revieweeName || "被点评人", S2: "王一凡" } as Record<string, string>,
       // 按内容逐段判断（真实转写的说话人标签常常全是 S0）：第 5 段是被点评人的自述，第 10 段是同事提问。
       others: [
         { segmentId: 5, speaker: context.revieweeName || "被点评人" },
