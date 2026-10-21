@@ -57,6 +57,7 @@ export const lazyAudioReviewBucket: AudioReviewDeps["bucket"] = {
   head: (key) => getVideoBucket().head(key),
   createPresignedPutUrl: (key, options) => getVideoBucket().createPresignedPutUrl(key, options),
   createPresignedGetUrl: (key, options) => getVideoBucket().createPresignedGetUrl(key, options),
+  get: (key, options) => getVideoBucket().get(key, options),
 };
 
 export function createAudioReviewDeps(config = readAudioReviewConfig()): AudioReviewDeps {

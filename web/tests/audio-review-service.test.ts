@@ -16,10 +16,12 @@ import type { LlmOutcome } from "../lib/audio-review/deepseek";
 import type { AudioReviewTranscriptSegment } from "../lib/audio-review/transcript";
 import {
   advanceAudioReview,
+  audioReviewOriginalFileOverrides,
   createAudioReview,
   listAudioReviewSummaries,
   loadAudioReviewForViewer,
   loadAudioReviewStudioState,
+  normalizeCreateAudioReviewBody,
   runAudioReviewAction,
   shouldAdvanceAudioReview,
   type AudioReviewDeps,
@@ -27,6 +29,10 @@ import {
 import { toAudioReviewView, type AudioReviewRow } from "../lib/audio-review/view";
 import { readAudioReviewConfig } from "../lib/audio-review/config";
 import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewCriticVersion, isAudioReviewUploader } from "../lib/audio-review/access";
+import { AUDIO_REVIEW_DOCUMENT_REASONS } from "../lib/audio-review/document";
+import { AUDIO_REVIEW_DOCUMENT_SYSTEM_PROMPT, AUDIO_REVIEW_SYSTEM_PROMPT } from "../lib/audio-review/prompt";
+import { AUDIO_REVIEW_DOCX_CONTENT_TYPE, AUDIO_REVIEW_PASTED_FILE_NAME } from "../lib/audio-review-model";
+import { buildDocx, wordParagraph } from "./audio-review-docx-fixtures";
 import { formatV19VersionLabel as formatClientLabel } from "../lib/v19-ui-model";
 import { formatV19VersionLabel as formatServerLabel } from "../lib/v19-version-chain";
 import type { V04DraftPayloadV1 } from "../lib/v04-contract";
@@ -366,7 +372,19 @@ type Scripted = {
   llmLatencyMs?: number;
   head?: { size: number } | null | Error;
   submit?: Array<{ ok: true; taskId: string; usedHotwords: boolean; engine: string } | { ok: false; reason: string; transient: boolean; code: string | null }>;
+  /** bucket.get 抛错（存储不可用）。 */
+  getError?: Error;
 };
+
+/** 一次吐出若干块的流，模拟存储读回来的对象。 */
+function streamOf(bytes: Uint8Array, chunkSize = 7) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) controller.enqueue(bytes.slice(offset, offset + chunkSize));
+      controller.close();
+    },
+  });
+}
 
 function deps(clock: Clock, script: Scripted = {}) {
   const calls = {
@@ -378,8 +396,12 @@ function deps(clock: Clock, script: Scripted = {}) {
     put: [] as Array<[string, unknown]>,
     get: [] as Array<[string, unknown]>,
     head: [] as string[],
+    objects: [] as string[],
+    messages: [] as Array<{ system: string; user: string }>,
     logs: [] as unknown[],
   };
+  /** 存储里的对象（文档来源从这里读）；测试可以随时换内容。 */
+  const store = new Map<string, Uint8Array>();
   const fakeSuccess = (context: Parameters<AudioReviewProviders["llm"]["complete"]>[1]): LlmOutcome => ({
     ok: true,
     content: JSON.stringify(buildFakeModelOutput(context)),
@@ -411,8 +433,9 @@ function deps(clock: Clock, script: Scripted = {}) {
       },
       llm: {
         model: "test-model",
-        complete: async (_messages, context, options) => {
+        complete: async (messages, context, options) => {
           calls.llm += 1;
+          calls.messages.push(messages);
           calls.efforts.push(options.reasoningEffort);
           clock.now += script.llmLatencyMs ?? 0;
           const next = llmQueue.shift() ?? fakeSuccess;
@@ -434,6 +457,12 @@ function deps(clock: Clock, script: Scripted = {}) {
         calls.get.push([key, options]);
         return `https://get.test/${key}`;
       },
+      get: async (key) => {
+        calls.objects.push(key);
+        if (script.getError) throw script.getError;
+        const bytes = store.get(key);
+        return { body: bytes ? streamOf(bytes) : null };
+      },
     },
     sleep: async (ms) => {
       calls.sleeps.push(ms);
@@ -442,7 +471,7 @@ function deps(clock: Clock, script: Scripted = {}) {
     clock: () => clock.now,
     log: (...args) => calls.logs.push(args),
   };
-  return { deps: value, calls };
+  return { deps: value, calls, store };
 }
 
 const createBody = (extra: Record<string, unknown> = {}) => ({ baseVersionId: "v-liu", fileName: "捉迷藏点评-1009.m4a", contentType: "", sizeBytes: 1234, ...extra });
@@ -553,7 +582,7 @@ test("UPLOADED: a missing or short object fails the upload step; a matching one 
   assert.equal(outcome.advance, false);
   assert.equal(outcome.row.status, "FAILED");
   assert.equal(outcome.row.failed_step, "UPLOAD");
-  assert.equal(outcome.row.fail_reason, "没有找到上传的录音文件，请重新上传。");
+  assert.equal(outcome.row.fail_reason, "没有找到上传的文件，请重新上传。");
 
   const short = await created(setup(), { head: { size: 1000 } });
   const shortOutcome = await runAudioReviewAction(short.asDb, REVIEWER, { videoId: VIDEO, reviewId: short.reviewId, body: { action: "UPLOADED" } }, short.deps);
@@ -678,7 +707,7 @@ test("advance: submits, polls every 4 s, stores the transcript and goes straight
   assert.match(context.calls.submit[0].hotwordList, /^老孙\|10,刘梦娜\|10,/);
   assert.equal(row.llm_attempts, 1);
   assert.equal(row.llm_model, "test-model");
-  assert.equal(row.prompt_version, "2026-10-10.2");
+  assert.equal(row.prompt_version, "2026-10-21.1");
   assert.match(String(row.input_content_hash), /^[0-9a-f]{64}$/);
   assert.ok(row.proposed_at instanceof Date);
   assert.ok((row.proposal_json as { changes: unknown[] }).changes.length > 10);
@@ -938,11 +967,11 @@ test("CONFIRM writes one AUDIO_REVIEW version, AI_ACCEPTANCE_RESERVED events and
     assert.equal(event.change_set_id, `audio-review:${context.reviewId}`);
     assert.equal(event.base_revision, 0);
     assert.equal(event.applied_revision, 1);
-    assert.match(String(event.reason), /^录音点评 意见 \d+(、\d+)*$/);
+    assert.match(String(event.reason), /^老孙点评 意见 \d+(、\d+)*$/);
   }
   const details = context.db.events.find((event) => event.target_key === "path.primaryDetails")!;
   assert.equal(details.value_type, "STRUCTURE");
-  assert.equal(details.reason, "录音点评 意见 1");
+  assert.equal(details.reason, "老孙点评 意见 1");
 
   assert.deepEqual(context.db.audits.at(-1)!.action, "V19_AUDIO_REVIEW_GENERATED");
   const row = review(context.db, context.reviewId);
@@ -1079,7 +1108,7 @@ test("view: speakers by content, corrected transcript, expanded unaddressed rema
   assert.equal(praise.speaker, "老孙");
   assert.match(praise.text, /基本功是到位的/);
   assert.equal(view.proposal!.model, "test-model");
-  assert.equal(view.proposal!.promptVersion, "2026-10-10.2");
+  assert.equal(view.proposal!.promptVersion, "2026-10-21.1");
   assert.equal("dropped" in (view.proposal as object), false);
   // 兜底：未生成的任务即使行被别人拿到，视图里也没有提案和文字稿。
   const leaked = toAudioReviewView(pendingRow, { viewerDisplayName: "刘梦娜" });
@@ -1143,7 +1172,7 @@ test("秦欣欣能建任务（包括她自己那一版），老孙本人的版�
   assert.equal((await loadAudioReviewStudioState(context.asDb, VIDEO, { displayName: "秦欣欣" }, configured)).audioReviewAvailable, true);
 });
 
-test("秦欣欣上传的录音：模型和热词里的点评人仍是老孙；视图里点评人是老孙、上传人是秦欣欣；确认后点评版归她，标签仍写老孙录音点评", async () => {
+test("秦欣欣上传的录音：模型和热词里的点评人仍是老孙；视图里点评人是老孙、上传人是秦欣欣；确认后点评版归她，标签写老孙点评", async () => {
   const context = setup();
   const seen: string[] = [];
   const harness = deps(context.clock, {
@@ -1172,6 +1201,206 @@ test("秦欣欣上传的录音：模型和热词里的点评人仍是老孙；�
   assert.equal(reviewVersion.owner_name_snapshot, "秦欣欣");
 
   const label = { number: 2, baseNumber: 1, ownerName: "秦欣欣", ownerIsUploader: false, kind: "AUDIO_REVIEW" as const };
-  assert.equal(formatClientLabel(label), "v2（老孙录音点评，基于v1）");
+  assert.equal(formatClientLabel(label), "v2（老孙点评，基于v1）");
   assert.equal(formatServerLabel(label), formatClientLabel(label));
+});
+
+// ---------------------------------------------------------------------------
+// 文字点评（docs/25 二之二，2026-10-21）：建任务认文档、TRANSCRIBING 读文字不调转写、失败原因、RETRY 重新解析
+// ---------------------------------------------------------------------------
+
+const DOCX = AUDIO_REVIEW_DOCX_CONTENT_TYPE;
+const utf8 = (text: string) => new TextEncoder().encode(text);
+const docBody = (extra: Record<string, unknown> = {}) =>
+  createBody({ fileName: "捉迷藏点评.docx", contentType: "application/octet-stream", sizeBytes: 1234, ...extra });
+
+const DOC_PARAGRAPHS = [
+  "老孙对《捉迷藏》v1 的点评",
+  "母题看浅了。这片子真正好的地方，是那些平时最体面、最正经的大人，突然被允许当一回小孩。",
+  "井盖那个镜头，钻出来的是个警察，你写成“一个人”，这个信息很关键，要写出来。",
+  "王一凡问：那它主导机制还算形式游戏吗？",
+  "形式游戏没错。但辅助不是洞察共鸣，是对置生义——体面和幼稚放在一起，才生出意思来。",
+  "评价给高了，我给 A。结尾回头一看街上没人，这个处理太常见了，收得软。",
+];
+
+function refusesFile(body: unknown, pattern: RegExp) {
+  assert.throws(() => normalizeCreateAudioReviewBody(body), (error: unknown) => {
+    assert.ok(error instanceof AudioReviewError, String(error));
+    assert.equal(error.status, 400);
+    assert.equal(error.code, "INVALID_AUDIO_FILE");
+    assert.match(error.message, pattern);
+    return true;
+  });
+}
+
+test("create: documents are recognised by extension and typed by the server, up to 20MB; PDF and .doc get a way out", async () => {
+  assert.deepEqual(normalizeCreateAudioReviewBody(docBody()), { baseVersionId: "v-liu", fileName: "捉迷藏点评.docx", contentType: DOCX, sizeBytes: 1234 });
+  assert.equal(normalizeCreateAudioReviewBody(docBody({ fileName: "点评.MD", contentType: "" })).contentType, "text/markdown");
+  assert.equal(normalizeCreateAudioReviewBody(docBody({ fileName: AUDIO_REVIEW_PASTED_FILE_NAME, contentType: "text/plain;charset=utf-8" })).contentType, "text/plain");
+  // 浏览器给的类型不作数：扩展名是文档就按文档。
+  assert.equal(normalizeCreateAudioReviewBody(docBody({ fileName: "点评.txt", contentType: "audio/mpeg" })).contentType, "text/plain");
+  assert.equal(normalizeCreateAudioReviewBody(docBody({ sizeBytes: 20 * 1024 * 1024 })).sizeBytes, 20 * 1024 * 1024);
+  refusesFile(docBody({ sizeBytes: 20 * 1024 * 1024 + 1 }), /^文档不能超过 20MB。$/);
+  refusesFile(docBody({ sizeBytes: 0 }), /文档大小无效/);
+  for (const fileName of ["点评.pdf", "点评.DOC"]) {
+    refusesFile(docBody({ fileName, contentType: "application/pdf" }), /^暂不支持 PDF \/ 老格式 \.doc，请另存为 \.docx 或直接粘贴文字。$/);
+  }
+  refusesFile(docBody({ fileName: "点评.wps", contentType: "" }), /另存为 \.docx 或直接粘贴文字/);
+  refusesFile(docBody({ fileName: "点评.zip", contentType: "application/zip" }), /或文档（\.docx、\.txt、\.md）/);
+  refusesFile(docBody({ fileName: "" }), /^缺少文件名。$/);
+  // 录音的规则不变。
+  assert.equal(normalizeCreateAudioReviewBody(createBody()).contentType, "audio/mp4");
+  refusesFile(createBody({ sizeBytes: 500 * 1024 * 1024 + 1 }), /^录音文件不能超过 500MB。$/);
+
+  const context = setup();
+  const harness = deps(context.clock);
+  const { row } = await createAudioReview(context.asDb, REVIEWER, { videoId: VIDEO, body: docBody() }, harness.deps);
+  assert.equal(review(context.db, row.id).audio_content_type, DOCX);
+  assert.equal(review(context.db, row.id).audio_object_key, `audio-reviews/${row.id}/original`);
+  assert.deepEqual(harness.calls.put, [[`audio-reviews/${row.id}/original`, { contentType: DOCX, expiresInSeconds: 900 }]]);
+  assert.equal((context.db.audits[0].detail as { contentType: string }).contentType, DOCX);
+  assert.equal(toAudioReviewView(row, { viewerDisplayName: "老孙" }).sourceKind, "DOCUMENT");
+  assert.equal((await listAudioReviewSummaries(context.asDb, VIDEO, "老孙"))[0].sourceKind, "DOCUMENT");
+});
+
+async function documentReview(bytes: Uint8Array | null, script: Scripted = {}, body = docBody()) {
+  const context = setup();
+  const harness = deps(context.clock, script);
+  const { row } = await createAudioReview(context.asDb, REVIEWER, { videoId: VIDEO, body }, harness.deps);
+  if (bytes) harness.store.set(row.audio_object_key, bytes);
+  return { ...context, ...harness, reviewId: row.id, objectKey: row.audio_object_key };
+}
+
+test("document: UPLOADED → read the file (no ASR) → paragraphs into transcript_json → understood in the same run with the document prompt", async () => {
+  const context = await documentReview(buildDocx(DOC_PARAGRAPHS.map(wordParagraph).join("")), {
+    // 模型按内容认出第 4 段是王一凡的提问。
+    llm: [(llmContext) => {
+      const output = buildFakeModelOutput(llmContext);
+      return {
+        ok: true,
+        content: JSON.stringify({ ...output, speakers: { reviewer: "S0", labels: {}, others: [{ segmentId: 4, speaker: "王一凡" }] } }),
+        finishReason: "stop", usage: { total_tokens: 1 }, model: "test-model", durationMs: 1,
+      };
+    }],
+  });
+  const uploaded = await runAudioReviewAction(context.asDb, REVIEWER, { videoId: VIDEO, reviewId: context.reviewId, body: { action: "UPLOADED" } }, context.deps);
+  assert.equal(uploaded.advance, true);
+  assert.equal(review(context.db, context.reviewId).status, "TRANSCRIBING");
+
+  const result = await advanceAudioReview(context.asDb, context.reviewId, { deadline: deadlineFrom(context.clock), deps: context.deps });
+  assert.deepEqual(result, { advanced: true, status: "PENDING_CONFIRM" });
+  const row = review(context.db, context.reviewId);
+  // 不调转写：不提交、不轮询、不签录音下载链接、不等。
+  assert.deepEqual(context.calls.submit, []);
+  assert.deepEqual(context.calls.describe, []);
+  assert.deepEqual(context.calls.get, []);
+  assert.deepEqual(context.calls.sleeps, []);
+  assert.deepEqual(context.calls.objects, [context.objectKey]);
+  const transcript = row.transcript_json as { segments: Array<{ id: number; startMs: number; endMs: number; speakerId: string; text: string }>; durationMs: unknown; engine: string };
+  assert.equal(transcript.engine, "DOCUMENT");
+  assert.equal(transcript.durationMs, null);
+  assert.deepEqual(transcript.segments.map((segment) => segment.text), DOC_PARAGRAPHS);
+  assert.ok(transcript.segments.every((segment, index) => segment.id === index + 1 && segment.startMs === 0 && segment.endMs === 0 && segment.speakerId === "S0"));
+  assert.equal(row.audio_duration_ms, null);
+  assert.equal(row.asr_task_id, null);
+  assert.equal(row.lease_until, null);
+  assert.equal(row.prompt_version, "2026-10-21.1");
+  // 模型拿到的是文字版提示词：每段 { id, 段, text }，没有时间和说话人标签。
+  assert.equal(context.calls.messages.length, 1);
+  assert.equal(context.calls.messages[0].system, AUDIO_REVIEW_DOCUMENT_SYSTEM_PROMPT);
+  const user = JSON.parse(context.calls.messages[0].user) as { 文字稿: unknown[]; 任务: Record<string, string> };
+  assert.deepEqual(user.文字稿[3], { id: 4, 段: 4, text: DOC_PARAGRAPHS[3] });
+  assert.equal(user.任务.点评人, "老孙");
+
+  // 视图：没有时长；默认都是老孙，只有模型列出的第 4 段是王一凡。
+  const view = toAudioReviewView(row as AudioReviewRow, { viewerDisplayName: "老孙" });
+  assert.equal(view.sourceKind, "DOCUMENT");
+  assert.equal(view.audio.durationMs, null);
+  assert.equal(view.audio.fileName, "捉迷藏点评.docx");
+  assert.deepEqual(view.transcript!.segments.map((segment) => [segment.id, segment.speaker, segment.isReviewer]), [
+    [1, "老孙", true], [2, "老孙", true], [3, "老孙", true], [4, "王一凡", false], [5, "老孙", true], [6, "老孙", true],
+  ]);
+  assert.ok(view.proposal!.opinions.every((opinion) => opinion.segmentIds.every((id) => id >= 1 && id <= DOC_PARAGRAPHS.length)));
+
+  // 确认生成和录音一样，修订原因写「老孙点评 意见 N」。
+  const changeIds = view.proposal!.changes.map((change) => change.id);
+  const confirmed = await runAudioReviewAction(context.asDb, REVIEWER, { videoId: VIDEO, reviewId: context.reviewId, body: { action: "CONFIRM", selectedChangeIds: changeIds.slice(0, 2) } }, context.deps);
+  assert.equal(review(context.db, context.reviewId).status, "GENERATED");
+  assert.equal(context.db.versions.find((version) => version.id === confirmed.reviewVersionId)!.version_kind, "AUDIO_REVIEW");
+  assert.ok(context.db.events.every((event) => /^老孙点评 意见 \d+(、\d+)*$/.test(String(event.reason))));
+});
+
+test("document: unreadable, empty, over-long or missing files fail the read step with a reason and never reach the model", async () => {
+  const cases: Array<{ bytes: Uint8Array | null; reason: string; script?: Scripted; body?: Record<string, unknown> }> = [
+    { bytes: buildDocx("<w:p/><w:p><w:r><w:t> </w:t></w:r></w:p>"), reason: AUDIO_REVIEW_DOCUMENT_REASONS.empty },
+    { bytes: buildDocx(wordParagraph("字".repeat(100_001))), reason: AUDIO_REVIEW_DOCUMENT_REASONS.tooLong },
+    { bytes: utf8("改了扩展名的文本，不是 ZIP"), reason: AUDIO_REVIEW_DOCUMENT_REASONS.brokenDocx },
+    { bytes: null, reason: AUDIO_REVIEW_DOCUMENT_REASONS.missing },
+    { bytes: buildDocx(wordParagraph("x")), reason: AUDIO_REVIEW_DOCUMENT_REASONS.storage, script: { getError: new Error("COS 503") } },
+    { bytes: new Uint8Array([0x41, 0x00, 0x42]), reason: AUDIO_REVIEW_DOCUMENT_REASONS.undecodable, body: { fileName: "点评.txt" } },
+  ];
+  for (const item of cases) {
+    const context = await documentReview(item.bytes, item.script, docBody(item.body));
+    Object.assign(context.db.reviews.get(context.reviewId)!, { status: "TRANSCRIBING" });
+    const result = await advanceAudioReview(context.asDb, context.reviewId, { deadline: deadlineFrom(context.clock), deps: context.deps });
+    assert.deepEqual(result, { advanced: true, status: null }, item.reason);
+    const row = review(context.db, context.reviewId);
+    assert.equal(row.status, "FAILED", item.reason);
+    assert.equal(row.failed_step, "TRANSCRIBE");
+    assert.equal(row.fail_reason, item.reason);
+    assert.equal(row.transcript_json, null);
+    assert.equal(row.lease_until, null);
+    assert.equal(context.calls.llm, 0);
+    assert.deepEqual(context.calls.submit, []);
+    // 视图的进度停在第 2 步（读取文字）。
+    assert.equal(toAudioReviewView(row as AudioReviewRow, { viewerDisplayName: "老孙" }).step, 1);
+  }
+  assert.equal(AUDIO_REVIEW_DOCUMENT_REASONS.empty, "文档里没有读到文字。");
+  assert.match(AUDIO_REVIEW_DOCUMENT_REASONS.tooLong, /^文档超过 10 万字/);
+  assert.equal(AUDIO_REVIEW_DOCUMENT_REASONS.brokenDocx, "Word 文件无法打开，请另存为 .docx 后重传。");
+});
+
+test("document: RETRY from FAILED(TRANSCRIBE) reads the file again instead of resubmitting to ASR", async () => {
+  const context = await documentReview(utf8(" \n\n"), {}, docBody({ fileName: AUDIO_REVIEW_PASTED_FILE_NAME, contentType: "text/plain" }));
+  Object.assign(context.db.reviews.get(context.reviewId)!, { status: "TRANSCRIBING" });
+  await advanceAudioReview(context.asDb, context.reviewId, { deadline: deadlineFrom(context.clock), deps: context.deps });
+  assert.equal(review(context.db, context.reviewId).fail_reason, AUDIO_REVIEW_DOCUMENT_REASONS.empty);
+
+  context.store.set(context.objectKey, utf8(`\ufeff${DOC_PARAGRAPHS.join("\r\n\r\n")}`));
+  const retried = await runAudioReviewAction(context.asDb, REVIEWER, { videoId: VIDEO, reviewId: context.reviewId, body: { action: "RETRY" } }, context.deps);
+  assert.equal(retried.advance, true);
+  assert.equal(review(context.db, context.reviewId).status, "TRANSCRIBING");
+  await advanceAudioReview(context.asDb, context.reviewId, { deadline: deadlineFrom(context.clock), deps: context.deps });
+  const row = review(context.db, context.reviewId);
+  assert.equal(row.status, "PENDING_CONFIRM");
+  assert.deepEqual(context.calls.objects, [context.objectKey, context.objectKey]);
+  assert.deepEqual(context.calls.submit, []);
+  assert.deepEqual((row.transcript_json as { segments: Array<{ text: string }> }).segments.map((segment) => segment.text), DOC_PARAGRAPHS);
+});
+
+test("recordings are untouched: still transcribed, never read back from storage, and given the recording prompt", async () => {
+  const context = await inState("TRANSCRIBING");
+  await advanceAudioReview(context.asDb, context.reviewId, { deadline: deadlineFrom(context.clock), deps: context.deps });
+  assert.equal(review(context.db, context.reviewId).status, "PENDING_CONFIRM");
+  assert.deepEqual(context.calls.objects, []);
+  assert.equal(context.calls.submit.length, 1);
+  assert.equal(context.calls.messages[0].system, AUDIO_REVIEW_SYSTEM_PROMPT);
+  assert.equal(toAudioReviewView(review(context.db, context.reviewId) as AudioReviewRow, { viewerDisplayName: "老孙" }).sourceKind, "AUDIO");
+});
+
+test("the original-file link downloads documents as attachments under their own name; recordings stay inline", () => {
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "audio/mp4", audio_file_name: "点评.m4a" }), {});
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "audio/ogg", audio_file_name: "点评.txt.ogg" }), {});
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "text/plain", audio_file_name: AUDIO_REVIEW_PASTED_FILE_NAME }), {
+    responseContentDisposition: `attachment; filename="review.txt"; filename*=UTF-8''${encodeURIComponent(AUDIO_REVIEW_PASTED_FILE_NAME)}`,
+    responseContentType: "text/plain; charset=utf-8",
+  });
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "text/markdown", audio_file_name: "点评.md" }), {
+    responseContentDisposition: `attachment; filename="review.md"; filename*=UTF-8''${encodeURIComponent("点评.md")}`,
+    responseContentType: "text/markdown; charset=utf-8",
+  });
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: DOCX, audio_file_name: "老孙's 点评(1).docx" }), {
+    responseContentDisposition: `attachment; filename="review.docx"; filename*=UTF-8''%E8%80%81%E5%AD%99%27s%20%E7%82%B9%E8%AF%84%281%29.docx`,
+    responseContentType: DOCX,
+  });
 });

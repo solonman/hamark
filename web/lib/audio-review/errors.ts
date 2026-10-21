@@ -13,7 +13,7 @@ export class AudioReviewError extends Error {
 }
 
 export const AUDIO_REVIEW_MISSING_SCHEMA_MESSAGE =
-  "录音点评的数据表尚未建立：请先在 Supabase 执行 web/db/migrations/2026-10-10-audio-review.sql";
+  "点评改写的数据表尚未建立：请先在 Supabase 执行 web/db/migrations/2026-10-10-audio-review.sql";
 
 /**
  * 迁移没执行时的两种报错：audio_reviews 表不存在（42P01），或 analysis_versions 上还没有

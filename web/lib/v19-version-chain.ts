@@ -36,7 +36,7 @@ import {
   type LoadedFinalVersion,
 } from "./final-version";
 import type { V19ReviewCandidate } from "./audio-review-model";
-import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewUploader } from "./audio-review/access";
+import { AUDIO_REVIEW_VERSION_LABEL, isAudioReviewUploader } from "./audio-review/access";
 
 const WORKFLOW = V04_WORKFLOW_VERSION;
 
@@ -78,7 +78,7 @@ export function resolveV19DefaultVersion<T extends { number: number; updatedAt: 
 }
 
 /** `v3（基于v1，张三）` / `v1（初始版本，王大明·上传者）`, per spec 二、2.5.
- * 点评版写作 `v5（老孙录音点评，基于v3）`（docs/25 二、5）。
+ * 点评版写作 `v5（老孙点评，基于v3）`（docs/25 二之二 3：录音、文字都这么叫）。
  * Kept in sync with the client-safe duplicate in `lib/v19-ui-model.ts` — see
  * that copy's comment for why it cannot just import this module. */
 export function formatV19VersionLabel(input: {
@@ -91,7 +91,7 @@ export function formatV19VersionLabel(input: {
   kind?: V19VersionKind;
 }): string {
   if (input.kind === "AUDIO_REVIEW") {
-    return `v${input.number}（${AUDIO_REVIEW_CRITIC_NAME}录音点评，基于v${input.baseNumber ?? "?"}）`;
+    return `v${input.number}（${AUDIO_REVIEW_VERSION_LABEL}，基于v${input.baseNumber ?? "?"}）`;
   }
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
   const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
@@ -160,7 +160,7 @@ export type V19VersionSummary = {
   isMine: boolean;
   isVirtual: boolean;
   baseIsFinal: boolean;
-  /** docs/25 二、5：个人版本，或老孙录音点评生成的点评版。点评版的 isMine 恒为 false。 */
+  /** docs/25 二、5：个人版本，或老孙的点评（录音或文字）生成的点评版。点评版的 isMine 恒为 false。 */
   kind: "PERSONAL" | "AUDIO_REVIEW";
   audioReviewId: string | null;
 };

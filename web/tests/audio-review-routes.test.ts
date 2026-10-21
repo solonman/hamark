@@ -89,6 +89,8 @@ test("GET review and GET audio: read shell → visibility check before anything 
     "status: 307",
   ]);
   assert.match(audio, /expiresInSeconds: AUDIO_REVIEW_AUDIO_URL_TTL_SECONDS/);
+  // 文字点评的原文件以附件下载（docs/25 二之二 3）；录音不覆盖，照常内联播放。
+  assert.match(audio, /\.\.\.audioReviewOriginalFileOverrides\(row\)/);
   assert.match(audio, /"Cache-Control": "no-store"/);
 });
 

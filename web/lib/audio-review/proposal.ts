@@ -44,6 +44,7 @@ import {
   primaryDetailLabel,
   type EditableItem,
 } from "./fields";
+import { AUDIO_REVIEW_VERSION_LABEL } from "./access";
 import { dominantSpeaker, type AudioReviewTranscriptSegment } from "./transcript";
 
 export const AUDIO_REVIEW_TEXT_MAX_LENGTH = 5000;
@@ -386,12 +387,12 @@ type ApplicableChange = Pick<AudioReviewChange, "key" | "targetKey" | "subKey" |
 /**
  * 按落库键合并（细项合并成一个 primaryDetails 对象、辅助路径合并成一个数组），生成 V04 变更集，
  * beforeValue 取快照值；返回套用后的快照（不做契约校验，调用方决定怎么报错）。
- * `reasonFor` 给每条变更写修订原因（「录音点评 意见 N」）。
+ * `reasonFor` 给每条变更写修订原因（「老孙点评 意见 N」）。
  */
 export function buildAudioReviewChangeSet(
   snapshot: V04DraftPayloadV1,
   changes: readonly ApplicableChange[],
-  reasonFor: (opinionIds: readonly string[]) => string = () => "录音点评",
+  reasonFor: (opinionIds: readonly string[]) => string = () => AUDIO_REVIEW_VERSION_LABEL,
 ): { changes: V04Change[]; payload: V04DraftPayloadV1 } {
   const v04Changes: V04Change[] = [];
   const path = snapshot.perceptionPath;
@@ -585,7 +586,10 @@ export function normalizeAudioReviewProposal(raw: unknown, context: ProposalCont
   const earliest = (ids: number[]) => ids.length
     ? Math.min(...ids.map((id) => segmentById.get(id)!.startMs))
     : Number.POSITIVE_INFINITY;
-  parsedOpinions.sort((left, right) => earliest(left.segmentIds) - earliest(right.segmentIds) || left.index - right.index);
+  // 时间相同（文字点评的段落都记 0）时按段落号：意见、没落到条目的话都按原文顺序排。
+  const firstId = (ids: number[]) => (ids.length ? Math.min(...ids) : Number.POSITIVE_INFINITY);
+  const byPosition = (left: number[], right: number[]) => earliest(left) - earliest(right) || firstId(left) - firstId(right);
+  parsedOpinions.sort((left, right) => byPosition(left.segmentIds, right.segmentIds) || left.index - right.index);
   const opinionIdByRaw = new Map<string, string>();
   const opinions: AudioReviewOpinion[] = parsedOpinions.map((opinion, index) => {
     const id = `o${index + 1}`;
@@ -816,7 +820,7 @@ export function normalizeAudioReviewProposal(raw: unknown, context: ProposalCont
     if (substantiveLength(segment.text) < SUBSTANTIVE_SEGMENT_MIN_CHARS) continue;
     unaddressed.push({ segmentIds: [segment.id], reason: UNADDRESSED_FALLBACK_REASON });
   }
-  unaddressed.sort((left, right) => earliest(left.segmentIds) - earliest(right.segmentIds));
+  unaddressed.sort((left, right) => byPosition(left.segmentIds, right.segmentIds));
 
   // 同音错字校正：只留文字稿里真有「原词」的。
   const corrections: StoredAudioReviewProposal["corrections"] = [];
@@ -854,13 +858,13 @@ export function parseStoredProposal(value: unknown): StoredAudioReviewProposal |
   };
 }
 
-/** 「录音点评 意见 1、3」——修订事件的 reason。 */
+/** 「老孙点评 意见 1、3」——修订事件的 reason（2026-10-21 前写的是「录音点评 意见 N」，旧数据不动）。 */
 export function audioReviewChangeReason(opinionIds: readonly string[], opinions: readonly AudioReviewOpinion[]) {
   const numbers = opinionIds
     .map((id) => opinions.find((opinion) => opinion.id === id)?.number)
     .filter((value): value is number => typeof value === "number")
     .sort((left, right) => left - right);
-  return numbers.length ? `录音点评 意见 ${numbers.join("、")}` : "录音点评";
+  return numbers.length ? `${AUDIO_REVIEW_VERSION_LABEL} 意见 ${numbers.join("、")}` : AUDIO_REVIEW_VERSION_LABEL;
 }
 
 // 供提示词与测试引用的字段清单（避免两处各写一份）。

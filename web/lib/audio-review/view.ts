@@ -6,6 +6,7 @@ import {
   audioReviewSourceKindOf,
   audioReviewStepOf,
   type AudioReviewFailedStep,
+  type AudioReviewSourceKind,
   type AudioReviewProposalView,
   type AudioReviewSegment,
   type AudioReviewStatus,
@@ -101,14 +102,23 @@ export function audioReviewAudioPath(videoId: string, reviewId: string) {
  * 每段话的说话人显示名与「是不是老孙」。以模型按内容逐段的判断为准（转写的说话人标签不可靠，
  * 通用引擎会把所有人都标成 S0）；还没有提案、或模型没给逐段判断时才按标签：
  * 老孙 / 模型认出的名字 / 其他人 A、B…（按出场顺序）。
+ * 文字点评（docs/25 二之二）默认每段都是老孙的，只有模型在 speakers.others 里列出的段落才算别人。
  */
 export function audioReviewSpeakerNames(
   segments: readonly AudioReviewTranscriptSegment[],
   proposal: Pick<StoredAudioReviewProposal, "speakers"> | null,
   reviewerName: string,
+  sourceKind: AudioReviewSourceKind = "AUDIO",
 ) {
   type SegmentRef = Pick<AudioReviewTranscriptSegment, "id" | "speakerId">;
   const judgement = proposal?.speakers ?? null;
+  if (sourceKind === "DOCUMENT") {
+    const others = new Map((judgement?.others ?? []).map((entry) => [entry.segmentId, entry.speaker]));
+    return {
+      isReviewer: (segment: SegmentRef) => !others.has(segment.id),
+      nameOf: (segment: SegmentRef) => others.get(segment.id) ?? reviewerName,
+    };
+  }
   if (judgement?.others) {
     const bySegment = new Map(judgement.others.map((entry) => [entry.segmentId, entry.speaker]));
     return {
@@ -143,8 +153,9 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
   const transcript = restricted ? null : parseStoredTranscript(row.transcript_json);
   const selected = parseSelectedChangeIds(row.selected_change_ids);
   const segments = transcript?.segments ?? [];
-  // 录音里点评的人始终是老孙；reviewer_name 记的是上传人（可能是替他上传的秦欣欣）。
-  const speakers = audioReviewSpeakerNames(segments, stored, AUDIO_REVIEW_CRITIC_NAME);
+  const sourceKind = audioReviewSourceKindOf(row.audio_content_type);
+  // 点评的人始终是老孙；reviewer_name 记的是上传人（可能是替他上传的秦欣欣）。
+  const speakers = audioReviewSpeakerNames(segments, stored, AUDIO_REVIEW_CRITIC_NAME, sourceKind);
 
   const viewSegments: AudioReviewSegment[] = segments.map((segment) => {
     const corrections = (stored?.corrections ?? [])
@@ -191,7 +202,7 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
     baseVersionId: row.base_version_id,
     baseVersionNumber: Number(row.base_version_number),
     baseOwnerName: row.base_owner_name,
-    sourceKind: audioReviewSourceKindOf(row.audio_content_type),
+    sourceKind,
     reviewerName: AUDIO_REVIEW_CRITIC_NAME,
     uploaderName: row.reviewer_name,
     status: row.status,

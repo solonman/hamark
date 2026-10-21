@@ -6,7 +6,7 @@
 
 import type { V04Change, V04DraftPayloadV1 } from "@/lib/v04-contract";
 import type { V19AudioReviewSummary, V19ReviewCandidate } from "@/lib/audio-review-model";
-import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
+import { AUDIO_REVIEW_VERSION_LABEL } from "@/lib/audio-review/access";
 import type {
   V04ServerWorkspaceModel,
   V04UiCapabilities,
@@ -27,7 +27,7 @@ export type V19VersionSummary = {
   isVirtual: boolean;
   /** true when this version was manually created from the final version's payload (spec 五、13). */
   baseIsFinal: boolean;
-  /** 个人版本，或由老孙的录音点评生成的点评版（docs/25 二、5）。点评版的 isMine 恒为 false。 */
+  /** 个人版本，或由老孙的点评（录音或文字）生成的点评版（docs/25 二、5）。点评版的 isMine 恒为 false。 */
   kind: V19VersionKind;
   /** 点评版对应的点评任务 id；个人版本为 null。 */
   audioReviewId: string | null;
@@ -139,7 +139,7 @@ export function formatV19VersionLabel(input: {
   kind?: V19VersionKind;
 }): string {
   if (input.kind === "AUDIO_REVIEW") {
-    return `v${input.number}（${AUDIO_REVIEW_CRITIC_NAME}录音点评，基于v${input.baseNumber ?? "?"}）`;
+    return `v${input.number}（${AUDIO_REVIEW_VERSION_LABEL}，基于v${input.baseNumber ?? "?"}）`;
   }
   const ownerLabel = input.ownerIsUploader ? `${input.ownerName}·上传者` : input.ownerName;
   const basis = input.baseIsFinal ? "基于集成版" : input.baseNumber === null ? "初始版本" : `基于v${input.baseNumber}`;
