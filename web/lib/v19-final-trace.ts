@@ -9,7 +9,7 @@
 // （`V19StudioDocument.tsx` / `V04ChoiceField.tsx` / `V04StudioClient.tsx`）
 // 只管把这里算出的结果渲染出来，不重新做推导。
 
-import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
+import { AUDIO_REVIEW_CRITIC_NAME, AUDIO_REVIEW_VERSION_LABEL } from "@/lib/audio-review/access";
 import type { V04DraftPayloadV1 } from "./v04-contract";
 import type { V19FinalIntake } from "./v19-ui-model";
 import { formatShortDateTime } from "./date-format";
@@ -230,13 +230,13 @@ function dedupeAdjacentV19TraceRows(rows: readonly V19FinalTraceRawRow[]): V19Fi
  */
 export function describeV19FinalTraceRowLabel(
   row: V19FinalTraceHistoryRow,
-  /** 点评版的编号（docs/25 六）：从点评版采纳来的写法记作「v3 老孙录音点评」。汇入记录本身不带版本类型。 */
+  /** 点评版的编号（docs/25 六）：从点评版采纳来的写法记作「v3 老孙点评」。汇入记录本身不带版本类型。 */
   reviewVersionNumbers?: ReadonlySet<number>,
 ): string {
   if (row.isOrigin) return `v1 ${row.actorName} 原稿`;
   if (row.source === "FINAL_DIRECT") return `集成版 ${row.actorName} 直接修改 ${formatShortDateTime(row.createdAt)}`;
   if (isV19ReviewSource(row, reviewVersionNumbers)) {
-    return `v${row.sourceVersionNumber} ${AUDIO_REVIEW_CRITIC_NAME}录音点评 ${formatShortDateTime(row.createdAt)}`;
+    return `v${row.sourceVersionNumber} ${AUDIO_REVIEW_VERSION_LABEL} ${formatShortDateTime(row.createdAt)}`;
   }
   return `v${row.sourceVersionNumber ?? "?"} ${row.actorName} ${formatShortDateTime(row.createdAt)}`;
 }
@@ -288,7 +288,7 @@ export function describeV19FinalTraceHoverSource(
   const who = row.source === "FINAL_DIRECT"
     ? "集成版·直接修改"
     : isV19ReviewSource(row, reviewVersionNumbers)
-      ? `v${row.sourceVersionNumber}·${AUDIO_REVIEW_CRITIC_NAME}录音点评`
+      ? `v${row.sourceVersionNumber}·${AUDIO_REVIEW_VERSION_LABEL}`
       : `v${row.sourceVersionNumber ?? "?"}·${row.actorName}`;
   return `${who} ${formatShortDateTime(row.createdAt)}`;
 }
@@ -559,7 +559,7 @@ export function describeV19StructuralIntake(intake: V19FinalIntake, currentPaylo
 
 // ---------------------------------------------------------------------------
 // 点评版候选（docs/25 六）：集成版溯源里，每个条目在「未纳入」之后多一行
-// 「点评版 vN · 老孙录音点评 · 时间」。服务端已经按 FIELD 键挑好了候选
+// 「点评版 vN · 老孙点评 · 时间」。服务端已经按 FIELD 键挑好了候选
 // （点评版改过、集成版里存在、集成版当前值和它不一样）；这里只按条目取出来，
 // 把合并存的那几类键（主导路径细项、辅助路径）拆到具体的那一格，并换成跟
 // 旧写法、未纳入同一种显示形状。不计入「N 处未纳入」，「全部采纳」也不处理它们。
@@ -652,8 +652,8 @@ export function deriveV19ReviewCarrierRows(candidates: readonly V19ReviewCandida
   return deriveV19ReviewCandidateRows(candidates, "facts.creativeCarriers", describeV19CarrierListValue);
 }
 
-/** `点评版 v3 · 老孙录音点评 · 10-10 15:26`。 */
+/** `点评版 v3 · 老孙点评 · 10-10 15:26`（2026-10-21 起录音、文字都叫「老孙点评」，docs/25 二之二）。 */
 export function describeV19ReviewCandidateLabel(row: V19ReviewCandidateRow, reviewerName = AUDIO_REVIEW_CRITIC_NAME): string {
   const time = row.updatedAt ? ` · ${formatShortDateTime(row.updatedAt)}` : "";
-  return `点评版 v${row.reviewVersionNumber} · ${reviewerName || AUDIO_REVIEW_CRITIC_NAME}录音点评${time}`;
+  return `点评版 v${row.reviewVersionNumber} · ${reviewerName ? `${reviewerName}点评` : AUDIO_REVIEW_VERSION_LABEL}${time}`;
 }

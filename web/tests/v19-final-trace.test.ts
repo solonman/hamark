@@ -801,7 +801,7 @@ test("deriveV19CarrierTrace: 假原稿行兜底 also applies here — a v1 recor
 
 // ---------------------------------------------------------------------------
 // 点评版候选（docs/25 六）：按条目取出、拆到具体那一格、换成显示用的写法；
-// 从点评版采纳来的来源写成「vN 老孙录音点评」。
+// 从点评版采纳来的来源写成「vN 老孙点评」（2026-10-21 起录音、文字都叫「老孙点评」）。
 // ---------------------------------------------------------------------------
 
 const reviewCandidate = (overrides: Record<string, unknown>) => ({
@@ -856,13 +856,15 @@ test("deriveV19ReviewChoiceRows / deriveV19ReviewCarrierRows：换成中文标�
   assert.equal(carriers[0]?.value, "故事、视听规则");
 });
 
-test("describeV19ReviewCandidateLabel：「点评版 v3 · 老孙录音点评 · 时间」", () => {
+test("describeV19ReviewCandidateLabel：「点评版 v3 · 老孙点评 · 时间」，不再写「录音」", () => {
   const [row] = deriveV19ReviewCandidateRows([reviewCandidate({})], "facts.creativeMotif");
-  assert.equal(describeV19ReviewCandidateLabel(row), `点评版 v3 · 老孙录音点评 · ${formatShortDateTime("2026-10-10T07:26:00.000Z")}`);
-  assert.equal(describeV19ReviewCandidateLabel({ ...row, updatedAt: "" }, "老孙"), "点评版 v3 · 老孙录音点评");
+  assert.equal(describeV19ReviewCandidateLabel(row), `点评版 v3 · 老孙点评 · ${formatShortDateTime("2026-10-10T07:26:00.000Z")}`);
+  assert.equal(describeV19ReviewCandidateLabel({ ...row, updatedAt: "" }, "老孙"), "点评版 v3 · 老孙点评");
+  assert.equal(describeV19ReviewCandidateLabel({ ...row, updatedAt: "" }, ""), "点评版 v3 · 老孙点评", "空名按老孙");
+  assert.doesNotMatch(describeV19ReviewCandidateLabel(row), /录音/);
 });
 
-test("从点评版采纳来的来源：当前采用、旧写法、hover 都写成「v3 老孙录音点评」；普通版本不变", () => {
+test("从点评版采纳来的来源：当前采用、旧写法、hover 都写成「v3 老孙点评」；普通版本不变", () => {
   const origin = { ...emptyV04DraftPayload(), factsAndCoreJudgement: { ...emptyV04DraftPayload().factsAndCoreJudgement, creativeMotif: "原稿母题" } };
   const intakes = [intake({
     id: "i1", seq: 1, targetKey: "facts.creativeMotif", value: "点评版的母题",
@@ -871,10 +873,10 @@ test("从点评版采纳来的来源：当前采用、旧写法、hover 都写�
   const trace = deriveV19FinalFieldTrace(origin, intakes, "facts.creativeMotif", "刘梦娜");
   const reviewNumbers = new Set([3]);
   const time = formatShortDateTime("2026-10-10T08:00:00.000Z");
-  assert.equal(describeV19FinalTraceRowLabel(trace.current!, reviewNumbers), `v3 老孙录音点评 ${time}`);
+  assert.equal(describeV19FinalTraceRowLabel(trace.current!, reviewNumbers), `v3 老孙点评 ${time}`);
   assert.equal(describeV19FinalTraceRowLabel(trace.current!), `v3 老孙 ${time}`, "不给点评版编号时照旧");
   assert.equal(describeV19FinalTraceRowLabel(trace.current!, new Set([5])), `v3 老孙 ${time}`);
-  assert.equal(describeV19FinalTraceHoverSource(trace.current, reviewNumbers), `v3·老孙录音点评 ${time}`);
+  assert.equal(describeV19FinalTraceHoverSource(trace.current, reviewNumbers), `v3·老孙点评 ${time}`);
   assert.equal(isV19ReviewSource({ source: "FINAL_DIRECT", sourceVersionNumber: 3 }, reviewNumbers), false);
   assert.equal(isV19ReviewSource({ source: "VERSION", sourceVersionNumber: null }, reviewNumbers), false);
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
+import { AUDIO_REVIEW_CRITIC_NAME, AUDIO_REVIEW_VERSION_LABEL } from "@/lib/audio-review/access";
 import { useState, type JSX, type ReactNode } from "react";
 import type { V04ChoiceValue, V04CreativeGrade, V04DraftPayloadV1, V04ShotFieldKey } from "@/lib/v04-contract";
 import type { V04UiDraft, V04UiShot, V04UiShotGroup } from "@/lib/v04-ui-model";
@@ -91,17 +91,17 @@ export type V19StudioFinalContext = {
   originOwnerName: string;
   /**
    * 点评版候选（docs/25 六）：溯源视图里按条目挂在「未纳入」之后，一行
-   * 「点评版 vN · 老孙录音点评 · 时间」＋完整写法＋老孙可见的「采纳」。缺省即没有。
+   * 「点评版 vN · 老孙点评 · 时间」＋完整写法＋老孙可见的「采纳」。缺省即没有。
    * 不计入「N 处未纳入」，「全部采纳」也不处理它们。
    */
   reviewCandidates?: readonly V19ReviewCandidate[];
   /** 老孙点「采纳」：把点评版这一处（FIELD 键）的写法写进集成版。 */
   onAdoptReview?: (reviewVersionId: string, targetKey: string) => void;
-  /** 点评版 id → 点评人显示名，拼进「老孙录音点评」。缺省按「老孙」。 */
+  /** 点评版 id → 点评人显示名，拼进「老孙点评」。缺省按「老孙」。 */
   reviewerNames?: ReadonlyMap<string, string>;
   /**
    * 点评版的编号：汇入记录不带版本类型，按编号认出「从点评版采纳来的」写法，
-   * 当前采用、旧写法、hover 来源都写成「v3 老孙录音点评」。
+   * 当前采用、旧写法、hover 来源都写成「v3 老孙点评」。
    */
   reviewVersionNumbers?: ReadonlySet<number>;
 };
@@ -357,7 +357,7 @@ function V19FinalTraceRows({
           ? (row.actorName || "原稿")
           : row.source === "FINAL_DIRECT"
             ? `${row.actorName}·直接修改`
-            : isV19ReviewSource(row, reviewVersionNumbers) ? `${AUDIO_REVIEW_CRITIC_NAME}录音点评` : row.actorName;
+            : isV19ReviewSource(row, reviewVersionNumbers) ? AUDIO_REVIEW_VERSION_LABEL : row.actorName;
         return (
           <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowPending}`}>
             <span className={styles.finalTraceVersion}>{versionTag}</span>
@@ -380,7 +380,7 @@ function V19FinalTraceRows({
         return (
           <div key={row.key} className={`${styles.finalTraceRow} ${styles.finalTraceRowReview}`} data-v19-review-candidate>
             <span className={styles.finalTraceVersion}>点评版 v{row.reviewVersionNumber}</span>
-            <span className={styles.finalTraceWho}>{reviewer}录音点评</span>
+            <span className={styles.finalTraceWho}>{reviewer}点评</span>
             {row.updatedAt && <span className={styles.finalTraceTime}>{formatShortDateTime(row.updatedAt)}</span>}
             <div className={styles.finalTraceValue}>{formatV19TraceValue(row.value)}</div>
             {canAdopt && onAdoptReview && (

@@ -796,7 +796,8 @@ test("集成版溯源：点评版候选排在未纳入之后，老孙看得到�
     }),
   })));
   assert.match(forReviewer, /data-v19-review-candidate/);
-  assert.match(forReviewer, /点评版 v3<\/span><span[^>]*>老孙录音点评<\/span>/);
+  assert.match(forReviewer, /点评版 v3<\/span><span[^>]*>老孙点评<\/span>/);
+  assert.doesNotMatch(forReviewer, /录音点评/, "录音、文字都叫「老孙点评」");
   assert.match(forReviewer, /被等待的人，终有一天学会等待别人/);
   assert.match(forReviewer, />采纳<\/button>/);
   const forOthers = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
@@ -812,7 +813,7 @@ test("集成版溯源：点评版候选排在未纳入之后，老孙看得到�
   assert.doesNotMatch(defaultView, /data-v19-review-candidate/);
 });
 
-test("集成版溯源：从点评版采纳来的写法，当前采用写成「vN 老孙录音点评」", () => {
+test("集成版溯源：从点评版采纳来的写法，当前采用写成「vN 老孙点评」", () => {
   const draft = fixtureDraft();
   const originPayload = v04UiDraftToPayload(draft);
   const html = renderToStaticMarkup(createElement(V19StudioDocument, noopProps({
@@ -825,5 +826,5 @@ test("集成版溯源：从点评版采纳来的写法，当前采用写成「vN
       }],
     }),
   })));
-  assert.match(html, new RegExp(`当前采用 · v3 老孙录音点评 ${formatShortDateTime("2026-10-10T08:00:00.000Z")}`));
+  assert.match(html, new RegExp(`当前采用 · v3 老孙点评 ${formatShortDateTime("2026-10-10T08:00:00.000Z")}`));
 });
