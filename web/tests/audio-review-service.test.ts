@@ -1390,10 +1390,17 @@ test("recordings are untouched: still transcribed, never read back from storage,
 
 test("the original-file link downloads documents as attachments under their own name; recordings stay inline", () => {
   assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "audio/mp4", audio_file_name: "点评.m4a" }), {});
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "audio/ogg", audio_file_name: "点评.txt.ogg" }), {});
   assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "text/plain", audio_file_name: AUDIO_REVIEW_PASTED_FILE_NAME }), {
     responseContentDisposition: `attachment; filename="review.txt"; filename*=UTF-8''${encodeURIComponent(AUDIO_REVIEW_PASTED_FILE_NAME)}`,
+    responseContentType: "text/plain; charset=utf-8",
+  });
+  assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: "text/markdown", audio_file_name: "点评.md" }), {
+    responseContentDisposition: `attachment; filename="review.md"; filename*=UTF-8''${encodeURIComponent("点评.md")}`,
+    responseContentType: "text/markdown; charset=utf-8",
   });
   assert.deepEqual(audioReviewOriginalFileOverrides({ audio_content_type: DOCX, audio_file_name: "老孙's 点评(1).docx" }), {
     responseContentDisposition: `attachment; filename="review.docx"; filename*=UTF-8''%E8%80%81%E5%AD%99%27s%20%E7%82%B9%E8%AF%84%281%29.docx`,
+    responseContentType: DOCX,
   });
 });

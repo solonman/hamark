@@ -117,17 +117,23 @@ function encodeRfc5987(value: string) {
 }
 
 /**
- * 原文件链接（GET …/audio）的响应头覆盖。文档以附件下载、带上原文件名——.txt 在浏览器里直接打开
- * 常是乱码，「可下载原文件」（docs/25 二之二 3）要的是下载；录音不覆盖，<audio> 要内联播放。
- * 本机存储忽略这一项。
+ * 原文件链接（GET …/audio）的响应头覆盖。文档以附件下载、带上原文件名——跨域跳转时 <a download>
+ * 不生效，不覆盖的话 .txt/.md 会直接在浏览器里打开；「可下载原文件」（docs/25 二之二 3）要的是下载。
+ * Content-Type 按库里记的类型给（纯文本加 charset=utf-8）。录音不覆盖，<audio> 要内联播放。
+ * 本机存储忽略这两项。
  */
 export function audioReviewOriginalFileOverrides(
   row: Pick<AudioReviewRow, "audio_content_type" | "audio_file_name">,
-): Pick<PresignedGetOptions, "responseContentDisposition"> {
+): Pick<PresignedGetOptions, "responseContentDisposition" | "responseContentType"> {
   if (audioReviewSourceKindOf(row.audio_content_type) !== "DOCUMENT") return {};
+  const type = row.audio_content_type.trim().toLowerCase().split(";")[0];
   const extension = row.audio_file_name.toLowerCase().split(".").pop() ?? "";
+  // filename= 是给不认 filename* 的老客户端的 ASCII 兜底名。
   const fallback = `review${/^[a-z0-9]{1,8}$/.test(extension) ? `.${extension}` : ""}`;
-  return { responseContentDisposition: `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(row.audio_file_name)}` };
+  return {
+    responseContentDisposition: `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(row.audio_file_name)}`,
+    responseContentType: type.startsWith("text/") ? `${type}; charset=utf-8` : type,
+  };
 }
 
 const ADVANCEABLE: readonly AudioReviewStatus[] = ["TRANSCRIBING", "UNDERSTANDING"];
