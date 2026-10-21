@@ -1,20 +1,37 @@
-// 纯函数单测：录音点评改写的前端推导（页头入口形态、轮询并回、确认面板分组、
+// 纯函数单测：老孙点评（录音或文字）改写的前端推导（页头入口形态、上传前的文件分类、
+// 粘贴文字的校验、轮询并回、确认面板分组、原话前的引用（时间点／第 N 段）、
 // 点评版正文的「依据」与「已手改」、文字稿校正词切分）。见 lib/audio-review-ui.ts
-// 与 docs/25_录音点评改写_实施规格_V0.1.md 二、七。
+// 与 docs/25_录音点评改写_实施规格_V0.1.md 二、二之二、七。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  AUDIO_REVIEW_PASTED_MIN_CHARS,
+  AUDIO_REVIEW_UNSUPPORTED_DOCUMENT_MESSAGE,
   activeAudioReviewSegmentId,
   audioReviewForVersion,
   audioReviewOpinionLanded,
   audioReviewOpinionQuotes,
+  audioReviewParagraphNumber,
+  audioReviewSegmentRef,
+  audioReviewSourceMeta,
+  audioReviewSourceNoun,
+  audioReviewTextLength,
   audioReviewTransitionToast,
   audioReviewValueAt,
   buildV19ReviewBasis,
+  checkAudioReviewPastedText,
+  checkAudioReviewRecording,
+  classifyAudioReviewUpload,
+  describeAudioReviewDocumentSummary,
   describeAudioReviewFailure,
+  describeAudioReviewNavHint,
+  describeAudioReviewProgress,
+  describeAudioReviewUploadedToast,
+  formatAudioReviewParagraphs,
   groupAudioReviewOpinions,
   inFlightAudioReviewKey,
   nextV19VersionNumber,
+  pastedAudioReviewFile,
   removeAudioReviewSummary,
   resolveV19AudioReviewEntry,
   sameAudioReviewValue,
@@ -22,6 +39,14 @@ import {
   summarizeAudioReview,
   upsertAudioReviewSummary,
 } from "../lib/audio-review-ui.ts";
+import {
+  AUDIO_REVIEW_DOCX_CONTENT_TYPE,
+  AUDIO_REVIEW_DOCUMENT_MAX_BYTES,
+  AUDIO_REVIEW_DOCUMENT_MAX_CHARS,
+  AUDIO_REVIEW_MAX_BYTES,
+  AUDIO_REVIEW_PASTED_FILE_NAME,
+  audioReviewSourceKindOf,
+} from "../lib/audio-review-model.ts";
 import type {
   AudioReviewChange,
   AudioReviewOpinion,
@@ -29,12 +54,13 @@ import type {
   AudioReviewView,
   V19AudioReviewSummary,
 } from "../lib/audio-review-model.ts";
+import { formatShortDateTime } from "../lib/date-format.ts";
 import { emptyV04ChoiceValue, emptyV04DraftPayload } from "../lib/v04-domain.ts";
 import type { V04DraftPayloadV1, V04ShotPayload } from "../lib/v04-contract.ts";
 
 function summary(overrides: Partial<V19AudioReviewSummary> = {}): V19AudioReviewSummary {
   return {
-    id: "arv-1", baseVersionId: "ver-1", status: "TRANSCRIBING", step: 1, failReason: null,
+    id: "arv-1", baseVersionId: "ver-1", sourceKind: "AUDIO", status: "TRANSCRIBING", step: 1, failReason: null,
     changeCount: 0, reviewVersionId: null, reviewVersionNumber: null,
     ...overrides,
   };
@@ -54,7 +80,8 @@ function change(overrides: Partial<AudioReviewChange> & Pick<AudioReviewChange, 
 
 function view(overrides: Partial<AudioReviewView> = {}): AudioReviewView {
   return {
-    id: "arv-1", videoId: "vid-1", baseVersionId: "ver-1", baseVersionNumber: 1, baseOwnerName: "刘梦娜", reviewerName: "老孙",
+    id: "arv-1", videoId: "vid-1", baseVersionId: "ver-1", baseVersionNumber: 1, baseOwnerName: "刘梦娜",
+    sourceKind: "AUDIO", reviewerName: "老孙", uploaderName: "老孙",
     status: "PENDING_CONFIRM", failedStep: null, failReason: null, step: 2,
     audio: { fileName: "捉迷藏点评.m4a", sizeBytes: 1000, durationMs: 684_000, url: "/audio" },
     transcript: null, proposal: null, selectedChangeIds: null, reviewVersionId: null, reviewVersionNumber: null,
@@ -174,10 +201,31 @@ test("入口按挂在这一版上的任务决定形态：处理中／失败／�
   assert.equal(entry(summary({ status: "GENERATED" })).kind, "PROCESSING");
 });
 
-test("describeAudioReviewFailure 按失败那一步给标题", () => {
+test("describeAudioReviewFailure 按失败那一步给标题；文档的第二步叫「读取文字」", () => {
   assert.equal(describeAudioReviewFailure("UPLOAD"), "上传失败");
   assert.equal(describeAudioReviewFailure("TRANSCRIBE"), "转写失败");
   assert.equal(describeAudioReviewFailure("UNDERSTAND"), "理解点评失败");
+  assert.equal(describeAudioReviewFailure("TRANSCRIBE", "AUDIO"), "转写失败");
+  assert.equal(describeAudioReviewFailure("TRANSCRIBE", "DOCUMENT"), "读取文字失败");
+  assert.equal(describeAudioReviewFailure("UPLOAD", "DOCUMENT"), "上传失败");
+  assert.equal(describeAudioReviewFailure("UNDERSTAND", "DOCUMENT"), "理解点评失败");
+});
+
+test("describeAudioReviewProgress：处理中胶囊按来源写三步，「点评处理中 · 读取文字 2/3」，不再写「录音」", () => {
+  assert.equal(describeAudioReviewProgress("DOCUMENT", 0), "点评处理中 · 上传文档 1/3");
+  assert.equal(describeAudioReviewProgress("DOCUMENT", 1), "点评处理中 · 读取文字 2/3");
+  assert.equal(describeAudioReviewProgress("DOCUMENT", 2), "点评处理中 · 理解点评、拟定改动 3/3");
+  assert.equal(describeAudioReviewProgress("AUDIO", 0), "点评处理中 · 上传录音 1/3");
+  assert.equal(describeAudioReviewProgress("AUDIO", 1), "点评处理中 · 转写成文字 2/3");
+});
+
+test("summarizeAudioReview 带上来源；入口对文档任务照常给出处理中／待确认／查看", () => {
+  assert.equal(summarizeAudioReview(view({ sourceKind: "DOCUMENT" })).sourceKind, "DOCUMENT");
+  assert.equal(summarizeAudioReview(view()).sourceKind, "AUDIO");
+  const entry = (review: V19AudioReviewSummary) => resolveV19AudioReviewEntry({ available: true, current: someoneElses, reviews: [review] });
+  assert.equal(entry(summary({ sourceKind: "DOCUMENT", status: "TRANSCRIBING", step: 1 })).kind, "PROCESSING");
+  assert.equal(entry(summary({ sourceKind: "DOCUMENT", status: "PENDING_CONFIRM", changeCount: 4 })).kind, "PENDING");
+  assert.equal(entry(summary({ sourceKind: "DOCUMENT", status: "GENERATED", reviewVersionId: "ver-3", reviewVersionNumber: 3 })).kind, "VIEW");
 });
 
 test("audioReviewTransitionToast：只认亲眼看到的转变；待确认那条只弹一次；失败带原因", () => {
@@ -197,7 +245,9 @@ test("audioReviewTransitionToast：只认亲眼看到的转变；待确认那条
   );
   assert.equal(audioReviewTransitionToast(summary({ status: "UNDERSTANDING" }), ready, announced), null, "同一个任务只弹一次");
   const failed = view({ id: "arv-2", status: "FAILED", failedStep: "TRANSCRIBE", failReason: "转写服务没能识别出人声" });
-  assert.match(audioReviewTransitionToast(summary({ id: "arv-2", status: "TRANSCRIBING" }), failed, announced) ?? "", /点评录音处理失败：转写服务没能识别出人声/);
+  const failedToast = audioReviewTransitionToast(summary({ id: "arv-2", status: "TRANSCRIBING" }), failed, announced) ?? "";
+  assert.match(failedToast, /^点评处理失败：转写服务没能识别出人声。可以在页头重试或重新上传$/);
+  assert.doesNotMatch(failedToast, /录音/, "录音、文字都叫点评");
   assert.equal(audioReviewTransitionToast(summary({ id: "arv-2", status: "TRANSCRIBING" }), view({ id: "arv-2", status: "UNDERSTANDING" }), announced), null);
 });
 
@@ -255,6 +305,182 @@ const segments: AudioReviewSegment[] = [
 test("audioReviewOpinionQuotes 按时间排，找不到的片段跳过", () => {
   assert.deepEqual(audioReviewOpinionQuotes(segments, [7, 3, 99, 1]).map((segment) => segment.id), [1, 3, 7]);
   assert.deepEqual(audioReviewOpinionQuotes([], [1]), []);
+});
+
+// 文档的片段：时间都是 0，按段落顺序排（id 不一定连续，也不一定从 1 开始）。
+const paragraphs: AudioReviewSegment[] = [
+  { id: 10, startMs: 0, endMs: 0, speaker: "老孙", isReviewer: true, text: "母题看浅了。", corrections: [] },
+  { id: 11, startMs: 0, endMs: 0, speaker: "老孙", isReviewer: true, text: "关键创意描述都在复述画面。", corrections: [] },
+  { id: 12, startMs: 0, endMs: 0, speaker: "王一凡", isReviewer: false, text: "王一凡问：那主导机制还算形式游戏吗？", corrections: [] },
+  { id: 20, startMs: 0, endMs: 0, speaker: "老孙", isReviewer: true, text: "井盖里钻出来的是警察。", corrections: [] },
+];
+
+test("audioReviewOpinionQuotes：文档的时间都是 0 时按在原文里的先后排；重复引用只列一次", () => {
+  assert.deepEqual(audioReviewOpinionQuotes(paragraphs, [20, 11, 10, 11]).map((segment) => segment.id), [10, 11, 20]);
+});
+
+test("audioReviewParagraphNumber：段落号是片段在 segments 里的序号 + 1，与 id 无关", () => {
+  assert.equal(audioReviewParagraphNumber(paragraphs, 10), 1);
+  assert.equal(audioReviewParagraphNumber(paragraphs, 12), 3);
+  assert.equal(audioReviewParagraphNumber(paragraphs, 20), 4);
+  assert.equal(audioReviewParagraphNumber(paragraphs, 99), null);
+});
+
+test("formatAudioReviewParagraphs：一段「第 N 段」，连着的「第 a–b 段」，不连着的用顿号", () => {
+  assert.equal(formatAudioReviewParagraphs([3]), "第 3 段");
+  assert.equal(formatAudioReviewParagraphs([4, 2, 3]), "第 2–4 段");
+  assert.equal(formatAudioReviewParagraphs([5, 2]), "第 2、5 段");
+  assert.equal(formatAudioReviewParagraphs([2, 2]), "第 2 段", "重复的只算一次");
+  assert.equal(formatAudioReviewParagraphs([]), "");
+});
+
+test("audioReviewSegmentRef：录音写时间点、跳到那一刻；文档写「第 N 段」、跳到段落号最小的那一段", () => {
+  const audio = audioReviewSegmentRef("AUDIO", segments, [3], 112_000);
+  assert.deepEqual(audio, { label: "01:52", startMs: 112_000, segmentId: 3, title: "跳到录音这里播放" });
+  const single = audioReviewSegmentRef("DOCUMENT", paragraphs, [12], 0);
+  assert.equal(single.label, "第 3 段");
+  assert.equal(single.segmentId, 12);
+  assert.doesNotMatch(single.label, /\d{2}:\d{2}/, "文档不出现时间点");
+  const several = audioReviewSegmentRef("DOCUMENT", paragraphs, [20, 11, 10], 0);
+  assert.equal(several.label, "第 1、2、4 段");
+  assert.equal(several.segmentId, 10, "点了跳到最前面那一段");
+  assert.equal(audioReviewSegmentRef("DOCUMENT", paragraphs, [11, 12], 0).label, "第 2–3 段");
+  const missing = audioReviewSegmentRef("DOCUMENT", paragraphs, [99], 0);
+  assert.equal(missing.label, "原文");
+  assert.equal(missing.segmentId, null);
+});
+
+test("describeAudioReviewDocumentSummary：「点评原文（N 段）」；有校正过的错别字才补虚线说明，不提「词表」「听写」", () => {
+  assert.equal(describeAudioReviewDocumentSummary(paragraphs), "点评原文（4 段）");
+  const corrected = [...paragraphs, { ...paragraphs[0], id: 30, corrections: [{ from: "对质生意", to: "对置生义" }] }];
+  assert.equal(describeAudioReviewDocumentSummary(corrected), "点评原文（5 段 · 虚线＝校正过的错别字）");
+  assert.doesNotMatch(describeAudioReviewDocumentSummary(corrected), /词表|听写|说话人/);
+  assert.equal(describeAudioReviewDocumentSummary([]), "点评原文（0 段）");
+});
+
+test("describeAudioReviewNavHint：录音「录音、意见与文字稿」，文档与未知都不提录音", () => {
+  assert.equal(describeAudioReviewNavHint("AUDIO"), "录音、意见与文字稿");
+  assert.equal(describeAudioReviewNavHint("DOCUMENT"), "意见与点评原文");
+  assert.equal(describeAudioReviewNavHint(null), "意见与点评原文");
+});
+
+test("audioReviewSourceMeta：录音「录音 · 文件名 · 时长 · X 确认生成」；文档「文档 · 文件名 · X 确认生成」，文件名可下载", () => {
+  const confirmedAt = "2026-10-21T06:30:00.000Z";
+  const audio = audioReviewSourceMeta(view({ status: "GENERATED", confirmedAt, uploaderName: "秦欣欣" }));
+  assert.deepEqual(audio, {
+    kindLabel: "录音", fileName: "捉迷藏点评.m4a", downloadable: false,
+    after: ["11:24", `秦欣欣 ${formatShortDateTime(confirmedAt)} 确认生成`],
+  });
+  const document = audioReviewSourceMeta(view({
+    sourceKind: "DOCUMENT", status: "GENERATED", confirmedAt,
+    audio: { fileName: "捉迷藏点评.docx", sizeBytes: 2048, durationMs: null, url: "/file" },
+  }));
+  assert.deepEqual(document, {
+    kindLabel: "文档", fileName: "捉迷藏点评.docx", downloadable: true,
+    after: [`老孙 ${formatShortDateTime(confirmedAt)} 确认生成`],
+  });
+  // 还没确认（理论上点评卡只给已生成的看）：只剩来源和文件名
+  assert.deepEqual(audioReviewSourceMeta(view({ sourceKind: "DOCUMENT", audio: { fileName: "a.txt", sizeBytes: 1, durationMs: null, url: "" } })).after, []);
+});
+
+// ---------------------------------------------------------------------------
+// 上传前的文件分类、粘贴文字（docs/25 二之二、1-2）
+// ---------------------------------------------------------------------------
+
+const MB = 1024 * 1024;
+
+test("classifyAudioReviewUpload：.docx / .txt / .md 按扩展名认作文档，不看浏览器给的 MIME，大小写不论", () => {
+  const docx = classifyAudioReviewUpload({ name: "捉迷藏点评.DOCX", type: "application/octet-stream", size: 30_000 });
+  assert.deepEqual(docx, { ok: true, sourceKind: "DOCUMENT", contentType: AUDIO_REVIEW_DOCX_CONTENT_TYPE });
+  assert.deepEqual(classifyAudioReviewUpload({ name: "点评.txt", type: "", size: 10 }), { ok: true, sourceKind: "DOCUMENT", contentType: "text/plain" });
+  assert.deepEqual(classifyAudioReviewUpload({ name: "点评.md", type: "", size: 10 }), { ok: true, sourceKind: "DOCUMENT", contentType: "text/markdown" });
+  // 服务端按同一个 Content-Type 推来源：三种文档类型都推成 DOCUMENT
+  for (const name of ["a.docx", "a.txt", "a.md"]) {
+    const result = classifyAudioReviewUpload({ name, type: "", size: 1 });
+    assert.ok(result.ok);
+    if (result.ok) assert.equal(audioReviewSourceKindOf(result.contentType), "DOCUMENT", name);
+  }
+});
+
+test("classifyAudioReviewUpload：文档不超过 20MB，空文件不收", () => {
+  assert.ok(classifyAudioReviewUpload({ name: "a.docx", type: "", size: AUDIO_REVIEW_DOCUMENT_MAX_BYTES }).ok, "正好 20MB 可以");
+  const big = classifyAudioReviewUpload({ name: "a.docx", type: "", size: AUDIO_REVIEW_DOCUMENT_MAX_BYTES + 1 });
+  assert.ok(!big.ok && /超过 20MB/.test(big.error));
+  const empty = classifyAudioReviewUpload({ name: "a.txt", type: "text/plain", size: 0 });
+  assert.ok(!empty.ok && /空文件/.test(empty.error));
+});
+
+test("classifyAudioReviewUpload：PDF 和老格式 .doc 明确拒收，提示另存为 .docx 或直接粘贴", () => {
+  for (const file of [
+    { name: "点评.pdf", type: "application/pdf", size: 100 },
+    { name: "点评.PDF", type: "", size: 100 },
+    { name: "点评.doc", type: "application/msword", size: 100 },
+    { name: "无扩展名", type: "application/pdf", size: 100 },
+  ]) {
+    assert.deepEqual(classifyAudioReviewUpload(file), { ok: false, error: AUDIO_REVIEW_UNSUPPORTED_DOCUMENT_MESSAGE }, file.name);
+  }
+  assert.equal(AUDIO_REVIEW_UNSUPPORTED_DOCUMENT_MESSAGE, "暂不支持 PDF 和老格式 .doc，请另存为 .docx 或直接粘贴文字。");
+});
+
+test("classifyAudioReviewUpload：其余按录音的规则（补 Content-Type、500MB）；认不出的格式两种都提到", () => {
+  assert.deepEqual(classifyAudioReviewUpload({ name: "点评.m4a", type: "", size: 5 * MB }), { ok: true, sourceKind: "AUDIO", contentType: "audio/mp4" });
+  assert.deepEqual(classifyAudioReviewUpload({ name: "录音", type: "audio/webm", size: 5 * MB }), { ok: true, sourceKind: "AUDIO", contentType: "audio/webm" });
+  const big = classifyAudioReviewUpload({ name: "点评.mp3", type: "audio/mpeg", size: AUDIO_REVIEW_MAX_BYTES + 1 });
+  assert.ok(!big.ok && /超过 500MB/.test(big.error));
+  const unknown = classifyAudioReviewUpload({ name: "点评.pages", type: "", size: 100 });
+  assert.ok(!unknown.ok);
+  if (!unknown.ok) {
+    assert.match(unknown.error, /录音支持 m4a/);
+    assert.match(unknown.error, /\.docx \/ \.txt \/ \.md/);
+    assert.match(unknown.error, /直接粘贴文字/);
+  }
+});
+
+test("checkAudioReviewRecording（复盘库的录音上传也用它）：只认录音，文档不收", () => {
+  assert.deepEqual(checkAudioReviewRecording({ name: "a.m4a", type: "", size: 10 }), { contentType: "audio/mp4" });
+  const docx = checkAudioReviewRecording({ name: "a.docx", type: "", size: 10 });
+  assert.ok("error" in docx && /不是能识别的录音格式/.test(docx.error));
+  const empty = checkAudioReviewRecording({ name: "a.mp3", type: "audio/mpeg", size: 0 });
+  assert.ok("error" in empty && /空文件/.test(empty.error));
+});
+
+test("checkAudioReviewPastedText：去首尾空白后至少 10 个字，交上去的是去过空白的文字", () => {
+  assert.equal(AUDIO_REVIEW_PASTED_MIN_CHARS, 10);
+  assert.deepEqual(checkAudioReviewPastedText("   \n\t "), { ok: false, error: "先把点评文字粘贴进来。" });
+  const short = checkAudioReviewPastedText("  母题看浅了，要改。 ");
+  assert.equal(audioReviewTextLength("  母题看浅了，要改。 "), 9);
+  assert.ok(!short.ok && /只有 9 个字，至少要 10 个字/.test(short.error));
+  assert.deepEqual(checkAudioReviewPastedText("\n  母题看浅了，全片都要改。\n\n第二段。  "), { ok: true, text: "母题看浅了，全片都要改。\n\n第二段。" });
+  // 按字符算，不按字节：emoji 算一个字
+  assert.equal(audioReviewTextLength("😀😀"), 2);
+  const tooLong = checkAudioReviewPastedText("字".repeat(AUDIO_REVIEW_DOCUMENT_MAX_CHARS + 1));
+  assert.ok(!tooLong.ok && /超过 10 万字/.test(tooLong.error));
+  assert.ok(checkAudioReviewPastedText("字".repeat(AUDIO_REVIEW_DOCUMENT_MAX_CHARS)).ok);
+});
+
+test("pastedAudioReviewFile：存成「粘贴的点评文字.txt」、text/plain，大小按 UTF-8 字节，和上传 .txt 文档同一条路", async () => {
+  const text = "母题看浅了，全片都要改。";
+  const file = pastedAudioReviewFile(text);
+  assert.equal(file.name, AUDIO_REVIEW_PASTED_FILE_NAME);
+  assert.equal(file.name, "粘贴的点评文字.txt");
+  assert.equal(file.type, "text/plain");
+  assert.equal(file.size, Buffer.byteLength(text, "utf8"));
+  assert.equal(await file.text(), text);
+  // 按文件分类也认作文档、text/plain（同一份 create → PUT → UPLOADED）
+  assert.deepEqual(classifyAudioReviewUpload(file), { ok: true, sourceKind: "DOCUMENT", contentType: "text/plain" });
+});
+
+test("describeAudioReviewUploadedToast：文档和粘贴写「已收到…正在读取文字和理解点评」，录音照旧", () => {
+  assert.equal(
+    describeAudioReviewUploadedToast("DOCUMENT", "粘贴的点评文字.txt"),
+    "已收到「粘贴的点评文字.txt」，正在读取文字和理解点评，大约一两分钟，可以先做别的",
+  );
+  assert.equal(
+    describeAudioReviewUploadedToast("AUDIO", "捉迷藏点评.m4a"),
+    "已上传「捉迷藏点评.m4a」，正在处理……大约需要一两分钟，可以先做别的",
+  );
+  assert.equal(audioReviewSourceNoun("DOCUMENT"), "文档");
+  assert.equal(audioReviewSourceNoun("AUDIO"), "录音");
 });
 
 test("activeAudioReviewSegmentId：最后一个开始时间不晚于当前时刻的那句", () => {

@@ -1,18 +1,132 @@
-// 录音点评改写的前端纯函数：页头入口该是哪种形态、轮询结果怎么并回 model、
-// 确认面板怎么按意见列改动、点评版正文的「依据 意见 N」「已手改」怎么算、
-// 文字稿里校正过的词怎么切出来。不碰 React、不碰网络，客户端组件直接引用。
-// 见 docs/25_录音点评改写_实施规格_V0.1.md 二、七。
+// 老孙点评（录音或文字）改写的前端纯函数：页头入口该是哪种形态、上传前的文件分类、
+// 轮询结果怎么并回 model、确认面板怎么按意见列改动、原话前的引用（录音的时间点／
+// 文档的「第 N 段」）、点评版正文的「依据 意见 N」「已手改」怎么算、文字稿里校正过的
+// 词怎么切出来。不碰 React、不碰网络，客户端组件直接引用。
+// 见 docs/25_录音点评改写_实施规格_V0.1.md 二、二之二、七。
 
-import { isAudioReviewCriticVersion } from "@/lib/audio-review/access";
+import { AUDIO_REVIEW_CRITIC_NAME, isAudioReviewCriticVersion } from "@/lib/audio-review/access";
+import { formatShortDateTime } from "@/lib/date-format";
 import type { V04DraftPayloadV1 } from "@/lib/v04-contract";
 import {
+  AUDIO_REVIEW_DOCUMENT_MAX_BYTES,
+  AUDIO_REVIEW_DOCUMENT_MAX_CHARS,
+  AUDIO_REVIEW_EXTENSIONS,
+  AUDIO_REVIEW_MAX_BYTES,
+  AUDIO_REVIEW_PASTED_FILE_NAME,
+  audioReviewContentType,
+  audioReviewDocumentContentType,
+  audioReviewStepLabels,
+  formatAudioClock,
   isAudioReviewInFlight,
   type AudioReviewChange,
   type AudioReviewOpinion,
   type AudioReviewSegment,
+  type AudioReviewSourceKind,
+  type AudioReviewStep,
   type AudioReviewView,
   type V19AudioReviewSummary,
 } from "@/lib/audio-review-model";
+
+// ---------------------------------------------------------------------------
+// 来源：录音还是文字（docs/25 二之二）。粘贴的文字在浏览器里存成 .txt，也算文档。
+// ---------------------------------------------------------------------------
+
+/** 「录音」「文档」：提示里说传的是什么。 */
+export function audioReviewSourceNoun(sourceKind: AudioReviewSourceKind): "录音" | "文档" {
+  return sourceKind === "DOCUMENT" ? "文档" : "录音";
+}
+
+export type AudioReviewUploadCheck =
+  | { ok: true; sourceKind: AudioReviewSourceKind; contentType: string }
+  | { ok: false; error: string };
+
+export const AUDIO_REVIEW_UNSUPPORTED_DOCUMENT_MESSAGE = "暂不支持 PDF 和老格式 .doc，请另存为 .docx 或直接粘贴文字。";
+
+function fileExtension(fileName: string): string {
+  const name = fileName.trim().toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1) : "";
+}
+
+/**
+ * 录音这一种能不能传（客户需求复盘库只收录音，也用这一份）：Content-Type 按扩展名补齐，
+ * 校验格式和大小。返回给人看的原因，或建任务时要报给服务端的 Content-Type。
+ */
+export function checkAudioReviewRecording(file: { name: string; type: string; size: number }): { contentType: string } | { error: string } {
+  const contentType = audioReviewContentType(file.name, file.type);
+  if (!contentType) {
+    return { error: `「${file.name}」不是能识别的录音格式。支持 ${AUDIO_REVIEW_EXTENSIONS.join(" / ")}。` };
+  }
+  if (file.size <= 0) return { error: `「${file.name}」是空文件，请换一个。` };
+  if (file.size > AUDIO_REVIEW_MAX_BYTES) return { error: `「${file.name}」超过 500MB，请压缩或截短后再传。` };
+  return { contentType };
+}
+
+/**
+ * 上传点评前的文件分类（docs/25 二之二、2）：先按扩展名认文档（.docx / .txt / .md，
+ * 浏览器给的 MIME 不可靠，见 `audioReviewDocumentContentType`），是文档就用它的类型、
+ * 上限 20MB；PDF 和老格式 .doc 明确拒收；其余按录音的规则（`audioReviewContentType`、500MB）。
+ * 文档和录音的 Content-Type 互不相交，服务端据此区分来源。
+ */
+export function classifyAudioReviewUpload(file: { name: string; type: string; size: number }): AudioReviewUploadCheck {
+  const documentType = audioReviewDocumentContentType(file.name);
+  if (documentType) {
+    if (file.size <= 0) return { ok: false, error: `「${file.name}」是空文件，请换一个。` };
+    if (file.size > AUDIO_REVIEW_DOCUMENT_MAX_BYTES) {
+      return { ok: false, error: `「${file.name}」超过 20MB。文字点评一般没有这么大，请确认传的是不是对的文件，或直接粘贴文字。` };
+    }
+    return { ok: true, sourceKind: "DOCUMENT", contentType: documentType };
+  }
+  const ext = fileExtension(file.name);
+  const browserType = file.type.trim().toLowerCase();
+  if (ext === "pdf" || ext === "doc" || browserType === "application/pdf" || browserType === "application/msword") {
+    return { ok: false, error: AUDIO_REVIEW_UNSUPPORTED_DOCUMENT_MESSAGE };
+  }
+  if (!audioReviewContentType(file.name, file.type)) {
+    return {
+      ok: false,
+      error: `「${file.name}」不是能识别的录音或文档格式。录音支持 ${AUDIO_REVIEW_EXTENSIONS.join(" / ")}；文档支持 Word .docx / .txt / .md，也可以直接粘贴文字。`,
+    };
+  }
+  const recording = checkAudioReviewRecording(file);
+  return "error" in recording ? { ok: false, error: recording.error } : { ok: true, sourceKind: "AUDIO", contentType: recording.contentType };
+}
+
+/** 「直接粘贴文字」至少要有这么多字（去掉首尾空白后）。 */
+export const AUDIO_REVIEW_PASTED_MIN_CHARS = 10;
+
+/** 去掉首尾空白后的字数（按字符算，不按字节；emoji 算一个）。 */
+export function audioReviewTextLength(raw: string): number {
+  return [...raw.trim()].length;
+}
+
+export type AudioReviewPastedTextCheck = { ok: true; text: string } | { ok: false; error: string };
+
+/** 粘贴的点评文字能不能交：去掉首尾空白后至少 10 个字，不超过 10 万字（服务端同一上限）。 */
+export function checkAudioReviewPastedText(raw: string): AudioReviewPastedTextCheck {
+  const text = raw.trim();
+  const length = audioReviewTextLength(text);
+  if (length === 0) return { ok: false, error: "先把点评文字粘贴进来。" };
+  if (length < AUDIO_REVIEW_PASTED_MIN_CHARS) {
+    return { ok: false, error: `只有 ${length} 个字，至少要 ${AUDIO_REVIEW_PASTED_MIN_CHARS} 个字。` };
+  }
+  if (length > AUDIO_REVIEW_DOCUMENT_MAX_CHARS) {
+    return { ok: false, error: "超过 10 万字了，一份作业的点评不会这么长，请确认粘贴的内容。" };
+  }
+  return { ok: true, text };
+}
+
+/** 粘贴的文字存成一个纯文本文件，走和上传文档完全相同的 create → PUT → UPLOADED。 */
+export function pastedAudioReviewFile(text: string): File {
+  return new File([text], AUDIO_REVIEW_PASTED_FILE_NAME, { type: "text/plain" });
+}
+
+/** 上传完、交给服务端之后那条 toast。 */
+export function describeAudioReviewUploadedToast(sourceKind: AudioReviewSourceKind, fileName: string): string {
+  return sourceKind === "DOCUMENT"
+    ? `已收到「${fileName}」，正在读取文字和理解点评，大约一两分钟，可以先做别的`
+    : `已上传「${fileName}」，正在处理……大约需要一两分钟，可以先做别的`;
+}
 
 // ---------------------------------------------------------------------------
 // 任务摘要：轮询拿到的完整任务 → model.audioReviews 里的一项
@@ -98,11 +212,20 @@ export function resolveV19AudioReviewEntry(input: {
   return { kind: "PROCESSING", review };
 }
 
-/** 失败那一步的叫法，进度气泡的标题用：「转写失败」。 */
-export function describeAudioReviewFailure(failedStep: AudioReviewView["failedStep"]): string {
+/** 失败那一步的叫法，进度气泡的标题用：录音「转写失败」，文档「读取文字失败」。 */
+export function describeAudioReviewFailure(
+  failedStep: AudioReviewView["failedStep"],
+  sourceKind: AudioReviewSourceKind = "AUDIO",
+): string {
   if (failedStep === "UPLOAD") return "上传失败";
-  if (failedStep === "TRANSCRIBE") return "转写失败";
+  if (failedStep === "TRANSCRIBE") return sourceKind === "DOCUMENT" ? "读取文字失败" : "转写失败";
   return "理解点评失败";
+}
+
+/** 处理中胶囊的全称：「点评处理中 · 读取文字 2/3」（docs/25 二之二、7）。三步按来源取叫法。 */
+export function describeAudioReviewProgress(sourceKind: AudioReviewSourceKind, step: AudioReviewStep): string {
+  const labels = audioReviewStepLabels(sourceKind);
+  return `点评处理中 · ${labels[step]} ${step + 1}/${labels.length}`;
 }
 
 /** 进入 PENDING_CONFIRM 时那一条 toast（只弹一次，由调用方去重）。 */
@@ -130,7 +253,7 @@ export function audioReviewTransitionToast(
   }
   if (next.status === "FAILED") {
     announced.add(key);
-    return `点评录音处理失败：${next.failReason || "原因未知"}。可以在页头重试或重新上传`;
+    return `点评处理失败：${next.failReason || "原因未知"}。可以在页头重试或重新上传`;
   }
   return null;
 }
@@ -191,16 +314,106 @@ export function audioReviewOpinionLanded(view: Pick<AudioReviewView, "proposal" 
     && (!selected || selected.has(change.id))).length;
 }
 
-/** 意见引用的原话：按片段时间排好。片段找不到（文字稿缺失）就跳过。 */
+/**
+ * 意见引用的原话：按片段时间排好；时间相同（文档的片段全是 0）时按在原文里的先后。
+ * 片段找不到（文字稿缺失）就跳过，重复引用只列一次。
+ */
 export function audioReviewOpinionQuotes(
   segments: readonly AudioReviewSegment[],
   segmentIds: readonly number[],
 ): AudioReviewSegment[] {
   const byId = new Map(segments.map((segment) => [segment.id, segment]));
-  return segmentIds
+  const position = new Map(segments.map((segment, index) => [segment.id, index]));
+  return [...new Set(segmentIds)]
     .map((id) => byId.get(id))
     .filter((segment): segment is AudioReviewSegment => Boolean(segment))
-    .sort((left, right) => left.startMs - right.startMs);
+    .sort((left, right) => left.startMs - right.startMs
+      || (position.get(left.id) as number) - (position.get(right.id) as number));
+}
+
+// ---------------------------------------------------------------------------
+// 原话前的引用：录音是时间点（点了跳到录音那里播放），文档是「第 N 段」
+// （点了展开点评原文、滚到那一段并短暂高亮）。docs/25 二之二、7。
+// ---------------------------------------------------------------------------
+
+/** 文档的段落号：片段在 segments 里的序号 + 1（服务端按段落顺序切片）。找不到返回 null。 */
+export function audioReviewParagraphNumber(segments: readonly AudioReviewSegment[], segmentId: number): number | null {
+  const index = segments.findIndex((segment) => segment.id === segmentId);
+  return index >= 0 ? index + 1 : null;
+}
+
+/** 「第 3 段」；连着的几段写「第 2–4 段」，不连着的写「第 2、5 段」。 */
+export function formatAudioReviewParagraphs(numbers: readonly number[]): string {
+  const sorted = [...new Set(numbers)].filter((value) => Number.isInteger(value) && value > 0).sort((a, b) => a - b);
+  if (sorted.length === 0) return "";
+  const contiguous = sorted.every((value, index) => index === 0 || value === sorted[index - 1] + 1);
+  if (sorted.length > 1 && contiguous) return `第 ${sorted[0]}–${sorted[sorted.length - 1]} 段`;
+  return `第 ${sorted.join("、")} 段`;
+}
+
+export type AudioReviewSegmentRef = {
+  /** 显示在原话前面的那一枚：「03:12」或「第 3 段」。 */
+  label: string;
+  /** 录音：跳到这个时刻。 */
+  startMs: number;
+  /** 文档：滚到这个片段（段落号最小的那个）；找不到为 null。 */
+  segmentId: number | null;
+  title: string;
+};
+
+/**
+ * 一条原话（或一段「没落到条目的话」）前面的引用。录音按 `startMs` 写时间点；
+ * 文档按 `segmentIds` 在原文里的位置写「第 N 段」，片段都找不到时写「原文」。
+ */
+export function audioReviewSegmentRef(
+  sourceKind: AudioReviewSourceKind,
+  segments: readonly AudioReviewSegment[],
+  segmentIds: readonly number[],
+  startMs: number,
+): AudioReviewSegmentRef {
+  if (sourceKind !== "DOCUMENT") {
+    return { label: formatAudioClock(startMs), startMs, segmentId: segmentIds[0] ?? null, title: "跳到录音这里播放" };
+  }
+  const located = segmentIds
+    .map((id) => ({ id, number: audioReviewParagraphNumber(segments, id) }))
+    .filter((item): item is { id: number; number: number } => item.number !== null)
+    .sort((left, right) => left.number - right.number);
+  if (located.length === 0) return { label: "原文", startMs: 0, segmentId: null, title: "这段话在点评原文里没找到对应的段落" };
+  return {
+    label: formatAudioReviewParagraphs(located.map((item) => item.number)),
+    startMs: 0,
+    segmentId: located[0].id,
+    title: "到点评原文里看这一段",
+  };
+}
+
+/** 文档原文区的标题：「点评原文（N 段）」；有校正过的错别字时补一句虚线的意思。 */
+export function describeAudioReviewDocumentSummary(segments: readonly AudioReviewSegment[]): string {
+  const corrected = segments.some((segment) => segment.corrections.some((item) => item.to.trim() !== ""));
+  return `点评原文（${segments.length} 段${corrected ? " · 虚线＝校正过的错别字" : ""}）`;
+}
+
+/** 左侧目录里点评卡那一项的副标题。来源还不知道时按文字的说法（不提录音）。 */
+export function describeAudioReviewNavHint(sourceKind: AudioReviewSourceKind | null | undefined): string {
+  return sourceKind === "AUDIO" ? "录音、意见与文字稿" : "意见与点评原文";
+}
+
+/**
+ * 点评卡标题下的来源说明（docs/25 二之二、3）：录音「录音 · 文件名 · 时长 · X 确认生成」，
+ * 文档「文档 · 文件名 · X 确认生成」。文件名单独给出：文档的做成下载原文件的链接；
+ * 录音在卡片里直接播放，不另给下载（规格只给文档写了「可下载原文件」）。
+ */
+export function audioReviewSourceMeta(
+  view: Pick<AudioReviewView, "sourceKind" | "audio" | "confirmedAt" | "uploaderName" | "reviewerName">,
+): { kindLabel: "录音" | "文档"; fileName: string; downloadable: boolean; after: string[] } {
+  const isDocument = view.sourceKind === "DOCUMENT";
+  const after = [
+    !isDocument && view.audio.durationMs ? formatAudioClock(view.audio.durationMs) : "",
+    view.confirmedAt
+      ? `${view.uploaderName || view.reviewerName || AUDIO_REVIEW_CRITIC_NAME} ${formatShortDateTime(view.confirmedAt)} 确认生成`
+      : "",
+  ].filter(Boolean);
+  return { kindLabel: audioReviewSourceNoun(view.sourceKind), fileName: view.audio.fileName, downloadable: isDocument, after };
 }
 
 /** 播放到 `ms` 时该高亮哪一句：最后一个开始时间不晚于它的片段。 */
