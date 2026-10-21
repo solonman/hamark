@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type JSX } from "react";
 import { formatRetroClock, type RetroAssetView, type RetroDocPageView } from "@/lib/retro-model";
 import { buildClientTranscript, docFormatLabel } from "@/lib/retro-ui";
 import RetroAudioPanel, { type RetroAudioSeekRequest } from "./RetroAudioPanel";
-import RetroZoomImage from "./RetroZoomImage";
+import ZoomStage from "../shared/ZoomStage";
 import v04 from "../v04/V04Surface.module.css";
 import styles from "./Retro.module.css";
 
@@ -114,7 +114,12 @@ export default function RetroAssetViewer({
       <div className={styles.viewerBody} data-v04-scheme="dark">
         <div className={styles.viewerImage}>
           {asset.derivativeStatus === "READY" && asset.displayUrl ? (
-            <RetroZoomImage src={asset.displayUrl} alt={asset.originalName} resetKey={asset.id} />
+            <ZoomStage resetKey={asset.id}>
+              {(zoom) => (
+                // eslint-disable-next-line @next/next/no-img-element -- 展示图来自对象存储签名 URL，不走 next/image 的远程域名白名单
+                <img ref={zoom.ref} style={zoom.style} className={styles.zoomImg} src={asset.displayUrl!} alt={asset.originalName} draggable={false} />
+              )}
+            </ZoomStage>
           ) : (
             <div className={styles.viewerNote}>
               <b>{asset.derivativeStatus === "FAILED" ? "预览生成失败" : "正在生成预览"}</b>
@@ -177,7 +182,15 @@ export default function RetroAssetViewer({
         </div>
       );
     } else {
-      stage = <RetroZoomImage src={page.largeUrl} alt={`${asset.originalName} 第 ${page.pageNo} 页`} resetKey={`${asset.id}:${page.pageNo}`} />;
+      const largeUrl = page.largeUrl;
+      stage = (
+        <ZoomStage resetKey={`${asset.id}:${page.pageNo}`}>
+          {(zoom) => (
+            // eslint-disable-next-line @next/next/no-img-element -- 页图来自对象存储签名 URL，不走 next/image 的远程域名白名单
+            <img ref={zoom.ref} style={zoom.style} className={styles.zoomImg} src={largeUrl} alt={`${asset.originalName} 第 ${page.pageNo} 页`} draggable={false} />
+          )}
+        </ZoomStage>
+      );
     }
     body = (
       <div className={styles.viewerBody} data-v04-scheme="dark">

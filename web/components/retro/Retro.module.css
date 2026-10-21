@@ -474,13 +474,6 @@
 /* 结果与讨论：最后一行格子不画底线（readingCore 每格自带 border-bottom，会和模块边框叠成两条线）。 */
 .root .coreLastRow { border-bottom: 0; }
 
-/* 预览弹层里可缩放的图（RetroZoomImage，2026-10-21）：100% = 适应窗口；放大后可拖动。 */
-.zoomBox { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; }
-.zoomBox[data-zoomed="1"] { cursor: grab; }
-.zoomBox[data-zoomed="1"]:active { cursor: grabbing; }
-.root .zoomBox img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; transition: transform .08s ease-out; will-change: transform; }
-.zoomBar { position: absolute; right: 12px; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--v04-line); border-radius: 999px; background: rgb(var(--v04-bg-rgb) / .82); color: var(--v04-ink-soft); font-size: 11px; }
-.zoomBar span { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
-.root .zoomBar button { display: grid; min-width: 28px; height: 26px; place-items: center; border: 0; border-radius: 999px; background: transparent; color: inherit; padding: 0 8px; font-size: 12px; cursor: pointer; }
-.root .zoomBar button:hover:not(:disabled) { background: rgb(var(--v04-fg-rgb) / .1); color: var(--v04-accent); }
-.root .zoomBar button:disabled { cursor: default; opacity: .4; }
+/* 预览弹层里的大图放进共用的缩放舞台（components/shared/ZoomStage）：100% = 适应窗口。
+   (0,2,0) 压过 .viewerImage img 的 width/height:100%，否则缩放尺寸按整个框算。 */
+.root .zoomImg { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; will-change: transform; }

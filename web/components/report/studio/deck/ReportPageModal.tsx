@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ZoomStage from "@/components/shared/ZoomStage";
 import {
   BLOCK_ROLES,
   CONTENT_TYPES,
@@ -93,7 +94,7 @@ export default function ReportPageModal({
   const [drawMode, setDrawMode] = useState(false);
   const [drawing, setDrawing] = useState<{ start: { x: number; y: number }; current: { x: number; y: number } } | null>(null);
   const blockRefs = useRef(new Map<string, HTMLDivElement>());
-  const stageRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const sortedPages = [...annotation.pages].sort((a, b) => a.n - b.n);
@@ -212,8 +213,13 @@ export default function ReportPageModal({
         </div>
         <div className={styles.ovmain}>
           <div className={styles.ovstage} data-v04-scheme="dark">
+            {/* 整页（页图 + 标注框）一起缩放（2026-10-21，同复盘库、公共视觉库）；框选模式下不拖动画面。
+                框选坐标按 stageRef 的 getBoundingClientRect 换算成百分比，缩放后照样对得上。 */}
+            <ZoomStage resetKey={String(pageNo)} panDisabled={drawMode}>
+            {(zoom) => (
             <div
-              ref={stageRef}
+              ref={(element) => { stageRef.current = element as HTMLDivElement | null; zoom.ref(element); }}
+              style={{ ...zoom.style, ["--page-ratio" as string]: pageView && pageView.width > 0 && pageView.height > 0 ? String(pageView.width / pageView.height) : undefined }}
               className={drawMode ? `${styles.ovpage} ${styles.ovpageDraw}` : styles.ovpage}
               onPointerDown={onStagePointerDown}
               onPointerMove={onStagePointerMove}
@@ -246,6 +252,8 @@ export default function ReportPageModal({
                 />
               ) : null}
             </div>
+            )}
+            </ZoomStage>
           </div>
           <div className={styles.ovside}>
             <div className={styles.ovsec}>

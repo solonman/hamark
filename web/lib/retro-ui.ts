@@ -845,25 +845,3 @@ export function retroClosingLayout(fields: readonly RetroClosingField[]): { wide
   return cells;
 }
 
-// ---------------------------------------------------------------------------
-// 预览弹层的缩放（components/retro/RetroZoomImage.tsx）：纯函数，单测直接覆盖。
-// ---------------------------------------------------------------------------
-
-export const RETRO_ZOOM_MIN = 1;
-export const RETRO_ZOOM_MAX = 5;
-export type RetroZoomView = { scale: number; x: number; y: number };
-
-/** 放大后能拖多远：图边不离开框边（图比框小的那个方向不许挪）。 */
-export function clampRetroZoomOffset(view: RetroZoomView, base: { width: number; height: number }, box: { width: number; height: number }): RetroZoomView {
-  const maxX = Math.max(0, (base.width * view.scale - box.width) / 2);
-  const maxY = Math.max(0, (base.height * view.scale - box.height) / 2);
-  return { scale: view.scale, x: Math.min(maxX, Math.max(-maxX, view.x)), y: Math.min(maxY, Math.max(-maxY, view.y)) };
-}
-
-/** 以容器中心为原点的一点 (px, py) 为中心，把缩放改到 nextScale；缩回 1 倍就是适应窗口。 */
-export function zoomRetroViewAt(view: RetroZoomView, nextScale: number, px: number, py: number): RetroZoomView {
-  const scale = Math.min(RETRO_ZOOM_MAX, Math.max(RETRO_ZOOM_MIN, nextScale));
-  if (scale === RETRO_ZOOM_MIN) return { scale: 1, x: 0, y: 0 };
-  const ratio = scale / view.scale;
-  return { scale, x: px - (px - view.x) * ratio, y: py - (py - view.y) * ratio };
-}

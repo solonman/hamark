@@ -1,0 +1,18 @@
+/* 大图预览的缩放舞台（ZoomStage.tsx）。放在各库的深色图区里，颜色只用 --v04-* 变量。
+   按钮规则写到 (0,2,1)：要压过 .surface button { font: inherit } 一类的重置。
+   .box 铺满离它最近的定位祖先（各库的图区都是 relative/absolute），并且是尺寸容器（container-type: size）：
+   里面的内容可以用 cqw/cqh 同时按宽和高「适应窗口」。 */
+.box { position: absolute; inset: 0; container-type: size; display: flex; align-items: center; justify-content: center; overflow: hidden; user-select: none; }
+.box[data-pan="1"] { cursor: grab; }
+.box[data-pan="1"]:active { cursor: grabbing; }
+.bar { position: absolute; right: 12px; bottom: 12px; z-index: 3; display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--v04-line); border-radius: 999px; background: rgb(var(--v04-bg-rgb) / .82); color: var(--v04-ink-soft); font-size: 11px; }
+.bar span { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.box .bar button { display: grid; min-width: 28px; height: 26px; place-items: center; border: 0; border-radius: 999px; background: transparent; color: inherit; padding: 0 8px; font-size: 12px; line-height: 1; cursor: pointer; }
+.box .bar button:hover:not(:disabled) { background: rgb(var(--v04-fg-rgb) / .1); color: var(--v04-accent); }
+.box .bar button:disabled { cursor: default; opacity: .4; }
+/* 全屏：舞台进入浏览器顶层，铺满屏幕；底色用深色岛的变量（祖先是 data-v04-scheme="dark" 的图区）。 */
+.box:fullscreen { background: var(--v04-bg); }
+.box:fullscreen .bar { right: 20px; bottom: 20px; }
+/* 页面内铺满（浏览器不给全屏时的后备）：盖满整个窗口，层级高过各库的预览弹层。 */
+.box[data-full="1"] { position: fixed; inset: 0; z-index: 1000; background: var(--v04-bg); }
+.box[data-full="1"] .bar { right: 20px; bottom: 20px; }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/http-json";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import ZoomStage from "@/components/shared/ZoomStage";
 import ThemeSwitcher from "@/components/shared/ThemeSwitcher";
 import UserMenu, { type UserMenuUser } from "@/app/components/UserMenu";
 import { LibraryToastStack, useLibraryToast } from "@/components/shared/LibraryToast";
@@ -396,7 +397,17 @@ export default function VisualCaseClient({ caseId, viewerName, user }: {
                   const asset = imageAssets[viewerOverlay.index];
                   if (!asset) return null;
                   if (asset.derivativeStatus === "READY" && asset.displayUrl) {
-                    return <div className={styles.viewerImage}><img src={asset.displayUrl} alt="" /></div>;
+                    const displayUrl = asset.displayUrl;
+                    return (
+                      <div className={styles.viewerImage}>
+                        <ZoomStage resetKey={asset.id}>
+                          {(zoom) => (
+                            // eslint-disable-next-line @next/next/no-img-element -- 展示图来自对象存储签名 URL，不走 next/image 的远程域名白名单
+                            <img ref={zoom.ref} style={zoom.style} className={styles.zoomImg} src={displayUrl} alt="" draggable={false} />
+                          )}
+                        </ZoomStage>
+                      </div>
+                    );
                   }
                   return (
                     <div className={styles.viewerImage}>

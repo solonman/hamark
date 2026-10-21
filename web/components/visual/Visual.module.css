@@ -196,3 +196,7 @@
   .root .stageNav { width: 34px; height: 34px; }
   .viewerBody { padding: 12px 44px; }
 }
+
+/* 大图查看放进共用的缩放舞台（components/shared/ZoomStage，2026-10-21）：100% = 适应窗口。
+   两个类名把优先级提到 (0,2,0)，压过 .viewerImage img 的 width/height:100%。 */
+.viewerImage .zoomImg { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; background: transparent; will-change: transform; }

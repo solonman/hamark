@@ -280,8 +280,12 @@
 .ovheadPath { color: var(--rd-ink3); font-size: 10.5px; }
 .ovheadT { color: var(--rd-ink2); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .ovmain { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr); min-height: 0; flex: 1; }
-.ovstage { display: flex; align-items: center; justify-content: center; padding: 16px; background: #080907; overflow: auto; }
+.ovstage { position: relative; display: flex; align-items: center; justify-content: center; padding: 16px; background: #080907; overflow: auto; }
 .ovpage { position: relative; width: min(760px, 100%); user-select: none; touch-action: none; }
+/* 放进缩放舞台后：同时按宽和高适应窗口（矮窗口里整页也放得下；--page-ratio = 页宽 / 页高，标注框按 % 定位不受影响）。 */
+.ovstage > * > .ovpage { width: min(760px, calc(100cqw - 32px), calc((100cqh - 32px) * var(--page-ratio, 1.333))); }
+/* 全屏时不再封顶 760px，整页按屏幕适应。 */
+.ovstage > :fullscreen > .ovpage, .ovstage > [data-full="1"] > .ovpage { width: min(calc(100cqw - 48px), calc((100cqh - 48px) * var(--page-ratio, 1.333))); }
 .ovpage img { display: block; width: 100%; height: auto; }
 .ovpageDraw { cursor: crosshair; }
 .ovb { position: absolute; border: 1.5px solid rgb(var(--v04-accent-rgb) / 0.8); background: rgb(var(--v04-accent-rgb) / 0.1); cursor: pointer; }

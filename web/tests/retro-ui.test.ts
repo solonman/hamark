@@ -465,7 +465,7 @@ test("closing layout: 结果｜关键转折 share a row, 反思 and 希望讨论
 });
 
 test("zoom: zooming at a point keeps that point still, fit resets, panning is clamped to the scaled image", async () => {
-  const { zoomRetroViewAt, clampRetroZoomOffset } = await import("../lib/retro-ui");
+  const { zoomViewAt: zoomRetroViewAt, clampZoomOffset: clampRetroZoomOffset } = await import("../lib/zoom-view");
   // 以 (100, 0) 为中心放大到 2 倍：那一点在图上的位置不动 → 偏移 = 100 - (100 - 0) * 2 = -100。
   assert.deepEqual(zoomRetroViewAt({ scale: 1, x: 0, y: 0 }, 2, 100, 0), { scale: 2, x: -100, y: 0 });
   // 缩回 1 倍就是适应窗口，偏移清零；上限 5 倍。
