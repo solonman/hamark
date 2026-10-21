@@ -14,6 +14,10 @@ test("formal V04 surfaces hide the floating '全部作品' button — home, vide
   // 之前的判断只认视频路径，报告工作台一直漏判，浮钮跟视频工作台不一致地露着。
   assert.equal(isFormalV04SurfacePath("/reports/report-a"), true);
   assert.equal(isFormalV04SurfacePath("/visual/visual-a"), true);
+  // 客户需求复盘库：案例页与月份页同理（2026-10-21 补，之前浮钮在这两页露着）。
+  assert.equal(isFormalV04SurfacePath("/retro/rtc_1"), true);
+  assert.equal(isFormalV04SurfacePath("/retro/months/2026-10"), true);
+  assert.equal(isFormalV04SurfacePath("/retro/months/2026-10/extra"), false);
 
   // 报告库首页列表（不带 id）不算工作台，浮钮该照常显示，方便离开搜索/筛选状态回到入口。
   assert.equal(isFormalV04SurfacePath("/reports"), false);

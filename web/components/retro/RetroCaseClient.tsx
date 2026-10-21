@@ -507,7 +507,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     { label: "希望讨论的问题", field: "discussionQuestions", placeholder: "点击填写希望讨论的问题：想请老孙和大家一起看的问题" },
   ];
   const shownClosing = canEdit ? closing : closing.filter((item) => detail[item.field].trim() !== "");
-  const aiTip = <span className={styles.moduleHeadTip}><b>AI 只读这里的文字，看不到附件</b>：关键内容请用文字写清楚</span>;
+  const aiTip = <span className={styles.moduleHeadTip}><b>AI 读这里的文字和录音转写，看不到图片和文档</b>：关键内容请用文字写清楚</span>;
 
   return (
     <main className={`${v04.surface} ${styles.root}`} data-v04-page="detail">
