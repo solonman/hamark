@@ -463,3 +463,14 @@ test("closing layout: 结果｜关键转折 share a row, 反思 and 希望讨论
   assert.deepEqual(retroClosingLayout(["outcome", "turningPoints"]), [{ wide: false, lastRow: true }, { wide: false, lastRow: true }]);
   assert.deepEqual(retroClosingLayout([]), []);
 });
+
+test("zoom: zooming at a point keeps that point still, fit resets, panning is clamped to the scaled image", async () => {
+  const { zoomRetroViewAt, clampRetroZoomOffset } = await import("../lib/retro-ui");
+  // 以 (100, 0) 为中心放大到 2 倍：那一点在图上的位置不动 → 偏移 = 100 - (100 - 0) * 2 = -100。
+  assert.deepEqual(zoomRetroViewAt({ scale: 1, x: 0, y: 0 }, 2, 100, 0), { scale: 2, x: -100, y: 0 });
+  // 缩回 1 倍就是适应窗口，偏移清零；上限 5 倍。
+  assert.deepEqual(zoomRetroViewAt({ scale: 2, x: -100, y: 30 }, 0.5, 0, 0), { scale: 1, x: 0, y: 0 });
+  assert.equal(zoomRetroViewAt({ scale: 4, x: 0, y: 0 }, 9, 0, 0).scale, 5);
+  // 800×600 的图放大 2 倍放进 1000×700 的框：横向最多挪 (1600-1000)/2=300，纵向最多 (1200-700)/2=250。
+  assert.deepEqual(clampRetroZoomOffset({ scale: 2, x: 999, y: -999 }, { width: 800, height: 600 }, { width: 1000, height: 700 }), { scale: 2, x: 300, y: -250 });
+});

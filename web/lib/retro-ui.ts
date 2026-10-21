@@ -4,6 +4,7 @@
 // 出处标记与浮层的取数、生成前提与整理进度的呈现。规格见 docs/26 十。
 
 import {
+  RETRO_DOC_TOO_LARGE_HINT,
   RETRO_LIMITS,
   RETRO_KEYNOTE_REFUSAL,
   classifyRetroFile,
@@ -286,6 +287,9 @@ export function checkRetroAttachFile(file: { name: string; type: string; size: n
   const classified = classifyRetroFile(file.name, file.type);
   if (!classified) return { ok: false, reason: `不支持这种文件：${file.name}。支持图片、视频、音频，以及 PDF、Word、Excel、PPT 文档。` };
   if (file.size <= 0) return { ok: false, reason: `「${file.name}」是空文件。` };
+  if (classified.type === "DOC" && file.size > RETRO_LIMITS.docMaxBytes) {
+    return { ok: false, reason: `「${file.name}」${RETRO_DOC_TOO_LARGE_HINT}。` };
+  }
   if (classified.type === "IMAGE" && file.size > RETRO_LIMITS.imageMaxBytes) {
     return { ok: false, reason: `「${file.name}」超过 20MB，生成不了在线预览；请压缩后再传。` };
   }
@@ -839,4 +843,27 @@ export function retroClosingLayout(fields: readonly RetroClosingField[]): { wide
     if (!cells[last].wide && last > 0 && !cells[last - 1].wide) cells[last - 1].lastRow = true;
   }
   return cells;
+}
+
+// ---------------------------------------------------------------------------
+// 预览弹层的缩放（components/retro/RetroZoomImage.tsx）：纯函数，单测直接覆盖。
+// ---------------------------------------------------------------------------
+
+export const RETRO_ZOOM_MIN = 1;
+export const RETRO_ZOOM_MAX = 5;
+export type RetroZoomView = { scale: number; x: number; y: number };
+
+/** 放大后能拖多远：图边不离开框边（图比框小的那个方向不许挪）。 */
+export function clampRetroZoomOffset(view: RetroZoomView, base: { width: number; height: number }, box: { width: number; height: number }): RetroZoomView {
+  const maxX = Math.max(0, (base.width * view.scale - box.width) / 2);
+  const maxY = Math.max(0, (base.height * view.scale - box.height) / 2);
+  return { scale: view.scale, x: Math.min(maxX, Math.max(-maxX, view.x)), y: Math.min(maxY, Math.max(-maxY, view.y)) };
+}
+
+/** 以容器中心为原点的一点 (px, py) 为中心，把缩放改到 nextScale；缩回 1 倍就是适应窗口。 */
+export function zoomRetroViewAt(view: RetroZoomView, nextScale: number, px: number, py: number): RetroZoomView {
+  const scale = Math.min(RETRO_ZOOM_MAX, Math.max(RETRO_ZOOM_MIN, nextScale));
+  if (scale === RETRO_ZOOM_MIN) return { scale: 1, x: 0, y: 0 };
+  const ratio = scale / view.scale;
+  return { scale, x: px - (px - view.x) * ratio, y: py - (py - view.y) * ratio };
 }

@@ -25,6 +25,7 @@ import {
 import { VISUAL_DERIVATIVE_STALE_MS } from "@/lib/visual-derivatives";
 import { visualObjectExtension } from "@/lib/visual-model";
 import { readCosConfig, type CosConfig } from "@/storage/cos";
+import { friendlyRetroPreviewError } from "@/lib/retro-model";
 import { isRetroDerivativeCiMode } from "./derivatives";
 import { retroAssetPageKey, retroAssetPagesDir, retroAssetPageTemplate } from "./keys";
 
@@ -150,7 +151,7 @@ async function markDocFailed(db: DbClient, assetId: string, reason: string): Pro
   await db.prepare(
     `UPDATE retro_case_assets SET derivative_status = 'FAILED', derivative_error = ?, ci_checked_at = now(), updated_at = now()
      WHERE id = ? AND type = 'DOC'`,
-  ).bind(reason, assetId).run();
+  ).bind(friendlyRetroPreviewError(reason) ?? reason, assetId).run();
 }
 
 /**

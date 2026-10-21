@@ -3,6 +3,7 @@
 
 import { audioReviewContentType } from "@/lib/audio-review-model";
 import {
+  RETRO_DOC_TOO_LARGE_HINT,
   RETRO_FILE_TYPES_HINT,
   RETRO_KEYNOTE_REFUSAL,
   RETRO_LIMITS,
@@ -232,6 +233,9 @@ export function validateRetroNewAssets(body: unknown): NormalizedRetroAsset[] {
     if (!Number.isSafeInteger(fileSize) || fileSize <= 0) throw retroInvalid(`「${originalName}」的文件大小无效。`);
     if (classified.type === "IMAGE" && fileSize > RETRO_LIMITS.imageMaxBytes) {
       throw retroInvalid(`「${originalName}」超过 20MB，生成不了在线预览；请压缩后再传。`);
+    }
+    if (classified.type === "DOC" && fileSize > RETRO_LIMITS.docMaxBytes) {
+      throw retroInvalid(`「${originalName}」${RETRO_DOC_TOO_LARGE_HINT}。`);
     }
     if (classified.type === "AUDIO" && fileSize > RETRO_LIMITS.recordingMaxBytes) {
       throw retroInvalid(`「${originalName}」超过 500MB，录音文件不能超过 500MB。`);

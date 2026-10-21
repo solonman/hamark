@@ -14,6 +14,7 @@ import {
   type RetroRecordingView,
   type RetroRoundView,
   type RetroTranscribeStatus,
+  friendlyRetroPreviewError,
 } from "@/lib/retro-model";
 import { VISUAL_SUBDOMAIN_SPECS, isVisualSubdomain } from "@/lib/visual-contract";
 import type { VideoBucket } from "@/storage/types";
@@ -94,7 +95,7 @@ export async function buildRetroAssetViews(bucket: SigningBucket, rows: readonly
       durationSeconds: Number(row.duration_seconds),
       uploadStatus: row.upload_status === "READY" ? "READY" : "UPLOADING",
       derivativeStatus: row.derivative_status as RetroAssetView["derivativeStatus"],
-      derivativeError: row.derivative_error,
+      derivativeError: friendlyRetroPreviewError(row.derivative_error),
       thumbnailUrl,
       displayUrl,
       streamUrl: retroAssetStreamPath(row.case_id, row.id, type),

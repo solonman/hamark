@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type JSX } from "react";
 import { formatRetroClock, type RetroAssetView, type RetroDocPageView } from "@/lib/retro-model";
 import { buildClientTranscript, docFormatLabel } from "@/lib/retro-ui";
 import RetroAudioPanel, { type RetroAudioSeekRequest } from "./RetroAudioPanel";
+import RetroZoomImage from "./RetroZoomImage";
 import v04 from "../v04/V04Surface.module.css";
 import styles from "./Retro.module.css";
 
@@ -113,8 +114,7 @@ export default function RetroAssetViewer({
       <div className={styles.viewerBody} data-v04-scheme="dark">
         <div className={styles.viewerImage}>
           {asset.derivativeStatus === "READY" && asset.displayUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- 展示图来自对象存储签名 URL，不走 next/image 的远程域名白名单
-            <img src={asset.displayUrl} alt={asset.originalName} />
+            <RetroZoomImage src={asset.displayUrl} alt={asset.originalName} resetKey={asset.id} />
           ) : (
             <div className={styles.viewerNote}>
               <b>{asset.derivativeStatus === "FAILED" ? "预览生成失败" : "正在生成预览"}</b>
@@ -177,8 +177,7 @@ export default function RetroAssetViewer({
         </div>
       );
     } else {
-      // eslint-disable-next-line @next/next/no-img-element -- 页图来自对象存储签名 URL，不走 next/image 的远程域名白名单
-      stage = <img key={page.pageNo} src={page.largeUrl} alt={`${asset.originalName} 第 ${page.pageNo} 页`} />;
+      stage = <RetroZoomImage src={page.largeUrl} alt={`${asset.originalName} 第 ${page.pageNo} 页`} resetKey={`${asset.id}:${page.pageNo}`} />;
     }
     body = (
       <div className={styles.viewerBody} data-v04-scheme="dark">

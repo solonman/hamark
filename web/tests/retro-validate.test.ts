@@ -434,3 +434,14 @@ test("反思 is an optional text field on the case, up to 3000 characters", () =
   assert.equal(fields.reflection, "下次先问清楚预算");
   assert.throws(() => validateRetroCasePatch({ revision: 1, reflection: "字".repeat(3001) }), /反思/);
 });
+
+test("documents over 200MB are refused at upload (数据万象 cannot convert them); the English CI failure reads in Chinese", async () => {
+  const big = { assets: [{ roundId: null, originalName: "the one.pptx", contentType: "", fileSize: 396 * 1024 * 1024 }] };
+  assert.throws(() => validateRetroNewAssets(big), /超过 200MB，生成不了在线预览/);
+  const ok = { assets: [{ roundId: null, originalName: "the one.pptx", contentType: "", fileSize: 199 * 1024 * 1024 }] };
+  assert.equal(validateRetroNewAssets(ok).length, 1);
+  const { friendlyRetroPreviewError } = await import("../lib/retro-model");
+  assert.match(friendlyRetroPreviewError("大图任务失败：The size of file exceeds the limit. Please select files less than 200M；小图任务失败：…") ?? "", /^文件超过 200MB，生成不了在线预览/);
+  assert.equal(friendlyRetroPreviewError("数据万象没有转换出可以预览的页面。"), "数据万象没有转换出可以预览的页面。");
+  assert.equal(friendlyRetroPreviewError(null), null);
+});

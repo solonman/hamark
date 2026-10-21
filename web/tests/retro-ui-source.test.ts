@@ -284,3 +284,14 @@ test("polling in both clients drops results that a save has overtaken", async ()
     assert.match(source, /shouldApplyPoll\(seq, mutationSeq\.current, queued\.current\)/, file);
   }
 });
+
+test("image and document previews zoom: both go through RetroZoomImage, which resets per image/page and offers － ＋ 适应", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const viewer = await readFile(new URL("../components/retro/RetroAssetViewer.tsx", import.meta.url), "utf8");
+  assert.match(viewer, /<RetroZoomImage src=\{asset\.displayUrl\}[^>]*resetKey=\{asset\.id\}/);
+  assert.match(viewer, /<RetroZoomImage src=\{page\.largeUrl\}[^>]*resetKey=\{`\$\{asset\.id\}:\$\{page\.pageNo\}`\}/);
+  const zoom = await readFile(new URL("../components/retro/RetroZoomImage.tsx", import.meta.url), "utf8");
+  for (const label of ["缩小", "放大", "适应"]) assert.ok(zoom.includes(label), label);
+  assert.match(zoom, /addEventListener\("wheel", onWheel, \{ passive: false \}\)/);
+  assert.match(zoom, /onDoubleClick=/);
+});

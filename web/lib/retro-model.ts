@@ -92,6 +92,8 @@ export const RETRO_TRANSFER_LABELS: Record<RetroMethodTransfer, string> = {
 export const RETRO_LIMITS = {
   /** 图片上限：数据万象只处理 20MB 以内的图，超了出不了预览；复盘库不提供原文件下载，所以上传时就拦下。 */
   imageMaxBytes: 20 * 1024 * 1024,
+  /** 文档上限：数据万象文档转码只收 200MB 以内的文件（超了报 “Please select files less than 200M”），同样上传时就拦下。 */
+  docMaxBytes: 200 * 1024 * 1024,
   departmentMax: 30,
   clientMax: 60,
   titleMax: 80,
@@ -216,6 +218,16 @@ export function parseRetroSceneTags(input: string | readonly string[]): string[]
 
 export function normalizeRetroSearch(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("zh-CN");
+}
+
+/** 文档超过 200MB 的提示：前端选文件、服务端校验、已经转换失败的旧记录都用这一句。 */
+export const RETRO_DOC_TOO_LARGE_HINT = "超过 200MB，生成不了在线预览；请压缩（去掉嵌入的视频、压缩图片）或导出 PDF 后再传";
+
+/** 数据万象的英文失败原因翻成中文；认不出的原样返回。 */
+export function friendlyRetroPreviewError(reason: string | null): string | null {
+  if (!reason) return reason;
+  if (/size of file exceeds the limit|less than 200M/i.test(reason)) return `文件${RETRO_DOC_TOO_LARGE_HINT}。`;
+  return reason;
 }
 
 export function formatRetroClock(ms: number) {
