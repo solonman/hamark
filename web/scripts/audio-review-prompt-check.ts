@@ -32,6 +32,8 @@ type Sample = {
   reviewerName?: string;
   revieweeName?: string;
   baseVersionNumber?: number;
+  /** "DOCUMENT" 时按文字点评组装提示词（段落号、不做同音纠错）；缺省按录音。 */
+  sourceKind?: "AUDIO" | "DOCUMENT";
   snapshot: V04DraftPayloadV1;
   transcript: unknown[];
 };
@@ -61,6 +63,7 @@ async function main() {
     revieweeName: sample.revieweeName ?? "被点评人",
     baseVersionNumber: sample.baseVersionNumber ?? 1,
     caseTitle: sample.caseTitle ?? null,
+    sourceKind: sample.sourceKind === "DOCUMENT" ? "DOCUMENT" : "AUDIO",
   };
   const messages = buildAudioReviewMessages(context);
   const config = readAudioReviewConfig(process.env, false);
