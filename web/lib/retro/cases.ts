@@ -254,6 +254,7 @@ type CaseDetailRow = QueryResultRow & {
   background: string;
   outcome: string;
   turning_points: string;
+  reflection: string;
   discussion_questions: string;
   revision: number;
   created_by_user_id: string;
@@ -270,7 +271,7 @@ export async function loadRetroCaseDetail(
 ): Promise<RetroCaseDetail | null> {
   const row = await db.prepare(
     `SELECT id, month_key, department, client_name, title, scene_tags_json, background, outcome, turning_points,
-            discussion_questions, revision, created_by_user_id, created_by_name, created_at, updated_at
+            reflection, discussion_questions, revision, created_by_user_id, created_by_name, created_at, updated_at
      FROM retro_cases WHERE id = ? AND deleted_at IS NULL`,
   ).bind(caseId).first<CaseDetailRow>();
   if (!row) return null;
@@ -326,6 +327,7 @@ export async function loadRetroCaseDetail(
     background: row.background,
     outcome: row.outcome,
     turningPoints: row.turning_points,
+    reflection: row.reflection ?? "",
     discussionQuestions: row.discussion_questions,
     revision: Number(row.revision),
     createdByName: row.created_by_name,
@@ -352,6 +354,7 @@ const PATCH_COLUMNS: Record<string, string> = {
   background: "background",
   outcome: "outcome",
   turningPoints: "turning_points",
+  reflection: "reflection",
   discussionQuestions: "discussion_questions",
 };
 
@@ -385,10 +388,10 @@ export async function patchRetroCase(
       `UPDATE retro_cases SET ${assignments.join(", ")}, revision = revision + 1, updated_at = now()
        WHERE id = ? AND revision = ? AND deleted_at IS NULL
        RETURNING id, month_key, department, client_name, title, scene_tags_json, background, outcome,
-                 turning_points, discussion_questions, revision, updated_at`,
+                 turning_points, reflection, discussion_questions, revision, updated_at`,
     ).bind(...values, caseId, revision).first<QueryResultRow & {
       month_key: string; department: string; client_name: string; title: string; scene_tags_json: unknown;
-      background: string; outcome: string; turning_points: string; discussion_questions: string;
+      background: string; outcome: string; turning_points: string; reflection: string; discussion_questions: string;
       revision: number; updated_at: unknown;
     }>();
     if (!result) return null;
@@ -411,6 +414,7 @@ export async function patchRetroCase(
     background: updated.background,
     outcome: updated.outcome,
     turningPoints: updated.turning_points,
+    reflection: updated.reflection ?? "",
     discussionQuestions: updated.discussion_questions,
   };
 }

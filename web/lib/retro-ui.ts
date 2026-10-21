@@ -246,6 +246,7 @@ export const RETRO_CASE_FIELD_LIMITS = {
   background: RETRO_LIMITS.backgroundMax,
   outcome: RETRO_LIMITS.outcomeMax,
   turningPoints: RETRO_LIMITS.turningPointsMax,
+  reflection: RETRO_LIMITS.reflectionMax,
   discussionQuestions: RETRO_LIMITS.discussionQuestionsMax,
 } as const;
 
@@ -818,4 +819,24 @@ export function retroRegenerateGate(pre: RetroGeneratePreconditions): { ok: bool
 /** 老孙是不是正在审阅草稿（接口只给他草稿内容）。 */
 export function isRetroReviewing(view: Pick<RetroMonthView, "job" | "viewer">): boolean {
   return view.viewer.isReviewer && view.job?.status === "PENDING_REVIEW" && view.job.draft !== null;
+}
+
+// ---------------------------------------------------------------------------
+// 结果与讨论的版面：结果｜关键转折 两栏一行，反思、希望讨论的问题各占整行（2026-10-21）。
+// 只剩一半的那一行也占整行；最后一行的格子不画底线，免得和模块边框叠成两条线。
+// ---------------------------------------------------------------------------
+
+export type RetroClosingField = "outcome" | "turningPoints" | "reflection" | "discussionQuestions";
+
+const CLOSING_PAIR: readonly RetroClosingField[] = ["outcome", "turningPoints"];
+
+export function retroClosingLayout(fields: readonly RetroClosingField[]): { wide: boolean; lastRow: boolean }[] {
+  const pairShown = fields.filter((field) => CLOSING_PAIR.includes(field)).length;
+  const cells = fields.map((field) => ({ wide: !CLOSING_PAIR.includes(field) || pairShown < 2, lastRow: false }));
+  if (cells.length) {
+    const last = cells.length - 1;
+    cells[last].lastRow = true;
+    if (!cells[last].wide && last > 0 && !cells[last - 1].wide) cells[last - 1].lastRow = true;
+  }
+  return cells;
 }

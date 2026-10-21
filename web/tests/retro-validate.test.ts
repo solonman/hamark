@@ -428,3 +428,9 @@ test("images over 20MB are refused at upload: without a download path they could
   const ok = { assets: [{ roundId: null, originalName: "现场.jpg", contentType: "image/jpeg", fileSize: 19 * 1024 * 1024 }] };
   assert.equal(validateRetroNewAssets(ok).length, 1);
 });
+
+test("反思 is an optional text field on the case, up to 3000 characters", () => {
+  const { fields } = validateRetroCasePatch({ revision: 1, reflection: "  下次先问清楚预算  " });
+  assert.equal(fields.reflection, "下次先问清楚预算");
+  assert.throws(() => validateRetroCasePatch({ revision: 1, reflection: "字".repeat(3001) }), /反思/);
+});

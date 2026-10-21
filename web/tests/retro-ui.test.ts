@@ -449,3 +449,17 @@ test("a poll result is dropped when a save started meanwhile or is still in flig
   assert.equal(shouldApplyPoll(3, 4, 0), false, "a save was issued after the poll request left");
   assert.equal(shouldApplyPoll(3, 3, 1), false, "a save is still in flight");
 });
+
+test("closing layout: 结果｜关键转折 share a row, 反思 and 希望讨论的问题 are full width, the last row has no bottom rule", async () => {
+  const { retroClosingLayout } = await import("../lib/retro-ui");
+  assert.deepEqual(retroClosingLayout(["outcome", "turningPoints", "reflection", "discussionQuestions"]), [
+    { wide: false, lastRow: false },
+    { wide: false, lastRow: false },
+    { wide: true, lastRow: false },
+    { wide: true, lastRow: true },
+  ]);
+  // 只剩半行的那一格占整行；只有那一对时两格都是最后一行。
+  assert.deepEqual(retroClosingLayout(["turningPoints", "reflection"]), [{ wide: true, lastRow: false }, { wide: true, lastRow: true }]);
+  assert.deepEqual(retroClosingLayout(["outcome", "turningPoints"]), [{ wide: false, lastRow: true }, { wide: false, lastRow: true }]);
+  assert.deepEqual(retroClosingLayout([]), []);
+});

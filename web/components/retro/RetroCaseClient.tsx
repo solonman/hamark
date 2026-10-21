@@ -31,8 +31,7 @@ import {
   retroBasicsFromDetail,
   retroRoundHasContent,
   type RetroRoundMark,
-  type RetroSourceView,
-} from "@/lib/retro-ui";
+  type RetroSourceView, retroClosingLayout, type RetroClosingField } from "@/lib/retro-ui";
 import V19EditableValue from "../v04/V19EditableValue";
 import RetroCaseDialog from "./RetroCaseDialog";
 import RetroInMinutes from "./RetroInMinutes";
@@ -50,7 +49,7 @@ const LIBRARY_HREF = "/?library=RETRO";
 /** 案例页可见时，录音还在转写就每 4 秒拉一次（规格 5.2）。 */
 const POLL_INTERVAL_MS = 4000;
 
-type CaseField = "background" | "outcome" | "turningPoints" | "discussionQuestions";
+type CaseField = "background" | "outcome" | "turningPoints" | "reflection" | "discussionQuestions";
 type ScrollTarget = { kind: "recording" | "round"; id: string; nonce: number };
 /** 详情里的签名地址（文档页图 15 分钟）快过期时，打开弹层前先悄悄刷新一次。 */
 const DETAIL_STALE_MS = 10 * 60 * 1000;
@@ -501,12 +500,14 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
   const nextPart = nextRetroPartNo(detail.recordings) ?? 1;
   const savedFlash = (key: string) => (savedKey === key ? <span className={styles.savedFlash} aria-live="polite">已保存</span> : null);
 
-  const closing: Array<{ label: string; field: "outcome" | "turningPoints" | "discussionQuestions"; placeholder: string }> = [
+  const closing: Array<{ label: string; field: RetroClosingField; placeholder: string }> = [
     { label: "结果", field: "outcome", placeholder: "点击填写结果：如「客户接受第三版，开盘物料晚一周进场」「仍在进行」" },
     { label: "关键转折", field: "turningPoints", placeholder: "点击填写关键转折：你自己认为的转折点" },
+    { label: "反思", field: "reflection", placeholder: "点击填写反思：回头看，我们自己哪里可以做得更好" },
     { label: "希望讨论的问题", field: "discussionQuestions", placeholder: "点击填写希望讨论的问题：想请老孙和大家一起看的问题" },
   ];
   const shownClosing = canEdit ? closing : closing.filter((item) => detail[item.field].trim() !== "");
+  const closingLayout = retroClosingLayout(shownClosing.map((item) => item.field));
 
   return (
     <main className={`${v04.surface} ${styles.root}`} data-v04-page="detail">
@@ -616,7 +617,10 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
             <header><div><small>OUTCOME</small><h2>结果与讨论</h2></div></header>
             <div className={v04.readingCore}>
               {shownClosing.map((item, index) => (
-                <div key={item.field} style={canEdit && index === 2 ? { gridColumn: "1 / -1", borderLeft: 0 } : undefined}>
+                <div
+                  key={item.field}
+                  className={[closingLayout[index].wide ? v04.readingWide : "", closingLayout[index].lastRow ? styles.coreLastRow : ""].filter(Boolean).join(" ") || undefined}
+                >
                   <small>{item.label}</small>
                   {canEdit ? (
                     <div className={styles.coreText}>

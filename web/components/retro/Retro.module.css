@@ -470,3 +470,6 @@
 @media (prefers-reduced-motion: reduce) {
   .roundCard.flash { animation: none; }
 }
+
+/* 结果与讨论：最后一行格子不画底线（readingCore 每格自带 border-bottom，会和模块边框叠成两条线）。 */
+.root .coreLastRow { border-bottom: 0; }

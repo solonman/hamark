@@ -14,6 +14,7 @@ import {
   RETRO_METHOD_TRANSFERS,
   RETRO_RECORDING_STATUSES,
   RETRO_DOC_PREVIEW_STATEMENTS,
+  RETRO_REFLECTION_STATEMENTS,
   RETRO_LIBRARY_STATEMENTS,
   RETRO_SCHEMA_STATEMENTS,
   RETRO_SCHEMA_TABLES,
@@ -70,8 +71,13 @@ test("the doc-preview statements appear verbatim in 2026-10-20-retro-doc-preview
   assertMigrationMatches(await source("../db/migrations/2026-10-20-retro-doc-preview.sql"), RETRO_DOC_PREVIEW_STATEMENTS);
 });
 
-test("the two migrations together cover every schema statement, library first, nothing twice", () => {
-  assert.deepEqual([...RETRO_SCHEMA_STATEMENTS], [...RETRO_LIBRARY_STATEMENTS, ...RETRO_DOC_PREVIEW_STATEMENTS]);
+test("the reflection statement appears verbatim in 2026-10-21-retro-reflection.sql and only adds a column", async () => {
+  assertMigrationMatches(await source("../db/migrations/2026-10-21-retro-reflection.sql"), RETRO_REFLECTION_STATEMENTS);
+  for (const statement of RETRO_REFLECTION_STATEMENTS) assert.match(statement, /^ALTER TABLE retro_cases ADD COLUMN IF NOT EXISTS reflection TEXT NOT NULL DEFAULT ''$/);
+});
+
+test("the migrations together cover every schema statement, in order, nothing twice", () => {
+  assert.deepEqual([...RETRO_SCHEMA_STATEMENTS], [...RETRO_LIBRARY_STATEMENTS, ...RETRO_DOC_PREVIEW_STATEMENTS, ...RETRO_REFLECTION_STATEMENTS]);
   assert.equal(new Set(RETRO_SCHEMA_STATEMENTS).size, RETRO_SCHEMA_STATEMENTS.length);
   // 文档预览只加列、可重复执行、不改旧数据。
   for (const statement of RETRO_DOC_PREVIEW_STATEMENTS) {

@@ -66,6 +66,8 @@ export type RetroSnapshotCase = {
   background: string;
   outcome: string;
   turningPoints: string;
+  /** 2026-10-21 起有；旧快照里没有这一项。 */
+  reflection?: string;
   discussionQuestions: string;
   rounds: RetroSnapshotRound[];
   clientAudio: RetroSnapshotClientAudio[];

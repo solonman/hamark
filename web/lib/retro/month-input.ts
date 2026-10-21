@@ -238,7 +238,7 @@ export function countRecordingChangesSince(facts: RetroMonthFacts, publishedAt: 
 
 type DetailCaseRow = QueryResultRow & {
   id: string; department: string; client_name: string; title: string; scene_tags_json: unknown; background: string;
-  outcome: string; turning_points: string; discussion_questions: string; created_at: unknown; deleted_at: unknown;
+  outcome: string; turning_points: string; reflection: string; discussion_questions: string; created_at: unknown; deleted_at: unknown;
 };
 type RoundRow = QueryResultRow & {
   id: string; case_id: string; position: number; title: string; occurred_on: string; delivery_text: string; feedback_text: string; response_text: string;
@@ -297,7 +297,7 @@ async function loadLinkSummaries(db: DbClient, links: readonly LinkRow[]): Promi
 
 export async function buildRetroGenerateSnapshot(db: DbClient, monthKey: string, now: Date = new Date()): Promise<RetroGenerateSnapshot> {
   const caseRows = (await db.prepare(
-    `SELECT id, department, client_name, title, scene_tags_json, background, outcome, turning_points, discussion_questions,
+    `SELECT id, department, client_name, title, scene_tags_json, background, outcome, turning_points, reflection, discussion_questions,
       created_at, deleted_at
     FROM retro_cases WHERE month_key = ? ORDER BY created_at ASC, id ASC`,
   ).bind(monthKey).all<DetailCaseRow>()).results;
@@ -357,6 +357,7 @@ export async function buildRetroGenerateSnapshot(db: DbClient, monthKey: string,
       background: row.background ?? "",
       outcome: row.outcome ?? "",
       turningPoints: row.turning_points ?? "",
+      reflection: row.reflection ?? "",
       discussionQuestions: row.discussion_questions ?? "",
       rounds: caseRounds.map((round) => ({
         id: round.id,

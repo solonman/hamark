@@ -96,6 +96,7 @@ export type RetroCaseFieldsPatch = {
   background?: string;
   outcome?: string;
   turningPoints?: string;
+  reflection?: string;
   discussionQuestions?: string;
 };
 
@@ -119,6 +120,7 @@ export function validateRetroCasePatch(body: unknown, now: Date = new Date()): {
   if (input.background !== undefined) fields.background = optionalText(input.background, "任务与最初需求", RETRO_LIMITS.backgroundMax);
   if (input.outcome !== undefined) fields.outcome = optionalText(input.outcome, "结果", RETRO_LIMITS.outcomeMax);
   if (input.turningPoints !== undefined) fields.turningPoints = optionalText(input.turningPoints, "关键转折", RETRO_LIMITS.turningPointsMax);
+  if (input.reflection !== undefined) fields.reflection = optionalText(input.reflection, "反思", RETRO_LIMITS.reflectionMax);
   if (input.discussionQuestions !== undefined) {
     fields.discussionQuestions = optionalText(input.discussionQuestions, "希望讨论的问题", RETRO_LIMITS.discussionQuestionsMax);
   }

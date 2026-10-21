@@ -104,6 +104,7 @@ export const RETRO_LIMITS = {
   roundTextMax: 5000,
   outcomeMax: 3000,
   turningPointsMax: 3000,
+  reflectionMax: 3000,
   discussionQuestionsMax: 2000,
   assetsPerOwnerMax: 12, // 需求凭证、每个回合各自 ≤12
   linksPerRoundMax: 6,
@@ -498,6 +499,7 @@ export type RetroCaseDetail = {
   background: string;
   outcome: string;
   turningPoints: string;
+  reflection: string;
   discussionQuestions: string;
   revision: number;
   /** 当月序号（「案例 N」，按创建先后、被删除的也占号）；可选，没给时面包屑只写「案例」。 */
@@ -622,6 +624,7 @@ export type RetroPatchCaseRequest = Partial<RetroCaseBasicsInput> & {
   background?: string;
   outcome?: string;
   turningPoints?: string;
+  reflection?: string;
   discussionQuestions?: string;
   revision: number;
 };
@@ -697,6 +700,7 @@ export type RetroPatchCaseResponse = Pick<
   | "background"
   | "outcome"
   | "turningPoints"
+  | "reflection"
   | "discussionQuestions"
 >;
 

@@ -25,9 +25,9 @@ import {
 } from "./month-snapshot";
 import { buildSynthesisRefIndex, type RetroSynthesisContext } from "./synthesis";
 
-export const RETRO_EXTRACT_PROMPT_VERSION = "2026-10-20.2";
-export const RETRO_MINUTES_PROMPT_VERSION = "2026-10-20.2";
-export const RETRO_METHODS_PROMPT_VERSION = "2026-10-20.2";
+export const RETRO_EXTRACT_PROMPT_VERSION = "2026-10-21.1";
+export const RETRO_MINUTES_PROMPT_VERSION = "2026-10-21.1";
+export const RETRO_METHODS_PROMPT_VERSION = "2026-10-21.1";
 
 export const RETRO_PROMPT_VERSIONS = {
   extract: RETRO_EXTRACT_PROMPT_VERSION,
@@ -112,7 +112,7 @@ ${HARD_RULES}
 ${GUIDE_BLOCK}
 
 【这一步要做的】
-你会拿到一个案例的表单文字（任务与最初需求、每一回合「我们交了什么 → 客户怎么反馈 → 我们怎么应对」、关联作品的摘要、结果、关键转折、希望讨论的问题）、这个案例附件里客户录音的文字稿（如有），以及这个案例现场点评录音的文字稿。
+你会拿到一个案例的表单文字（任务与最初需求、每一回合「我们交了什么 → 客户怎么反馈 → 我们怎么应对」、关联作品的摘要、结果、关键转折、汇报人自己的反思、希望讨论的问题）、这个案例附件里客户录音的文字稿（如有），以及这个案例现场点评录音的文字稿。
 ${SPEAKER_RULE}
 然后输出：
 - review.process：业务问题及其发展过程，一段叙述，取自表单和汇报人的讲述；processSegmentIds 可以引用点评录音片段或客户录音片段。
@@ -201,6 +201,7 @@ export function buildRetroExtractMessages(item: RetroSnapshotCase): RetroLlmMess
       })),
       结果: item.outcome || "（没有填写）",
       关键转折: item.turningPoints || "（没有填写）",
+      反思: item.reflection || "（没有填写）",
       希望讨论的问题: item.discussionQuestions || "（没有填写）",
     },
     客户录音: item.clientAudio.map((audio) => ({

@@ -249,4 +249,12 @@ export const RETRO_DOC_PREVIEW_STATEMENTS = [
   `ALTER TABLE retro_case_assets ADD COLUMN IF NOT EXISTS pages_json JSONB`,
 ] as const;
 
-export const RETRO_SCHEMA_STATEMENTS = [...RETRO_LIBRARY_STATEMENTS, ...RETRO_DOC_PREVIEW_STATEMENTS] as const;
+/**
+ * 「反思」（2026-10-21 项目负责人加）：结果与讨论里，关键转折之后、希望讨论的问题之前。
+ * 对应 db/migrations/2026-10-21-retro-reflection.sql；只加一列，可重复执行，不改旧数据。
+ */
+export const RETRO_REFLECTION_STATEMENTS = [
+  `ALTER TABLE retro_cases ADD COLUMN IF NOT EXISTS reflection TEXT NOT NULL DEFAULT ''`,
+] as const;
+
+export const RETRO_SCHEMA_STATEMENTS = [...RETRO_LIBRARY_STATEMENTS, ...RETRO_DOC_PREVIEW_STATEMENTS, ...RETRO_REFLECTION_STATEMENTS] as const;
