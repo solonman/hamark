@@ -1004,7 +1004,7 @@ function agentDb(state: World, digests: Array<Record<string, unknown>>) {
     { match: /FROM collaboration_workspaces\s+WHERE video_id = \? AND workflow_version = \?/, first: () => WORKSPACE },
     { match: /FROM analysis_versions\s+WHERE workspace_id = \? ORDER BY version_number ASC$/, all: () => state.versions },
     {
-      match: /^SELECT id, audio_duration_ms, proposal_json FROM audio_reviews\s+WHERE id IN \([?, ]+\) AND status = 'GENERATED'$/,
+      match: /^SELECT id, audio_content_type, audio_duration_ms, proposal_json FROM audio_reviews\s+WHERE id IN \([?, ]+\) AND status = 'GENERATED'$/,
       all: (values) => {
         reviewQueries.push(values);
         return digests.filter((row) => values.includes(row.id));
@@ -1016,6 +1016,7 @@ function agentDb(state: World, digests: Array<Record<string, unknown>>) {
 
 const GENERATED_DIGEST = {
   id: "arv_1",
+  audio_content_type: "audio/mp4",
   audio_duration_ms: 754_000,
   proposal_json: {
     opinions: [
@@ -1041,6 +1042,7 @@ test("agent reads a review version by id with 类型=点评版 and its 点评录
   const result = await getAgentVideoAnalysis(db, "video1", { kind: "ID", id: "v3" }, "raw");
   assert.equal("类型" in result.version ? result.version.类型 : null, "点评版");
   assert.deepEqual("点评录音" in result.version ? result.version.点评录音 : null, {
+    来源: "录音",
     录音时长: "12:34",
     意见: [{ 序号: 1, 类型: "总体", 摘要: "母题看浅了" }, { 序号: 2, 类型: "具体", 摘要: "井盖里钻出来的是警察" }],
   });
@@ -1064,16 +1066,34 @@ test("agent version summaries: personal versions never query audio_reviews, and 
   assert.equal(digests.get("arv_1")?.意见.length, 2);
 });
 
+test("agent digest of a text critique: the key stays 点评录音 for existing callers, 来源 is 文档 and there is no duration", async () => {
+  const [, , v3] = reviewedWorkspace().versions;
+  for (const contentType of ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "text/markdown"]) {
+    // 文档没有时长；即使库里误留了一个数，也不当录音时长报出去。
+    const digests = await loadAgentReviewDigests(
+      agentDb(world(), [{ ...GENERATED_DIGEST, audio_content_type: contentType, audio_duration_ms: 1000 }]).db,
+      [v3],
+    );
+    assert.deepEqual(digests.get("arv_1"), {
+      来源: "文档",
+      录音时长: null,
+      意见: [{ 序号: 1, 类型: "总体", 摘要: "母题看浅了" }, { 序号: 2, 类型: "具体", 摘要: "井盖里钻出来的是警察" }],
+    });
+    const summary = agentVersionSummary(v3, digests);
+    assert.equal("点评录音" in summary ? summary.点评录音?.来源 : null, "文档");
+  }
+});
+
 test("agent read code stays read-only and the guide and docs/23 explain review versions", async () => {
   const video = codeOnly(await source("../lib/agent-api/video-read.ts"));
   assert.match(video, /resolveV19DefaultVersion\(rows\.map\(\(r\) => \(\{[\s\S]*kind: r\.version_kind/);
   assert.doesNotMatch(video, /\b(INSERT|UPDATE|DELETE)\b\s/);
   const guide = buildAgentGuideMarkdown("");
-  for (const text of ["`类型`", "`个人版本`", "`点评版`", "`点评录音`", "录音时长", "不计入 `versionCount`", "不含点评版"]) {
+  for (const text of ["`类型`", "`个人版本`", "`点评版`", "`点评录音`", "录音时长", "\"来源\"", "文档", "老孙点评", "不计入 `versionCount`", "不含点评版"]) {
     assert.ok(guide.includes(text), `guide must mention ${text}`);
   }
   const docs = await source("../../docs/23_外部Agent只读API_V0.1.md");
-  for (const text of ["`类型`", "点评版", "点评录音", "不含点评版"]) assert.ok(docs.includes(text), `docs/23 must mention ${text}`);
+  for (const text of ["`类型`", "点评版", "点评录音", "`来源`", "\"来源\": \"录音\" | \"文档\"", "不含点评版"]) assert.ok(docs.includes(text), `docs/23 must mention ${text}`);
 });
 
 // ---------------------------------------------------------------------------

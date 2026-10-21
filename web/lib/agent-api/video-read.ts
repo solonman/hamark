@@ -14,7 +14,7 @@ import {
   type AnalysisVersionRow,
 } from "@/lib/v19-version-chain";
 import { loadFinalVersion } from "@/lib/final-version";
-import { formatAudioClock } from "@/lib/audio-review-model";
+import { audioReviewSourceKindOf, formatAudioClock } from "@/lib/audio-review-model";
 import {
   AGENT_MEDIA_URL_TTL_SECONDS,
   AgentApiError,
@@ -135,14 +135,20 @@ async function requireVisibleVideo(db: DbClient, videoId: string) {
   return row;
 }
 
-/** 点评版附带的点评录音摘要（docs/25 八）：只给已生成的点评任务，查不到就不附。 */
+/**
+ * 点评版附带的点评摘要（docs/25 八）：只给已生成的点评任务，查不到就不附。键名沿用 `点评录音`
+ * （外部调用方已经按它取值）；2026-10-21 起点评也可以是文字（docs/25 二之二），`来源` 区分，
+ * 文字点评的 `录音时长` 为 null。
+ */
 export type AgentReviewDigest = {
+  来源: "录音" | "文档";
   录音时长: string | null;
   意见: Array<{ 序号: number; 类型: "总体" | "具体"; 摘要: string }>;
 };
 
 type AudioReviewDigestRow = QueryResultRow & {
   id: string;
+  audio_content_type: string | null;
   audio_duration_ms: number | string | null;
   proposal_json: unknown;
 };
@@ -169,7 +175,7 @@ function opinionsFromProposal(proposal: unknown): AgentReviewDigest["意见"] {
     .toSorted((left, right) => left.序号 - right.序号);
 }
 
-/** 按点评任务 id 取点评录音摘要。只 SELECT 已生成（GENERATED）的任务；没有点评版就不查库。 */
+/** 按点评任务 id 取点评摘要。只 SELECT 已生成（GENERATED）的任务；没有点评版就不查库。 */
 export async function loadAgentReviewDigests(
   db: DbClient,
   rows: readonly Pick<AnalysisVersionRow, "version_kind" | "audio_review_id">[],
@@ -179,13 +185,17 @@ export async function loadAgentReviewDigests(
     .map((row) => row.audio_review_id as string))];
   if (reviewIds.length === 0) return new Map();
   const { results } = await db.prepare(
-    `SELECT id, audio_duration_ms, proposal_json FROM audio_reviews
+    `SELECT id, audio_content_type, audio_duration_ms, proposal_json FROM audio_reviews
     WHERE id IN (${reviewIds.map(() => "?").join(", ")}) AND status = 'GENERATED'`,
   ).bind(...reviewIds).all<AudioReviewDigestRow>();
-  return new Map(results.map((row) => [row.id, {
-    录音时长: row.audio_duration_ms == null ? null : formatAudioClock(Number(row.audio_duration_ms)),
-    意见: opinionsFromProposal(row.proposal_json),
-  }]));
+  return new Map(results.map((row) => {
+    const document = audioReviewSourceKindOf(row.audio_content_type) === "DOCUMENT";
+    return [row.id, {
+      来源: document ? "文档" as const : "录音" as const,
+      录音时长: document || row.audio_duration_ms == null ? null : formatAudioClock(Number(row.audio_duration_ms)),
+      意见: opinionsFromProposal(row.proposal_json),
+    }];
+  }));
 }
 
 /**
