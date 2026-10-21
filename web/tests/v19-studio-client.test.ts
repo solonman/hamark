@@ -559,12 +559,17 @@ test("source: 「最新修改」不含点评版", () => {
   assert.match(source, /model\.versions\.filter\(\(version\) => version\.kind !== "AUDIO_REVIEW"\)/);
 });
 
-test("source: 点评录音入口在页头里、版本胶囊之前", () => {
+test("source: 「上传点评」入口在页头里、版本胶囊之前", () => {
   const utilitiesBlock = source.slice(
     source.indexOf("<div className={styles.siteUtilities}>"),
     source.indexOf("<div className={styles.versionSplit}>"),
   );
   assert.match(utilitiesBlock, /<V19AudioReviewEntry/);
+});
+
+test("source: 点评版胶囊、版本菜单都叫「老孙点评」（AUDIO_REVIEW_VERSION_LABEL），录音、文字一个叫法", () => {
+  assert.match(source, /<span className=\{styles\.versionOwner\}>\{AUDIO_REVIEW_VERSION_LABEL\}<\/span>/);
+  assert.doesNotMatch(source, /\}录音点评|"老孙录音点评|的录音点评/);
 });
 
 test("source: 从入口、提示条、生成后、版本菜单进入点评版都打开比较", () => {
