@@ -76,7 +76,6 @@
 .recMeta { color: var(--v04-muted); font-size: 11px; overflow-wrap: anywhere; }
 .recMeta b { color: var(--v04-ink-dim); }
 .moduleHeadTip { color: var(--v04-muted); font-size: 11px; }
-.moduleHeadTip b { color: var(--v04-subject); font-weight: 800; }
 .savedFlash { display: inline-block; margin-left: 8px; color: var(--v04-accent); font-size: 10px; font-weight: 800; letter-spacing: .04em; transition: opacity .5s; }
 .savedFlash.gone { opacity: 0; }
 .editField { display: inline; }

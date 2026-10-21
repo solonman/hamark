@@ -507,7 +507,6 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
     { label: "希望讨论的问题", field: "discussionQuestions", placeholder: "点击填写希望讨论的问题：想请老孙和大家一起看的问题" },
   ];
   const shownClosing = canEdit ? closing : closing.filter((item) => detail[item.field].trim() !== "");
-  const aiTip = <span className={styles.moduleHeadTip}><b>AI 读这里的文字和录音转写，看不到图片和文档</b>：关键内容请用文字写清楚</span>;
 
   return (
     <main className={`${v04.surface} ${styles.root}`} data-v04-page="detail">
@@ -548,7 +547,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
 
       <div className={v04.readingBody}>
         <section className={v04.readingModule} id="brief">
-          <header><div><small>BRIEF</small><h2>任务与最初需求</h2></div>{canEdit ? aiTip : null}</header>
+          <header><div><small>BRIEF</small><h2>任务与最初需求</h2></div></header>
           {canEdit ? (
             <div className={`${styles.prose} ${styles.proseEdit}`}>
               <V19EditableValue
@@ -581,7 +580,7 @@ export default function RetroCaseClient({ caseId, viewerName, user }: {
         <section className={v04.readingModule}>
           <header>
             <div><small>PROCESS · {detail.rounds.length} 回合</small><h2>过程</h2></div>
-            {canEdit ? aiTip : <span className={styles.moduleHeadTip}>每一回合：我们交了什么 → 客户怎么反馈 → 我们怎么应对</span>}
+            <span className={styles.moduleHeadTip}>每一回合：我们交了什么 → 客户怎么反馈 → 我们怎么应对</span>
           </header>
           {detail.rounds.length ? (
             <ol className={styles.timeline}>
