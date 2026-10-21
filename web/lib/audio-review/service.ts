@@ -140,7 +140,7 @@ export async function listAudioReviewSummaries(
 ): Promise<V19AudioReviewSummary[]> {
   const reviewer = isAudioReviewUploader(viewerDisplayName);
   const rows = (await db.prepare(
-    `SELECT ar.id, ar.base_version_id, ar.status, ar.failed_step, ar.fail_reason,
+    `SELECT ar.id, ar.base_version_id, ar.audio_content_type, ar.status, ar.failed_step, ar.fail_reason,
       CASE WHEN jsonb_typeof(ar.proposal_json -> 'changes') = 'array'
         THEN jsonb_array_length(ar.proposal_json -> 'changes') ELSE 0 END AS proposal_change_count,
       CASE WHEN jsonb_typeof(ar.selected_change_ids) = 'array'

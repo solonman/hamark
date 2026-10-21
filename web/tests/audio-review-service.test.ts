@@ -188,8 +188,8 @@ class FakeDb {
       const rows = [...this.reviews.values()]
         .filter((row) => row.video_id === params[0] && row.status !== "ABANDONED" && (!onlyGenerated || row.status === "GENERATED"))
         .map((row) => ({
-          id: row.id, base_version_id: row.base_version_id, status: row.status, failed_step: row.failed_step,
-          fail_reason: row.fail_reason,
+          id: row.id, base_version_id: row.base_version_id, audio_content_type: row.audio_content_type,
+          status: row.status, failed_step: row.failed_step, fail_reason: row.fail_reason,
           proposal_change_count: Array.isArray((row.proposal_json as Row | null)?.changes) ? ((row.proposal_json as Row).changes as unknown[]).length : 0,
           selected_change_count: Array.isArray(row.selected_change_ids) ? (row.selected_change_ids as unknown[]).length : 0,
           review_version_id: row.review_version_id,

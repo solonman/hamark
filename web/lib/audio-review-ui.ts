@@ -27,6 +27,7 @@ export function summarizeAudioReview(view: AudioReviewView): V19AudioReviewSumma
   return {
     id: view.id,
     baseVersionId: view.baseVersionId,
+    sourceKind: view.sourceKind,
     status: view.status,
     step: view.step,
     failReason: view.failReason,

@@ -3,6 +3,7 @@
 
 import type { QueryResultRow } from "@/db";
 import {
+  audioReviewSourceKindOf,
   audioReviewStepOf,
   type AudioReviewFailedStep,
   type AudioReviewProposalView,
@@ -190,6 +191,7 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
     baseVersionId: row.base_version_id,
     baseVersionNumber: Number(row.base_version_number),
     baseOwnerName: row.base_owner_name,
+    sourceKind: audioReviewSourceKindOf(row.audio_content_type),
     reviewerName: AUDIO_REVIEW_CRITIC_NAME,
     uploaderName: row.reviewer_name,
     status: row.status,
@@ -218,6 +220,7 @@ export function toAudioReviewView(row: AudioReviewRow, options: { viewerDisplayN
 export type AudioReviewSummaryRow = QueryResultRow & {
   id: string;
   base_version_id: string;
+  audio_content_type: string;
   status: AudioReviewStatus;
   failed_step: AudioReviewFailedStep | null;
   fail_reason: string | null;
@@ -234,6 +237,7 @@ export function toAudioReviewSummary(row: AudioReviewSummaryRow): V19AudioReview
   return {
     id: row.id,
     baseVersionId: row.base_version_id,
+    sourceKind: audioReviewSourceKindOf(row.audio_content_type),
     status: row.status,
     step: audioReviewStepOf(row.status, row.failed_step ?? null),
     failReason: row.fail_reason ?? null,

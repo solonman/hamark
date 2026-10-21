@@ -10,6 +10,9 @@ import { CASE_REVIEWER_NAME } from "@/lib/case-review";
 
 export const AUDIO_REVIEW_CRITIC_NAME = CASE_REVIEWER_NAME;
 
+/** 点评版的统一叫法（2026-10-21 起录音、文字都叫「老孙点评」，不再叫「老孙录音点评」）。 */
+export const AUDIO_REVIEW_VERSION_LABEL = `${AUDIO_REVIEW_CRITIC_NAME}点评`;
+
 export const AUDIO_REVIEW_UPLOADER_NAMES: readonly string[] = [CASE_REVIEWER_NAME, "秦欣欣"];
 
 export function isAudioReviewUploader(displayName: string | null | undefined): boolean {

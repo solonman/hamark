@@ -16,9 +16,45 @@ export const AUDIO_REVIEW_STATUS_LIST = [
 export type AudioReviewStatus = (typeof AUDIO_REVIEW_STATUS_LIST)[number];
 export type AudioReviewFailedStep = "UPLOAD" | "TRANSCRIBE" | "UNDERSTAND";
 
-/** 界面上的三步：上传录音 / 转写成文字 / 理解点评、拟定改动。 */
+/** 界面上的三步：上传录音 / 转写成文字 / 理解点评、拟定改动。文档见 `audioReviewStepLabels`。 */
 export const AUDIO_REVIEW_STEP_LABELS = ["上传录音", "转写成文字", "理解点评、拟定改动"] as const;
 export type AudioReviewStep = 0 | 1 | 2;
+
+/**
+ * 点评的来源（docs/25 二之二，2026-10-21）：录音，或文字（Word / 纯文本 / 直接粘贴）。
+ * 不加列，按上传时的 Content-Type 区分——文档的三种类型和录音（audio/*、video/mp4…）互不相交。
+ * 文档走同一条流水线：TRANSCRIBING 这一步对文档就是「读取文字」（解析文件、按段落切分），不调转写。
+ */
+export type AudioReviewSourceKind = "AUDIO" | "DOCUMENT";
+
+export const AUDIO_REVIEW_DOCX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+export const AUDIO_REVIEW_DOCUMENT_CONTENT_TYPES = [AUDIO_REVIEW_DOCX_CONTENT_TYPE, "text/plain", "text/markdown"] as const;
+export const AUDIO_REVIEW_DOCUMENT_EXTENSIONS = ["docx", "txt", "md"] as const;
+export const AUDIO_REVIEW_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+/** 读出的文字超过这么多字就不收（一份作业的点评不会这么长，多半是传错了文件）。 */
+export const AUDIO_REVIEW_DOCUMENT_MAX_CHARS = 100_000;
+/** 「直接粘贴文字」在浏览器里存成一个纯文本文件，走和上传文档完全相同的流程。 */
+export const AUDIO_REVIEW_PASTED_FILE_NAME = "粘贴的点评文字.txt";
+
+export function audioReviewSourceKindOf(contentType: string | null | undefined): AudioReviewSourceKind {
+  const type = (contentType ?? "").trim().toLowerCase().split(";")[0];
+  return (AUDIO_REVIEW_DOCUMENT_CONTENT_TYPES as readonly string[]).includes(type) ? "DOCUMENT" : "AUDIO";
+}
+
+export function audioReviewStepLabels(sourceKind: AudioReviewSourceKind): readonly [string, string, string] {
+  return sourceKind === "DOCUMENT"
+    ? ["上传文档", "读取文字", "理解点评、拟定改动"]
+    : AUDIO_REVIEW_STEP_LABELS;
+}
+
+/** 浏览器给的 MIME 不可靠（.md 常是空、.docx 偶尔是 application/octet-stream），按扩展名定；服务端用同一份规则校验。 */
+export function audioReviewDocumentContentType(fileName: string): string | null {
+  const ext = fileName.toLowerCase().split(".").pop() ?? "";
+  if (ext === "docx") return AUDIO_REVIEW_DOCX_CONTENT_TYPE;
+  if (ext === "txt") return "text/plain";
+  if (ext === "md") return "text/markdown";
+  return null;
+}
 
 export function audioReviewStepOf(status: AudioReviewStatus, failedStep: AudioReviewFailedStep | null): AudioReviewStep {
   if (status === "FAILED") return failedStep === "UPLOAD" ? 0 : failedStep === "TRANSCRIBE" ? 1 : 2;
@@ -109,6 +145,8 @@ export type AudioReviewView = {
   baseVersionId: string;
   baseVersionNumber: number;
   baseOwnerName: string;
+  /** 录音还是文字（docs/25 二之二）。文字没有录音条，引用写「第 N 段」而不是时间点。 */
+  sourceKind: AudioReviewSourceKind;
   /** 录音里点评的人：始终是老孙（docs/25 二、1）。 */
   reviewerName: string;
   /** 实际上传、确认的人：老孙本人，或替他上传的秦欣欣。点评版归这个人。 */
@@ -117,6 +155,7 @@ export type AudioReviewView = {
   failedStep: AudioReviewFailedStep | null;
   failReason: string | null;
   step: AudioReviewStep;
+  /** 上传的原始文件（录音或文档）。文档的 durationMs 为 null；url 照样能下载原文件。 */
   audio: { fileName: string; sizeBytes: number; durationMs: number | null; url: string };
   transcript: { segments: AudioReviewSegment[] } | null;
   proposal: AudioReviewProposalView | null;
@@ -132,6 +171,7 @@ export type AudioReviewView = {
 export type V19AudioReviewSummary = {
   id: string;
   baseVersionId: string;
+  sourceKind: AudioReviewSourceKind;
   status: AudioReviewStatus;
   step: AudioReviewStep;
   failReason: string | null;
