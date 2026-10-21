@@ -1,22 +1,68 @@
 "use client";
 
-import { Fragment, useCallback, useRef, useState, type JSX, type KeyboardEvent, type PointerEvent, type RefObject, type SyntheticEvent } from "react";
-import { formatAudioClock, type AudioReviewOpinionKind, type AudioReviewSegment } from "@/lib/audio-review-model";
-import { activeAudioReviewSegmentId, splitAudioReviewCorrections } from "@/lib/audio-review-ui";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type KeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+  type SyntheticEvent,
+} from "react";
+import {
+  formatAudioClock,
+  type AudioReviewOpinionKind,
+  type AudioReviewSegment,
+  type AudioReviewSourceKind,
+} from "@/lib/audio-review-model";
+import {
+  activeAudioReviewSegmentId,
+  describeAudioReviewDocumentSummary,
+  splitAudioReviewCorrections,
+  type AudioReviewSegmentRef,
+} from "@/lib/audio-review-ui";
 import styles from "./V04Surface.module.css";
 
 /**
- * 录音点评改写的共用小件：图标、录音条（真实 <audio>，界面自己画）、文字稿、
- * 意见类型标签。确认抽屉（V19AudioReviewDrawer）和点评版顶部的录音卡
- * （V19AudioReviewCard）各用一套播放状态，互不牵连。见 docs/25 七、3-4。
+ * 老孙点评改写的共用小件：图标、录音条（真实 <audio>，界面自己画）、文字稿、
+ * 文档来源的「点评原文」、意见类型标签、原话前的引用。确认抽屉（V19AudioReviewDrawer）
+ * 和点评版顶部的点评卡（V19AudioReviewCard）各用一套播放／跳段状态，互不牵连。
+ * 见 docs/25 二之二、七、3-4。
  */
 
-export function AudioReviewIcon({ name }: { name: "mic" | "upload" | "play" | "pause" }): JSX.Element {
+export type AudioReviewIconName = "mic" | "doc" | "note" | "upload" | "play" | "pause";
+
+/** 来源对应的图标：录音是话筒，文档（含粘贴的文字）是一页纸。 */
+export function audioReviewSourceIcon(sourceKind: AudioReviewSourceKind | null | undefined): AudioReviewIconName {
+  return sourceKind === "DOCUMENT" ? "doc" : sourceKind === "AUDIO" ? "mic" : "note";
+}
+
+export function AudioReviewIcon({ name }: { name: AudioReviewIconName }): JSX.Element {
   if (name === "mic") {
     return (
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
         <rect x="5.5" y="1.75" width="5" height="8" rx="2.5" />
         <path d="M3.1 7.6a4.9 4.9 0 0 0 9.8 0M8 12.5v1.9" />
+      </svg>
+    );
+  }
+  if (name === "doc") {
+    return (
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 1.75h5.25L12.25 4.75v9.5H4z" />
+        <path d="M9 1.75v3.25h3.25M6.25 8h3.75M6.25 10.75h3.75" />
+      </svg>
+    );
+  }
+  if (name === "note") {
+    // 点评（来源未定）：一个对话气泡，里面两行字——录音、文档、粘贴的文字都算。
+    return (
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M2.25 3.5A1.5 1.5 0 0 1 3.75 2h8.5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.5V11h-.25a1.5 1.5 0 0 1-1.5-1.5z" />
+        <path d="M5.25 5.5h5.5M5.25 7.75h3.5" />
       </svg>
     );
   }
@@ -43,9 +89,33 @@ export function AudioReviewKindTag({ kind, long = false }: { kind: AudioReviewOp
   );
 }
 
-/** 点评版标记：版本菜单、录音卡标题前都用这一枚，和「我的」「最新修改」同一套尺寸。 */
+/** 点评版标记：版本菜单、点评卡标题前都用这一枚，和「我的」「最新修改」同一套尺寸。录音、文字都是这一枚。 */
 export function AudioReviewVersionTag(): JSX.Element {
-  return <span className={styles.reviewTag}><AudioReviewIcon name="mic" />点评版</span>;
+  return <span className={styles.reviewTag}><AudioReviewIcon name="note" />点评版</span>;
+}
+
+/**
+ * 原话、「没落到条目的话」前面那一枚引用（`audioReviewSegmentRef` 算好的）：
+ * 录音是时间点，等宽字；文档是「第 N 段」，正文字体。点了做什么由调用方给。
+ */
+export function AudioReviewRefButton({ sourceKind, reference, onClick }: {
+  sourceKind: AudioReviewSourceKind;
+  reference: AudioReviewSegmentRef;
+  onClick: () => void;
+}): JSX.Element {
+  if (sourceKind === "DOCUMENT" && reference.segmentId === null) {
+    return <span className={styles.reviewParaRefMissing} title={reference.title}>{reference.label}</span>;
+  }
+  return (
+    <button
+      type="button"
+      className={sourceKind === "DOCUMENT" ? styles.reviewParaRef : styles.reviewTime}
+      onClick={onClick}
+      title={reference.title}
+    >
+      {reference.label}
+    </button>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -227,17 +297,23 @@ export function V19AudioReviewAudioBar({
 // 文字稿
 // ---------------------------------------------------------------------------
 
-/** 一句话里按词表校正过的词：虚线下划线，悬停看原听写。 */
-export function AudioReviewCorrectedText({ text, corrections }: {
+/**
+ * 一句话里校正过的词：虚线下划线，悬停看原文。录音是「按词表校正过的听写」；
+ * 文档是打出来的字，只校正明显的错别字（docs/25 二之二、6）。
+ */
+export function AudioReviewCorrectedText({ text, corrections, sourceKind = "AUDIO" }: {
   text: string;
   corrections: ReadonlyArray<{ from: string; to: string }>;
+  sourceKind?: AudioReviewSourceKind;
 }): JSX.Element {
   const parts = splitAudioReviewCorrections(text, corrections);
   return (
     <>
       {parts.map((part, index) => part.correction ? (
         <span key={index} className={styles.reviewFix}
-          title={`转写原文为“${part.correction.from}”，按词表校正为“${part.correction.to}”`}>
+          title={sourceKind === "DOCUMENT"
+            ? `原文写作“${part.correction.from}”，按错别字校正为“${part.correction.to}”`
+            : `转写原文为“${part.correction.from}”，按词表校正为“${part.correction.to}”`}>
           {part.text}
         </span>
       ) : <span key={index}>{part.text}</span>)}
@@ -297,6 +373,110 @@ export function V19AudioReviewTranscript({
           </Fragment>
         ))}
         {segments.length === 0 && <p className={styles.reviewHint}>这段录音没有转写出文字。</p>}
+      </div>
+    </details>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 文档来源：点评原文（docs/25 二之二、7）。没有录音条、没有时间点；片段就是段落，
+// 按 segments 的顺序编「第 N 段」。点意见原话前的「第 N 段」时展开原文、滚到那一段、
+// 短暂高亮。
+// ---------------------------------------------------------------------------
+
+const PARAGRAPH_FLASH_MS = 1800;
+
+export type AudioReviewParagraphJump = {
+  /** 原文区展开没有（默认折叠）。 */
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  /** 正在短暂高亮的那一段。 */
+  flashId: number | null;
+  /** 点「第 N 段」：展开原文、滚到那一段、短暂高亮。 */
+  jump: (segmentId: number) => void;
+};
+
+/**
+ * `rootRef` 由调用方建好、同时交给 V19AudioReviewDocumentText 的 <details>（理由同
+ * useAudioReviewPlayback：装着 ref 的对象在渲染时读字段会被 react-hooks/refs 当成读 ref）。
+ */
+export function useAudioReviewParagraphJump(rootRef: RefObject<HTMLElement | null>): AudioReviewParagraphJump {
+  const [open, setOpen] = useState(false);
+  const [flash, setFlash] = useState<{ id: number; token: number } | null>(null);
+  const tokenRef = useRef(0);
+
+  const jump = useCallback((segmentId: number) => {
+    tokenRef.current += 1;
+    setOpen(true);
+    setFlash({ id: segmentId, token: tokenRef.current });
+  }, []);
+
+  useEffect(() => {
+    if (!flash) return;
+    // 刚展开时原文这一帧才渲染出来，等一帧再滚。
+    const frame = window.requestAnimationFrame(() => {
+      const node = rootRef.current?.querySelector<HTMLElement>(`[data-review-paragraph="${flash.id}"]`);
+      if (!node) return;
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      node.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+    });
+    const timer = window.setTimeout(() => {
+      setFlash((current) => (current && current.token === flash.token ? null : current));
+    }, PARAGRAPH_FLASH_MS);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [flash, rootRef]);
+
+  return { open, setOpen, flashId: flash?.id ?? null, jump };
+}
+
+export function V19AudioReviewDocumentText({
+  segments,
+  rootRef,
+  open,
+  onToggle,
+  flashId = null,
+}: {
+  segments: readonly AudioReviewSegment[];
+  /** 与 useAudioReviewParagraphJump 同一个 ref：跳段时在这里面找段落。 */
+  rootRef?: RefObject<HTMLDetailsElement | null>;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  flashId?: number | null;
+}): JSX.Element {
+  return (
+    <details
+      ref={rootRef}
+      className={styles.reviewTranscript}
+      open={open}
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+      data-v19-audio-review-document
+    >
+      <summary>{describeAudioReviewDocumentSummary(segments)}</summary>
+      <div className={styles.reviewTranscriptLines}>
+        {segments.map((segment, index) => (
+          <div
+            key={segment.id}
+            data-review-paragraph={segment.id}
+            className={[
+              styles.reviewPara,
+              segment.isReviewer ? "" : styles.reviewParaOther,
+              flashId === segment.id ? styles.reviewParaFlash : "",
+            ].filter(Boolean).join(" ")}
+          >
+            <span className={styles.reviewParaNo}>第 {index + 1} 段</span>
+            <span className={styles.reviewLineText}>
+              {/* 写明是别人说的那几段（如「王一凡问：」）不算老孙的意见：弱化，并标出是谁。 */}
+              {!segment.isReviewer && segment.speaker && (
+                <span className={styles.reviewParaWho} title={`这一段是${segment.speaker}说的，不算点评意见`}>{segment.speaker}</span>
+              )}
+              <AudioReviewCorrectedText text={segment.text} corrections={segment.corrections} sourceKind="DOCUMENT" />
+            </span>
+          </div>
+        ))}
+        {segments.length === 0 && <p className={styles.reviewHint}>这份文档没有读出文字。</p>}
       </div>
     </details>
   );

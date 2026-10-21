@@ -1037,8 +1037,9 @@ input.editableTimecode { padding: 5px 8px; }
 }
 
 /* ======================================================================
-   录音点评改写（docs/25 七；demo：docs/demos/2026-10-10-录音点评改写demo.html）
-   页头入口与进度气泡、上传弹层、确认抽屉、点评版顶部录音卡、被点评版本上的提示条、
+   老孙点评改写（录音或文字；docs/25 七、二之二；demo：docs/demos/2026-10-10-录音点评改写demo.html）
+   页头入口与进度气泡、上传弹层（含直接粘贴文字）、确认抽屉、点评版顶部「老孙的点评」卡
+   （录音条＋文字稿，或文档的「点评原文」）、被点评版本上的提示条、
    版本菜单里的点评版标记、正文的「依据 意见 N」、集成版溯源里的点评版候选行。
    配色只用 --v04-*；点评相关的「身份色」统一用 --v04-subject（条目名的金褐），
    和集成版的 --v04-gold、未纳入的 --v04-warn 区分开。
@@ -1186,7 +1187,41 @@ input.editableTimecode { padding: 5px 8px; }
   .reviewLineText { grid-column: 1 / -1; }
 }
 
-/* ---------- 点评版顶部的录音卡 ---------- */
+/* ---------- 文档来源的「点评原文」（docs/25 二之二、7）：没有时间点，左列是「第 N 段」；
+   写明是别人说的那几段弱化并标出是谁；点意见原话前的「第 N 段」跳过来时短暂高亮。 ---------- */
+.reviewPara {
+  display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; padding: 6px; border-radius: 7px;
+  color: var(--v04-ink-soft); font-size: 12.5px; line-height: 1.7; white-space: pre-line; scroll-margin: 12px;
+}
+.reviewParaNo { padding-top: 1px; color: var(--v04-subject); font-size: 10.5px; font-weight: 800; white-space: nowrap; }
+.reviewParaOther { color: var(--v04-muted); }
+.reviewParaOther .reviewParaNo { color: var(--v04-muted); font-weight: 500; }
+.reviewParaWho {
+  display: inline-flex; margin-right: 6px; border: 1px solid var(--v04-line); border-radius: 999px; padding: 0 7px;
+  color: var(--v04-ink-dim); font-size: 10px; line-height: 1.7; white-space: nowrap; vertical-align: 1px;
+}
+.reviewParaFlash { animation: reviewParaFlash 1.8s ease-out; }
+@keyframes reviewParaFlash {
+  0%, 35% { background: rgb(var(--v04-accent-rgb) / .2); box-shadow: inset 2px 0 0 var(--v04-accent); }
+  100% { background: transparent; box-shadow: inset 2px 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reviewParaFlash { animation: none; background: rgb(var(--v04-accent-rgb) / .14); }
+}
+/* 原话前的「第 N 段」：和时间点同一个强调色，但用正文字体（等宽体里的汉字发虚）。 */
+.surface .reviewParaRef {
+  border: 0; background: none; padding: 0; color: var(--v04-accent); font-size: 10.5px; font-weight: 700; line-height: 1.6;
+  white-space: nowrap; cursor: pointer;
+}
+.surface .reviewParaRef:hover { text-decoration: underline; }
+.reviewParaRefMissing { color: var(--v04-muted); font-size: 10.5px; white-space: nowrap; }
+.reviewQuote .reviewParaRef, .reviewQuote .reviewParaRefMissing,
+.reviewUnaddressed li .reviewParaRef, .reviewUnaddressed li .reviewParaRefMissing { margin-right: 6px; }
+@media (max-width: 620px) {
+  .reviewPara { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+/* ---------- 点评版顶部的「老孙的点评」卡 ---------- */
 .reviewCard { margin: 0 0 22px; border: 1px solid rgb(var(--v04-subject-rgb) / .45); border-radius: 18px; background: var(--v04-panel); scroll-margin-top: 84px; }
 .reviewCardHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 16px 22px; border-bottom: 1px solid var(--v04-line); }
 .reviewCardHead h2 { margin: 0; color: var(--v04-subject); font-size: 17px; font-weight: 500; }
@@ -1199,6 +1234,12 @@ input.editableTimecode { padding: 5px 8px; }
 .surface .reviewJump { border: 0; background: none; padding: 0; color: var(--v04-accent); font-size: 11px; white-space: nowrap; cursor: pointer; }
 .surface .reviewJump:hover { text-decoration: underline; }
 .reviewCardNote { margin: 0; color: var(--v04-muted); font-size: 11px; line-height: 1.7; }
+/* 来源说明里的文件名：文档的可下载原文件。 */
+.surface .reviewFileLink {
+  color: var(--v04-ink-dim); text-decoration: underline; text-decoration-color: rgb(var(--v04-fg-rgb) / .3); text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.surface .reviewFileLink:hover { color: var(--v04-accent); text-decoration-color: currentColor; }
 @media (max-width: 620px) {
   .reviewCardHead, .reviewCardBody { padding-left: 16px; padding-right: 16px; }
   .reviewOpinionList li { grid-template-columns: minmax(0, 1fr) auto; }
@@ -1214,6 +1255,24 @@ input.editableTimecode { padding: 5px 8px; }
 .reviewDrop > svg { width: 26px; height: 26px; color: var(--v04-accent); }
 .reviewDrop > b { font-size: 13px; }
 .reviewDrop > p { margin: 0; color: var(--v04-muted); font-size: 12px; }
+.reviewDrop > small { color: var(--v04-muted); font-size: 11px; opacity: .85; }
+.reviewDropActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+/* 「直接粘贴文字」：站内文本框的写法（--v04-sunken 底、细边、9px 圆角）。 */
+.reviewPaste { display: grid; gap: 8px; }
+.reviewPaste > label { display: grid; gap: 2px; }
+.reviewPaste > label b { font-size: 13px; }
+.reviewPaste > label small { color: var(--v04-muted); font-size: 11px; line-height: 1.6; }
+.surface .reviewPasteInput {
+  width: 100%; min-height: 200px; max-height: 50vh; border: 1px solid var(--v04-line); border-radius: 9px; background: var(--v04-sunken);
+  color: var(--v04-ink); padding: 10px 12px; font-size: 13px; line-height: 1.7; resize: vertical;
+}
+.surface .reviewPasteInput::placeholder { color: var(--v04-muted); }
+.surface .reviewPasteInput:focus { border-color: rgb(var(--v04-accent-rgb) / .55); }
+.reviewPasteBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.reviewPasteCount {
+  margin-right: auto; color: var(--v04-muted); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
 .reviewDialogNotes { margin: 0; padding-left: 18px; color: var(--v04-muted); font-size: 11.5px; line-height: 1.8; }
 .reviewDialogNotes b { color: var(--v04-ink); }
 .reviewUploadProgress { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--v04-line); border-radius: 12px; background: var(--v04-panel-alt); }

@@ -29,12 +29,19 @@ import {
   type V19VersionKind,
   type V19VersionSummary,
 } from "@/lib/v19-ui-model";
-import { AUDIO_REVIEW_CRITIC_NAME, AUDIO_REVIEW_UPLOADER_NAMES, isAudioReviewUploader } from "@/lib/audio-review/access";
-import { audioReviewApi, type AudioReviewView } from "@/lib/audio-review-model";
+import {
+  AUDIO_REVIEW_CRITIC_NAME,
+  AUDIO_REVIEW_UPLOADER_NAMES,
+  AUDIO_REVIEW_VERSION_LABEL,
+  isAudioReviewUploader,
+} from "@/lib/audio-review/access";
+import { audioReviewApi, type AudioReviewSourceKind, type AudioReviewView } from "@/lib/audio-review-model";
 import {
   audioReviewForVersion,
   audioReviewTransitionToast,
   buildV19ReviewBasis,
+  describeAudioReviewNavHint,
+  describeAudioReviewUploadedToast,
   inFlightAudioReviewKey,
   nextV19VersionNumber,
   removeAudioReviewSummary,
@@ -64,7 +71,7 @@ import V19AudioReviewEntry from "./V19AudioReviewEntry";
 import V19AudioReviewUploadDialog from "./V19AudioReviewUploadDialog";
 import V19AudioReviewDrawer from "./V19AudioReviewDrawer";
 import V19AudioReviewCard, { V19_AUDIO_REVIEW_CARD_ID } from "./V19AudioReviewCard";
-import { AudioReviewIcon, AudioReviewVersionTag } from "./V19AudioReviewParts";
+import { AudioReviewIcon, AudioReviewVersionTag, audioReviewSourceIcon } from "./V19AudioReviewParts";
 import styles from "./V04Surface.module.css";
 
 /**
@@ -429,8 +436,8 @@ export default function V04StudioClient({
   const [trashing, setTrashing] = useState(false);
   const [trashError, setTrashError] = useState("");
   const trashKeyRef = useRef(`trash-${videoId}-${crypto.randomUUID()}`);
-  // 录音点评改写（docs/25 七）：上传弹层、确认抽屉、放弃确认、轮询拿到的完整任务、
-  // 点评版顶部录音卡用的那一份任务。toast 去重记在 ref 里（只认亲眼看到的转变）。
+  // 老孙点评改写（录音或文字，docs/25 七、二之二）：上传弹层、确认抽屉、放弃确认、轮询拿到的
+  // 完整任务、点评版顶部点评卡用的那一份任务。toast 去重记在 ref 里（只认亲眼看到的转变）。
   const [audioUploadOpen, setAudioUploadOpen] = useState(false);
   const [audioUploading, setAudioUploading] = useState(false);
   const [audioDrawerReviewId, setAudioDrawerReviewId] = useState<string | null>(null);
@@ -1168,7 +1175,7 @@ export default function V04StudioClient({
   }, [runFinalAction]);
 
   // ---------------------------------------------------------------------------
-  // 录音点评改写（docs/25 七）
+  // 老孙点评改写（录音或文字，docs/25 七、二之二）
   // ---------------------------------------------------------------------------
 
   const patchModel = useCallback((update: (current: V19StudioModel) => V19StudioModel) => {
@@ -1231,7 +1238,7 @@ export default function V04StudioClient({
     try {
       const { review: next } = await audioReviewApi.action(videoId, reviewId, { action: "RETRY" });
       applyAudioReviewView(next, { silent: true });
-      pushToast("已重新开始处理点评录音，好了会在页头提示");
+      pushToast("已重新开始处理点评，好了会在页头提示");
     } catch (reason) {
       pushToast(reason instanceof V04UiApiError ? reason.message : "重试没有成功，请稍后再试。");
     } finally {
@@ -1250,7 +1257,7 @@ export default function V04StudioClient({
       await audioReviewApi.action(videoId, reviewId, { action: "ABANDON" });
       dropAudioReview(reviewId);
       if (closeDrawer) setAudioDrawerReviewId(null);
-      if (reupload) setAudioUploadOpen(true); else pushToast("已放弃这次点评录音，可以重新上传");
+      if (reupload) setAudioUploadOpen(true); else pushToast("已放弃这次点评，可以重新上传");
       return true;
     } catch (reason) {
       pushToast(reason instanceof V04UiApiError ? reason.message : "放弃没有成功，请稍后再试。");
@@ -1288,10 +1295,11 @@ export default function V04StudioClient({
     }
   }, [applyAudioReviewView, patchModel, refreshAudioReviewState]);
 
-  const onAudioReviewUploaded = useCallback((view: AudioReviewView, fileName: string) => {
+  const onAudioReviewUploaded = useCallback((view: AudioReviewView, fileName: string, sourceKind: AudioReviewSourceKind) => {
     applyAudioReviewView(view, { silent: true });
     setAudioUploadOpen(false);
-    pushToast(`已上传「${fileName}」，正在处理……大约需要一两分钟，可以先做别的`);
+    // 来源以上传时的分类为准（服务端的 view.sourceKind 也是按同一个 Content-Type 推出来的）。
+    pushToast(describeAudioReviewUploadedToast(sourceKind, fileName));
   }, [applyAudioReviewView, pushToast]);
 
   const jumpToReviewOpinion = useCallback((opinionNumber: number) => {
@@ -1453,7 +1461,7 @@ export default function V04StudioClient({
     };
   }, [inFlightKey, videoId, applyAudioReviewView, dropAudioReview]);
 
-  // 点评版顶部录音卡与正文「依据」用的那一份任务（全站可见，已生成）。
+  // 点评版顶部点评卡与正文「依据」用的那一份任务（全站可见，已生成）。
   const currentAudioReviewId = model && model.current.kind === "AUDIO_REVIEW" ? model.current.audioReviewId : null;
   useEffect(() => {
     if (!currentAudioReviewId) return;
@@ -1468,7 +1476,7 @@ export default function V04StudioClient({
         if (controller.signal.aborted) return;
         setCurrentAudioReviewError({
           id: currentAudioReviewId,
-          message: reason instanceof V04UiApiError ? reason.message : "录音点评暂时读不出来。",
+          message: reason instanceof V04UiApiError ? reason.message : "点评暂时读不出来。",
         });
       }
     })();
@@ -1575,7 +1583,7 @@ export default function V04StudioClient({
   // 锁定态就是「集成版视角下的只读」，据此区分「压根不是可编辑区」的普通只读。
   const finalLocked = isFinalVersionView && readOnly;
   const canAdoptFinal = isFinalVersionView && !readOnly;
-  // 点评版 id → 点评人：集成版溯源里点评版候选行写「老孙录音点评」（docs/25 六）。录音里点评的
+  // 点评版 id → 点评人：集成版溯源里点评版候选行写「老孙点评」（docs/25 六、二之二）。点评的
   // 始终是老孙；点评版的归属人可能是替他上传的秦欣欣，所以不取 ownerName。
   const reviewerNames = new Map(model.versions
     .filter((version): version is V19VersionSummary & { id: string } => version.kind === "AUDIO_REVIEW" && version.id !== null)
@@ -1612,7 +1620,7 @@ export default function V04StudioClient({
     ? pendingV19StructuralIntakes(model.finalTrace?.intakes ?? [])
     : [];
 
-  // 录音点评改写（docs/25 二、七）：当前是不是点评版、页头入口该是哪种形态、
+  // 老孙点评改写（docs/25 二、七、二之二）：当前是不是点评版、页头入口该是哪种形态、
   // 被点评版本上的提示条、版本菜单里点评版的说明。
   const isReviewVersionView = !isFinalVersionView && model.current.kind === "AUDIO_REVIEW";
   const audioEntry = resolveV19AudioReviewEntry({
@@ -1633,6 +1641,15 @@ export default function V04StudioClient({
   const shownAudioReview = currentAudioReview && currentAudioReview.id === model.current.audioReviewId ? currentAudioReview.view : null;
   const shownAudioReviewError = currentAudioReviewError && currentAudioReviewError.id === model.current.audioReviewId
     ? currentAudioReviewError.message : "";
+  // 当前点评版的来源（录音还是文字）：目录副标题用。摘要先到，完整任务读回来后以它为准。
+  const currentReviewSourceKind: AudioReviewSourceKind | null = isReviewVersionView
+    ? shownAudioReview?.sourceKind ?? (model.current.id ? reviewSummaryByVersion.get(model.current.id)?.sourceKind ?? null : null)
+    : null;
+  // 放弃确认弹窗里按来源说「已上传的录音／文档」。
+  const abandonSourceKind = audioAbandonTarget
+    ? model.audioReviews.find((item) => item.id === audioAbandonTarget)?.sourceKind ?? "AUDIO"
+    : "AUDIO";
+  const abandonNoun = abandonSourceKind === "DOCUMENT" ? "文档" : "录音";
 
   return (
     <main className={styles.surface} data-v04-page="studio" data-v19-viewer-id={viewerUserId}>
@@ -1674,7 +1691,7 @@ export default function V04StudioClient({
               删除案例
             </button>
           ) : null}
-          {/* 老孙的点评录音入口（docs/25 二、1）：只在他看别人的普通版本时出现，
+          {/* 「上传点评」入口（docs/25 二、1，二之二、1）：只给上传名单里的人、只在看别人的普通版本时出现，
               位置在版本胶囊之前；五种形态见 V19AudioReviewEntry。 */}
           <V19AudioReviewEntry
             key={audioEntry.kind}
@@ -1723,10 +1740,10 @@ export default function V04StudioClient({
                   )}
                 </>
               ) : isReviewVersionView ? (
-                // 点评版：「v3 老孙录音点评 基于 v1」（docs/25 二、5）。
+                // 点评版：「v3 老孙点评 基于 v1」（docs/25 二、5，二之二、3）。
                 <>
                   <span className={styles.versionNum}>v{model.current.number}</span>
-                  <span className={styles.versionOwner}>{AUDIO_REVIEW_CRITIC_NAME}录音点评</span>
+                  <span className={styles.versionOwner}>{AUDIO_REVIEW_VERSION_LABEL}</span>
                   {model.current.baseNumber !== null && (
                     <span className={styles.versionBase}>基于 v{model.current.baseNumber}</span>
                   )}
@@ -1750,7 +1767,7 @@ export default function V04StudioClient({
               <div className={styles.versionPanel} role="dialog" aria-label="版本链">
                 <h4>
                   版本链：集成版置顶；其余每位编辑者一个版本，创建即固定基于当时快照，互不覆盖
-                  {hasReviewVersions && "；点评版由老孙的录音点评生成，挂在被点评的版本下面"}
+                  {hasReviewVersions && `；点评版由${AUDIO_REVIEW_CRITIC_NAME}的点评生成，挂在被点评的版本下面`}
                 </h4>
                 {model.final && (
                   <div
@@ -1793,12 +1810,12 @@ export default function V04StudioClient({
                   >
                     <span className={styles.versionNumber}>v{version.number}</span>
                     <span className={styles.versionMeta}>
-                      {AUDIO_REVIEW_CRITIC_NAME}录音点评，基于 v{version.baseNumber ?? "?"}
+                      {AUDIO_REVIEW_VERSION_LABEL}，基于 v{version.baseNumber ?? "?"}
                     </span>
                     <AudioReviewVersionTag />
                     <span className={styles.versionTime}>{formatV19Clock(version.updatedAt)}</span>
                     <span className={styles.versionDesc}>
-                      据录音点评改写 v{version.baseNumber ?? "?"}
+                      据{AUDIO_REVIEW_VERSION_LABEL}改写 v{version.baseNumber ?? "?"}
                       {version.id && reviewSummaryByVersion.get(version.id) ? `，${reviewSummaryByVersion.get(version.id)?.changeCount ?? 0} 处改动` : ""}
                       ；不占个人版本名额，不汇入集成版。
                     </span>
@@ -1987,7 +2004,7 @@ export default function V04StudioClient({
         onCancel={() => setConfirmingTrash(false)}
       />
 
-      {/* 录音点评改写的三个浮层：上传、确认抽屉、放弃确认（放弃确认复用同一个共享弹窗）。 */}
+      {/* 老孙点评改写的三个浮层：上传（录音、文档或粘贴文字）、确认抽屉、放弃确认（复用同一个共享弹窗）。 */}
       <V19AudioReviewUploadDialog
         open={audioUploadOpen}
         videoId={videoId}
@@ -2015,13 +2032,13 @@ export default function V04StudioClient({
       />
       <DeleteConfirmDialog
         open={audioAbandonTarget !== null}
-        eyebrow="AUDIO REVIEW"
+        eyebrow="ABANDON"
         heading="放弃这次点评"
         title={model.case.title}
-        question="放弃这次点评录音？"
+        question="放弃这次点评？"
         lines={[
-          "已上传的录音和拟定的改动都不再使用，入口回到「上传点评录音」，可以重新上传。",
-          "录音文件本身不会被删除。",
+          `已上传的${abandonNoun}和拟定的改动都不再使用，入口回到「上传点评」，可以重新上传。`,
+          `${abandonNoun}文件本身不会被删除。`,
         ]}
         pending={audioReviewBusy}
         confirmLabel="放弃这次点评"
@@ -2042,7 +2059,7 @@ export default function V04StudioClient({
         <nav className={styles.workspaceNav} aria-label="V1.9 工作台目录">
           {isReviewVersionView && (
             <button type="button" onClick={() => void locateV04Target(V19_AUDIO_REVIEW_CARD_ID)}>
-              <b>{AUDIO_REVIEW_CRITIC_NAME}的录音点评</b><span>录音、意见与文字稿</span>
+              <b>{AUDIO_REVIEW_CRITIC_NAME}的点评</b><span>{describeAudioReviewNavHint(currentReviewSourceKind)}</span>
             </button>
           )}
           <button type="button" className={activeNavId === "module-1" ? styles.navActive : undefined} onClick={() => void locateV04Target("module-1")}>
@@ -2095,9 +2112,9 @@ export default function V04StudioClient({
           {/* 被点评版本上的提示条（docs/25 二、10）：所有人可见，这一版本身保持原样。 */}
           {reviewNotice && (
             <div className={styles.reviewNotice} data-v19-review-notice>
-              <AudioReviewIcon name="mic" />
+              <AudioReviewIcon name={audioReviewSourceIcon(reviewNotice.sourceKind)} />
               <span>
-                <b>{AUDIO_REVIEW_CRITIC_NAME}对这一版做了录音点评</b>，据此生成了点评版 v{reviewNotice.reviewVersionNumber ?? "?"}（{reviewNotice.changeCount} 处改动）。这一版保持原样。
+                <b>{AUDIO_REVIEW_CRITIC_NAME}对这一版做了点评</b>，据此生成了点评版 v{reviewNotice.reviewVersionNumber ?? "?"}（{reviewNotice.changeCount} 处改动）。这一版保持原样。
               </span>
               <button type="button" className={styles.reviewGhostButton}
                 onClick={() => openAudioReviewVersion(reviewNotice.reviewVersionId as string)}>去看点评版</button>
@@ -2150,7 +2167,8 @@ export default function V04StudioClient({
               ))}
             </div>
           )}
-          {/* 点评版顶部的录音卡（docs/25 二、5）：录音、意见清单、完整文字稿，全站可见。 */}
+          {/* 点评版顶部的「老孙的点评」卡（docs/25 二、5，二之二、3）：来源、意见清单、原文（录音＋文字稿，
+              或文档的点评原文），全站可见。 */}
           {isReviewVersionView && (
             <V19AudioReviewCard
               videoId={videoId}

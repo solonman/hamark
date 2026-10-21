@@ -1,16 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState, type JSX } from "react";
-import { AUDIO_REVIEW_STEP_LABELS, formatAudioClock, type AudioReviewView } from "@/lib/audio-review-model";
-import { describeAudioReviewFailure, type V19AudioReviewEntryState } from "@/lib/audio-review-ui";
-import { AudioReviewIcon } from "./V19AudioReviewParts";
+import { audioReviewStepLabels, formatAudioClock, type AudioReviewView } from "@/lib/audio-review-model";
+import {
+  audioReviewSourceNoun,
+  describeAudioReviewFailure,
+  describeAudioReviewProgress,
+  type V19AudioReviewEntryState,
+} from "@/lib/audio-review-ui";
+import { AudioReviewIcon, audioReviewSourceIcon } from "./V19AudioReviewParts";
 import styles from "./V04Surface.module.css";
 
 /**
- * 页头右侧、版本胶囊之前的点评录音入口（docs/25 七、1），五种形态：
- * 上传按钮／处理中胶囊（转圈＋当前步骤，点开是进度气泡）／失败胶囊（点开看原因、
- * 重试或重新上传）／待确认胶囊（主色底，点开确认抽屉）／「查看点评版 vN」。
- * 只管渲染和把点击交出去；接口调用、确认弹窗都在外壳里。
+ * 页头右侧、版本胶囊之前的老孙点评入口（docs/25 七、1，二之二），五种形态：
+ * 上传按钮（录音、文档或直接粘贴文字）／处理中胶囊（转圈＋当前步骤，点开是进度气泡）／
+ * 失败胶囊（点开看原因、重试或重新上传）／待确认胶囊（主色底，点开确认抽屉）／
+ * 「查看点评版 vN」。三步的叫法按来源：录音「上传录音 / 转写成文字」，文档
+ * 「上传文档 / 读取文字」。只管渲染和把点击交出去；接口调用、确认弹窗都在外壳里。
  */
 export default function V19AudioReviewEntry({
   state,
@@ -30,7 +36,7 @@ export default function V19AudioReviewEntry({
   view: AudioReviewView | null;
   /** 「v1 刘梦娜」：气泡里说明点评对象。 */
   baseLabel: string;
-  /** 这一页正在往存储里传这段录音（上传弹层开着且在传）。 */
+  /** 这一页正在往存储里传这份点评（上传弹层开着且在传）。 */
   uploadingLocally: boolean;
   busy: boolean;
   onUpload: () => void;
@@ -64,12 +70,16 @@ export default function V19AudioReviewEntry({
     return (
       <div className={styles.reviewEntry}>
         <button type="button" className={styles.reviewEntryButton} onClick={onUpload} data-v19-audio-review-entry="upload"
-          title={`上传分享会上对 ${baseLabel} 的点评录音`}>
-          <AudioReviewIcon name="mic" /><span className={styles.reviewEntryLabel}>上传点评录音</span>
+          title={`上传对 ${baseLabel} 的点评：录音、文档或直接粘贴文字`}>
+          <AudioReviewIcon name="note" /><span className={styles.reviewEntryLabel}>上传点评</span>
         </button>
       </div>
     );
   }
+
+  // 老后端的摘要不带来源时按录音（文字点评上线前只有录音）。
+  const sourceKind = state.review.sourceKind ?? "AUDIO";
+  const sourceIcon = audioReviewSourceIcon(sourceKind);
 
   if (state.kind === "VIEW") {
     const reviewVersionId = state.review.reviewVersionId as string;
@@ -77,7 +87,7 @@ export default function V19AudioReviewEntry({
       <div className={styles.reviewEntry}>
         <button type="button" className={styles.reviewEntryButton} onClick={() => onView(reviewVersionId)}
           data-v19-audio-review-entry="view" title="打开点评版，比较默认开启">
-          <AudioReviewIcon name="mic" />
+          <AudioReviewIcon name={sourceIcon} />
           <span className={styles.reviewEntryLabel}>查看点评版</span> <b>v{state.review.reviewVersionNumber ?? "?"}</b>
         </button>
       </div>
@@ -89,7 +99,7 @@ export default function V19AudioReviewEntry({
       <div className={styles.reviewEntry}>
         <button type="button" className={`${styles.reviewEntryChip} ${styles.reviewEntryPending}`} onClick={onOpenDrawer}
           data-v19-audio-review-entry="pending" title="核对拟定的改动，确认后生成点评版">
-          <AudioReviewIcon name="mic" />
+          <AudioReviewIcon name={sourceIcon} />
           <span className={styles.reviewEntryLabel}>点评改动待确认 ·</span> <b>{state.review.changeCount}</b>
           <span className={styles.reviewEntryLabel}>处</span>
         </button>
@@ -99,10 +109,13 @@ export default function V19AudioReviewEntry({
 
   const failed = state.kind === "FAILED";
   const step = state.review.step;
+  const stepLabels = audioReviewStepLabels(sourceKind);
+  const noun = audioReviewSourceNoun(sourceKind);
   // 上传那一步卡住而这一页并没有在传：多半是上次传到一半关了页面或断了网，
   // 只能放弃重来，别让人对着一个永远不动的转圈干等。
   const stalledUpload = !failed && state.review.status === "UPLOADING" && !uploadingLocally;
   const fileNote = view ? `${view.audio.fileName}${view.audio.durationMs ? ` · ${formatAudioClock(view.audio.durationMs)}` : ""}` : "";
+  const progress = describeAudioReviewProgress(sourceKind, step);
 
   return (
     <div className={styles.reviewEntry} ref={wrapRef}>
@@ -112,25 +125,26 @@ export default function V19AudioReviewEntry({
         aria-expanded={showPop}
         aria-haspopup="dialog"
         data-v19-audio-review-entry={failed ? "failed" : "processing"}
-        title={failed ? `点评录音处理失败：${state.review.failReason ?? "原因未知"}` : "点评录音处理中，点开看进度"}
+        data-v19-audio-review-source={sourceKind}
+        title={failed ? `点评处理失败：${state.review.failReason ?? "原因未知"}` : `${progress}，点开看进度`}
         onClick={() => setPopOpen((current) => !current)}
       >
-        {failed ? <AudioReviewIcon name="mic" /> : <span className={styles.reviewSpin} aria-hidden="true" />}
+        {failed ? <AudioReviewIcon name={sourceIcon} /> : <span className={styles.reviewSpin} aria-hidden="true" />}
         {failed ? (
-          <span className={styles.reviewEntryLabel}>点评录音处理失败</span>
+          <span className={styles.reviewEntryLabel}>点评处理失败</span>
         ) : (
           <>
-            <span className={styles.reviewEntryLabel}>点评录音处理中 · {AUDIO_REVIEW_STEP_LABELS[step]}</span>
-            <b>{step + 1}/{AUDIO_REVIEW_STEP_LABELS.length}</b>
+            <span className={styles.reviewEntryLabel}>点评处理中 · {stepLabels[step]}</span>
+            <b>{step + 1}/{stepLabels.length}</b>
           </>
         )}
       </button>
       {showPop && (
-        <div className={styles.reviewPop} role="dialog" aria-label="点评录音处理进度">
+        <div className={styles.reviewPop} role="dialog" aria-label="点评处理进度">
           <h4>
             {failed
-              ? describeAudioReviewFailure(view?.failedStep ?? (step === 0 ? "UPLOAD" : step === 1 ? "TRANSCRIBE" : "UNDERSTAND"))
-              : stalledUpload ? "录音没有传完" : "正在处理点评录音"}
+              ? describeAudioReviewFailure(view?.failedStep ?? (step === 0 ? "UPLOAD" : step === 1 ? "TRANSCRIBE" : "UNDERSTAND"), sourceKind)
+              : stalledUpload ? `${noun}没有传完` : "正在处理点评"}
           </h4>
           <p>
             {failed
@@ -140,7 +154,7 @@ export default function V19AudioReviewEntry({
                 : `点评对象：${baseLabel}。可以离开页面，好了会在这里提示，回来也接得上。`}
           </p>
           <ol className={styles.reviewSteps}>
-            {AUDIO_REVIEW_STEP_LABELS.map((label, index) => {
+            {stepLabels.map((label, index) => {
               const done = index < step;
               const current = index === step;
               const className = done

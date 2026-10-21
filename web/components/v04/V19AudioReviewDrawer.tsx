@@ -2,23 +2,33 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type JSX } from "react";
 import { createPortal } from "react-dom";
-import { audioReviewApi, formatAudioClock, type AudioReviewView } from "@/lib/audio-review-model";
-import { audioReviewOpinionQuotes, groupAudioReviewOpinions } from "@/lib/audio-review-ui";
+import { AUDIO_REVIEW_VERSION_LABEL } from "@/lib/audio-review/access";
+import { audioReviewApi, type AudioReviewView } from "@/lib/audio-review-model";
+import {
+  audioReviewOpinionQuotes,
+  audioReviewSegmentRef,
+  groupAudioReviewOpinions,
+  type AudioReviewSegmentRef,
+} from "@/lib/audio-review-ui";
 import { V04UiApiError } from "@/lib/v04-ui-api-client";
 import {
   AudioReviewCorrectedText,
   AudioReviewKindTag,
+  AudioReviewRefButton,
+  useAudioReviewParagraphJump,
   useAudioReviewPlayback,
   V19AudioReviewAudioBar,
+  V19AudioReviewDocumentText,
   V19AudioReviewTranscript,
 } from "./V19AudioReviewParts";
 import styles from "./V04Surface.module.css";
 
 /**
- * 确认点评改动（docs/25 二、4，七、3）：右侧抽屉，按「意见」组织。录音条、摘要、
- * 意见卡（总体／具体、原话＋时间点、落实说明、「原 → 改」逐处勾选、整条勾选含半选）、
- * 没落到条目的话、完整文字稿；底部是已选处数和三个动作。抽屉自己读一次完整任务；
- * 放弃、重新上传、生成都交给外壳（要改 model、切版本、弹 toast）。
+ * 确认点评改动（docs/25 二、4，七、3，二之二、7）：右侧抽屉，按「意见」组织。录音条（只有
+ * 录音来源才有）、摘要、意见卡（总体／具体、原话＋引用、落实说明、「原 → 改」逐处勾选、
+ * 整条勾选含半选）、没落到条目的话、原文区（录音是完整文字稿；文档是「点评原文」，
+ * 默认折叠，点「第 N 段」展开并滚到那一段）；底部是已选处数和三个动作。抽屉自己读一次
+ * 完整任务；放弃、重新上传、生成都交给外壳（要改 model、切版本、弹 toast）。
  */
 export default function V19AudioReviewDrawer({
   open,
@@ -57,6 +67,8 @@ export default function V19AudioReviewDrawer({
   const view = loaded && loaded.id === reviewId ? loaded.view : null;
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const playback = useAudioReviewPlayback(audioRef, view?.audio.durationMs ?? null);
+  const documentRef = useRef<HTMLDetailsElement | null>(null);
+  const paragraphs = useAudioReviewParagraphJump(documentRef);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 标记已在浏览器挂载，SSR 时没有 document（同 DeleteConfirmDialog）
   useEffect(() => { setMounted(true); }, []);
@@ -97,8 +109,11 @@ export default function V19AudioReviewDrawer({
 
   const groups = useMemo(() => (view ? groupAudioReviewOpinions(view) : []), [view]);
   const segments = view?.transcript?.segments ?? [];
+  // 老后端的任务不带来源时按录音（文字点评上线前只有录音）。
+  const sourceKind = view?.sourceKind ?? "AUDIO";
+  const isDocument = sourceKind === "DOCUMENT";
   const marks = useMemo(() => {
-    if (!view?.proposal) return [];
+    if (!view?.proposal || view.sourceKind === "DOCUMENT") return [];
     const list = view.transcript?.segments ?? [];
     return view.proposal.opinions.flatMap((opinion) =>
       audioReviewOpinionQuotes(list, opinion.segmentIds).map((segment) => ({ ms: segment.startMs, title: `意见 ${opinion.number}` })));
@@ -127,6 +142,14 @@ export default function V19AudioReviewDrawer({
       return next;
     });
   };
+  // 原话前的引用被点了：录音跳到那一刻播放；文档展开点评原文、滚到那一段并短暂高亮。
+  const followRef = (reference: AudioReviewSegmentRef) => {
+    if (isDocument) {
+      if (reference.segmentId !== null) paragraphs.jump(reference.segmentId);
+      return;
+    }
+    playback.seek(reference.startMs);
+  };
 
   return createPortal(
     <div className={styles.surface} style={{ display: "contents" }}>
@@ -135,7 +158,7 @@ export default function V19AudioReviewDrawer({
         <header className={styles.reviewDrawerHead}>
           <div>
             <h3 id={titleId}>确认点评改动</h3>
-            <small>据{view?.reviewerName ?? "老孙"}录音点评改写 {baseLabel} · 确认后生成点评版 v{nextVersionNumber}</small>
+            <small>据{AUDIO_REVIEW_VERSION_LABEL}改写 {baseLabel} · 确认后生成点评版 v{nextVersionNumber}</small>
           </div>
           <button type="button" className={styles.reviewDrawerClose} onClick={onClose} disabled={busy} aria-label="关闭确认面板">✕</button>
         </header>
@@ -152,15 +175,18 @@ export default function V19AudioReviewDrawer({
           )}
           {view && (
             <>
-              <V19AudioReviewAudioBar
-                audioRef={audioRef}
-                src={audioReviewApi.audioUrl(videoId, view.id)}
-                fileName={view.audio.fileName}
-                playback={playback}
-                marks={marks}
-              />
+              {/* 文档来源没有录音条，也就不会有「录音暂时播放不了」（docs/25 二之二、7）。 */}
+              {!isDocument && (
+                <V19AudioReviewAudioBar
+                  audioRef={audioRef}
+                  src={audioReviewApi.audioUrl(videoId, view.id)}
+                  fileName={view.audio.fileName}
+                  playback={playback}
+                  marks={marks}
+                />
+              )}
               <p className={styles.reviewSummary}>
-                听出 <b>{opinionCount} 条意见</b>（{generalCount} 条总体、{opinionCount - generalCount} 条具体），落实为 <b>{totalChanges} 处改动</b>
+                {isDocument ? "读出" : "听出"} <b>{opinionCount} 条意见</b>（{generalCount} 条总体、{opinionCount - generalCount} 条具体），落实为 <b>{totalChanges} 处改动</b>
                 {unaddressed.length > 0 ? `；另有 ${unaddressed.length} 段话没有落到条目，列在最后。` : "。"}
               </p>
               <p className={styles.reviewHint}>逐处核对“原 → 改”。理解错了的取消勾选即可；改写措辞不满意，也可以先生成，再在点评版里直接改。</p>
@@ -192,16 +218,17 @@ export default function V19AudioReviewDrawer({
                     </div>
                     {quotes.length > 0 && (
                       <div className={styles.reviewQuotes}>
-                        {quotes.map((segment) => (
-                          <div key={segment.id} className={styles.reviewQuote}>
-                            <button type="button" className={styles.reviewTime} onClick={() => playback.seek(segment.startMs)}
-                              title="跳到录音这里播放">
-                              {formatAudioClock(segment.startMs)}
-                            </button>
-                            {!segment.isReviewer && `${segment.speaker}：`}
-                            <AudioReviewCorrectedText text={segment.text} corrections={segment.corrections} />
-                          </div>
-                        ))}
+                        {quotes.map((segment) => {
+                          const reference = audioReviewSegmentRef(sourceKind, segments, [segment.id], segment.startMs);
+                          return (
+                            <div key={segment.id} className={styles.reviewQuote}>
+                              <AudioReviewRefButton sourceKind={sourceKind} reference={reference} onClick={() => followRef(reference)} />
+                              {/* 文档的段落本身就写着是谁说的（「王一凡问：」），不再另加说话人。 */}
+                              {!isDocument && !segment.isReviewer && `${segment.speaker}：`}
+                              <AudioReviewCorrectedText text={segment.text} corrections={segment.corrections} sourceKind={sourceKind} />
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     {opinion.rationale && <p className={styles.reviewOpWhy}>{opinion.rationale}</p>}
@@ -228,7 +255,7 @@ export default function V19AudioReviewDrawer({
                       <p className={styles.reviewOpEmpty}>
                         {listedUnder.length > 0
                           ? `这条意见的改动与意见 ${listedUnder.join("、")} 改到同一处，列在那里。`
-                          : "这条意见听到了，但不需要改动条目。"}
+                          : `这条意见${isDocument ? "读到" : "听到"}了，但不需要改动条目。`}
                       </p>
                     )}
                   </article>
@@ -239,20 +266,31 @@ export default function V19AudioReviewDrawer({
                 <details className={styles.reviewUnaddressed}>
                   <summary>没有落到条目的话（{unaddressed.length} 段）</summary>
                   <ul>
-                    {unaddressed.map((item, index) => (
-                      <li key={`${item.startMs}-${index}`}>
-                        <button type="button" className={styles.reviewTime} onClick={() => playback.seek(item.startMs)}>
-                          {formatAudioClock(item.startMs)}
-                        </button>
-                        {item.speaker}：{item.text}
-                        <em>{item.reason}</em>
-                      </li>
-                    ))}
+                    {unaddressed.map((item, index) => {
+                      const reference = audioReviewSegmentRef(sourceKind, segments, item.segmentIds, item.startMs);
+                      return (
+                        <li key={`${item.segmentIds.join("-")}-${index}`}>
+                          <AudioReviewRefButton sourceKind={sourceKind} reference={reference} onClick={() => followRef(reference)} />
+                          {!isDocument && item.speaker ? `${item.speaker}：` : ""}{item.text}
+                          <em>{item.reason}</em>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </details>
               )}
 
-              <V19AudioReviewTranscript segments={segments} playback={playback} />
+              {isDocument ? (
+                <V19AudioReviewDocumentText
+                  segments={segments}
+                  rootRef={documentRef}
+                  open={paragraphs.open}
+                  onToggle={paragraphs.setOpen}
+                  flashId={paragraphs.flashId}
+                />
+              ) : (
+                <V19AudioReviewTranscript segments={segments} playback={playback} />
+              )}
             </>
           )}
         </div>
