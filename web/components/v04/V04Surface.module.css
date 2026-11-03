@@ -93,7 +93,7 @@
 .brandWordmark small { color: var(--v04-muted); font-size: 9px; letter-spacing: .15em; }
 .siteNav { display: flex; align-items: center; justify-content: center; gap: 18px; }
 .siteNav a, .siteNav span, .siteNav button { border: 0; background: transparent; color: var(--v04-muted); padding: 0; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-decoration: none; cursor: pointer; }
-.siteNav button:hover { color: var(--v04-ink); }
+.siteNav button:hover, .siteNav a:hover { color: var(--v04-ink); }
 .siteNav .activeNav { color: var(--v04-ink); }
 .headerCaseTitle { overflow: hidden; max-width: min(30vw, 360px); color: var(--v04-ink) !important; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0 !important; }
 .siteUtilities { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }

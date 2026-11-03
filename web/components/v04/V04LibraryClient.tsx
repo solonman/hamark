@@ -173,7 +173,7 @@ function CaseRating({ engagement }: { engagement: CaseEngagement }) {
   );
 }
 
-export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false, visualLibraryEnabled = false, retroLibraryEnabled = false }: {
+export default function V04LibraryClient({ viewerName, formal = false, user, reportLibraryEnabled = false, visualLibraryEnabled = false, retroLibraryEnabled = false, worksLibraryUrl = null }: {
   viewerName: string;
   formal?: boolean;
   user?: UserMenuUser;
@@ -183,6 +183,8 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
   visualLibraryEnabled?: boolean;
   /** 客户需求复盘库的总开关（RETRO_LIBRARY_ENABLED）。关闭时 RETRO 页签显示「建设中」，顶栏的「新建案例」在但按不动，同 VISUAL。 */
   retroLibraryEnabled?: boolean;
+  /** 作品库（AdVault）的入口（docs/27 3.1）：不是页签，点了在新标签页打开 AdVault；null 代表开关关着，这一项不出现。 */
+  worksLibraryUrl?: string | null;
 }) {
   const tabToken = useRef(`v04-library-${crypto.randomUUID()}`);
   const [cases, setCases] = useState<V04LibraryCase[]>([]);
@@ -435,6 +437,7 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
         <button type="button" className={library === "REPORT" ? styles.activeNav : ""} aria-current={library === "REPORT" ? "page" : undefined} onClick={() => setLibrary("REPORT")}>报告库</button>
         <button type="button" className={library === "VISUAL" ? styles.activeNav : ""} aria-current={library === "VISUAL" ? "page" : undefined} onClick={() => setLibrary("VISUAL")}>公共视觉库</button>
         <button type="button" className={library === "RETRO" ? styles.activeNav : ""} aria-current={library === "RETRO" ? "page" : undefined} onClick={() => setLibrary("RETRO")}>客户需求复盘库</button>
+        {worksLibraryUrl ? <a href={worksLibraryUrl} target="_blank" rel="noopener">作品库</a> : null}
         {formal ? null : <span>UI PROTOTYPE</span>}
       </nav>
       {/* 上传按钮跟着当前库走：站里现在有四种可反写／可收集的东西，「上传作品」说不清是哪一种。

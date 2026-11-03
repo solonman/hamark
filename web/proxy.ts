@@ -7,6 +7,8 @@ const publicExact = new Set([
   "/api/auth/local-demo",
   "/api/auth/wecom/start",
   "/api/auth/wecom/callback",
+  // 作品库统一登录（docs/27 5.4）：浏览器整页跳来的，没登录要跳扫码页而不是吐 401 JSON，由路由自己判断会话。
+  "/api/sso/advault",
   "/favicon.svg",
   "/og.png",
 ]);
