@@ -11,6 +11,7 @@ import { REPORT_FINAL_SCHEMA_STATEMENTS } from "./report-final-schema";
 import { VISUAL_SCHEMA_STATEMENTS } from "./visual-schema";
 import { RETRO_SCHEMA_STATEMENTS } from "./retro-schema";
 import { AGENT_TOKEN_SCHEMA_STATEMENTS } from "./agent-token-schema";
+import { UPLOAD_DEDUP_SCHEMA_STATEMENTS } from "./upload-dedup-schema";
 
 export const BOOTSTRAP_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS app_admins (
@@ -570,6 +571,7 @@ export const BOOTSTRAP_STATEMENTS = [
   ...VISUAL_SCHEMA_STATEMENTS,
   ...RETRO_SCHEMA_STATEMENTS,
   ...AGENT_TOKEN_SCHEMA_STATEMENTS,
+  ...UPLOAD_DEDUP_SCHEMA_STATEMENTS,
   // Supabase also exposes the public schema over PostgREST. Runtime access only
   // happens server-side through the BYPASSRLS pooler role, so RLS with no
   // policies closes the anon/authenticated path without affecting any query.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { AUDIO_REVIEW_CRITIC_NAME } from "@/lib/audio-review/access";
 import {
@@ -20,6 +20,8 @@ import {
   pastedAudioReviewFile,
 } from "@/lib/audio-review-ui";
 import { V04UiApiError } from "@/lib/v04-ui-api-client";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import { recordUploadFingerprint, useUploadDuplicateCheck } from "@/components/shared/use-upload-duplicate-check";
 import { AudioReviewIcon } from "./V19AudioReviewParts";
 import dialogStyles from "@/components/shared/DeleteConfirmDialog.module.css";
 import styles from "./V04Surface.module.css";
@@ -126,7 +128,14 @@ export default function V19AudioReviewUploadDialog({
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  // 选好的文件先比一下是不是传过（docs/28）：没传过就直接开传；传过就停在这里等「仍要上传」。
+  const [held, setHeld] = useState<{ file: File; checked: { sourceKind: AudioReviewSourceKind; contentType: string }; noun: UploadNoun } | null>(null);
+  const heldRef = useRef(held);
+  const heldFiles = useMemo(() => (held ? [held.file] : []), [held]);
+  const duplicates = useUploadDuplicateCheck(heldFiles, { library: "AUDIO_REVIEW" });
   const busy = phase !== "IDLE";
+
+  useEffect(() => { heldRef.current = held; }, [held]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- 标记已在浏览器挂载，SSR 时没有 document（同 DeleteConfirmDialog）
   useEffect(() => { setMounted(true); }, []);
@@ -141,7 +150,7 @@ export default function V19AudioReviewUploadDialog({
   useEffect(() => {
     if (!open) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) { setError(""); onClose(); }
+      if (event.key === "Escape" && !busy) { setError(""); setHeld(null); onClose(); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -165,6 +174,7 @@ export default function V19AudioReviewUploadDialog({
       });
       reviewId = created.review.id;
       onCreated(created.review);
+      if (uploadNoun !== "文字") recordUploadFingerprint("AUDIO_REVIEW", reviewId, file);
       setPhase("UPLOADING");
       onUploadingChange(true);
       await putAudioReviewFile(created.uploadUrl, file, checked.contentType, setProgress, (request) => { requestRef.current = request; }, uploadNoun);
@@ -200,7 +210,24 @@ export default function V19AudioReviewUploadDialog({
     if (!file || busy) return;
     const checked = classifyAudioReviewUpload(file);
     if (!checked.ok) { setError(checked.error); return; }
-    void start(file, checked, checked.sourceKind === "DOCUMENT" ? "文档" : "录音");
+    const uploadNoun: UploadNoun = checked.sourceKind === "DOCUMENT" ? "文档" : "录音";
+    setError("");
+    const next = { file, checked, noun: uploadNoun };
+    heldRef.current = next;
+    setHeld(next);
+    void duplicates.settle([file]).then((clear) => {
+      // 等比对的这一会儿又换了文件或关了弹层，就不是这一份了。
+      if (!clear || heldRef.current?.file !== file) return;
+      setHeld(null);
+      void start(file, checked, uploadNoun);
+    });
+  };
+
+  const startHeld = () => {
+    const current = heldRef.current;
+    if (!current) return;
+    setHeld(null);
+    void start(current.file, current.checked, current.noun);
   };
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -239,13 +266,13 @@ export default function V19AudioReviewUploadDialog({
       <div
         className={dialogStyles.uploadBackdrop}
         role="presentation"
-        onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) { setError(""); onClose(); } }}
+        onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) { setError(""); setHeld(null); onClose(); } }}
       >
         <section className={dialogStyles.uploadDialog} role="dialog" aria-modal="true" aria-labelledby={titleId}
           data-v19-audio-review-upload>
           <div className={dialogStyles.uploadHead}>
             <div><small>点评对象：{baseLabel} · {caseTitle}</small><b id={titleId}>上传点评</b></div>
-            {!busy && <button type="button" className={dialogStyles.uploadClose} onClick={() => { setError(""); onClose(); }} aria-label="关闭上传窗口">×</button>}
+            {!busy && <button type="button" className={dialogStyles.uploadClose} onClick={() => { setError(""); setHeld(null); onClose(); }} aria-label="关闭上传窗口">×</button>}
           </div>
           <div className={dialogStyles.uploadBody}>
             {busy ? (
@@ -308,6 +335,7 @@ export default function V19AudioReviewUploadDialog({
                 <input ref={inputRef} type="file" accept={ACCEPT} hidden onChange={(event) => onPick(event.target.files)} />
               </div>
             )}
+            {!busy && held ? <DuplicateUploadNotice check={duplicates} showFileNames onAcknowledged={startHeld} /> : null}
             {error && <p className={styles.reviewDialogError} role="alert">{error}</p>}
             <ul className={styles.reviewDialogNotes}>
               <li>
@@ -321,7 +349,7 @@ export default function V19AudioReviewUploadDialog({
             {phase === "UPLOADING" ? (
               <button type="button" onClick={() => requestRef.current?.abort()}>取消上传</button>
             ) : (
-              <button type="button" disabled={busy} onClick={() => { setError(""); onClose(); }}>{busy ? "请稍候…" : "取消"}</button>
+              <button type="button" disabled={busy} onClick={() => { setError(""); setHeld(null); onClose(); }}>{busy ? "请稍候…" : "取消"}</button>
             )}
           </div>
         </section>

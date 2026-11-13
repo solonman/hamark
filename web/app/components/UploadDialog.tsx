@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import {
+  DUPLICATE_PENDING_MESSAGE,
+  recordUploadFingerprint,
+  useUploadDuplicateCheck,
+} from "@/components/shared/use-upload-duplicate-check";
 import { readJsonResponse } from "@/lib/http-json";
 import { confirmVideoUpload, UploadConfirmationError } from "./confirm-video-upload";
 import { createThumbnailFromVideoFile } from "./video-thumbnail";
@@ -66,6 +72,8 @@ export default function UploadDialog({
   // 文件和封面都已落到 COS、只差确认入库的那条条目。再点提交只补确认，不重建条目、不重传。
   const [pendingVideoId, setPendingVideoId] = useState<string | null>(null);
   const locked = busy || pendingVideoId !== null;
+  const pickedFiles = useMemo(() => (file ? [file] : []), [file]);
+  const duplicates = useUploadDuplicateCheck(pickedFiles, { library: "VIDEO" });
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -75,6 +83,12 @@ export default function UploadDialog({
     }
     setBusy(true);
     setError("");
+    // 比对还没结束就等它；有没确认的重复就停在这里（只提醒、不拦截，点「仍要上传」即可）。
+    if (!pendingVideoId && !(await duplicates.settle())) {
+      setBusy(false);
+      setError(DUPLICATE_PENDING_MESSAGE);
+      return;
+    }
     try {
       let videoId = pendingVideoId;
       if (!videoId) {
@@ -114,6 +128,7 @@ export default function UploadDialog({
         ]);
         videoId = data.videoId;
         setPendingVideoId(videoId);
+        recordUploadFingerprint("VIDEO", videoId, file);
       }
       if ((await confirmVideoUpload(videoId)) === "unauthorized") {
         redirectToLogin();
@@ -184,6 +199,7 @@ export default function UploadDialog({
               </span>
             )}
           </button>
+          <DuplicateUploadNotice check={duplicates} paper />
 
           <div className="form-grid">
             <label>

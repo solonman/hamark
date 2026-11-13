@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type JSX } from "react";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import { recordUploadFingerprint, useUploadDuplicateCheck } from "@/components/shared/use-upload-duplicate-check";
 import { AUDIO_REVIEW_EXTENSIONS } from "@/lib/audio-review-model";
 import { retroApi, retroReasonText } from "@/lib/retro-client";
 import { RETRO_LIMITS, formatRetroMonth, type RetroRecordingView } from "@/lib/retro-model";
@@ -50,6 +52,11 @@ export default function RetroRecordingUploadDialog({
   const [unfinished, setUnfinished] = useState<{ recording: RetroRecordingView; fileName: string } | null>(null);
   const busy = phase !== "IDLE";
   const isSummary = caseId === null;
+  // 选好的录音先比一下是不是传过（docs/28）：没传过直接开传；传过就停在这里等「仍要上传」。
+  const [held, setHeld] = useState<File | null>(null);
+  const heldRef = useRef<File | null>(null);
+  const heldFiles = useMemo(() => (held ? [held] : []), [held]);
+  const duplicates = useUploadDuplicateCheck(heldFiles, { library: "RETRO" });
 
   const closeDialog = useCallback(() => {
     if (unfinished) onKept?.();
@@ -77,6 +84,7 @@ export default function RetroRecordingUploadDialog({
       const created = await retroApi.createRecording({ monthKey, caseId, fileName: file.name, contentType: checked.contentType, sizeBytes: file.size });
       recordingId = created.recording.id;
       createdRecording = created.recording;
+      recordUploadFingerprint("RETRO_RECORDING", recordingId, file);
       setPhase("UPLOADING");
       onUploadingChange?.(true);
       await putAudioReviewFile(created.uploadUrl, file, checked.contentType, setProgress, (request) => { requestRef.current = request; });
@@ -127,7 +135,27 @@ export default function RetroRecordingUploadDialog({
   function onPick(files: FileList | null) {
     const file = files?.[0];
     if (inputRef.current) inputRef.current.value = "";
-    if (file) void start(file);
+    if (!file || busy) return;
+    const checked = validateAudioReviewFile(file);
+    if ("error" in checked) { setError(checked.error); return; }
+    setError("");
+    heldRef.current = file;
+    setHeld(file);
+    void duplicates.settle([file]).then((clear) => {
+      // 比对的这一会儿又换了文件，就不是这一份了。
+      if (!clear || heldRef.current !== file) return;
+      heldRef.current = null;
+      setHeld(null);
+      void start(file);
+    });
+  }
+
+  function startHeld() {
+    const file = heldRef.current;
+    if (!file) return;
+    heldRef.current = null;
+    setHeld(null);
+    void start(file);
   }
 
   return (
@@ -170,6 +198,7 @@ export default function RetroRecordingUploadDialog({
                   <span>m4a／mp3／wav／aac／flac／ogg／amr／wma／3gp／mp4，单段不超过 500MB</span>
                 </button>
                 <input ref={inputRef} type="file" accept={ACCEPT} hidden onChange={(event) => onPick(event.target.files)} />
+                {held ? <DuplicateUploadNotice check={duplicates} showFileNames onAcknowledged={startHeld} /> : null}
               </>
             )}
             <ul className={styles.recNotes}>

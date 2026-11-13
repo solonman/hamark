@@ -1,7 +1,13 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import {
+  DUPLICATE_PENDING_MESSAGE,
+  recordUploadFingerprint,
+  useUploadDuplicateCheck,
+} from "@/components/shared/use-upload-duplicate-check";
 import { readJsonResponse } from "@/lib/http-json";
 
 export type ReplacedVideoFile = {
@@ -131,6 +137,9 @@ export default function ReplaceVideoDialog({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const pickedFiles = useMemo(() => (file ? [file] : []), [file]);
+  // 换片查的是「这个新文件是不是已经是库里别的作品」，自己这条不算。
+  const duplicates = useUploadDuplicateCheck(pickedFiles, { library: "VIDEO", excludeOwnerId: videoId });
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -144,9 +153,18 @@ export default function ReplaceVideoDialog({
     }
     setBusy(true);
     setError("");
+    if (!(await duplicates.settle())) {
+      setBusy(false);
+      setError(DUPLICATE_PENDING_MESSAGE);
+      return;
+    }
     try {
       const replacement = await replaceVideoFile(videoId, file, setProgress);
-      if (replacement) onReplaced(replacement);
+      if (replacement) {
+        // 换片之后这条作品的文件就是新文件：指纹整行换成新的。
+        recordUploadFingerprint("VIDEO", videoId, file);
+        onReplaced(replacement);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "替换失败，请重试。");
       setBusy(false);
@@ -211,6 +229,7 @@ export default function ReplaceVideoDialog({
               </span>
             )}
           </button>
+          <DuplicateUploadNotice check={duplicates} paper />
 
           <label className="rights-check">
             <input

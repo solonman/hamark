@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type JSX } from "react";
+import { useMemo, useRef, useState, type JSX } from "react";
 import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { retroApi, retroReasonText } from "@/lib/retro-client";
@@ -14,6 +14,8 @@ import {
   readVideoMetadata,
   runWithConcurrency,
 } from "./retro-upload";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import { recordUploadFingerprint, useUploadDuplicateCheck } from "@/components/shared/use-upload-duplicate-check";
 import v04 from "../v04/V04Surface.module.css";
 import styles from "./Retro.module.css";
 
@@ -46,6 +48,8 @@ export function DocIcon({ label }: { label: string }): JSX.Element {
  * 上传：建附件行 → 用到哪个签哪个 → 同时传 3 个 → complete 核对；部分失败时格子上重传或去掉。
  * 移除是真删，对话框当场提示。有权限的人看到「＋ 附件」和每格的 ×，其他人纯阅读。
  */
+type PickedEntry = { file: File; input: RetroNewAssetInput; coverFile: File | null; contentType: string };
+
 export default function RetroAssetBlock({
   caseId,
   roundId,
@@ -75,6 +79,11 @@ export default function RetroAssetBlock({
   const [removing, setRemoving] = useState<RetroAssetView | null>(null);
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState("");
+  // 选好的附件先比一下是不是传过（docs/28）：没传过直接开传；传过就停在格子下面等「仍要上传」。
+  const [held, setHeld] = useState<PickedEntry[] | null>(null);
+  const heldRef = useRef<PickedEntry[] | null>(null);
+  const heldFiles = useMemo(() => (held ?? []).map((entry) => entry.file), [held]);
+  const duplicates = useUploadDuplicateCheck(heldFiles, { library: "RETRO" });
 
   const sorted = [...assets].sort((a, b) => a.position - b.position);
   const slots = remainingRetroAssetSlots(sorted.length);
@@ -131,7 +140,7 @@ export default function RetroAssetBlock({
   async function handlePicked(fileList: FileList | null) {
     if (!fileList || !fileList.length) return;
     let room = slots;
-    const entries: Array<{ file: File; input: RetroNewAssetInput; coverFile: File | null; contentType: string }> = [];
+    const entries: PickedEntry[] = [];
     for (const file of Array.from(fileList)) {
       const checked = checkRetroAttachFile(file);
       if (!checked.ok) { notify(checked.reason, "warn"); continue; }
@@ -153,10 +162,33 @@ export default function RetroAssetBlock({
       entries.push({ file, input, coverFile, contentType: input.contentType });
     }
     if (!entries.length) return;
+    heldRef.current = entries;
+    setHeld(entries);
+    const clear = await duplicates.settle(entries.map((entry) => entry.file));
+    // 比对的这一会儿又选了别的、或点了「不传了」，就不是这一批了。
+    if (!clear || heldRef.current !== entries) return;
+    releaseHeld();
+    await addAndUpload(entries);
+  }
+
+  function releaseHeld() {
+    heldRef.current = null;
+    setHeld(null);
+  }
+
+  function startHeld() {
+    const entries = heldRef.current;
+    if (!entries) return;
+    releaseHeld();
+    void addAndUpload(entries);
+  }
+
+  async function addAndUpload(entries: PickedEntry[]) {
     try {
       const added = await retroApi.addAssets(caseId, entries.map((entry) => entry.input));
       const ids = added.assetIds ?? [];
       if (ids.length !== entries.length) throw new Error("建立附件失败，请重试。");
+      ids.forEach((assetId, index) => recordUploadFingerprint("RETRO_ASSET", assetId, entries[index].file));
       const next: Record<string, LocalUpload> = {};
       ids.forEach((assetId, index) => {
         next[assetId] = { assetId, name: entries[index].file.name, pct: 0, state: "UPLOADING", file: entries[index].file, coverFile: entries[index].coverFile, contentType: entries[index].contentType };
@@ -186,6 +218,7 @@ export default function RetroAssetBlock({
     if (!checked.ok) { notify(checked.reason, "warn"); return; }
     const entry: LocalUpload = { assetId, name: file.name, pct: 0, state: "UPLOADING", file, coverFile: null, contentType: file.type || "application/octet-stream" };
     setUploads((current) => ({ ...current, [assetId]: entry }));
+    recordUploadFingerprint("RETRO_ASSET", assetId, file);
     await runUploads([entry]);
   }
 
@@ -300,6 +333,7 @@ export default function RetroAssetBlock({
           </li>
         ) : null}
       </ul>
+      {held ? <DuplicateUploadNotice check={duplicates} showFileNames onAcknowledged={startHeld} onCancel={releaseHeld} /> : null}
       <input
         ref={fileInputRef}
         type="file"

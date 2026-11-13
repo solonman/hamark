@@ -3,6 +3,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/http-json";
 import { createThumbnailFromVideoFile } from "@/app/components/video-thumbnail";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import {
+  DUPLICATE_PENDING_MESSAGE,
+  recordUploadFingerprint,
+  useUploadDuplicateCheck,
+} from "@/components/shared/use-upload-duplicate-check";
 import {
   VISUAL_FILE_ACCEPT,
   VISUAL_LIMITS,
@@ -260,6 +266,13 @@ export default function VisualUploadDialog({
   ));
 
   const editing = mode === "edit";
+  // 这次新加的素材先比一下是不是传过（docs/28）；编辑时这条案例自己的素材不算。
+  const newFiles = useMemo(
+    () => draft.assets.flatMap((asset) => (asset.kind === "new" ? [asset.file] : [])),
+    [draft.assets],
+  );
+  const duplicates = useUploadDuplicateCheck(newFiles, { library: "VISUAL", excludeOwnerId: editing ? resolvedCaseId || null : null });
+  const settlingRef = useRef(false);
   // 编辑时从格子里移除的已有素材：保存后服务端会连文件一起删掉，不进回收站，不能恢复——要当场说清楚。
   const removedExistingCount = editing && detail
     ? detail.assets.filter((asset) => !draft.assets.some((item) => item.kind === "existing" && item.assetId === asset.id)).length
@@ -490,6 +503,7 @@ export default function VisualUploadDialog({
             updateProgress(task.key, task.asset.fileSize + task.asset.coverFile!.size, task.asset.originalName, task.asset.fileSize + loaded);
           });
         }
+        recordUploadFingerprint("VISUAL_ASSET", task.assetId, task.asset.file);
       } catch {
         failedIds.push(task.assetId);
       }
@@ -634,6 +648,15 @@ export default function VisualUploadDialog({
     if (validationError) {
       setError(validationError);
       if (validationError.startsWith("来源链接")) setFold(true);
+      requestAnimationFrame(() => formErrorRef.current?.scrollIntoView({ block: "nearest" }));
+      return;
+    }
+    // 比对还没结束就等它；有没确认的重复就停在表单上（只提醒、不拦截）。等的这一会儿再点也不重复提交。
+    if (settlingRef.current) return;
+    settlingRef.current = true;
+    const clear = await duplicates.settle().finally(() => { settlingRef.current = false; });
+    if (!clear) {
+      setError(DUPLICATE_PENDING_MESSAGE);
       requestAnimationFrame(() => formErrorRef.current?.scrollIntoView({ block: "nearest" }));
       return;
     }
@@ -869,6 +892,7 @@ export default function VisualUploadDialog({
                     </ul>
                   </div>
                 ) : null}
+                <DuplicateUploadNotice check={duplicates} showFileNames />
                 {removedExistingCount ? (
                   <p className={report.hint} role="note">
                     移除了 {removedExistingCount} 个已有素材：点「保存修改」后会连原文件一起彻底删除，不进回收站，不能恢复。不想删就点「取消」。

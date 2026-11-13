@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
+import DuplicateUploadNotice from "@/components/shared/DuplicateUploadNotice";
+import {
+  DUPLICATE_PENDING_MESSAGE,
+  recordUploadFingerprint,
+  useUploadDuplicateCheck,
+} from "@/components/shared/use-upload-duplicate-check";
 import { readJsonResponse } from "@/lib/http-json";
 import {
   isValidTaskType,
@@ -69,6 +75,9 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const pickedFiles = useMemo(() => (file ? [file] : []), [file]);
+  // 「改传 PDF」要替掉的那份失败报告不算重复。
+  const duplicates = useUploadDuplicateCheck(pickedFiles, { library: "REPORT", excludeOwnerId: replacing?.reportId });
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const picked = event.target.files?.[0] ?? null;
@@ -112,6 +121,11 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
     setBusy(true);
     setError("");
     setProgress(0);
+    if (!(await duplicates.settle())) {
+      setBusy(false);
+      setError(DUPLICATE_PENDING_MESSAGE);
+      return;
+    }
     try {
       const createResponse = await fetch("/api/reports", {
         method: "POST",
@@ -133,6 +147,7 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
       if (!createResponse.ok || !created.reportId || !created.uploadUrl) {
         throw new Error(created.error || "无法创建报告条目。");
       }
+      recordUploadFingerprint("REPORT", created.reportId, file);
 
       await uploadReportFile(created.uploadUrl, file, setProgress);
 
@@ -226,6 +241,7 @@ export default function ReportUploadDialog({ onClose, onUploaded, replacing }: R
                 )}
               </button>
               {fileError ? <p className={styles.formError}>{fileError}</p> : null}
+              <DuplicateUploadNotice check={duplicates} />
 
               <label className={styles.field}>
                 <small>报告名</small>

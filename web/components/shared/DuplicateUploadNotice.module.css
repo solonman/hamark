@@ -1,0 +1,126 @@
+/* 上传查重提示（docs/28 六）。琥珀色与 LibraryToast 的 warn 态同一套变量；
+   这块渲染在各库自己的上传对话框里，有的包在 `.surface` 里，所以按钮规则写成
+   (0,2,0)，压过 `.surface button{font:inherit}`（见「报告线 CSS 优先级教训」）。 */
+
+/* 浅色纸底的上传框（视频库新建／换片，globals.css 的 .upload-dialog 写死 var(--paper)）：
+   在这一块上把用到的几个令牌换成 globals.css 浅色主题里的同名值，其余规则不变。 */
+.paper {
+  --v04-ink: #1a1b16;
+  --v04-muted: #63655c;
+  --v04-warn: #ab4f1a;
+  --v04-warn-rgb: 171 79 26;
+  --v04-warn-ink: #8c3d10;
+  --v04-warn-surface-strong: rgba(255, 233, 214, .97);
+  /* 那两个框的表单不是 grid，没有 gap：自己和上面的选文件区隔开。 */
+  margin-top: 12px;
+}
+
+.checking {
+  margin: 0;
+  color: var(--v04-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.notice {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgb(var(--v04-warn-rgb) / .5);
+  border-radius: 12px;
+  background: var(--v04-warn-surface-strong);
+  color: var(--v04-warn-ink);
+  padding: 11px 13px;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.head {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+}
+
+.reason {
+  grid-column: 1;
+  font-weight: 700;
+}
+
+.where {
+  grid-column: 1;
+  color: var(--v04-ink);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  grid-column: 1;
+  color: var(--v04-muted);
+  font-size: 11px;
+}
+
+.notice .open {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+  color: var(--v04-warn);
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--v04-muted);
+}
+
+.notice .ack {
+  border: 1px solid rgb(var(--v04-warn-rgb) / .6);
+  border-radius: 999px;
+  background: none;
+  color: var(--v04-warn-ink);
+  padding: 5px 13px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notice .ack:hover {
+  border-color: var(--v04-warn);
+  color: var(--v04-warn);
+}
+
+.notice .cancel {
+  border: 0;
+  background: none;
+  color: var(--v04-muted);
+  padding: 5px 4px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.notice .cancel:hover {
+  color: var(--v04-ink);
+}
+
+.acked {
+  margin: 0;
+  color: var(--v04-muted);
+  font-size: 11.5px;
+}
