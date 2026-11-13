@@ -15,6 +15,7 @@ const errorCodes = new Set([
   "database_unreachable",
   "wecom_department_unavailable",
   "wecom_member_unavailable",
+  "wecom_proxy_unavailable",
   "wecom_token_unavailable",
   "wecom_untrusted_ip",
   "wecom_userinfo_unavailable",
@@ -68,7 +69,7 @@ export function authErrorCode(error: unknown) {
   }
 
   const message = error instanceof Error ? error.message : "";
-  const wecomStage = message.match(/WeCom (token|userinfo|member|department)\b/i)?.[1]?.toLowerCase();
+  const wecomStage = message.match(/WeCom (token|userinfo|member|department|proxy)\b/i)?.[1]?.toLowerCase();
   if (wecomStage) {
     return `wecom_${wecomStage}_unavailable`;
   }

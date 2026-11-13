@@ -31,19 +31,21 @@ export async function fetchMemberFromProxy(options: ProxyOptions): Promise<WeCom
       body: rawBody,
       signal: createTimeoutSignal(),
     });
-  } catch {
-    throw proxyUnavailable("WeCom proxy request failed.");
+  } catch (error) {
+    throw proxyUnavailable(
+      isTimeout(error) ? "WeCom proxy request timed out." : "WeCom proxy request failed (network).",
+    );
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch {
-    throw proxyUnavailable("WeCom proxy response was invalid.");
+    throw proxyUnavailable(`WeCom proxy response was invalid (HTTP ${response.status}).`);
   }
 
   if (!isRecord(body)) {
-    throw proxyUnavailable("WeCom proxy response was invalid.");
+    throw proxyUnavailable(`WeCom proxy response was invalid (HTTP ${response.status}).`);
   }
 
   if (response.ok && body.ok === true) {
@@ -51,10 +53,10 @@ export async function fetchMemberFromProxy(options: ProxyOptions): Promise<WeCom
   }
 
   if (body.ok === false) {
-    throw mapProxyError(body.error);
+    throw mapProxyError(body.error, response.status);
   }
 
-  throw proxyUnavailable("WeCom proxy response was invalid.");
+  throw proxyUnavailable(`WeCom proxy response was invalid (HTTP ${response.status}).`);
 }
 
 function buildProxyUrl(baseUrl: string): URL {
@@ -96,7 +98,15 @@ function readMember(value: unknown): WeComMember {
   return { userId, displayName, avatarUrl, email, departments };
 }
 
-function mapProxyError(value: unknown): AuthError {
+// Only codes the proxy is known to send are echoed into the message.
+const PROXY_FAILURE_CODES = new Set([
+  "INVALID_SIGNATURE",
+  "INVALID_REQUEST",
+  "WECOM_UNAVAILABLE",
+  "PROXY_MISCONFIGURED",
+]);
+
+function mapProxyError(value: unknown, status: number): AuthError {
   if (value === "AUTH_EXPIRED") {
     return new AuthError("auth_expired", "WeCom authorization has expired.");
   }
@@ -109,7 +119,12 @@ function mapProxyError(value: unknown): AuthError {
   if (value === "PROFILE_UNAVAILABLE") {
     return new AuthError("profile_unavailable", "WeCom member profile is unavailable.");
   }
-  return proxyUnavailable("WeCom proxy request failed.");
+  const code = typeof value === "string" && PROXY_FAILURE_CODES.has(value) ? value : "UNKNOWN";
+  return proxyUnavailable(`WeCom proxy rejected the request (${code}, HTTP ${status}).`);
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
 function proxyUnavailable(message: string): AuthError {

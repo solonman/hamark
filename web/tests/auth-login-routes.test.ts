@@ -50,6 +50,11 @@ test("WeCom service failures identify the failed callback stage", () => {
   assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom userinfo request failed.")), "wecom_userinfo_unavailable");
   assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom member response was invalid.")), "wecom_member_unavailable");
   assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom department request was rejected.")), "wecom_department_unavailable");
+  assert.equal(authErrorCode(new AuthError("service_unavailable", "WeCom proxy request timed out.")), "wecom_proxy_unavailable");
+  assert.equal(
+    authErrorCode(new AuthError("service_unavailable", "WeCom proxy rejected the request (INVALID_SIGNATURE, HTTP 401).")),
+    "wecom_proxy_unavailable",
+  );
 });
 
 test("WeCom start route converts startup failures into login errors", () => {

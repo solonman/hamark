@@ -379,6 +379,54 @@ test("getMemberByCode keeps invalid 401 proxy responses service_unavailable", as
   );
 });
 
+test("getMemberByCode names the failed proxy step in the error message", async () => {
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "INVALID_SIGNATURE" }, 401),
+    "service_unavailable",
+    "WeCom proxy rejected the request (INVALID_SIGNATURE, HTTP 401).",
+  );
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "WECOM_UNAVAILABLE" }, 503),
+    "service_unavailable",
+    "WeCom proxy rejected the request (WECOM_UNAVAILABLE, HTTP 503).",
+  );
+  await assertProxyFailure(
+    jsonResponse({ ok: false, error: "proxy-response-secret" }, 500),
+    "service_unavailable",
+    "WeCom proxy rejected the request (UNKNOWN, HTTP 500).",
+  );
+  await assertProxyFailure(
+    new Response("<html>Bad Gateway</html>", { status: 502 }),
+    "service_unavailable",
+    "WeCom proxy response was invalid (HTTP 502).",
+  );
+});
+
+test("getMemberByCode separates proxy timeouts from network failures", async () => {
+  const cases: Array<[Error, string]> = [
+    [new DOMException("timed out", "TimeoutError"), "WeCom proxy request timed out."],
+    [new TypeError("fetch failed with login-code"), "WeCom proxy request failed (network)."],
+  ];
+  for (const [thrown, expectedMessage] of cases) {
+    await assert.rejects(
+      () =>
+        new WeComClient({
+          config: PROXY_CONFIG,
+          store: new FakeAuthStore(),
+          fetchImpl: async () => {
+            throw thrown;
+          },
+          now: () => NOW,
+        }).getMemberByCode("login-code"),
+      (error) => {
+        assertAuthError(error, "service_unavailable");
+        assert.equal((error as Error).message, expectedMessage);
+        return true;
+      },
+    );
+  }
+});
+
 function newClient(store: FakeAuthStore, fetcher: QueuedFetch) {
   return new WeComClient({ config: CONFIG, store, fetchImpl: fetcher.fetch, now: () => NOW });
 }
@@ -400,7 +448,11 @@ async function assertWeComFailure(
   );
 }
 
-async function assertProxyFailure(response: Response, expectedCode: AuthError["code"]): Promise<void> {
+async function assertProxyFailure(
+  response: Response,
+  expectedCode: AuthError["code"],
+  expectedMessage?: string,
+): Promise<void> {
   const fetcher = new QueuedFetch([response]);
 
   await assert.rejects(
@@ -417,6 +469,9 @@ async function assertProxyFailure(response: Response, expectedCode: AuthError["c
       assert.equal(message.includes(PROXY_CONFIG.proxy!.secret), false);
       assert.equal(message.includes(PROXY_CONFIG.secret!), false);
       assert.equal(message.includes("proxy-response-secret"), false);
+      if (expectedMessage) {
+        assert.equal(message, expectedMessage);
+      }
       return true;
     },
   );

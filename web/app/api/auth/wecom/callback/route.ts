@@ -41,11 +41,10 @@ export async function GET(request: NextRequest) {
     });
     return response;
   } catch (error) {
-    if (authErrorCode(error) === "service_unavailable") {
-      console.error("WeCom callback failed", { requestId: crypto.randomUUID() });
-    }
+    const errorCode = authErrorCode(error);
+    console.error("WeCom callback failed", { code: errorCode, error });
     const response = NextResponse.redirect(
-      new URL(callbackErrorLocation(services.config, authErrorCode(error), code), services.config.appUrl),
+      new URL(callbackErrorLocation(services.config, errorCode, code), services.config.appUrl),
     );
     response.cookies.set(OAUTH_NONCE_COOKIE, "", {
       expires: new Date(0),

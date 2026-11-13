@@ -25,6 +25,7 @@ const errorMessages: Record<string, string> = {
   wecom_userinfo_unavailable: "企业微信未能确认扫码成员身份。",
   wecom_member_unavailable: "暂时无法读取企业微信成员资料。",
   wecom_department_unavailable: "暂时无法读取企业微信部门信息。",
+  wecom_proxy_unavailable: "企业微信登录中转暂时不可用，请稍后重试。",
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
