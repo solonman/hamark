@@ -4,12 +4,14 @@
 // 只提醒、不拦截：发现重复后要上传人点一下「仍要上传」，提交前用 settle() 判断能不能走。
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
+import { chunkIds } from "@/lib/id-batches";
 import { fingerprintFile, guessMediaKind } from "@/lib/upload-dedup/fingerprint-browser";
-import type {
-  UploadDedupLibrary,
-  UploadDuplicateMatch,
-  UploadFingerprint,
-  UploadFingerprintSource,
+import {
+  MAX_CHECK_FILES,
+  type UploadDedupLibrary,
+  type UploadDuplicateMatch,
+  type UploadFingerprint,
+  type UploadFingerprintSource,
 } from "@/lib/upload-dedup/model";
 
 export const DUPLICATE_PENDING_MESSAGE = "先看一下上面的重复提示，确认后再上传。";
@@ -105,16 +107,17 @@ export function useUploadDuplicateCheck(
       try {
         const fingerprints = await Promise.all(fresh.map((file) => fingerprintFile(file, guessMediaKind(file))));
         fresh.forEach((file, index) => store.fingerprints.set(file, fingerprints[index]));
-        const response = await fetch("/api/upload-dedup/check", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            library,
-            excludeOwnerId,
-            files: fingerprints.map((fingerprint, index) => ({ ...fingerprint, key: String(index) })),
-          }),
-        });
-        if (response.ok) results = ((await response.json()) as { results?: typeof results }).results ?? {};
+        // 接口单次最多比 MAX_CHECK_FILES 个文件，一次多选超过这个数就分批问；key 用全局下标，拼回来不会串。
+        const keyed = fingerprints.map((fingerprint, index) => ({ ...fingerprint, key: String(index) }));
+        const batches = await Promise.all(chunkIds(keyed, MAX_CHECK_FILES).map(async (batch) => {
+          const response = await fetch("/api/upload-dedup/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ library, excludeOwnerId, files: batch }),
+          });
+          return response.ok ? ((await response.json()) as { results?: typeof results }).results ?? {} : {};
+        }));
+        results = Object.assign({}, ...batches) as typeof results;
       } catch {
         // 查重失败不挡上传：当作没发现。
       }

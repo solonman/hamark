@@ -24,3 +24,10 @@ test("library engagement reads batch their ids instead of sending the whole libr
     assert.match(readFileSync(new URL(path, import.meta.url), "utf8"), /> MAX_IDS_PER_QUERY/);
   }
 });
+
+test("upload duplicate check batches picked files by the server's per-request cap", () => {
+  const hook = readFileSync(new URL("../components/shared/use-upload-duplicate-check.ts", import.meta.url), "utf8");
+  assert.match(hook, /chunkIds\(keyed, MAX_CHECK_FILES\)/);
+  const model = readFileSync(new URL("../lib/upload-dedup/model.ts", import.meta.url), "utf8");
+  assert.match(model, /raw\.files\.length > MAX_CHECK_FILES/);
+});
