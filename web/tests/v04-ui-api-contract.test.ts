@@ -108,3 +108,16 @@ test("all V0.4 GET adapters are no-store and shadow pages no longer load case fi
     assert.doesNotMatch(source, /getV04UiCase|V04_UI_CASES/);
   }
 });
+
+test("V0.4 UI client splits more than 200 card ids into batches and merges the projections", async () => {
+  const batches: string[][] = [];
+  const api = createV04UiApiClient(async (input) => {
+    const ids = new URL(String(input), "http://local").searchParams.getAll("videoId");
+    batches.push(ids);
+    return Response.json({ projections: ids.map((videoId) => ({ videoId })) });
+  });
+  const videoIds = Array.from({ length: 450 }, (_, index) => `video-${index}`);
+  const { projections } = await api.cards(videoIds);
+  assert.deepEqual(batches.map((batch) => batch.length), [200, 200, 50]);
+  assert.deepEqual((projections as Array<{ videoId: string }>).map((item) => item.videoId), videoIds);
+});

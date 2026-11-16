@@ -10,6 +10,7 @@ import {
   type CaseEngagement,
 } from "@/lib/case-engagement";
 import { readJsonResponse } from "@/lib/http-json";
+import { chunkIds } from "@/lib/id-batches";
 import { libraryCountLabel } from "@/lib/library-count";
 import {
   applyFrozenReportOrder,
@@ -44,15 +45,19 @@ async function fetchReportEngagement(
   signal: AbortSignal,
 ): Promise<Record<string, CaseEngagement>> {
   if (!reportIds.length) return {};
-  const search = new URLSearchParams(reportIds.map((id) => ["reportId", id]));
-  try {
-    const response = await fetch(`/api/report-engagement?${search}`, { cache: "no-store", signal });
-    if (!response.ok) return {};
-    const data = await readJsonResponse<{ engagement?: Record<string, CaseEngagement> }>(response, "报告互动读取");
-    return data.engagement ?? {};
-  } catch {
-    return {};
-  }
+  // 接口单次最多收 200 个 ID，超过就分批查再拼回来，与视频库的 loadEngagement 同一做法。
+  const batches = await Promise.all(chunkIds(reportIds).map(async (batch) => {
+    const search = new URLSearchParams(batch.map((id) => ["reportId", id]));
+    try {
+      const response = await fetch(`/api/report-engagement?${search}`, { cache: "no-store", signal });
+      if (!response.ok) return {};
+      const data = await readJsonResponse<{ engagement?: Record<string, CaseEngagement> }>(response, "报告互动读取");
+      return data.engagement ?? {};
+    } catch {
+      return {};
+    }
+  }));
+  return Object.assign({}, ...batches) as Record<string, CaseEngagement>;
 }
 
 export default function ReportLibrary({

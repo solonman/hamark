@@ -1,3 +1,5 @@
+import { chunkIds, MAX_IDS_PER_QUERY } from "./id-batches";
+
 export type V04ApiErrorEnvelope = {
   error?: {
     code?: string;
@@ -118,11 +120,16 @@ export function createV04UiApiClient(fetcher: FetchLike = fetch) {
 
   return {
     request,
-    cards: (videoIds: string[] = [], tabToken?: string, signal?: AbortSignal) => {
-      const search = new URLSearchParams();
-      for (const videoId of videoIds) search.append("videoId", videoId);
-      const suffix = search.size ? `?${search.toString()}` : "";
-      return request<{ projections: unknown[] }>(`/api/videos/analysis/v04/cards${suffix}`, { tabToken, signal });
+    cards: async (videoIds: string[] = [], tabToken?: string, signal?: AbortSignal) => {
+      const cardsBatch = (batch: string[]) => {
+        const search = new URLSearchParams();
+        for (const videoId of batch) search.append("videoId", videoId);
+        const suffix = search.size ? `?${search.toString()}` : "";
+        return request<{ projections: unknown[] }>(`/api/videos/analysis/v04/cards${suffix}`, { tabToken, signal });
+      };
+      if (videoIds.length <= MAX_IDS_PER_QUERY) return cardsBatch(videoIds);
+      const results = await Promise.all(chunkIds(videoIds).map(cardsBatch));
+      return { projections: results.flatMap((result) => result.projections) };
     },
     detail: <T = unknown>(videoId: string, tabToken?: string, signal?: AbortSignal) =>
       request<T>(videoPath(videoId), { tabToken, signal }),

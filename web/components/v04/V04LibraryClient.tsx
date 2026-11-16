@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readJsonResponse } from "@/lib/http-json";
+import { chunkIds } from "@/lib/id-batches";
 import type { VideoItem } from "@/lib/types";
 import type { V04ServerCardModel, V04UiCase } from "@/lib/v04-ui-model";
 import { v04CardToUiCase } from "@/lib/v04-ui-model";
@@ -600,13 +601,17 @@ export default function V04LibraryClient({ viewerName, formal = false, user, rep
 /** 收藏与评级读不出来不该拖垮整个案例库，读失败就当作还没有人收藏。 */
 async function loadEngagement(videoIds: string[], signal: AbortSignal) {
   if (!videoIds.length) return {} as Record<string, CaseEngagement>;
-  const search = new URLSearchParams(videoIds.map((videoId) => ["videoId", videoId]));
-  try {
-    const response = await fetch(`/api/case-engagement?${search}`, { cache: "no-store", signal });
-    if (!response.ok) return {} as Record<string, CaseEngagement>;
-    const data = await readJsonResponse<{ engagement?: Record<string, CaseEngagement> }>(response, "收藏与评级读取");
-    return data.engagement ?? {};
-  } catch {
-    return {} as Record<string, CaseEngagement>;
-  }
+  // 接口单次最多收 200 个 ID，片库超过这个数就分批查再拼回来；哪一批读失败，那一批就当作没人收藏。
+  const batches = await Promise.all(chunkIds(videoIds).map(async (batch) => {
+    const search = new URLSearchParams(batch.map((videoId) => ["videoId", videoId]));
+    try {
+      const response = await fetch(`/api/case-engagement?${search}`, { cache: "no-store", signal });
+      if (!response.ok) return {} as Record<string, CaseEngagement>;
+      const data = await readJsonResponse<{ engagement?: Record<string, CaseEngagement> }>(response, "收藏与评级读取");
+      return data.engagement ?? {};
+    } catch {
+      return {} as Record<string, CaseEngagement>;
+    }
+  }));
+  return Object.assign({}, ...batches) as Record<string, CaseEngagement>;
 }
